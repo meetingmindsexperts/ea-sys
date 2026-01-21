@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ea-sys-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: easys_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ea-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ea-sys-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ea-network
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: ea-sys-mail
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - ea-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ea-network:
+    driver: bridge

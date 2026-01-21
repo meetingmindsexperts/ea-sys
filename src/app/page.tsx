@@ -1,65 +1,146 @@
-import Image from "next/image";
+import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Calendar, Users, Mic, Building2, CheckCircle } from "lucide-react";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+
+  if (session?.user) {
+    redirect("/dashboard");
+  }
+
+  const features = [
+    {
+      icon: Calendar,
+      title: "Event Management",
+      description: "Create and manage events with ease. Set dates, venues, and customize every detail.",
+    },
+    {
+      icon: Users,
+      title: "Registration & Ticketing",
+      description: "Handle registrations, sell tickets, and track attendees all in one place.",
+    },
+    {
+      icon: Mic,
+      title: "Speaker Management",
+      description: "Manage speakers, collect abstracts, and build your event program.",
+    },
+    {
+      icon: Building2,
+      title: "Accommodation",
+      description: "Coordinate hotel bookings and room allocations for your attendees.",
+    },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-6 w-6 text-primary" />
+            <span className="text-xl font-bold">EventsHub</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" asChild>
+              <Link href="/login">Sign in</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/register">Get Started</Link>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="py-20 px-4">
+        <div className="container mx-auto max-w-4xl text-center">
+          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
+            Event Management
+            <br />
+            <span className="text-primary">Made Simple</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
+            The complete platform for managing conferences, meetings, and events.
+            From registration to check-in, we&apos;ve got you covered.
           </p>
+          <div className="flex gap-4 justify-center">
+            <Button size="lg" asChild>
+              <Link href="/register">Start Free Trial</Link>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <Link href="/login">Sign In</Link>
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {/* Features */}
+      <section className="py-20 bg-muted/30">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl font-bold text-center mb-12">
+            Everything you need to run successful events
+          </h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {features.map((feature) => (
+              <div
+                key={feature.title}
+                className="bg-background rounded-lg p-6 border"
+              >
+                <feature.icon className="h-10 w-10 text-primary mb-4" />
+                <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+                <p className="text-muted-foreground">{feature.description}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </main>
+      </section>
+
+      {/* Benefits */}
+      <section className="py-20 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <h2 className="text-3xl font-bold text-center mb-12">
+            Why choose EventsHub?
+          </h2>
+          <div className="space-y-6">
+            {[
+              "Easy-to-use interface for event organizers",
+              "Comprehensive registration and ticketing system",
+              "Speaker and abstract management",
+              "Accommodation booking integration",
+              "Real-time analytics and reporting",
+              "QR code check-in system",
+            ].map((benefit) => (
+              <div key={benefit} className="flex items-center gap-3">
+                <CheckCircle className="h-6 w-6 text-green-500 flex-shrink-0" />
+                <span className="text-lg">{benefit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-20 bg-primary text-primary-foreground">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-3xl font-bold mb-4">Ready to get started?</h2>
+          <p className="text-lg opacity-90 mb-8">
+            Create your account and start managing events today.
+          </p>
+          <Button size="lg" variant="secondary" asChild>
+            <Link href="/register">Create Free Account</Link>
+          </Button>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t py-8">
+        <div className="container mx-auto px-4 text-center text-muted-foreground">
+          <p>&copy; {new Date().getFullYear()} EventsHub. All rights reserved.</p>
+        </div>
+      </footer>
     </div>
   );
 }

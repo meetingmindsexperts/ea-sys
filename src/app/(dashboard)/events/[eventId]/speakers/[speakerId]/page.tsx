@@ -1,0 +1,513 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ArrowLeft,
+  Mic,
+  Save,
+  Mail,
+  Building,
+  Globe,
+  Trash2,
+} from "lucide-react";
+
+const statusColors = {
+  INVITED: "bg-yellow-100 text-yellow-800",
+  CONFIRMED: "bg-green-100 text-green-800",
+  DECLINED: "bg-red-100 text-red-800",
+  CANCELLED: "bg-gray-100 text-gray-800",
+};
+
+interface Speaker {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  bio: string | null;
+  company: string | null;
+  jobTitle: string | null;
+  website: string | null;
+  headshot: string | null;
+  status: keyof typeof statusColors;
+  socialLinks: {
+    twitter?: string;
+    linkedin?: string;
+    github?: string;
+  };
+  sessions: Array<{
+    session: {
+      id: string;
+      name: string;
+      startTime: string;
+      track?: { name: string };
+    };
+  }>;
+  abstracts: Array<{
+    id: string;
+    title: string;
+    status: string;
+    track?: { name: string };
+  }>;
+}
+
+export default function SpeakerDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const eventId = params.eventId as string;
+  const speakerId = params.speakerId as string;
+  const [speaker, setSpeaker] = useState<Speaker | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    email: "",
+    firstName: "",
+    lastName: "",
+    bio: "",
+    company: "",
+    jobTitle: "",
+    website: "",
+    headshot: "",
+    status: "INVITED",
+    socialLinks: {
+      twitter: "",
+      linkedin: "",
+      github: "",
+    },
+  });
+
+  useEffect(() => {
+    fetchSpeaker();
+  }, [eventId, speakerId]);
+
+  const fetchSpeaker = async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSpeaker(data);
+        setFormData({
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          bio: data.bio || "",
+          company: data.company || "",
+          jobTitle: data.jobTitle || "",
+          website: data.website || "",
+          headshot: data.headshot || "",
+          status: data.status,
+          socialLinks: {
+            twitter: data.socialLinks?.twitter || "",
+            linkedin: data.socialLinks?.linkedin || "",
+            github: data.socialLinks?.github || "",
+          },
+        });
+      } else {
+        setError("Speaker not found");
+      }
+    } catch (err) {
+      setError("Failed to load speaker");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setSpeaker({ ...speaker!, ...data });
+        setIsEditing(false);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to save speaker");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this speaker?")) return;
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        router.push(`/events/${eventId}/speakers`);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to delete speaker");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error && !speaker) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-600">{error}</p>
+        <Button asChild className="mt-4">
+          <Link href={`/events/${eventId}/speakers`}>Back to Speakers</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (!speaker) return null;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Link
+              href={`/events/${eventId}/speakers`}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              <Mic className="h-8 w-8" />
+              {speaker.firstName} {speaker.lastName}
+            </h1>
+            <Badge className={statusColors[speaker.status]} variant="outline">
+              {speaker.status}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            {speaker.email && (
+              <div className="flex items-center gap-1">
+                <Mail className="h-4 w-4" />
+                {speaker.email}
+              </div>
+            )}
+            {speaker.company && (
+              <div className="flex items-center gap-1">
+                <Building className="h-4 w-4" />
+                {speaker.company}
+              </div>
+            )}
+            {speaker.website && (
+              <a
+                href={speaker.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 hover:text-foreground"
+              >
+                <Globe className="h-4 w-4" />
+                Website
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {!isEditing && (
+            <>
+              <Button variant="outline" onClick={() => setIsEditing(true)}>
+                Edit
+              </Button>
+              <Button variant="destructive" onClick={handleDelete}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-3">
+        {/* Main Content */}
+        <div className="md:col-span-2 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Speaker Information</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName">First Name</Label>
+                      <Input
+                        id="firstName"
+                        value={formData.firstName}
+                        onChange={(e) =>
+                          setFormData({ ...formData, firstName: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName">Last Name</Label>
+                      <Input
+                        id="lastName"
+                        value={formData.lastName}
+                        onChange={(e) =>
+                          setFormData({ ...formData, lastName: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) =>
+                        setFormData({ ...formData, email: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="company">Company</Label>
+                      <Input
+                        id="company"
+                        value={formData.company}
+                        onChange={(e) =>
+                          setFormData({ ...formData, company: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="jobTitle">Job Title</Label>
+                      <Input
+                        id="jobTitle"
+                        value={formData.jobTitle}
+                        onChange={(e) =>
+                          setFormData({ ...formData, jobTitle: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bio">Bio</Label>
+                    <Textarea
+                      id="bio"
+                      value={formData.bio}
+                      onChange={(e) =>
+                        setFormData({ ...formData, bio: e.target.value })
+                      }
+                      rows={4}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={formData.status}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, status: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INVITED">Invited</SelectItem>
+                        <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                        <SelectItem value="DECLINED">Declined</SelectItem>
+                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsEditing(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSave} disabled={saving}>
+                      <Save className="mr-2 h-4 w-4" />
+                      {saving ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {speaker.bio && (
+                    <div>
+                      <h4 className="font-medium mb-1">Bio</h4>
+                      <p className="text-muted-foreground whitespace-pre-wrap">
+                        {speaker.bio}
+                      </p>
+                    </div>
+                  )}
+                  {speaker.jobTitle && (
+                    <div>
+                      <h4 className="font-medium mb-1">Job Title</h4>
+                      <p className="text-muted-foreground">{speaker.jobTitle}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Sessions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Sessions ({speaker.sessions.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {speaker.sessions.length === 0 ? (
+                <p className="text-muted-foreground">No sessions assigned yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {speaker.sessions.map((s) => (
+                    <div
+                      key={s.session.id}
+                      className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                    >
+                      <div>
+                        <p className="font-medium">{s.session.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(s.session.startTime).toLocaleString()}
+                          {s.session.track && ` • ${s.session.track.name}`}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Abstracts */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Abstracts ({speaker.abstracts.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {speaker.abstracts.length === 0 ? (
+                <p className="text-muted-foreground">No abstracts submitted yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {speaker.abstracts.map((abstract) => (
+                    <div
+                      key={abstract.id}
+                      className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                    >
+                      <div>
+                        <p className="font-medium">{abstract.title}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {abstract.track?.name || "No track assigned"}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{abstract.status}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {speaker.headshot && (
+            <Card>
+              <CardContent className="pt-6">
+                <img
+                  src={speaker.headshot}
+                  alt={`${speaker.firstName} ${speaker.lastName}`}
+                  className="w-full rounded-lg"
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Social Links</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm">
+                {speaker.socialLinks?.twitter && (
+                  <a
+                    href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-blue-600 hover:underline"
+                  >
+                    Twitter: {speaker.socialLinks.twitter}
+                  </a>
+                )}
+                {speaker.socialLinks?.linkedin && (
+                  <a
+                    href={speaker.socialLinks.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-blue-600 hover:underline"
+                  >
+                    LinkedIn
+                  </a>
+                )}
+                {speaker.socialLinks?.github && (
+                  <a
+                    href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-blue-600 hover:underline"
+                  >
+                    GitHub: {speaker.socialLinks.github}
+                  </a>
+                )}
+                {!speaker.socialLinks?.twitter &&
+                  !speaker.socialLinks?.linkedin &&
+                  !speaker.socialLinks?.github && (
+                    <p className="text-muted-foreground">No social links added.</p>
+                  )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

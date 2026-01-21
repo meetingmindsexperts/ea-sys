@@ -1,0 +1,470 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== CORE ENTITIES ====================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users  User[]
+  events Event[]
+
+  @@index([slug])
+}
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  email          String    @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  role           UserRole  @default(ORGANIZER)
+  emailVerified  DateTime?
+  image          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  speakers     Speaker[]
+  auditLogs    AuditLog[]
+  accounts     Account[]
+  sessions     AuthSession[]
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model AuthSession {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ORGANIZER
+  REVIEWER
+}
+
+model Event {
+  id             String      @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  description    String?     @db.Text
+  startDate      DateTime
+  endDate        DateTime
+  timezone       String      @default("UTC")
+  venue          String?
+  address        String?
+  city           String?
+  country        String?
+  status         EventStatus @default(DRAFT)
+  settings       Json        @default("{}")
+  bannerImage    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticketTypes    TicketType[]
+  registrations  Registration[]
+  speakers       Speaker[]
+  eventSessions  EventSession[]
+  tracks         Track[]
+  hotels         Hotel[]
+  accommodations Accommodation[]
+  abstracts      Abstract[]
+  auditLogs      AuditLog[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+  @@index([startDate])
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+// ==================== REGISTRATION & TICKETING ====================
+
+model TicketType {
+  id               String    @id @default(cuid())
+  eventId          String
+  name             String
+  description      String?   @db.Text
+  price            Decimal   @db.Decimal(10, 2)
+  currency         String    @default("USD")
+  quantity         Int
+  soldCount        Int       @default(0)
+  maxPerOrder      Int       @default(10)
+  salesStart       DateTime?
+  salesEnd         DateTime?
+  isActive         Boolean   @default(true)
+  requiresApproval Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  @@index([eventId])
+  @@index([isActive])
+}
+
+model Attendee {
+  id           String   @id @default(cuid())
+  email        String
+  firstName    String
+  lastName     String
+  company      String?
+  jobTitle     String?
+  phone        String?
+  dietaryReqs  String?
+  customFields Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  registrations Registration[]
+
+  @@index([email])
+}
+
+model Registration {
+  id            String             @id @default(cuid())
+  eventId       String
+  ticketTypeId  String
+  attendeeId    String
+  status        RegistrationStatus @default(PENDING)
+  paymentStatus PaymentStatus      @default(UNPAID)
+  qrCode        String?            @unique
+  checkedInAt   DateTime?
+  notes         String?            @db.Text
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id])
+  attendee      Attendee       @relation(fields: [attendeeId], references: [id])
+  payments      Payment[]
+  accommodation Accommodation?
+
+  @@index([eventId])
+  @@index([attendeeId])
+  @@index([status])
+  @@index([qrCode])
+}
+
+enum RegistrationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+  CHECKED_IN
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  registrationId   String
+  amount           Decimal       @db.Decimal(10, 2)
+  currency         String        @default("USD")
+  stripePaymentId  String?       @unique
+  stripeCustomerId String?
+  status           PaymentStatus @default(PENDING)
+  receiptUrl       String?
+  metadata         Json          @default("{}")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([registrationId])
+  @@index([stripePaymentId])
+}
+
+// ==================== SPEAKER MANAGEMENT ====================
+
+model Speaker {
+  id          String        @id @default(cuid())
+  eventId     String
+  userId      String?
+  email       String
+  firstName   String
+  lastName    String
+  bio         String?       @db.Text
+  company     String?
+  jobTitle    String?
+  website     String?
+  headshot    String?
+  socialLinks Json          @default("{}")
+  status      SpeakerStatus @default(INVITED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User?            @relation(fields: [userId], references: [id])
+  sessions  SessionSpeaker[]
+  abstracts Abstract[]
+
+  @@unique([eventId, email])
+  @@index([eventId])
+  @@index([status])
+}
+
+enum SpeakerStatus {
+  INVITED
+  CONFIRMED
+  DECLINED
+  CANCELLED
+}
+
+model Abstract {
+  id           String         @id @default(cuid())
+  eventId      String
+  speakerId    String
+  title        String
+  content      String         @db.Text
+  trackId      String?
+  status       AbstractStatus @default(SUBMITTED)
+  reviewNotes  String?        @db.Text
+  reviewScore  Int?
+  submittedAt  DateTime       @default(now())
+  reviewedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker      Speaker       @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  track        Track?        @relation(fields: [trackId], references: [id])
+  eventSession EventSession?
+
+  @@index([eventId])
+  @@index([speakerId])
+  @@index([status])
+}
+
+enum AbstractStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+// ==================== SESSIONS & SCHEDULE ====================
+
+model Track {
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?  @db.Text
+  color       String   @default("#3B82F6")
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventSessions EventSession[]
+  abstracts     Abstract[]
+
+  @@index([eventId])
+}
+
+model EventSession {
+  id          String        @id @default(cuid())
+  eventId     String
+  abstractId  String?       @unique
+  trackId     String?
+  name        String
+  description String?       @db.Text
+  startTime   DateTime
+  endTime     DateTime
+  location    String?
+  capacity    Int?
+  status      SessionStatus @default(SCHEDULED)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  event    Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstract Abstract?        @relation(fields: [abstractId], references: [id])
+  track    Track?           @relation(fields: [trackId], references: [id])
+  speakers SessionSpeaker[]
+
+  @@index([eventId])
+  @@index([startTime])
+  @@index([trackId])
+}
+
+enum SessionStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model SessionSpeaker {
+  sessionId String
+  speakerId String
+  role      String @default("speaker")
+
+  session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, speakerId])
+}
+
+// ==================== ACCOMMODATION ====================
+
+model Hotel {
+  id           String   @id @default(cuid())
+  eventId      String
+  name         String
+  address      String?
+  description  String?  @db.Text
+  contactEmail String?
+  contactPhone String?
+  stars        Int?
+  images       Json     @default("[]")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roomTypes RoomType[]
+
+  @@index([eventId])
+}
+
+model RoomType {
+  id            String   @id @default(cuid())
+  hotelId       String
+  name          String
+  description   String?  @db.Text
+  pricePerNight Decimal  @db.Decimal(10, 2)
+  currency      String   @default("USD")
+  capacity      Int      @default(2)
+  totalRooms    Int
+  bookedRooms   Int      @default(0)
+  amenities     Json     @default("[]")
+  images        Json     @default("[]")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  hotel          Hotel           @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  accommodations Accommodation[]
+
+  @@index([hotelId])
+}
+
+model Accommodation {
+  id              String              @id @default(cuid())
+  eventId         String
+  registrationId  String              @unique
+  roomTypeId      String
+  checkIn         DateTime
+  checkOut        DateTime
+  guestCount      Int                 @default(1)
+  specialRequests String?             @db.Text
+  status          AccommodationStatus @default(PENDING)
+  totalPrice      Decimal             @db.Decimal(10, 2)
+  currency        String              @default("USD")
+  confirmationNo  String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  roomType     RoomType     @relation(fields: [roomTypeId], references: [id])
+
+  @@index([eventId])
+  @@index([roomTypeId])
+  @@index([status])
+}
+
+enum AccommodationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  CHECKED_IN
+  CHECKED_OUT
+}
+
+// ==================== AUDIT & LOGGING ====================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  eventId    String?
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  changes    Json     @default("{}")
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
