@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateSessionSchema = z.object({
   name: z.string().min(1).optional(),
@@ -66,7 +67,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(eventSession);
   } catch (error) {
-    console.error("Error fetching session:", error);
+    apiLogger.error({ err: error, msg: "Error fetching session" });
     return NextResponse.json(
       { error: "Failed to fetch session" },
       { status: 500 }
@@ -224,7 +225,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(eventSession);
   } catch (error) {
-    console.error("Error updating session:", error);
+    apiLogger.error({ err: error, msg: "Error updating session" });
     return NextResponse.json(
       { error: "Failed to update session" },
       { status: 500 }
@@ -281,7 +282,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting session:", error);
+    apiLogger.error({ err: error, msg: "Error deleting session" });
     return NextResponse.json(
       { error: "Failed to delete session" },
       { status: 500 }

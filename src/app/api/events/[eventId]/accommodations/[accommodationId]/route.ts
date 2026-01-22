@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateAccommodationSchema = z.object({
   roomTypeId: z.string().optional(),
@@ -63,7 +64,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodation);
   } catch (error) {
-    console.error("Error fetching accommodation:", error);
+    apiLogger.error({ err: error, msg: "Error fetching accommodation" });
     return NextResponse.json(
       { error: "Failed to fetch accommodation" },
       { status: 500 }
@@ -244,7 +245,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodation);
   } catch (error) {
-    console.error("Error updating accommodation:", error);
+    apiLogger.error({ err: error, msg: "Error updating accommodation" });
     return NextResponse.json(
       { error: "Failed to update accommodation" },
       { status: 500 }
@@ -309,7 +310,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting accommodation:", error);
+    apiLogger.error({ err: error, msg: "Error deleting accommodation" });
     return NextResponse.json(
       { error: "Failed to delete accommodation" },
       { status: 500 }

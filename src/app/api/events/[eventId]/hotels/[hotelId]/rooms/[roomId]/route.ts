@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateRoomTypeSchema = z.object({
   name: z.string().min(1).optional(),
@@ -67,7 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(roomType);
   } catch (error) {
-    console.error("Error fetching room type:", error);
+    apiLogger.error({ err: error, msg: "Error fetching room type" });
     return NextResponse.json(
       { error: "Failed to fetch room type" },
       { status: 500 }
@@ -163,7 +164,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(roomType);
   } catch (error) {
-    console.error("Error updating room type:", error);
+    apiLogger.error({ err: error, msg: "Error updating room type" });
     return NextResponse.json(
       { error: "Failed to update room type" },
       { status: 500 }
@@ -233,7 +234,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting room type:", error);
+    apiLogger.error({ err: error, msg: "Error deleting room type" });
     return NextResponse.json(
       { error: "Failed to delete room type" },
       { status: 500 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1),
@@ -57,7 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(abstracts);
   } catch (error) {
-    console.error("Error fetching abstracts:", error);
+    apiLogger.error({ err: error, msg: "Error fetching abstracts" });
     return NextResponse.json(
       { error: "Failed to fetch abstracts" },
       { status: 500 }
@@ -149,7 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(abstract, { status: 201 });
   } catch (error) {
-    console.error("Error creating abstract:", error);
+    apiLogger.error({ err: error, msg: "Error creating abstract" });
     return NextResponse.json(
       { error: "Failed to create abstract" },
       { status: 500 }

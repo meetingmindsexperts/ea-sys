@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** January 21, 2026
+**Last Updated:** January 22, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -32,6 +32,15 @@ This document outlines the current development status of the Event Administratio
 - [x] Shadcn/ui component library
 - [x] Dashboard layout with sidebar navigation
 - [x] Responsive design
+- [x] Collapsible sidebar with state persistence
+- [x] Tooltip support for collapsed sidebar
+
+### Logging System
+- [x] Pino logger integration with pino-pretty
+- [x] Module-specific loggers (dbLogger, authLogger, apiLogger)
+- [x] Sensitive data redaction (passwords, tokens)
+- [x] Configurable log levels via environment variable
+- [x] Removed verbose Prisma query logs
 
 ---
 
@@ -43,6 +52,8 @@ This document outlines the current development status of the Event Administratio
 | Create Event | ✅ | ✅ | Complete |
 | List Events | ✅ | ✅ | Complete |
 | Event Overview Dashboard | ✅ | ✅ | Complete |
+| Event Selector in Header | N/A | ✅ | Complete |
+| Event Switching | N/A | ✅ | Complete |
 | Event Settings/Edit | ❌ | ❌ | Pending |
 
 ### Ticket Management
@@ -64,7 +75,7 @@ This document outlines the current development status of the Event Administratio
 ### Registration Management
 | Feature | API | UI | Status |
 |---------|-----|-----|--------|
-| Create Registration | ✅ | ❌ | API Complete |
+| Create Registration | ✅ | ✅ | Complete |
 | List Registrations | ✅ | ✅ | Complete |
 | View Registration Details | ✅ | ✅ | Complete |
 | Update Registration Status | ✅ | ✅ | Complete |
@@ -73,6 +84,8 @@ This document outlines the current development status of the Event Administratio
 | Check-in (QR Code) | ✅ | ❌ | API Complete |
 | QR Code Generation | ✅ | ✅ | Complete |
 | Delete Registration | ✅ | ❌ | API Complete |
+| Search/Filter Registrations | ✅ | ✅ | Complete |
+| Export to CSV | N/A | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/registrations` - List registrations (with filters)
@@ -213,6 +226,45 @@ This document outlines the current development status of the Event Administratio
 - `GET /api/events/[eventId]/accommodations/[id]` - Get booking
 - `PUT /api/events/[eventId]/accommodations/[id]` - Update booking
 - `DELETE /api/events/[eventId]/accommodations/[id]` - Delete booking
+
+---
+
+## Recent Updates (January 22, 2026)
+
+### UI/UX Improvements
+
+#### Collapsible Sidebar
+- [x] Sidebar toggle button at the bottom
+- [x] Collapse to icon-only mode (64px width)
+- [x] State persistence in localStorage
+- [x] Tooltips for navigation items when collapsed
+- [x] Smooth transition animations
+- [x] "Back to Events" link when on event pages
+
+#### Enhanced Header
+- [x] Event selector dropdown when on event pages
+- [x] Switch between events while staying on same sub-page
+- [x] Breadcrumb navigation showing current location
+- [x] Clickable "Overview" link in breadcrumb
+- [x] Current page indicator in breadcrumb
+
+#### Registration Page Enhancements
+- [x] "Add Registration" button with dialog form
+- [x] Search by name, email, or company
+- [x] Filter by registration status
+- [x] Filter by payment status
+- [x] Filter by ticket type
+- [x] Export to CSV functionality
+- [x] Clear filters button
+
+### Infrastructure
+
+#### Logging System
+- [x] Replaced console.error with structured logging (pino)
+- [x] Module-specific loggers for different parts of the application
+- [x] Automatic sensitive data redaction
+- [x] Removed verbose Prisma query logging from console
+- [x] Pretty-printed logs in development
 
 ---
 
@@ -365,6 +417,7 @@ src/
 │   │   └── register/
 │   ├── (dashboard)/
 │   │   ├── dashboard/
+│   │   ├── layout.tsx              ✅ (with SidebarProvider)
 │   │   └── events/
 │   │       ├── [eventId]/
 │   │       │   ├── abstracts/        ✅
@@ -390,10 +443,16 @@ src/
 │               └── tracks/           ✅
 ├── components/
 │   ├── layout/
-│   └── ui/                           ✅ (Shadcn components)
+│   │   ├── header.tsx              ✅ (with event selector)
+│   │   └── sidebar.tsx             ✅ (collapsible)
+│   └── ui/
+│       └── tooltip.tsx             ✅ (new)
+├── contexts/
+│   └── sidebar-context.tsx         ✅ (new)
 ├── lib/
 │   ├── auth.ts                       ✅
-│   ├── db.ts                         ✅
+│   ├── db.ts                         ✅ (with logger)
+│   ├── logger.ts                     ✅ (new - pino logger)
 │   └── utils.ts                      ✅
 └── types/
 ```
@@ -447,6 +506,7 @@ npm run dev
 DATABASE_URL="postgresql://..."
 NEXTAUTH_SECRET="..."
 NEXTAUTH_URL="http://localhost:3000"
+LOG_LEVEL="debug"  # Optional: debug, info, warn, error
 ```
 
 ---

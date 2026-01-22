@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
@@ -71,7 +72,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(registration);
   } catch (error) {
-    console.error("Error fetching registration:", error);
+    apiLogger.error({ err: error, msg: "Error fetching registration" });
     return NextResponse.json(
       { error: "Failed to fetch registration" },
       { status: 500 }
@@ -182,7 +183,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(registration);
   } catch (error) {
-    console.error("Error updating registration:", error);
+    apiLogger.error({ err: error, msg: "Error updating registration" });
     return NextResponse.json(
       { error: "Failed to update registration" },
       { status: 500 }
@@ -247,7 +248,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting registration:", error);
+    apiLogger.error({ err: error, msg: "Error deleting registration" });
     return NextResponse.json(
       { error: "Failed to delete registration" },
       { status: 500 }

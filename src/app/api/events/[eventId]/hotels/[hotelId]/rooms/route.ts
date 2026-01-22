@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const createRoomTypeSchema = z.object({
   name: z.string().min(1),
@@ -62,7 +63,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(roomTypes);
   } catch (error) {
-    console.error("Error fetching room types:", error);
+    apiLogger.error({ err: error, msg: "Error fetching room types" });
     return NextResponse.json(
       { error: "Failed to fetch room types" },
       { status: 500 }
@@ -157,7 +158,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(roomType, { status: 201 });
   } catch (error) {
-    console.error("Error creating room type:", error);
+    apiLogger.error({ err: error, msg: "Error creating room type" });
     return NextResponse.json(
       { error: "Failed to create room type" },
       { status: 500 }

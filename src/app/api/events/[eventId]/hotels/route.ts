@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const createHotelSchema = z.object({
   name: z.string().min(1),
@@ -57,7 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(hotels);
   } catch (error) {
-    console.error("Error fetching hotels:", error);
+    apiLogger.error({ err: error, msg: "Error fetching hotels" });
     return NextResponse.json(
       { error: "Failed to fetch hotels" },
       { status: 500 }
@@ -139,7 +140,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(hotel, { status: 201 });
   } catch (error) {
-    console.error("Error creating hotel:", error);
+    apiLogger.error({ err: error, msg: "Error creating hotel" });
     return NextResponse.json(
       { error: "Failed to create hotel" },
       { status: 500 }

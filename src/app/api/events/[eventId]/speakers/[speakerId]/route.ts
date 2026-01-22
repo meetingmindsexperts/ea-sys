@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateSpeakerSchema = z.object({
   email: z.string().email().optional(),
@@ -79,7 +80,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(speaker);
   } catch (error) {
-    console.error("Error fetching speaker:", error);
+    apiLogger.error({ err: error, msg: "Error fetching speaker" });
     return NextResponse.json(
       { error: "Failed to fetch speaker" },
       { status: 500 }
@@ -189,7 +190,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(speaker);
   } catch (error) {
-    console.error("Error updating speaker:", error);
+    apiLogger.error({ err: error, msg: "Error updating speaker" });
     return NextResponse.json(
       { error: "Failed to update speaker" },
       { status: 500 }
@@ -246,7 +247,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting speaker:", error);
+    apiLogger.error({ err: error, msg: "Error deleting speaker" });
     return NextResponse.json(
       { error: "Failed to delete speaker" },
       { status: 500 }

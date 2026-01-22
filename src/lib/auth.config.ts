@@ -1,6 +1,8 @@
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { db } from "@/lib/db";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -19,11 +21,27 @@ export default {
         const validated = loginSchema.safeParse(credentials);
         if (!validated.success) return null;
 
-        // Return credentials for verification in auth.ts
+        // Find user in database
+        const user = await db.user.findUnique({
+          where: { email: validated.data.email },
+        });
+
+        if (!user || !user.passwordHash) return null;
+
+        // Verify password
+        const isValidPassword = await bcrypt.compare(
+          validated.data.password,
+          user.passwordHash
+        );
+
+        if (!isValidPassword) return null;
+
+        // Return user object with required id
         return {
-          email: validated.data.email,
-          password: validated.data.password,
-        } as { email: string; password: string; id?: string };
+          id: user.id,
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`,
+        };
       },
     }),
   ],

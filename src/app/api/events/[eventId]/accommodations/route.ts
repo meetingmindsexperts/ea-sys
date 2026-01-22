@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const createAccommodationSchema = z.object({
   registrationId: z.string().min(1),
@@ -67,7 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodations);
   } catch (error) {
-    console.error("Error fetching accommodations:", error);
+    apiLogger.error({ err: error, msg: "Error fetching accommodations" });
     return NextResponse.json(
       { error: "Failed to fetch accommodations" },
       { status: 500 }
@@ -231,7 +232,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodation, { status: 201 });
   } catch (error) {
-    console.error("Error creating accommodation:", error);
+    apiLogger.error({ err: error, msg: "Error creating accommodation" });
     return NextResponse.json(
       { error: "Failed to create accommodation" },
       { status: 500 }

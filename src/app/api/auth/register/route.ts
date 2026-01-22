@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { slugify } from "@/lib/utils";
+import { apiLogger } from "@/lib/logger";
 
 const registerSchema = z.object({
   organizationName: z.string().min(2),
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Registration error:", error);
+    apiLogger.error({ err: error, msg: "Registration error" });
     return NextResponse.json(
       { error: "Something went wrong" },
       { status: 500 }

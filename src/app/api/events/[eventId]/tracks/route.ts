@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const createTrackSchema = z.object({
   name: z.string().min(1),
@@ -49,7 +50,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(tracks);
   } catch (error) {
-    console.error("Error fetching tracks:", error);
+    apiLogger.error({ err: error, msg: "Error fetching tracks" });
     return NextResponse.json(
       { error: "Failed to fetch tracks" },
       { status: 500 }
@@ -131,7 +132,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(track, { status: 201 });
   } catch (error) {
-    console.error("Error creating track:", error);
+    apiLogger.error({ err: error, msg: "Error creating track" });
     return NextResponse.json(
       { error: "Failed to create track" },
       { status: 500 }

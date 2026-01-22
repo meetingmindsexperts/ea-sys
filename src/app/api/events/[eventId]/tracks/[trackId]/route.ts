@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const updateTrackSchema = z.object({
   name: z.string().min(1).optional(),
@@ -70,7 +71,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(track);
   } catch (error) {
-    console.error("Error fetching track:", error);
+    apiLogger.error({ err: error, msg: "Error fetching track" });
     return NextResponse.json(
       { error: "Failed to fetch track" },
       { status: 500 }
@@ -156,7 +157,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(track);
   } catch (error) {
-    console.error("Error updating track:", error);
+    apiLogger.error({ err: error, msg: "Error updating track" });
     return NextResponse.json(
       { error: "Failed to update track" },
       { status: 500 }
@@ -228,7 +229,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting track:", error);
+    apiLogger.error({ err: error, msg: "Error deleting track" });
     return NextResponse.json(
       { error: "Failed to delete track" },
       { status: 500 }

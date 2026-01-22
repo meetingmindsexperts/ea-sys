@@ -9,9 +9,7 @@
       "Bash(npx shadcn@latest init:*)",
       "Bash(npx shadcn@latest add:*)",
       "Bash(npm run build:*)",
-      "Bash(npx prisma db push:*)",
-      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"yes\" npx prisma db push:*)",
-      "Bash(find:*)"
+      "Bash(npx prisma db push:*)"
     ]
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -84,7 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {
-    console.error("Error checking in registration:", error);
+    apiLogger.error({ err: error, msg: "Error checking in registration" });
     return NextResponse.json(
       { error: "Failed to check in" },
       { status: 500 }
@@ -183,7 +184,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {
-    console.error("Error checking in by QR:", error);
+    apiLogger.error({ err: error, msg: "Error checking in by QR" });
     return NextResponse.json(
       { error: "Failed to check in" },
       { status: 500 }

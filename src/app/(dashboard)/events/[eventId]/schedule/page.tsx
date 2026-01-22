@@ -70,6 +70,7 @@ export default function SchedulePage() {
   const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [sessionFormData, setSessionFormData] = useState({
     name: "",
     description: "",
@@ -144,6 +145,8 @@ export default function SchedulePage() {
           ...sessionFormData,
           trackId: sessionFormData.trackId || undefined,
           capacity: sessionFormData.capacity ? parseInt(sessionFormData.capacity) : undefined,
+          startTime: new Date(sessionFormData.startTime).toISOString(),
+          endTime: new Date(sessionFormData.endTime).toISOString(),
         }),
       });
 
@@ -160,20 +163,67 @@ export default function SchedulePage() {
   const handleTrackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/events/${eventId}/tracks`, {
-        method: "POST",
+      const url = editingTrack
+        ? `/api/events/${eventId}/tracks/${editingTrack.id}`
+        : `/api/events/${eventId}/tracks`;
+      const method = editingTrack ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(trackFormData),
       });
 
       if (res.ok) {
         fetchTracks();
+        fetchSessions();
         setIsTrackDialogOpen(false);
-        setTrackFormData({ name: "", description: "", color: "#3B82F6" });
+        resetTrackForm();
       }
     } catch (error) {
       console.error("Error saving track:", error);
     }
+  };
+
+  const handleDeleteTrack = async (trackId: string) => {
+    const trackSessions = sessions.filter((s) => s.track?.id === trackId);
+    if (trackSessions.length > 0) {
+      if (
+        !confirm(
+          `This track has ${trackSessions.length} session(s) assigned. Deleting it will remove the track from those sessions. Continue?`
+        )
+      )
+        return;
+    } else {
+      if (!confirm("Are you sure you want to delete this track?")) return;
+    }
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/tracks/${trackId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        fetchTracks();
+        fetchSessions();
+      }
+    } catch (error) {
+      console.error("Error deleting track:", error);
+    }
+  };
+
+  const openEditTrackDialog = (track: Track) => {
+    setEditingTrack(track);
+    setTrackFormData({
+      name: track.name,
+      description: "",
+      color: track.color,
+    });
+    setIsTrackDialogOpen(true);
+  };
+
+  const resetTrackForm = () => {
+    setEditingTrack(null);
+    setTrackFormData({ name: "", description: "", color: "#3B82F6" });
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -268,7 +318,13 @@ export default function SchedulePage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Dialog open={isTrackDialogOpen} onOpenChange={setIsTrackDialogOpen}>
+          <Dialog
+            open={isTrackDialogOpen}
+            onOpenChange={(open) => {
+              setIsTrackDialogOpen(open);
+              if (!open) resetTrackForm();
+            }}
+          >
             <DialogTrigger asChild>
               <Button variant="outline">
                 <Plus className="mr-2 h-4 w-4" />
@@ -277,7 +333,9 @@ export default function SchedulePage() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create Track</DialogTitle>
+                <DialogTitle>
+                  {editingTrack ? "Edit Track" : "Create Track"}
+                </DialogTitle>
               </DialogHeader>
               <form onSubmit={handleTrackSubmit} className="space-y-4">
                 <div className="space-y-2">
@@ -334,7 +392,9 @@ export default function SchedulePage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">Create Track</Button>
+                  <Button type="submit">
+                    {editingTrack ? "Save Changes" : "Create Track"}
+                  </Button>
                 </div>
               </form>
             </DialogContent>

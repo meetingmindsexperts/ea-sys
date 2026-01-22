@@ -1,6 +1,5 @@
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
-import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import authConfig from "./auth.config";
 
@@ -15,29 +14,8 @@ export const {
   ...authConfig,
   callbacks: {
     ...authConfig.callbacks,
-    async signIn({ user, account }) {
-      // For credentials provider, verify password
-      if (account?.provider === "credentials") {
-        const credentials = user as { email: string; password: string };
-        const dbUser = await db.user.findUnique({
-          where: { email: credentials.email },
-        });
-
-        if (!dbUser) return false;
-
-        const isValidPassword = await bcrypt.compare(
-          credentials.password,
-          dbUser.passwordHash
-        );
-
-        if (!isValidPassword) return false;
-
-        // Update user object with actual user data
-        user.id = dbUser.id;
-        user.email = dbUser.email;
-        user.name = `${dbUser.firstName} ${dbUser.lastName}`;
-      }
-
+    async signIn() {
+      // Password verification is handled in authorize function
       return true;
     },
     async jwt({ token, user }) {

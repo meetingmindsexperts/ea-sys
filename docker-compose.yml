@@ -1,34 +1,29 @@
-version: "3.9"
-
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: ea-sys-db
+  app:
+    image: node:22-slim
+    container_name: ea-sys-app
+    working_dir: /app
+    volumes:
+      - ./:/app
     ports:
-      - "5432:5432"
+      - "3000:3000"
+    command: sh -c "npm ci && npx prisma generate && npm run dev"
+    networks:
+      - ea-network
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: easys_dev
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ea-network
+      NODE_ENV: development
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
 
-  redis:
-    image: redis:7-alpine
-    container_name: ea-sys-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - ea-network
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: ea-sys-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - ea-network
 
   mailhog:
     image: mailhog/mailhog
@@ -40,8 +35,8 @@ services:
       - ea-network
 
 volumes:
-  postgres_data:
   redis_data:
+  node_modules:
 
 networks:
   ea-network:
