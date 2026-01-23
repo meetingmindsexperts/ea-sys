@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { formatDate } from "@/lib/utils";
 
 interface Event {
   id: string;
@@ -119,7 +120,7 @@ export function Header() {
                     <div className="flex flex-col">
                       <span className="font-medium">{event.name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(event.startDate).toLocaleDateString()}
+                        {formatDate(event.startDate)}
                       </span>
                     </div>
                   </DropdownMenuItem>

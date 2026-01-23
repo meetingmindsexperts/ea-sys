@@ -16,21 +16,22 @@ export function formatCurrency(
 }
 
 export function formatDate(date: Date | string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(date));
+  const d = new Date(date);
+  // Use UTC methods to ensure consistent output between server and client
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
 export function formatDateTime(date: Date | string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(date));
+  const d = new Date(date);
+  // Use UTC methods to ensure consistent output between server and client
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const hours = d.getUTCHours();
+  const minutes = d.getUTCMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+  const minuteStr = minutes.toString().padStart(2, "0");
+  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${hour12}:${minuteStr} ${ampm}`;
 }
 
 export function formatDateRange(start: Date | string, end: Date | string): string {
@@ -45,6 +46,23 @@ export function formatDateRange(start: Date | string, end: Date | string): strin
   }
 
   return `${startStr} - ${endStr}`;
+}
+
+export function formatDateLong(date: Date | string): string {
+  const d = new Date(date);
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${days[d.getUTCDay()]}, ${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+export function formatTime(date: Date | string): string {
+  const d = new Date(date);
+  const hours = d.getUTCHours();
+  const minutes = d.getUTCMinutes();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+  const minuteStr = minutes.toString().padStart(2, "0");
+  return `${hour12}:${minuteStr} ${ampm}`;
 }
 
 export function slugify(text: string): string {

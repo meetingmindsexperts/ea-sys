@@ -33,7 +33,7 @@ import {
   MapPin,
   Users,
 } from "lucide-react";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
 
 interface Track {
   id: string;
@@ -579,22 +579,46 @@ export default function SchedulePage() {
 
       {/* Tracks Overview */}
       {tracks.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {tracks.map((track) => (
-            <Badge
-              key={track.id}
-              variant="outline"
-              className="flex items-center gap-2"
-              style={{ borderColor: track.color }}
-            >
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: track.color }}
-              />
-              {track.name}
-            </Badge>
-          ))}
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Tracks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {tracks.map((track) => (
+                <div
+                  key={track.id}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border"
+                  style={{ borderColor: track.color }}
+                >
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: track.color }}
+                  />
+                  <span className="text-sm font-medium">{track.name}</span>
+                  <div className="flex gap-1 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => openEditTrackDialog(track)}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                      onClick={() => handleDeleteTrack(track.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Stats */}
@@ -661,12 +685,7 @@ export default function SchedulePage() {
             .map(([date, dateSessions]) => (
               <div key={date}>
                 <h2 className="text-lg font-semibold mb-4">
-                  {new Date(date).toLocaleDateString("en-US", {
-                    weekday: "long",
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
+                  {formatDateLong(date)}
                 </h2>
                 <div className="space-y-3">
                   {dateSessions
@@ -718,14 +737,7 @@ export default function SchedulePage() {
                               <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                                 <div className="flex items-center gap-1">
                                   <Clock className="h-4 w-4" />
-                                  {formatDateTime(session.startTime)} -{" "}
-                                  {new Date(session.endTime).toLocaleTimeString(
-                                    "en-US",
-                                    {
-                                      hour: "numeric",
-                                      minute: "2-digit",
-                                    }
-                                  )}
+                                  {formatDateTime(session.startTime)} - {formatTime(session.endTime)}
                                 </div>
                                 {session.location && (
                                   <div className="flex items-center gap-1">

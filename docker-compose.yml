@@ -1,20 +1,44 @@
 services:
   app:
-    image: node:22-slim
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
     container_name: ea-sys-app
     working_dir: /app
     volumes:
       - ./:/app
+      - /app/node_modules
     ports:
       - "3000:3000"
-    command: sh -c "npm ci && npx prisma generate && npm run dev"
     networks:
       - ea-network
     environment:
       NODE_ENV: development
       DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: redis://redis:6379
+      DIRECT_URL: ${DIRECT_URL}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+    depends_on:
+      - mailhog
 
+  # Uncomment to use local PostgreSQL instead of Supabase
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: ea-sys-db
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: easys
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - ea-network
+
+  # Uncomment for Redis (caching, queues)
   # redis:
   #   image: redis:7-alpine
   #   container_name: ea-sys-redis
@@ -35,8 +59,8 @@ services:
       - ea-network
 
 volumes:
+  postgres_data:
   redis_data:
-  node_modules:
 
 networks:
   ea-network:

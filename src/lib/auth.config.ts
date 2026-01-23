@@ -1,13 +1,8 @@
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { z } from "zod";
-import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-});
+// This config is Edge-compatible (no Node.js modules)
+// The actual credential verification happens in auth.ts
 
 export default {
   providers: [
@@ -17,31 +12,11 @@ export default {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
-        const validated = loginSchema.safeParse(credentials);
-        if (!validated.success) return null;
-
-        // Find user in database
-        const user = await db.user.findUnique({
-          where: { email: validated.data.email },
-        });
-
-        if (!user || !user.passwordHash) return null;
-
-        // Verify password
-        const isValidPassword = await bcrypt.compare(
-          validated.data.password,
-          user.passwordHash
-        );
-
-        if (!isValidPassword) return null;
-
-        // Return user object with required id
-        return {
-          id: user.id,
-          email: user.email,
-          name: `${user.firstName} ${user.lastName}`,
-        };
+      // Authorization is handled in auth.ts signIn callback
+      // This just passes through the credentials
+      authorize: async () => {
+        // Return a minimal object - actual validation in signIn callback
+        return null;
       },
     }),
   ],
@@ -52,14 +27,31 @@ export default {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
-      const isOnEvents = nextUrl.pathname.startsWith("/events");
-      const isOnSettings = nextUrl.pathname.startsWith("/settings");
+      const pathname = nextUrl.pathname;
 
-      if (isOnDashboard || isOnEvents || isOnSettings) {
-        if (isLoggedIn) return true;
+      // Public routes
+      const publicRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
+      const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
+
+      // Protected routes
+      const protectedRoutes = ["/dashboard", "/events", "/settings"];
+      const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route));
+
+      // Redirect to login if not authenticated
+      if (isProtectedRoute && !isLoggedIn) {
         return false;
       }
+
+      // Redirect to dashboard if authenticated and on public route
+      if (isLoggedIn && isPublicRoute) {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      }
+
+      // Redirect root to dashboard if authenticated
+      if (isLoggedIn && pathname === "/") {
+        return Response.redirect(new URL("/dashboard", nextUrl));
+      }
+
       return true;
     },
   },

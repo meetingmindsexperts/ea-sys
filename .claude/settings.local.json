@@ -9,7 +9,14 @@
       "Bash(npx shadcn@latest init:*)",
       "Bash(npx shadcn@latest add:*)",
       "Bash(npm run build:*)",
-      "Bash(npx prisma db push:*)"
+      "Bash(npx prisma db push:*)",
+      "Bash(docker compose:*)",
+      "Bash(command -v:*)",
+      "Bash(node --version:*)",
+      "Bash(export NVM_DIR=\"$HOME/.nvm\":*)",
+      "Bash([ -s \"$NVM_DIR/nvm.sh\" ])",
+      "Bash(. \"$NVM_DIR/nvm.sh\")",
+      "Bash(npm run dev:*)"
     ]
   }
 }
