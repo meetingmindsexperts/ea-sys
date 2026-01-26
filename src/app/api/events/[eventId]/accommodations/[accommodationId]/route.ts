@@ -117,7 +117,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
-    let totalPrice = existingAccommodation.totalPrice;
+    let totalPrice: number = Number(existingAccommodation.totalPrice);
     let newRoomTypeId = existingAccommodation.roomTypeId;
 
     // Handle room type change

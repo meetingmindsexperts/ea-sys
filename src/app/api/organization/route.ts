@@ -94,7 +94,9 @@ export async function PUT(req: Request) {
     }
 
     const currentSettings = (currentOrg.settings as Record<string, unknown>) || {};
-    const updatedSettings = settings ? { ...currentSettings, ...settings } : currentSettings;
+    const updatedSettings = settings
+      ? JSON.parse(JSON.stringify({ ...currentSettings, ...settings }))
+      : JSON.parse(JSON.stringify(currentSettings));
 
     const organization = await db.organization.update({
       where: { id: session.user.organizationId },

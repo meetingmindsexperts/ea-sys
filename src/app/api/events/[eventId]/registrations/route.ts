@@ -15,7 +15,7 @@ const createRegistrationSchema = z.object({
     jobTitle: z.string().optional(),
     phone: z.string().optional(),
     dietaryReqs: z.string().optional(),
-    customFields: z.record(z.any()).optional(),
+    customFields: z.record(z.string(), z.any()).optional(),
   }),
   notes: z.string().optional(),
 });

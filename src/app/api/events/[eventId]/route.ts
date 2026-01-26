@@ -17,7 +17,7 @@ const updateEventSchema = z.object({
   country: z.string().nullable().optional(),
   status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
   bannerImage: z.string().nullable().optional(),
-  settings: z.record(z.unknown()).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 });
 
 interface RouteParams {
@@ -131,7 +131,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Merge settings if provided
     const currentSettings = (existingEvent.settings as Record<string, unknown>) || {};
-    const updatedSettings = settings ? { ...currentSettings, ...settings } : currentSettings;
+    const updatedSettings = settings
+      ? JSON.parse(JSON.stringify({ ...currentSettings, ...settings }))
+      : JSON.parse(JSON.stringify(currentSettings));
 
     const event = await db.event.update({
       where: { id: eventId },
@@ -160,7 +162,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "Event",
         entityId: eventId,
-        changes: validated.data,
+        changes: JSON.parse(JSON.stringify(validated.data)),
       },
     });
 
