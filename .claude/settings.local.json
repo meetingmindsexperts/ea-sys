@@ -16,7 +16,9 @@
       "Bash(export NVM_DIR=\"$HOME/.nvm\":*)",
       "Bash([ -s \"$NVM_DIR/nvm.sh\" ])",
       "Bash(. \"$NVM_DIR/nvm.sh\")",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(vercel login --help:*)",
+      "Bash(vercel whoami:*)"
     ]
   }
 }

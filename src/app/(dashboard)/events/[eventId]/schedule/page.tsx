@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Calendar,
   Plus,
@@ -32,6 +33,7 @@ import {
   Clock,
   MapPin,
   Users,
+  User,
 } from "lucide-react";
 import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
 
@@ -318,6 +320,12 @@ export default function SchedulePage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href={`/events/${eventId}/schedule/calendar`}>
+              <Calendar className="mr-2 h-4 w-4" />
+              Calendar View
+            </Link>
+          </Button>
           <Dialog
             open={isTrackDialogOpen}
             onOpenChange={(open) => {
@@ -559,6 +567,50 @@ export default function SchedulePage() {
                     />
                   </div>
                 </div>
+                {speakers.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Speakers
+                    </Label>
+                    <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                      {speakers.map((speaker) => (
+                        <div key={speaker.id} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`speaker-${speaker.id}`}
+                            checked={sessionFormData.speakerIds.includes(speaker.id)}
+                            onCheckedChange={(checked: boolean) => {
+                              if (checked) {
+                                setSessionFormData({
+                                  ...sessionFormData,
+                                  speakerIds: [...sessionFormData.speakerIds, speaker.id],
+                                });
+                              } else {
+                                setSessionFormData({
+                                  ...sessionFormData,
+                                  speakerIds: sessionFormData.speakerIds.filter(
+                                    (id) => id !== speaker.id
+                                  ),
+                                });
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor={`speaker-${speaker.id}`}
+                            className="text-sm cursor-pointer flex-1"
+                          >
+                            {speaker.firstName} {speaker.lastName}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    {sessionFormData.speakerIds.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {sessionFormData.speakerIds.length} speaker{sessionFormData.speakerIds.length !== 1 ? "s" : ""} selected
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"

@@ -38,6 +38,7 @@ import {
   Download,
   RefreshCw,
 } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 
 interface Attendee {
   id: string;
@@ -146,6 +147,7 @@ export default function RegistrationsPage() {
       }
     } catch {
       // Silent fail for ticket types
+      console.error("Failed to load ticket types");
     }
   };
 
@@ -224,8 +226,8 @@ export default function RegistrationsPage() {
       r.ticketType.name,
       r.status,
       r.paymentStatus,
-      new Date(r.createdAt).toLocaleDateString(),
-      r.checkedInAt ? new Date(r.checkedInAt).toLocaleDateString() : "",
+      formatDate(r.createdAt),
+      r.checkedInAt ? formatDate(r.checkedInAt) : "",
     ]);
 
     const csvContent = [
@@ -303,7 +305,7 @@ export default function RegistrationsPage() {
                 Add Registration
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl">
               <DialogHeader>
                 <DialogTitle>Add New Registration</DialogTitle>
                 <DialogDescription>
@@ -315,26 +317,37 @@ export default function RegistrationsPage() {
                   {/* Ticket Type */}
                   <div className="space-y-2">
                     <Label htmlFor="ticketType">Ticket Type *</Label>
-                    <Select
-                      value={formData.ticketTypeId}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, ticketTypeId: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a ticket type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ticketTypes
-                          .filter((t) => t.soldCount < t.quantity)
-                          .map((ticket) => (
-                            <SelectItem key={ticket.id} value={ticket.id}>
-                              {ticket.name} - ${ticket.price} (
-                              {ticket.quantity - ticket.soldCount} available)
+                    {ticketTypes.length === 0 ? (
+                      <p className="text-sm text-muted-foreground p-3 bg-muted rounded">
+                        No ticket types available. Please create a ticket type first.
+                      </p>
+                    ) : (
+                      <Select
+                        value={formData.ticketTypeId}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, ticketTypeId: value })
+                        }
+                        required
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select a ticket type" />
+                        </SelectTrigger>
+                        <SelectContent className="z-[100]">
+                          {ticketTypes.map((ticket) => (
+                            <SelectItem
+                              key={ticket.id}
+                              value={ticket.id}
+                              disabled={ticket.soldCount >= ticket.quantity}
+                            >
+                              {ticket.name} - ${ticket.price}
+                              {ticket.soldCount >= ticket.quantity
+                                ? " (Sold out)"
+                                : ` (${ticket.quantity - ticket.soldCount} available)`}
                             </SelectItem>
                           ))}
-                      </SelectContent>
-                    </Select>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -667,16 +680,14 @@ export default function RegistrationsPage() {
                         <div>
                           <div className="text-muted-foreground">Registered</div>
                           <div className="font-medium">
-                            {new Date(registration.createdAt).toLocaleDateString()}
+                            {formatDate(registration.createdAt)}
                           </div>
                         </div>
                         {registration.checkedInAt && (
                           <div>
                             <div className="text-muted-foreground">Checked In</div>
                             <div className="font-medium">
-                              {new Date(
-                                registration.checkedInAt
-                              ).toLocaleDateString()}
+                              {formatDate(registration.checkedInAt)}
                             </div>
                           </div>
                         )}

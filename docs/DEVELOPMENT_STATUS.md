@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** January 22, 2026
+**Last Updated:** January 26, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -54,7 +54,7 @@ This document outlines the current development status of the Event Administratio
 | Event Overview Dashboard | ✅ | ✅ | Complete |
 | Event Selector in Header | N/A | ✅ | Complete |
 | Event Switching | N/A | ✅ | Complete |
-| Event Settings/Edit | ❌ | ❌ | Pending |
+| Event Settings/Edit | ✅ | ✅ | Complete |
 
 ### Ticket Management
 | Feature | API | UI | Status |
@@ -123,8 +123,8 @@ This document outlines the current development status of the Event Administratio
 |---------|-----|-----|--------|
 | Create Track | ✅ | ✅ | Complete |
 | List Tracks | ✅ | ✅ | Complete |
-| Edit Track | ✅ | ❌ | API Complete |
-| Delete Track | ✅ | ❌ | API Complete |
+| Edit Track | ✅ | ✅ | Complete |
+| Delete Track | ✅ | ✅ | Complete |
 | Color Coding | ✅ | ✅ | Complete |
 
 **API Endpoints:**
@@ -145,6 +145,7 @@ This document outlines the current development status of the Event Administratio
 | Assign Track to Session | ✅ | ✅ | Complete |
 | Session Status Management | ✅ | ✅ | Complete |
 | Schedule View by Date | ❌ | ✅ | Complete |
+| Schedule Calendar View | N/A | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/sessions` - List sessions (with filters)
@@ -229,7 +230,63 @@ This document outlines the current development status of the Event Administratio
 
 ---
 
-## Recent Updates (January 22, 2026)
+## Recent Updates (January 26, 2026)
+
+### New Features
+
+#### Event Settings
+- [x] Event settings page with tabs (General, Registration, Notifications)
+- [x] Update event details (name, description, dates, venue, address)
+- [x] Event deletion with confirmation
+- [x] Event status management
+- [x] Settings stored in event.settings JSON field
+
+#### Organization Settings
+- [x] Organization settings page
+- [x] Update organization name and details
+- [x] Team member management (view members)
+
+#### Schedule Calendar View
+- [x] Calendar/time-grid view for sessions (`/events/[eventId]/schedule/calendar`)
+- [x] Sessions displayed on time grid (6 AM - 10 PM)
+- [x] Multi-track column layout when viewing all tracks
+- [x] Date navigation (prev/next day)
+- [x] Track filtering
+- [x] Session cards with tooltips showing full details
+- [x] Color-coded by track
+
+#### Speaker Assignment to Sessions
+- [x] Multi-select checkbox UI in session form
+- [x] Assign multiple speakers to a session
+- [x] Speaker selection persists when editing sessions
+- [x] Shows confirmed speakers only
+
+### Infrastructure Updates
+
+#### Authentication Fixes
+- [x] Fixed Edge Runtime compatibility (split auth.config.ts for middleware)
+- [x] Fixed credential verification in authorize function
+- [x] Session properly includes user organization context
+
+#### Date/Time Handling
+- [x] Fixed hydration errors with UTC-based date formatting
+- [x] Consistent date formatting across server/client
+- [x] Added formatTime, formatDate, formatDateLong utilities
+
+#### Development Environment
+- [x] Removed Docker dependency for local development
+- [x] Added .nvmrc for Node.js 22
+- [x] Created .env.example template
+- [x] Updated next.config.ts with standalone output
+
+### UI Components Added
+- [x] Checkbox component (`/components/ui/checkbox.tsx`)
+- [x] Alert Dialog component (`/components/ui/alert-dialog.tsx`)
+- [x] Switch component (`/components/ui/switch.tsx`)
+
+---
+
+## Updates (January 22, 2026)
 
 ### UI/UX Improvements
 
@@ -358,18 +415,18 @@ This document outlines the current development status of the Event Administratio
 | Multi-language Support | Low | High |
 | Custom Branding per Event | Low | Medium |
 
-### Phase 10: Admin & Operations (NOT STARTED)
+### Phase 10: Admin & Operations (IN PROGRESS)
 
-| Feature | Priority | Estimated Effort |
-|---------|----------|------------------|
-| Event Settings Page | High | Medium |
-| Organization Settings | High | Medium |
-| User Management (Invite Team) | High | Medium |
-| Role-based Permissions | Medium | Medium |
-| Audit Log Viewer | Medium | Low |
-| Data Import (Bulk) | Medium | Medium |
-| Event Duplication | Low | Low |
-| Archive/Delete Events | Low | Low |
+| Feature | Priority | Estimated Effort | Status |
+|---------|----------|------------------|--------|
+| Event Settings Page | High | Medium | ✅ Complete |
+| Organization Settings | High | Medium | ✅ Complete |
+| User Management (Invite Team) | High | Medium | Pending |
+| Role-based Permissions | Medium | Medium | Pending |
+| Audit Log Viewer | Medium | Low | Pending |
+| Data Import (Bulk) | Medium | Medium | Pending |
+| Event Duplication | Low | Low | Pending |
+| Archive/Delete Events | Low | Low | ✅ Complete |
 
 ---
 
@@ -425,11 +482,14 @@ src/
 │   │       │   ├── registrations/
 │   │       │   │   └── [registrationId]/  ✅
 │   │       │   ├── schedule/         ✅
+│   │       │   │   └── calendar/     ✅ (new)
+│   │       │   ├── settings/         ✅ (new)
 │   │       │   ├── speakers/
 │   │       │   │   ├── new/          ✅
 │   │       │   │   └── [speakerId]/  ✅
 │   │       │   └── tickets/          ✅
 │   │       └── new/
+│   ├── settings/                 ✅ (new - org settings)
 │   └── api/
 │       └── events/
 │           └── [eventId]/
@@ -440,20 +500,25 @@ src/
 │               ├── sessions/         ✅
 │               ├── speakers/         ✅
 │               ├── tickets/          ✅
-│               └── tracks/           ✅
+│               ├── tracks/           ✅
+│               └── route.ts          ✅ (new - single event CRUD)
 ├── components/
 │   ├── layout/
 │   │   ├── header.tsx              ✅ (with event selector)
 │   │   └── sidebar.tsx             ✅ (collapsible)
 │   └── ui/
-│       └── tooltip.tsx             ✅ (new)
+│       ├── tooltip.tsx             ✅
+│       ├── checkbox.tsx            ✅ (new)
+│       ├── switch.tsx              ✅ (new)
+│       └── alert-dialog.tsx        ✅ (new)
 ├── contexts/
 │   └── sidebar-context.tsx         ✅ (new)
 ├── lib/
 │   ├── auth.ts                       ✅
+│   ├── auth.config.ts                ✅ (new - Edge-compatible)
 │   ├── db.ts                         ✅ (with logger)
-│   ├── logger.ts                     ✅ (new - pino logger)
-│   └── utils.ts                      ✅
+│   ├── logger.ts                     ✅ (pino logger)
+│   └── utils.ts                      ✅ (with UTC date utilities)
 └── types/
 ```
 
@@ -463,7 +528,7 @@ src/
 
 | Resource | Endpoints | Status |
 |----------|-----------|--------|
-| Events | 2 | ✅ Complete |
+| Events | 5 | ✅ Complete |
 | Tickets | 5 | ✅ Complete |
 | Registrations | 7 | ✅ Complete |
 | Speakers | 5 | ✅ Complete |
@@ -473,7 +538,8 @@ src/
 | Hotels | 5 | ✅ Complete |
 | Room Types | 5 | ✅ Complete |
 | Accommodations | 5 | ✅ Complete |
-| **Total** | **49** | |
+| Organization | 2 | ✅ Complete |
+| **Total** | **54** | |
 
 ---
 
