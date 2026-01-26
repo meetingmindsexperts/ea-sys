@@ -5,6 +5,8 @@ import Credentials from "next-auth/providers/credentials";
 // The actual credential verification happens in auth.ts
 
 export default {
+  // Trust the host header from Vercel/proxies
+  trustHost: true,
   providers: [
     Credentials({
       name: "credentials",

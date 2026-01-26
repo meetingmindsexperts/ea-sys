@@ -19,6 +19,8 @@ export const {
 } = NextAuth({
   adapter: PrismaAdapter(db) as ReturnType<typeof PrismaAdapter>,
   session: { strategy: "jwt" },
+  // Trust the host header from Vercel/proxies
+  trustHost: true,
   pages: authConfig.pages,
   // Override providers with full implementation (Node.js runtime)
   providers: [
