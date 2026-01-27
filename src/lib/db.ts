@@ -18,6 +18,8 @@ function createPrismaClient() {
         level: "warn",
       },
     ],
+    // Connection pool settings for better reliability
+    datasourceUrl: process.env.DATABASE_URL,
   });
 
   // Handle Prisma events with our logger
@@ -43,4 +45,10 @@ function createPrismaClient() {
 
 export const db = globalForPrisma.prisma ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
+// In production, also cache the client to prevent connection pool exhaustion
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = db;
+} else {
+  // In production (Vercel), cache the client to reuse connections
+  globalForPrisma.prisma = db;
+}
