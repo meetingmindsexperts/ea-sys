@@ -245,12 +245,33 @@ This document outlines the current development status of the Event Administratio
 - Build Command: `prisma generate && next build`
 - Node.js Version: 22.x (via Vercel settings)
 - Framework: Next.js (auto-detected)
+- Region: `iad1` (US East - configurable in vercel.json)
+- Function Max Duration: 30 seconds
 
 **Required Environment Variables for Vercel:**
-- `DATABASE_URL` - PostgreSQL connection string (pooled)
+- `DATABASE_URL` - PostgreSQL connection string (pooled, with `?pgbouncer=true&connection_limit=1`)
 - `DIRECT_URL` - PostgreSQL direct connection (for migrations)
 - `NEXTAUTH_SECRET` - Random secret for JWT signing
 - `NEXTAUTH_URL` - Production URL (e.g., https://your-app.vercel.app)
+
+### API Performance Optimizations
+- [x] Parallel query execution using `Promise.all` for auth + params
+- [x] Fetch event validation and data queries in parallel
+- [x] Added `stale-while-revalidate` cache headers to GET endpoints
+- [x] Optimized validation queries with `select: { id: true }`
+- [x] Configured Vercel region closer to database
+
+### Session Edit Popup (Calendar & List Views)
+- [x] Click-to-edit session popup in calendar view
+- [x] Full session form with all fields (name, description, times, track, status)
+- [x] Speaker assignment with multi-select checkboxes
+- [x] Speaker status badges (CONFIRMED, INVITED, DECLINED)
+- [x] Fetch all speakers (not just confirmed) for assignment
+
+### Speaker Assignment Improvements
+- [x] All speakers visible in session forms (regardless of status)
+- [x] Status badges displayed next to speaker names
+- [x] Color-coded status (green=CONFIRMED, yellow=INVITED, red=DECLINED)
 
 ---
 
@@ -465,7 +486,8 @@ This document outlines the current development status of the Event Administratio
 - [ ] Add E2E tests with Playwright
 
 ### Performance
-- [ ] Implement database query optimization
+- [x] Implement database query optimization (parallel queries)
+- [x] Add cache headers (stale-while-revalidate)
 - [ ] Add Redis caching for frequently accessed data
 - [ ] Optimize bundle size
 - [ ] Add image optimization for uploads
