@@ -7,12 +7,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
   TooltipContent,
@@ -27,6 +37,7 @@ import {
   Clock,
   MapPin,
   Users,
+  User,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 
@@ -40,6 +51,7 @@ interface Speaker {
   id: string;
   firstName: string;
   lastName: string;
+  status: string;
 }
 
 interface Session {
@@ -77,12 +89,28 @@ export default function ScheduleCalendarPage() {
   const eventId = params.eventId as string;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedTrack, setSelectedTrack] = useState<string>("all");
 
+  // Edit dialog state
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [sessionFormData, setSessionFormData] = useState({
+    name: "",
+    description: "",
+    trackId: "",
+    startTime: "",
+    endTime: "",
+    location: "",
+    capacity: "",
+    status: "SCHEDULED",
+    speakerIds: [] as string[],
+  });
+
   useEffect(() => {
-    Promise.all([fetchSessions(), fetchTracks()]);
+    Promise.all([fetchSessions(), fetchTracks(), fetchSpeakers()]);
   }, [eventId]);
 
   const fetchSessions = async () => {
@@ -113,6 +141,76 @@ export default function ScheduleCalendarPage() {
       }
     } catch (error) {
       console.error("Error fetching tracks:", error);
+    }
+  };
+
+  const fetchSpeakers = async () => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers`);
+      if (res.ok) {
+        const data = await res.json();
+        setSpeakers(data);
+      }
+    } catch (error) {
+      console.error("Error fetching speakers:", error);
+    }
+  };
+
+  const openEditDialog = (session: Session) => {
+    setEditingSession(session);
+    setSessionFormData({
+      name: session.name,
+      description: session.description || "",
+      trackId: session.track?.id || "",
+      startTime: new Date(session.startTime).toISOString().slice(0, 16),
+      endTime: new Date(session.endTime).toISOString().slice(0, 16),
+      location: session.location || "",
+      capacity: session.capacity?.toString() || "",
+      status: session.status,
+      speakerIds: session.speakers.map((s) => s.speaker.id),
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  const resetForm = () => {
+    setEditingSession(null);
+    setSessionFormData({
+      name: "",
+      description: "",
+      trackId: "",
+      startTime: "",
+      endTime: "",
+      location: "",
+      capacity: "",
+      status: "SCHEDULED",
+      speakerIds: [],
+    });
+  };
+
+  const handleSessionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSession) return;
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/sessions/${editingSession.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...sessionFormData,
+          trackId: sessionFormData.trackId || undefined,
+          capacity: sessionFormData.capacity ? parseInt(sessionFormData.capacity) : undefined,
+          startTime: new Date(sessionFormData.startTime).toISOString(),
+          endTime: new Date(sessionFormData.endTime).toISOString(),
+        }),
+      });
+
+      if (res.ok) {
+        fetchSessions();
+        setIsEditDialogOpen(false);
+        resetForm();
+      }
+    } catch (error) {
+      console.error("Error saving session:", error);
     }
   };
 
@@ -203,7 +301,7 @@ export default function ScheduleCalendarPage() {
               </h1>
             </div>
             <p className="text-muted-foreground">
-              View sessions in calendar format
+              View sessions in calendar format. Click a session to edit.
             </p>
           </div>
           <Button asChild variant="outline">
@@ -333,7 +431,7 @@ export default function ScheduleCalendarPage() {
                   {selectedTrack === "all" ? (
                     // Multi-track view - columns for each track
                     <div className="absolute inset-0 flex">
-                      {Object.entries(sessionsByTrack).map(([trackId, trackSessions], index) => {
+                      {Object.entries(sessionsByTrack).map(([trackId, trackSessions]) => {
                         const track = tracks.find((t) => t.id === trackId);
                         const columnWidth = 100 / Object.keys(sessionsByTrack).length;
 
@@ -365,7 +463,7 @@ export default function ScheduleCalendarPage() {
                                 key={session.id}
                                 session={session}
                                 style={getSessionStyle(session)}
-                                eventId={eventId}
+                                onClick={() => openEditDialog(session)}
                               />
                             ))}
                           </div>
@@ -380,7 +478,7 @@ export default function ScheduleCalendarPage() {
                           key={session.id}
                           session={session}
                           style={getSessionStyle(session)}
-                          eventId={eventId}
+                          onClick={() => openEditDialog(session)}
                         />
                       ))}
                     </div>
@@ -410,6 +508,224 @@ export default function ScheduleCalendarPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Edit Session Dialog */}
+        <Dialog
+          open={isEditDialogOpen}
+          onOpenChange={(open) => {
+            setIsEditDialogOpen(open);
+            if (!open) resetForm();
+          }}
+        >
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Edit Session</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSessionSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="sessionName">Name</Label>
+                <Input
+                  id="sessionName"
+                  value={sessionFormData.name}
+                  onChange={(e) =>
+                    setSessionFormData({
+                      ...sessionFormData,
+                      name: e.target.value,
+                    })
+                  }
+                  placeholder="Session title"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sessionDescription">Description</Label>
+                <Textarea
+                  id="sessionDescription"
+                  value={sessionFormData.description}
+                  onChange={(e) =>
+                    setSessionFormData({
+                      ...sessionFormData,
+                      description: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="startTime">Start Time</Label>
+                  <Input
+                    id="startTime"
+                    type="datetime-local"
+                    value={sessionFormData.startTime}
+                    onChange={(e) =>
+                      setSessionFormData({
+                        ...sessionFormData,
+                        startTime: e.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endTime">End Time</Label>
+                  <Input
+                    id="endTime"
+                    type="datetime-local"
+                    value={sessionFormData.endTime}
+                    onChange={(e) =>
+                      setSessionFormData({
+                        ...sessionFormData,
+                        endTime: e.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="track">Track</Label>
+                  <Select
+                    value={sessionFormData.trackId}
+                    onValueChange={(value) =>
+                      setSessionFormData({ ...sessionFormData, trackId: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select track" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tracks.map((track) => (
+                        <SelectItem key={track.id} value={track.id}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: track.color }}
+                            />
+                            {track.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={sessionFormData.status}
+                    onValueChange={(value) =>
+                      setSessionFormData({ ...sessionFormData, status: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DRAFT">Draft</SelectItem>
+                      <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                      <SelectItem value="LIVE">Live</SelectItem>
+                      <SelectItem value="COMPLETED">Completed</SelectItem>
+                      <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="location">Location</Label>
+                  <Input
+                    id="location"
+                    value={sessionFormData.location}
+                    onChange={(e) =>
+                      setSessionFormData({
+                        ...sessionFormData,
+                        location: e.target.value,
+                      })
+                    }
+                    placeholder="Room or venue"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="capacity">Capacity</Label>
+                  <Input
+                    id="capacity"
+                    type="number"
+                    value={sessionFormData.capacity}
+                    onChange={(e) =>
+                      setSessionFormData({
+                        ...sessionFormData,
+                        capacity: e.target.value,
+                      })
+                    }
+                    placeholder="Max attendees"
+                  />
+                </div>
+              </div>
+              {speakers.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Speakers
+                  </Label>
+                  <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                    {speakers.map((speaker) => (
+                      <div key={speaker.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`speaker-${speaker.id}`}
+                          checked={sessionFormData.speakerIds.includes(speaker.id)}
+                          onCheckedChange={(checked: boolean) => {
+                            if (checked) {
+                              setSessionFormData({
+                                ...sessionFormData,
+                                speakerIds: [...sessionFormData.speakerIds, speaker.id],
+                              });
+                            } else {
+                              setSessionFormData({
+                                ...sessionFormData,
+                                speakerIds: sessionFormData.speakerIds.filter(
+                                  (id) => id !== speaker.id
+                                ),
+                              });
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`speaker-${speaker.id}`}
+                          className="text-sm cursor-pointer flex-1 flex items-center gap-2"
+                        >
+                          {speaker.firstName} {speaker.lastName}
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            speaker.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
+                            speaker.status === "INVITED" ? "bg-yellow-100 text-yellow-700" :
+                            speaker.status === "DECLINED" ? "bg-red-100 text-red-700" :
+                            "bg-gray-100 text-gray-700"
+                          }`}>
+                            {speaker.status}
+                          </span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  {sessionFormData.speakerIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {sessionFormData.speakerIds.length} speaker{sessionFormData.speakerIds.length !== 1 ? "s" : ""} selected
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsEditDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit">Save Changes</Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );
@@ -419,20 +735,20 @@ export default function ScheduleCalendarPage() {
 function SessionCard({
   session,
   style,
-  eventId,
+  onClick,
 }: {
   session: Session;
   style: { top: string; height: string };
-  eventId: string;
+  onClick: () => void;
 }) {
   const trackColor = session.track?.color || "#6B7280";
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          href={`/events/${eventId}/schedule`}
-          className="absolute left-1 right-1 rounded-md p-2 overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:z-20"
+        <button
+          onClick={onClick}
+          className="absolute left-1 right-1 rounded-md p-2 overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:z-20 text-left"
           style={{
             ...style,
             backgroundColor: `${trackColor}15`,
@@ -449,7 +765,7 @@ function SessionCard({
               {session.location}
             </div>
           )}
-        </Link>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-xs">
         <div className="space-y-2">
@@ -489,6 +805,7 @@ function SessionCard({
           <Badge className={statusColors[session.status]} variant="outline">
             {session.status}
           </Badge>
+          <p className="text-xs text-muted-foreground italic">Click to edit</p>
         </div>
       </TooltipContent>
     </Tooltip>

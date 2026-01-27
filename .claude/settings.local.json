@@ -20,7 +20,8 @@
       "Bash(vercel login --help:*)",
       "Bash(vercel whoami:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
