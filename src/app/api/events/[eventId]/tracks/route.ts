@@ -17,38 +17,46 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Fetch params and auth in parallel
+    const [{ eventId }, session] = await Promise.all([
+      params,
+      auth(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
+    // Fetch event validation and tracks in parallel
+    const [event, tracks] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.track.findMany({
+        where: { eventId },
+        include: {
+          _count: {
+            select: {
+              eventSessions: true,
+              abstracts: true,
+            },
+          },
+        },
+        orderBy: { sortOrder: "asc" },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const tracks = await db.track.findMany({
-      where: { eventId },
-      include: {
-        _count: {
-          select: {
-            eventSessions: true,
-            abstracts: true,
-          },
-        },
-      },
-      orderBy: { sortOrder: "asc" },
-    });
-
-    return NextResponse.json(tracks);
+    const response = NextResponse.json(tracks);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching tracks" });
     return NextResponse.json(

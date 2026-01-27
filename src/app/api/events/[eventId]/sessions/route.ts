@@ -23,22 +23,14 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Fetch params and auth in parallel for faster response
+    const [{ eventId }, session] = await Promise.all([
+      params,
+      auth(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -46,31 +38,48 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
-    const sessions = await db.eventSession.findMany({
-      where: {
-        eventId,
-        ...(trackId && { trackId }),
-        ...(status && { status: status as any }),
-        ...(date && {
-          startTime: {
-            gte: new Date(date),
-            lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
-          },
-        }),
-      },
-      include: {
-        track: true,
-        abstract: true,
-        speakers: {
-          include: {
-            speaker: true,
+    // Fetch event validation and sessions in parallel
+    const [event, sessions] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.eventSession.findMany({
+        where: {
+          eventId,
+          ...(trackId && { trackId }),
+          ...(status && { status: status as "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED" }),
+          ...(date && {
+            startTime: {
+              gte: new Date(date),
+              lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
+            },
+          }),
+        },
+        include: {
+          track: true,
+          abstract: true,
+          speakers: {
+            include: {
+              speaker: true,
+            },
           },
         },
-      },
-      orderBy: { startTime: "asc" },
-    });
+        orderBy: { startTime: "asc" },
+      }),
+    ]);
 
-    return NextResponse.json(sessions);
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Add cache headers for better performance
+    const response = NextResponse.json(sessions);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching sessions" });
     return NextResponse.json(

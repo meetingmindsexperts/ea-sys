@@ -27,51 +27,59 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Fetch params and auth in parallel
+    const [{ eventId }, session] = await Promise.all([
+      params,
+      auth(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
+    const { searchParams } = new URL(req.url);
+    const status = searchParams.get("status");
+
+    // Fetch event validation and speakers in parallel
+    const [event, speakers] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findMany({
+        where: {
+          eventId,
+          ...(status && { status: status as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED" }),
+        },
+        include: {
+          _count: {
+            select: {
+              sessions: true,
+              abstracts: true,
+            },
+          },
+          abstracts: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status");
-
-    const speakers = await db.speaker.findMany({
-      where: {
-        eventId,
-        ...(status && { status: status as any }),
-      },
-      include: {
-        _count: {
-          select: {
-            sessions: true,
-            abstracts: true,
-          },
-        },
-        abstracts: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    return NextResponse.json(speakers);
+    const response = NextResponse.json(speakers);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching speakers" });
     return NextResponse.json(
