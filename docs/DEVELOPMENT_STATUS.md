@@ -273,6 +273,29 @@ This document outlines the current development status of the Event Administratio
 - [x] Status badges displayed next to speaker names
 - [x] Color-coded status (green=CONFIRMED, yellow=INVITED, red=DECLINED)
 
+### Email Notifications (Brevo Integration)
+- [x] Brevo SDK installed and configured
+- [x] Email service with professional HTML templates
+- [x] Speaker invitation email template
+- [x] Speaker agreement email template
+- [x] Registration confirmation email template
+- [x] Event reminder email template
+- [x] Custom notification email template
+- [x] Send email to individual speaker (invitation, agreement, custom)
+- [x] Send email to individual registration (confirmation, reminder, custom)
+- [x] Bulk email API for multiple recipients
+- [x] Email dropdown menu on speaker detail page
+
+**API Endpoints:**
+- `POST /api/events/[eventId]/speakers/[speakerId]/email` - Send email to speaker
+- `POST /api/events/[eventId]/registrations/[registrationId]/email` - Send email to registration
+- `POST /api/events/[eventId]/emails/bulk` - Send bulk emails
+
+**Required Environment Variables:**
+- `BREVO_API_KEY` - Get from https://app.brevo.com/settings/keys/api
+- `EMAIL_FROM` - Verified sender email address
+- `EMAIL_FROM_NAME` - Sender display name
+
 ---
 
 ## Updates (January 26, 2026)
@@ -392,24 +415,34 @@ This document outlines the current development status of the Event Administratio
 5. Implement payment status synchronization
 6. Add payment confirmation emails
 
-### Phase 6: Email Notifications (NOT STARTED)
+### Phase 6: Email Notifications (IN PROGRESS)
 
-| Feature | Priority | Estimated Effort |
-|---------|----------|------------------|
-| Email Service Setup (SendGrid/Resend) | High | Low |
-| Registration Confirmation Email | High | Low |
-| Payment Receipt Email | High | Low |
-| Speaker Invitation Email | Medium | Low |
-| Abstract Status Notification | Medium | Low |
-| Check-in Confirmation | Low | Low |
-| Event Reminder Emails | Low | Medium |
-| Bulk Email to Attendees | Low | Medium |
+| Feature | Priority | Status |
+|---------|----------|--------|
+| Email Service Setup (Brevo) | High | ✅ Complete |
+| Registration Confirmation Email | High | ✅ Complete |
+| Speaker Invitation Email | Medium | ✅ Complete |
+| Speaker Agreement Email | Medium | ✅ Complete |
+| Event Reminder Emails | Low | ✅ Complete |
+| Bulk Email to Attendees | Low | ✅ Complete |
+| Custom Notification Emails | Low | ✅ Complete |
+| Payment Receipt Email | High | Pending |
+| Abstract Status Notification | Medium | Pending |
+| Check-in Confirmation | Low | Pending |
+| Email Preferences Management | Low | Pending |
 
-**Required Tasks:**
-1. Set up email service provider
-2. Create email templates
-3. Implement email queue system
-4. Add email preferences management
+**Completed Tasks:**
+1. ✅ Set up Brevo email service
+2. ✅ Create professional HTML email templates
+3. ✅ Speaker email APIs (invitation, agreement, custom)
+4. ✅ Registration email APIs (confirmation, reminder, custom)
+5. ✅ Bulk email API endpoint
+
+**Remaining Tasks:**
+1. Add email preferences management
+2. Payment receipt email
+3. Abstract status notification
+4. Check-in confirmation email
 
 ### Phase 7: Public Registration Portal (NOT STARTED)
 

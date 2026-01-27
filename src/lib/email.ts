@@ -1,0 +1,519 @@
+import * as brevo from "@getbrevo/brevo";
+import { apiLogger } from "./logger";
+
+// Initialize Brevo API client
+const apiInstance = new brevo.TransactionalEmailsApi();
+apiInstance.setApiKey(
+  brevo.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY || ""
+);
+
+const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || "noreply@example.com";
+const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || "Event Management System";
+
+interface SendEmailParams {
+  to: { email: string; name?: string }[];
+  subject: string;
+  htmlContent: string;
+  textContent?: string;
+  replyTo?: { email: string; name?: string };
+  attachments?: Array<{
+    name: string;
+    content: string; // Base64 encoded
+    contentType?: string;
+  }>;
+}
+
+export async function sendEmail(params: SendEmailParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!process.env.BREVO_API_KEY) {
+    apiLogger.warn({ msg: "BREVO_API_KEY not configured, skipping email send" });
+    return { success: false, error: "Email service not configured" };
+  }
+
+  try {
+    const sendSmtpEmail = new brevo.SendSmtpEmail();
+
+    sendSmtpEmail.sender = {
+      email: DEFAULT_FROM_EMAIL,
+      name: DEFAULT_FROM_NAME,
+    };
+
+    sendSmtpEmail.to = params.to.map((recipient) => ({
+      email: recipient.email,
+      name: recipient.name || recipient.email,
+    }));
+
+    sendSmtpEmail.subject = params.subject;
+    sendSmtpEmail.htmlContent = params.htmlContent;
+
+    if (params.textContent) {
+      sendSmtpEmail.textContent = params.textContent;
+    }
+
+    if (params.replyTo) {
+      sendSmtpEmail.replyTo = params.replyTo;
+    }
+
+    if (params.attachments && params.attachments.length > 0) {
+      sendSmtpEmail.attachment = params.attachments.map((att) => ({
+        name: att.name,
+        content: att.content,
+        contentType: att.contentType,
+      }));
+    }
+
+    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+
+    apiLogger.info({
+      msg: "Email sent successfully",
+      to: params.to.map((r) => r.email),
+      subject: params.subject,
+      messageId: result.body.messageId,
+    });
+
+    return { success: true, messageId: result.body.messageId };
+  } catch (error) {
+    apiLogger.error({
+      msg: "Failed to send email",
+      error: error instanceof Error ? error.message : "Unknown error",
+      to: params.to.map((r) => r.email),
+      subject: params.subject,
+    });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to send email"
+    };
+  }
+}
+
+// Email template generators
+export const emailTemplates = {
+  speakerAgreement: (params: {
+    speakerName: string;
+    eventName: string;
+    eventDate: string;
+    eventVenue: string;
+    sessionDetails?: string;
+    agreementLink?: string;
+    organizerName: string;
+    organizerEmail: string;
+  }) => ({
+    subject: `Speaker Agreement - ${params.eventName}`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speaker Agreement</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Speaker Agreement</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.speakerName}</strong>,</p>
+
+    <p>Thank you for agreeing to speak at <strong>${params.eventName}</strong>. We are excited to have you as part of our event!</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Event:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Date:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Venue:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventVenue}</td>
+        </tr>
+        ${params.sessionDetails ? `
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Session:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.sessionDetails}</td>
+        </tr>
+        ` : ""}
+      </table>
+    </div>
+
+    <p>Please review and acknowledge the speaker agreement terms. By participating as a speaker, you agree to:</p>
+
+    <ul style="color: #4b5563;">
+      <li>Deliver your presentation as scheduled</li>
+      <li>Provide presentation materials in advance if requested</li>
+      <li>Allow the event to record and distribute your session (if applicable)</li>
+      <li>Adhere to the event's code of conduct</li>
+    </ul>
+
+    ${params.agreementLink ? `
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.agreementLink}" style="display: inline-block; background: #667eea; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View & Sign Agreement</a>
+    </div>
+    ` : ""}
+
+    <p>If you have any questions, please don't hesitate to reach out.</p>
+
+    <p style="margin-bottom: 0;">
+      Best regards,<br>
+      <strong>${params.organizerName}</strong><br>
+      <a href="mailto:${params.organizerEmail}" style="color: #667eea;">${params.organizerEmail}</a>
+    </p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding ${params.eventName}</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Speaker Agreement - ${params.eventName}
+
+Dear ${params.speakerName},
+
+Thank you for agreeing to speak at ${params.eventName}. We are excited to have you as part of our event!
+
+Event Details:
+- Event: ${params.eventName}
+- Date: ${params.eventDate}
+- Venue: ${params.eventVenue}
+${params.sessionDetails ? `- Session: ${params.sessionDetails}` : ""}
+
+Please review and acknowledge the speaker agreement terms.
+
+${params.agreementLink ? `View & Sign Agreement: ${params.agreementLink}` : ""}
+
+Best regards,
+${params.organizerName}
+${params.organizerEmail}
+    `,
+  }),
+
+  speakerInvitation: (params: {
+    speakerName: string;
+    eventName: string;
+    eventDate: string;
+    eventVenue: string;
+    personalMessage?: string;
+    confirmationLink?: string;
+    organizerName: string;
+    organizerEmail: string;
+  }) => ({
+    subject: `Speaker Invitation - ${params.eventName}`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speaker Invitation</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited to Speak!</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.speakerName}</strong>,</p>
+
+    <p>We would be honored to have you as a speaker at <strong>${params.eventName}</strong>!</p>
+
+    ${params.personalMessage ? `<p style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">${params.personalMessage}</p>` : ""}
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Event:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Date:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Venue:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventVenue}</td>
+        </tr>
+      </table>
+    </div>
+
+    ${params.confirmationLink ? `
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.confirmationLink}" style="display: inline-block; background: #11998e; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Confirm Your Participation</a>
+    </div>
+    ` : ""}
+
+    <p>Please let us know if you're interested in speaking at our event. We look forward to hearing from you!</p>
+
+    <p style="margin-bottom: 0;">
+      Best regards,<br>
+      <strong>${params.organizerName}</strong><br>
+      <a href="mailto:${params.organizerEmail}" style="color: #11998e;">${params.organizerEmail}</a>
+    </p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding ${params.eventName}</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Speaker Invitation - ${params.eventName}
+
+Dear ${params.speakerName},
+
+We would be honored to have you as a speaker at ${params.eventName}!
+
+${params.personalMessage ? `Message: ${params.personalMessage}` : ""}
+
+Event Details:
+- Event: ${params.eventName}
+- Date: ${params.eventDate}
+- Venue: ${params.eventVenue}
+
+${params.confirmationLink ? `Confirm Your Participation: ${params.confirmationLink}` : ""}
+
+Please let us know if you're interested in speaking at our event.
+
+Best regards,
+${params.organizerName}
+${params.organizerEmail}
+    `,
+  }),
+
+  registrationConfirmation: (params: {
+    attendeeName: string;
+    eventName: string;
+    eventDate: string;
+    eventVenue: string;
+    ticketType: string;
+    registrationId: string;
+    qrCodeUrl?: string;
+    additionalInfo?: string;
+  }) => ({
+    subject: `Registration Confirmed - ${params.eventName}`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registration Confirmation</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Registration Confirmed!</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.attendeeName}</strong>,</p>
+
+    <p>Your registration for <strong>${params.eventName}</strong> has been confirmed. We look forward to seeing you!</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Registration Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Confirmation #:</td>
+          <td style="padding: 8px 0; font-weight: 500; font-family: monospace;">${params.registrationId}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Event:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Date:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Venue:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventVenue}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Ticket Type:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.ticketType}</td>
+        </tr>
+      </table>
+    </div>
+
+    ${params.qrCodeUrl ? `
+    <div style="text-align: center; margin: 20px 0;">
+      <p style="color: #6b7280; margin-bottom: 10px;">Show this QR code at check-in:</p>
+      <img src="${params.qrCodeUrl}" alt="Check-in QR Code" style="max-width: 200px; border: 1px solid #e5e7eb; border-radius: 8px;">
+    </div>
+    ` : ""}
+
+    ${params.additionalInfo ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">${params.additionalInfo}</p>` : ""}
+
+    <p>If you have any questions, please don't hesitate to contact us.</p>
+
+    <p style="margin-bottom: 0;">See you at the event!</p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding your registration for ${params.eventName}</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Registration Confirmed - ${params.eventName}
+
+Dear ${params.attendeeName},
+
+Your registration for ${params.eventName} has been confirmed. We look forward to seeing you!
+
+Registration Details:
+- Confirmation #: ${params.registrationId}
+- Event: ${params.eventName}
+- Date: ${params.eventDate}
+- Venue: ${params.eventVenue}
+- Ticket Type: ${params.ticketType}
+
+${params.additionalInfo ? `Important: ${params.additionalInfo}` : ""}
+
+If you have any questions, please don't hesitate to contact us.
+
+See you at the event!
+    `,
+  }),
+
+  eventReminder: (params: {
+    recipientName: string;
+    eventName: string;
+    eventDate: string;
+    eventVenue: string;
+    eventAddress?: string;
+    daysUntilEvent: number;
+  }) => ({
+    subject: `Reminder: ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `in ${params.daysUntilEvent} days`}!`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Reminder</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">${params.daysUntilEvent === 1 ? "See You Tomorrow!" : `${params.daysUntilEvent} Days to Go!`}</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.recipientName}</strong>,</p>
+
+    <p>This is a friendly reminder that <strong>${params.eventName}</strong> is ${params.daysUntilEvent === 1 ? "tomorrow" : `coming up in ${params.daysUntilEvent} days`}!</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Date:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Venue:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventVenue}</td>
+        </tr>
+        ${params.eventAddress ? `
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Address:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.eventAddress}</td>
+        </tr>
+        ` : ""}
+      </table>
+    </div>
+
+    <p>Don't forget to bring your registration confirmation or QR code for check-in.</p>
+
+    <p style="margin-bottom: 0;">We look forward to seeing you!</p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding ${params.eventName}</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Reminder: ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `in ${params.daysUntilEvent} days`}!
+
+Dear ${params.recipientName},
+
+This is a friendly reminder that ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `coming up in ${params.daysUntilEvent} days`}!
+
+Event Details:
+- Date: ${params.eventDate}
+- Venue: ${params.eventVenue}
+${params.eventAddress ? `- Address: ${params.eventAddress}` : ""}
+
+Don't forget to bring your registration confirmation or QR code for check-in.
+
+We look forward to seeing you!
+    `,
+  }),
+
+  customNotification: (params: {
+    recipientName: string;
+    subject: string;
+    message: string;
+    eventName?: string;
+    ctaText?: string;
+    ctaLink?: string;
+  }) => ({
+    subject: params.subject,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${params.subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">${params.subject}</h1>
+    ${params.eventName ? `<p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>` : ""}
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.recipientName}</strong>,</p>
+
+    <div style="white-space: pre-wrap;">${params.message}</div>
+
+    ${params.ctaText && params.ctaLink ? `
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.ctaLink}" style="display: inline-block; background: #3b82f6; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">${params.ctaText}</a>
+    </div>
+    ` : ""}
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    ${params.eventName ? `<p>This email was sent regarding ${params.eventName}</p>` : ""}
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+${params.subject}
+
+Dear ${params.recipientName},
+
+${params.message}
+
+${params.ctaText && params.ctaLink ? `${params.ctaText}: ${params.ctaLink}` : ""}
+    `,
+  }),
+};

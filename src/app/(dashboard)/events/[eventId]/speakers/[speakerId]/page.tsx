@@ -17,6 +17,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ArrowLeft,
   Mic,
   Save,
@@ -24,6 +37,10 @@ import {
   Building,
   Globe,
   Trash2,
+  Send,
+  FileText,
+  Loader2,
+  ChevronDown,
 } from "lucide-react";
 
 const statusColors = {
@@ -91,6 +108,12 @@ export default function SpeakerDetailPage() {
       github: "",
     },
   });
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom">("invitation");
+  const [customEmailSubject, setCustomEmailSubject] = useState("");
+  const [customEmailMessage, setCustomEmailMessage] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSpeaker();
@@ -173,6 +196,47 @@ export default function SpeakerDetailPage() {
     }
   };
 
+  const handleSendEmail = async () => {
+    if (sendingEmail) return;
+
+    if (emailType === "custom" && (!customEmailSubject || !customEmailMessage)) {
+      setError("Please provide subject and message for custom email");
+      return;
+    }
+
+    setSendingEmail(true);
+    setError(null);
+    setEmailSuccess(null);
+
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: emailType,
+          customSubject: customEmailSubject || undefined,
+          customMessage: customEmailMessage || undefined,
+          includeAgreementLink: emailType === "agreement",
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setEmailSuccess(data.message || "Email sent successfully!");
+        setIsEmailDialogOpen(false);
+        setCustomEmailSubject("");
+        setCustomEmailMessage("");
+      } else {
+        setError(data.error || "Failed to send email");
+      }
+    } catch (err) {
+      setError("An error occurred while sending email");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -243,6 +307,44 @@ export default function SpeakerDetailPage() {
         <div className="flex gap-2">
           {!isEditing && (
             <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline">
+                    <Send className="mr-2 h-4 w-4" />
+                    Send Email
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEmailType("invitation");
+                      setIsEmailDialogOpen(true);
+                    }}
+                  >
+                    <Mail className="mr-2 h-4 w-4" />
+                    Speaker Invitation
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEmailType("agreement");
+                      setIsEmailDialogOpen(true);
+                    }}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Speaker Agreement
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setEmailType("custom");
+                      setIsEmailDialogOpen(true);
+                    }}
+                  >
+                    <Send className="mr-2 h-4 w-4" />
+                    Custom Email
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button variant="outline" onClick={() => setIsEditing(true)}>
                 Edit
               </Button>
@@ -253,6 +355,12 @@ export default function SpeakerDetailPage() {
           )}
         </div>
       </div>
+
+      {emailSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+          {emailSuccess}
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -508,6 +616,76 @@ export default function SpeakerDetailPage() {
           </Card>
         </div>
       </div>
+
+      {/* Email Dialog */}
+      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {emailType === "invitation" && "Send Speaker Invitation"}
+              {emailType === "agreement" && "Send Speaker Agreement"}
+              {emailType === "custom" && "Send Custom Email"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-muted p-3 rounded-lg">
+              <p className="text-sm">
+                <strong>To:</strong> {speaker.firstName} {speaker.lastName} ({speaker.email})
+              </p>
+            </div>
+
+            {emailType === "invitation" && (
+              <p className="text-sm text-muted-foreground">
+                This will send a speaker invitation email with event details and a request to confirm participation.
+              </p>
+            )}
+
+            {emailType === "agreement" && (
+              <p className="text-sm text-muted-foreground">
+                This will send a speaker agreement email with event details, session information (if assigned), and agreement terms.
+              </p>
+            )}
+
+            {emailType === "custom" && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="emailSubject">Subject</Label>
+                  <Input
+                    id="emailSubject"
+                    value={customEmailSubject}
+                    onChange={(e) => setCustomEmailSubject(e.target.value)}
+                    placeholder="Email subject"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emailMessage">Message</Label>
+                  <Textarea
+                    id="emailMessage"
+                    value={customEmailMessage}
+                    onChange={(e) => setCustomEmailMessage(e.target.value)}
+                    placeholder="Your message to the speaker..."
+                    rows={6}
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsEmailDialogOpen(false)}
+                disabled={sendingEmail}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleSendEmail} disabled={sendingEmail}>
+                {sendingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {sendingEmail ? "Sending..." : "Send Email"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
