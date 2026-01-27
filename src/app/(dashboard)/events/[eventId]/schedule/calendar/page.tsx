@@ -38,6 +38,7 @@ import {
   MapPin,
   Users,
   User,
+  Loader2,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 
@@ -108,6 +109,7 @@ export default function ScheduleCalendarPage() {
     status: "SCHEDULED",
     speakerIds: [] as string[],
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchSessions(), fetchTracks(), fetchSpeakers()]);
@@ -189,8 +191,9 @@ export default function ScheduleCalendarPage() {
 
   const handleSessionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingSession) return;
+    if (!editingSession || isSubmitting) return;
 
+    setIsSubmitting(true);
     try {
       const res = await fetch(`/api/events/${eventId}/sessions/${editingSession.id}`, {
         method: "PUT",
@@ -211,6 +214,8 @@ export default function ScheduleCalendarPage() {
       }
     } catch (error) {
       console.error("Error saving session:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -718,10 +723,14 @@ export default function ScheduleCalendarPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setIsEditDialogOpen(false)}
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
-                <Button type="submit">Save Changes</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
               </div>
             </form>
           </DialogContent>

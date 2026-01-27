@@ -34,6 +34,7 @@ import {
   MapPin,
   Users,
   User,
+  Loader2,
 } from "lucide-react";
 import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
 
@@ -90,6 +91,7 @@ export default function SchedulePage() {
     description: "",
     color: "#3B82F6",
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchSessions(), fetchTracks(), fetchSpeakers()]);
@@ -136,6 +138,9 @@ export default function SchedulePage() {
 
   const handleSessionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // Prevent double submission
+
+    setIsSubmitting(true);
     try {
       const url = editingSession
         ? `/api/events/${eventId}/sessions/${editingSession.id}`
@@ -161,11 +166,16 @@ export default function SchedulePage() {
       }
     } catch (error) {
       console.error("Error saving session:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleTrackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // Prevent double submission
+
+    setIsSubmitting(true);
     try {
       const url = editingTrack
         ? `/api/events/${eventId}/tracks/${editingTrack.id}`
@@ -186,6 +196,8 @@ export default function SchedulePage() {
       }
     } catch (error) {
       console.error("Error saving track:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -399,10 +411,12 @@ export default function SchedulePage() {
                     type="button"
                     variant="outline"
                     onClick={() => setIsTrackDialogOpen(false)}
+                    disabled={isSubmitting}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {editingTrack ? "Save Changes" : "Create Track"}
                   </Button>
                 </div>
@@ -626,10 +640,12 @@ export default function SchedulePage() {
                     type="button"
                     variant="outline"
                     onClick={() => setIsSessionDialogOpen(false)}
+                    disabled={isSubmitting}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {editingSession ? "Save Changes" : "Create Session"}
                   </Button>
                 </div>

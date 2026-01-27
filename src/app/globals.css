@@ -123,3 +123,36 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Ensure all interactive elements have pointer cursor */
+@layer components {
+  button,
+  [role="button"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"],
+  input[type="checkbox"],
+  input[type="radio"],
+  select,
+  a,
+  label[for],
+  [tabindex]:not([tabindex="-1"]) {
+    cursor: pointer;
+  }
+
+  /* Disabled states should show not-allowed cursor */
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  select:disabled,
+  a[aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  /* Loading/submitting state */
+  button[data-loading="true"],
+  [data-loading="true"] {
+    cursor: wait;
+    pointer-events: none;
+  }
+}
