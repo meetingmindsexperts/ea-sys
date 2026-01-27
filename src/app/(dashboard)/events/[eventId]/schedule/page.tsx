@@ -47,6 +47,7 @@ interface Speaker {
   id: string;
   firstName: string;
   lastName: string;
+  status: string;
 }
 
 interface Session {
@@ -122,7 +123,8 @@ export default function SchedulePage() {
 
   const fetchSpeakers = async () => {
     try {
-      const res = await fetch(`/api/events/${eventId}/speakers?status=CONFIRMED`);
+      // Fetch all speakers so users can assign any speaker to sessions
+      const res = await fetch(`/api/events/${eventId}/speakers`);
       if (res.ok) {
         const data = await res.json();
         setSpeakers(data);
@@ -597,9 +599,17 @@ export default function SchedulePage() {
                           />
                           <label
                             htmlFor={`speaker-${speaker.id}`}
-                            className="text-sm cursor-pointer flex-1"
+                            className="text-sm cursor-pointer flex-1 flex items-center gap-2"
                           >
                             {speaker.firstName} {speaker.lastName}
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                              speaker.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
+                              speaker.status === "INVITED" ? "bg-yellow-100 text-yellow-700" :
+                              speaker.status === "DECLINED" ? "bg-red-100 text-red-700" :
+                              "bg-gray-100 text-gray-700"
+                            }`}>
+                              {speaker.status}
+                            </span>
                           </label>
                         </div>
                       ))}
