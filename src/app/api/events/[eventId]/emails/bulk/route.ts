@@ -60,10 +60,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const user = await db.user.findUnique({
       where: { id: session.user.id },
-      select: { name: true, email: true },
+      select: { firstName: true, lastName: true, email: true },
     });
 
-    const organizerName = user?.name || "Event Organizer";
+    const organizerName = user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : "Event Organizer";
     const organizerEmail = user?.email || "";
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
@@ -104,13 +106,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         include: {
           ticketType: true,
+          attendee: true,
         },
       });
 
       recipients = registrations.map((r) => ({
         id: r.id,
-        email: r.email,
-        name: `${r.firstName} ${r.lastName}`,
+        email: r.attendee.email,
+        name: `${r.attendee.firstName} ${r.attendee.lastName}`,
         ticketType: r.ticketType?.name,
       }));
     }

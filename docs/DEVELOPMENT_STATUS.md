@@ -273,6 +273,12 @@ This document outlines the current development status of the Event Administratio
 - [x] Status badges displayed next to speaker names
 - [x] Color-coded status (green=CONFIRMED, yellow=INVITED, red=DECLINED)
 
+### UX Improvements
+- [x] Global cursor pointer styles for all interactive elements (buttons, links, inputs)
+- [x] Click-once protection on form submissions (prevents double-click issues)
+- [x] Disabled state styling with `cursor-not-allowed`
+- [x] Loading state styling with `cursor-wait` and `pointer-events: none`
+
 ### Email Notifications (Brevo Integration)
 - [x] Brevo SDK installed and configured
 - [x] Email service with professional HTML templates
@@ -285,6 +291,8 @@ This document outlines the current development status of the Event Administratio
 - [x] Send email to individual registration (confirmation, reminder, custom)
 - [x] Bulk email API for multiple recipients
 - [x] Email dropdown menu on speaker detail page
+- [x] Fixed User model field references (firstName/lastName vs name)
+- [x] Fixed Registration model to include Attendee relation for email access
 
 **API Endpoints:**
 - `POST /api/events/[eventId]/speakers/[speakerId]/email` - Send email to speaker

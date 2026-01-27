@@ -49,7 +49,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.user.findUnique({
         where: { id: session.user.id },
-        select: { name: true, email: true },
+        select: { firstName: true, lastName: true, email: true },
       }),
     ]);
 
@@ -83,7 +83,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         })
       : "TBA";
     const eventVenue = event.venue || "TBA";
-    const organizerName = user?.name || "Event Organizer";
+    const organizerName = user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : "Event Organizer";
     const organizerEmail = user?.email || "";
 
     // Get session details if speaker is assigned to sessions

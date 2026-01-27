@@ -41,6 +41,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         include: {
           ticketType: true,
+          attendee: true,
         },
       }),
     ]);
@@ -65,7 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { type, customSubject, customMessage, daysUntilEvent } = validated.data;
 
-    const attendeeName = `${registration.firstName} ${registration.lastName}`;
+    const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
           weekday: "long",
@@ -124,7 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const result = await sendEmail({
-      to: [{ email: registration.email, name: attendeeName }],
+      to: [{ email: registration.attendee.email, name: attendeeName }],
       subject: emailContent.subject,
       htmlContent: emailContent.htmlContent,
       textContent: emailContent.textContent,
@@ -147,7 +148,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         entityId: registration.id,
         changes: {
           emailType: type,
-          recipient: registration.email,
+          recipient: registration.attendee.email,
           subject: emailContent.subject,
         },
       },
@@ -155,7 +156,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
-      message: `Email sent to ${registration.email}`,
+      message: `Email sent to ${registration.attendee.email}`,
       messageId: result.messageId,
     });
   } catch (error) {
