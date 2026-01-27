@@ -18,7 +18,9 @@
       "Bash(. \"$NVM_DIR/nvm.sh\")",
       "Bash(npm run dev:*)",
       "Bash(vercel login --help:*)",
-      "Bash(vercel whoami:*)"
+      "Bash(vercel whoami:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
