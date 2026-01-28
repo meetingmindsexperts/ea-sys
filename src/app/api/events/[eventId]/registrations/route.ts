@@ -26,23 +26,14 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth
+    const [{ eventId }, session] = await Promise.all([
+      params,
+      auth(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Verify event belongs to user's organization
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -50,25 +41,41 @@ export async function GET(req: Request, { params }: RouteParams) {
     const paymentStatus = searchParams.get("paymentStatus");
     const ticketTypeId = searchParams.get("ticketTypeId");
 
-    const registrations = await db.registration.findMany({
-      where: {
-        eventId,
-        ...(status && { status: status as any }),
-        ...(paymentStatus && { paymentStatus: paymentStatus as any }),
-        ...(ticketTypeId && { ticketTypeId }),
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-        payments: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
+    // Parallelize event validation and registrations fetch
+    const [event, registrations] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
         },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+        select: { id: true },
+      }),
+      db.registration.findMany({
+        where: {
+          eventId,
+          ...(status && { status: status as any }),
+          ...(paymentStatus && { paymentStatus: paymentStatus as any }),
+          ...(ticketTypeId && { ticketTypeId }),
+        },
+        include: {
+          attendee: true,
+          ticketType: true,
+          payments: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
-    return NextResponse.json(registrations);
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    const response = NextResponse.json(registrations);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registrations" });
     return NextResponse.json(
@@ -80,26 +87,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify event belongs to user's organization
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createRegistrationSchema.safeParse(body);
 
     if (!validated.success) {
@@ -111,14 +109,30 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { ticketTypeId, attendee, notes } = validated.data;
 
-    // Verify ticket type exists and has availability
-    const ticketType = await db.ticketType.findFirst({
-      where: {
-        id: ticketTypeId,
-        eventId,
-        isActive: true,
-      },
-    });
+    // Parallelize event, ticket type, and existing attendee lookup
+    const [event, ticketType, existingAttendee] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.ticketType.findFirst({
+        where: {
+          id: ticketTypeId,
+          eventId,
+          isActive: true,
+        },
+      }),
+      db.attendee.findFirst({
+        where: { email: attendee.email },
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (!ticketType) {
       return NextResponse.json(
@@ -149,10 +163,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Create or find attendee
-    let attendeeRecord = await db.attendee.findFirst({
-      where: { email: attendee.email },
-    });
+    // Use existing attendee or create new one
+    let attendeeRecord = existingAttendee;
 
     if (!attendeeRecord) {
       attendeeRecord = await db.attendee.create({

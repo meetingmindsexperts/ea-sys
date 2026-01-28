@@ -260,6 +260,10 @@ This document outlines the current development status of the Event Administratio
 - [x] Added `stale-while-revalidate` cache headers to GET endpoints
 - [x] Optimized validation queries with `select: { id: true }`
 - [x] Configured Vercel region closer to database
+- [x] Bulk email API uses `Promise.allSettled` for parallel email sending
+- [x] Registrations route: parallelized params/auth/body, event/ticketType/attendee queries
+- [x] Sessions POST route: parallelized all validation queries (event, track, abstract, speakers)
+- [x] Speakers POST route: parallelized event validation and existing speaker check
 
 ### Session Edit Popup (Calendar & List Views)
 - [x] Click-to-edit session popup in calendar view

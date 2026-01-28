@@ -25,27 +25,17 @@ interface RouteParams {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const [{ eventId }, session] = await Promise.all([
+    // Parallelize initial operations: params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
       params,
       auth(),
+      req.json(),
     ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = bulkEmailSchema.safeParse(body);
 
     if (!validated.success) {
@@ -58,10 +48,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { recipientType, recipientIds, emailType, customSubject, customMessage, filters } =
       validated.data;
 
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { firstName: true, lastName: true, email: true },
-    });
+    // Parallelize event and user fetch
+    const [event, user] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+      }),
+      db.user.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true, email: true },
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const organizerName = user?.firstName && user?.lastName
       ? `${user.firstName} ${user.lastName}`
@@ -125,91 +128,87 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Send emails to each recipient
-    for (const recipient of recipients) {
-      try {
-        let emailContent;
-
-        if (recipientType === "speakers") {
-          switch (emailType) {
-            case "invitation":
-              emailContent = emailTemplates.speakerInvitation({
-                speakerName: recipient.name,
-                eventName: event.name,
-                eventDate,
-                eventVenue,
-                personalMessage: customMessage,
-                organizerName,
-                organizerEmail,
-              });
-              break;
-            case "agreement":
-              emailContent = emailTemplates.speakerAgreement({
-                speakerName: recipient.name,
-                eventName: event.name,
-                eventDate,
-                eventVenue,
-                organizerName,
-                organizerEmail,
-              });
-              break;
-            case "custom":
-              if (!customSubject || !customMessage) {
-                throw new Error("Custom emails require subject and message");
-              }
-              emailContent = emailTemplates.customNotification({
-                recipientName: recipient.name,
-                subject: customSubject,
-                message: customMessage,
-                eventName: event.name,
-              });
-              break;
-            default:
-              throw new Error("Invalid email type for speakers");
-          }
-        } else {
-          switch (emailType) {
-            case "confirmation":
-              emailContent = emailTemplates.registrationConfirmation({
-                attendeeName: recipient.name,
-                eventName: event.name,
-                eventDate,
-                eventVenue,
-                ticketType: recipient.ticketType || "General Admission",
-                registrationId: recipient.id.slice(-8).toUpperCase(),
-              });
-              break;
-            case "reminder":
-              const daysUntil = event.startDate
-                ? Math.ceil(
-                    (new Date(event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-                  )
-                : 1;
-              emailContent = emailTemplates.eventReminder({
-                recipientName: recipient.name,
-                eventName: event.name,
-                eventDate,
-                eventVenue,
-                eventAddress: event.address || undefined,
-                daysUntilEvent: Math.max(daysUntil, 1),
-              });
-              break;
-            case "custom":
-              if (!customSubject || !customMessage) {
-                throw new Error("Custom emails require subject and message");
-              }
-              emailContent = emailTemplates.customNotification({
-                recipientName: recipient.name,
-                subject: customSubject,
-                message: customMessage,
-                eventName: event.name,
-              });
-              break;
-            default:
-              throw new Error("Invalid email type for registrations");
-          }
+    // Helper function to generate email content for a recipient
+    const generateEmailContent = (recipient: typeof recipients[0]) => {
+      if (recipientType === "speakers") {
+        switch (emailType) {
+          case "invitation":
+            return emailTemplates.speakerInvitation({
+              speakerName: recipient.name,
+              eventName: event.name,
+              eventDate,
+              eventVenue,
+              personalMessage: customMessage,
+              organizerName,
+              organizerEmail,
+            });
+          case "agreement":
+            return emailTemplates.speakerAgreement({
+              speakerName: recipient.name,
+              eventName: event.name,
+              eventDate,
+              eventVenue,
+              organizerName,
+              organizerEmail,
+            });
+          case "custom":
+            if (!customSubject || !customMessage) {
+              throw new Error("Custom emails require subject and message");
+            }
+            return emailTemplates.customNotification({
+              recipientName: recipient.name,
+              subject: customSubject,
+              message: customMessage,
+              eventName: event.name,
+            });
+          default:
+            throw new Error("Invalid email type for speakers");
         }
+      } else {
+        switch (emailType) {
+          case "confirmation":
+            return emailTemplates.registrationConfirmation({
+              attendeeName: recipient.name,
+              eventName: event.name,
+              eventDate,
+              eventVenue,
+              ticketType: recipient.ticketType || "General Admission",
+              registrationId: recipient.id.slice(-8).toUpperCase(),
+            });
+          case "reminder":
+            const daysUntil = event.startDate
+              ? Math.ceil(
+                  (new Date(event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                )
+              : 1;
+            return emailTemplates.eventReminder({
+              recipientName: recipient.name,
+              eventName: event.name,
+              eventDate,
+              eventVenue,
+              eventAddress: event.address || undefined,
+              daysUntilEvent: Math.max(daysUntil, 1),
+            });
+          case "custom":
+            if (!customSubject || !customMessage) {
+              throw new Error("Custom emails require subject and message");
+            }
+            return emailTemplates.customNotification({
+              recipientName: recipient.name,
+              subject: customSubject,
+              message: customMessage,
+              eventName: event.name,
+            });
+          default:
+            throw new Error("Invalid email type for registrations");
+        }
+      }
+    };
 
+    // Send emails in parallel using Promise.allSettled for better performance
+    const emailPromises = recipients.map(async (recipient) => {
+      try {
+        const emailContent = generateEmailContent(recipient);
         const result = await sendEmail({
           to: [{ email: recipient.email, name: recipient.name }],
           subject: emailContent.subject,
@@ -220,19 +219,33 @@ export async function POST(req: Request, { params }: RouteParams) {
               ? { email: organizerEmail, name: organizerName }
               : undefined,
         });
+        return { recipient, result };
+      } catch (error) {
+        return {
+          recipient,
+          result: {
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        };
+      }
+    });
 
-        if (result.success) {
+    const emailResults = await Promise.allSettled(emailPromises);
+
+    // Process results
+    for (const result of emailResults) {
+      if (result.status === "fulfilled") {
+        const { recipient, result: emailResult } = result.value;
+        if (emailResult.success) {
           successCount++;
         } else {
           failureCount++;
-          errors.push({ email: recipient.email, error: result.error || "Unknown error" });
+          errors.push({ email: recipient.email, error: emailResult.error || "Unknown error" });
         }
-      } catch (error) {
+      } else {
+        // Promise rejected (shouldn't happen with our try-catch, but handle it)
         failureCount++;
-        errors.push({
-          email: recipient.email,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
       }
     }
 

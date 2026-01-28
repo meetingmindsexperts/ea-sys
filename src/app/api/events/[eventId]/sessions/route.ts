@@ -91,25 +91,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createSessionSchema.safeParse(body);
 
     if (!validated.success) {
@@ -132,48 +124,50 @@ export async function POST(req: Request, { params }: RouteParams) {
       speakerIds,
     } = validated.data;
 
-    // Validate track exists if provided
-    if (trackId) {
-      const track = await db.track.findFirst({
-        where: { id: trackId, eventId },
-      });
-      if (!track) {
-        return NextResponse.json({ error: "Track not found" }, { status: 404 });
-      }
-    }
-
-    // Validate abstract exists if provided
-    if (abstractId) {
-      const abstract = await db.abstract.findFirst({
-        where: { id: abstractId, eventId },
-      });
-      if (!abstract) {
-        return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-      }
-
-      // Check if abstract is already assigned to a session
-      const existingSession = await db.eventSession.findFirst({
-        where: { abstractId },
-      });
-      if (existingSession) {
-        return NextResponse.json(
-          { error: "Abstract is already assigned to another session" },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate speakers exist if provided
-    if (speakerIds && speakerIds.length > 0) {
-      const speakers = await db.speaker.findMany({
+    // Parallelize all validation queries
+    const [event, track, abstract, existingAbstractSession, speakers] = await Promise.all([
+      db.event.findFirst({
         where: {
-          id: { in: speakerIds },
-          eventId,
+          id: eventId,
+          organizationId: session.user.organizationId,
         },
-      });
-      if (speakers.length !== speakerIds.length) {
-        return NextResponse.json({ error: "One or more speakers not found" }, { status: 404 });
-      }
+        select: { id: true },
+      }),
+      trackId
+        ? db.track.findFirst({ where: { id: trackId, eventId } })
+        : Promise.resolve(null),
+      abstractId
+        ? db.abstract.findFirst({ where: { id: abstractId, eventId } })
+        : Promise.resolve(null),
+      abstractId
+        ? db.eventSession.findFirst({ where: { abstractId } })
+        : Promise.resolve(null),
+      speakerIds && speakerIds.length > 0
+        ? db.speaker.findMany({ where: { id: { in: speakerIds }, eventId } })
+        : Promise.resolve([]),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (trackId && !track) {
+      return NextResponse.json({ error: "Track not found" }, { status: 404 });
+    }
+
+    if (abstractId && !abstract) {
+      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+    }
+
+    if (abstractId && existingAbstractSession) {
+      return NextResponse.json(
+        { error: "Abstract is already assigned to another session" },
+        { status: 400 }
+      );
+    }
+
+    if (speakerIds && speakerIds.length > 0 && speakers.length !== speakerIds.length) {
+      return NextResponse.json({ error: "One or more speakers not found" }, { status: 404 });
     }
 
     const eventSession = await db.eventSession.create({

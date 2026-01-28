@@ -91,25 +91,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createSpeakerSchema.safeParse(body);
 
     if (!validated.success) {
@@ -132,13 +124,26 @@ export async function POST(req: Request, { params }: RouteParams) {
       status,
     } = validated.data;
 
-    // Check if speaker already exists for this event
-    const existingSpeaker = await db.speaker.findFirst({
-      where: {
-        eventId,
-        email,
-      },
-    });
+    // Parallelize event validation and existing speaker check
+    const [event, existingSpeaker] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: {
+          eventId,
+          email,
+        },
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (existingSpeaker) {
       return NextResponse.json(
