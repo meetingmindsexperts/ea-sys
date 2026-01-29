@@ -94,7 +94,9 @@ export function Header() {
     : "U";
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-background px-6">
+    <header className="flex h-16 items-center justify-between border-b bg-background px-6 relative">
+      {/* Accent gradient line at bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-primary-horizontal opacity-50" />
       <div className="flex items-center gap-4">
         {isEventPage && currentEvent ? (
           <div className="flex items-center gap-2">
@@ -159,14 +161,14 @@ export function Header() {
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-yellow" />
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="flex items-center gap-2">
               <Avatar className="h-8 w-8">
                 <AvatarImage src={session?.user?.image || undefined} />
-                <AvatarFallback>{initials}</AvatarFallback>
+                <AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback>
               </Avatar>
               <span className="hidden md:block">
                 {session?.user?.firstName} {session?.user?.lastName}

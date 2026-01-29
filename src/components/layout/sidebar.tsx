@@ -67,7 +67,7 @@ export function Sidebar() {
         )}
       >
         {/* Logo */}
-        <div className="flex h-16 items-center border-b px-3">
+        <div className="flex h-16 items-center border-b px-3 bg-gradient-primary">
           <Link
             href="/dashboard"
             className={cn(
@@ -75,9 +75,9 @@ export function Sidebar() {
               isCollapsed && "justify-center w-full"
             )}
           >
-            <Calendar className="h-6 w-6 text-primary flex-shrink-0" />
+            <Calendar className="h-6 w-6 text-white flex-shrink-0" />
             {!isCollapsed && (
-              <span className="text-xl font-bold">EventsHub</span>
+              <span className="text-xl font-bold text-white">EventsHub</span>
             )}
           </Link>
         </div>
