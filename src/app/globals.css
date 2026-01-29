@@ -60,7 +60,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.02 220);
   /* Primary: Cerulean Blue #00aade */
-  --primary: oklch(0.65 0.155 220);
+  --primary: oklch(73.00% 0.155 240.65);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.95 0.015 220);
   --secondary-foreground: oklch(0.25 0.02 220);
@@ -72,9 +72,9 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.9 0.015 220);
   --input: oklch(0.92 0.01 220);
-  --ring: oklch(0.65 0.155 220);
+  --ring: oklch(73.00% 0.155 240.65);
   /* Chart colors with cerulean/yellow theme */
-  --chart-1: oklch(0.65 0.155 220);
+  --chart-1: oklch(73.00% 0.155 240.65);
   --chart-2: oklch(0.75 0.12 220);
   --chart-3: oklch(0.8 0.16 85);
   --chart-4: oklch(0.55 0.14 220);
@@ -82,14 +82,14 @@
   /* Sidebar with cerulean accent */
   --sidebar: oklch(0.98 0.005 220);
   --sidebar-foreground: oklch(0.2 0.02 220);
-  --sidebar-primary: oklch(0.65 0.155 220);
+  --sidebar-primary: oklch(73.00% 0.155 240.65);
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: oklch(0.94 0.02 220);
   --sidebar-accent-foreground: oklch(0.25 0.02 220);
   --sidebar-border: oklch(0.9 0.015 220);
-  --sidebar-ring: oklch(0.65 0.155 220);
+  --sidebar-ring: oklch(73.00% 0.155 240.65);
   /* Gradient colors */
-  --gradient-start: oklch(0.65 0.155 220);
+  --gradient-start: oklch(73.00% 0.155 240.65);
   --gradient-end: oklch(0.8 0.1 210);
   /* Accent yellow for highlights */
   --accent-yellow: oklch(0.88 0.17 85);
