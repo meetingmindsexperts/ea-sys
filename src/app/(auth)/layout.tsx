@@ -20,7 +20,7 @@ export default function AuthLayout({
           <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center">
             <Calendar className="h-10 w-10" />
           </div>
-          <h1 className="text-4xl font-bold mb-4">EventsHub</h1>
+          <h1 className="text-4xl font-bold mb-4">MMGroup EventsHub</h1>
           <p className="text-lg opacity-90 mb-8">
             The complete event management platform for conferences, meetings,
             and events. Manage registrations, speakers, accommodations, and more.

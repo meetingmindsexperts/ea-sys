@@ -41,7 +41,7 @@ export default async function Home() {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Calendar className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">EventsHub</span>
+            <span className="text-xl font-bold">MMGroup EventsHub</span>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" asChild>
@@ -102,7 +102,7 @@ export default async function Home() {
       <section className="py-20 px-4">
         <div className="container mx-auto max-w-4xl">
           <h2 className="text-3xl font-bold text-center mb-12">
-            Why choose EventsHub?
+            Why choose MMGroup EventsHub?
           </h2>
           <div className="space-y-6">
             {[
@@ -138,7 +138,7 @@ export default async function Home() {
       {/* Footer */}
       <footer className="border-t py-8">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} EventsHub. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} MMGroup EventsHub. All rights reserved.</p>
         </div>
       </footer>
     </div>

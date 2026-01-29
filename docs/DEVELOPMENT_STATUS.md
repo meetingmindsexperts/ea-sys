@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** January 27, 2026
+**Last Updated:** January 29, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -230,7 +230,63 @@ This document outlines the current development status of the Event Administratio
 
 ---
 
-## Recent Updates (January 27, 2026)
+## Recent Updates (January 29, 2026)
+
+### UI Theming & Branding
+- [x] New color scheme with Cerulean Blue (#00aade) as primary color
+- [x] Gradient theme: Cerulean to Light Blue
+- [x] Yellowish/Amber accent color for notifications and highlights
+- [x] Custom CSS variables using oklch color format for better color manipulation
+- [x] Gradient utilities: `bg-gradient-primary`, `text-gradient-primary`, `btn-gradient`
+- [x] Dark mode support with adjusted color values
+- [x] Updated sidebar with gradient logo area
+- [x] Updated header with accent gradient line
+- [x] Updated auth pages (login, register) with gradient backgrounds
+- [x] Gradient CTA buttons across the application
+
+**Color Palette:**
+- Primary: Cerulean Blue `oklch(0.65 0.155 220)` / `#00aade`
+- Primary Foreground: White
+- Accent: Amber/Yellow `oklch(0.85 0.16 85)`
+- Gradient Start: `oklch(0.65 0.155 220)` (Cerulean)
+- Gradient End: `oklch(0.82 0.1 220)` (Light Blue)
+
+### User Invitation System (Complete)
+- [x] User invitation email template with Cerulean Blue gradient header
+- [x] Secure invitation token generation (32 bytes, 7-day expiry)
+- [x] Token storage in VerificationToken table
+- [x] Updated organization users API to send invitation emails
+- [x] Accept invitation API endpoint (GET for validation, POST for password setup)
+- [x] Accept invitation UI page with form validation
+- [x] Email verification on invitation acceptance
+- [x] Audit logging for invitation actions
+- [x] Settings page updated with toast notifications (replaced temp password alert)
+- [x] Loading states and disabled states during invitation submission
+
+**New Files:**
+- `src/app/api/auth/accept-invitation/route.ts` - API endpoint for invitation acceptance
+- `src/app/(auth)/accept-invitation/page.tsx` - UI for accepting invitations
+
+**Updated Files:**
+- `src/app/api/organization/users/route.ts` - Now sends invitation emails
+- `src/app/(dashboard)/settings/page.tsx` - Toast notifications, improved UX
+- `src/lib/email.ts` - Added `userInvitation` email template
+- `src/app/globals.css` - New color scheme and gradient utilities
+
+**Invitation Flow:**
+1. Admin invites user via Settings > Team Members > Add User
+2. System generates secure token, creates user with placeholder password
+3. Invitation email sent with setup link (valid 7 days)
+4. User clicks link, validates token, sets password
+5. User redirected to login page
+
+**API Endpoints:**
+- `GET /api/auth/accept-invitation?token=...&email=...` - Validate invitation token
+- `POST /api/auth/accept-invitation` - Accept invitation and set password
+
+---
+
+## Updates (January 27, 2026)
 
 ### Vercel Deployment
 - [x] Configured project for Vercel deployment
@@ -511,7 +567,8 @@ This document outlines the current development status of the Event Administratio
 |---------|----------|------------------|--------|
 | Event Settings Page | High | Medium | ✅ Complete |
 | Organization Settings | High | Medium | ✅ Complete |
-| User Management (Invite Team) | High | Medium | Pending |
+| User Management (Invite Team) | High | Medium | ✅ Complete |
+| User Invitation Emails | High | Medium | ✅ Complete |
 | Role-based Permissions | Medium | Medium | Pending |
 | Audit Log Viewer | Medium | Low | Pending |
 | Data Import (Bulk) | Medium | Medium | Pending |
@@ -563,7 +620,8 @@ src/
 ├── app/
 │   ├── (auth)/
 │   │   ├── login/
-│   │   └── register/
+│   │   ├── register/
+│   │   └── accept-invitation/     ✅ (new - user invitation acceptance)
 │   ├── (dashboard)/
 │   │   ├── dashboard/
 │   │   ├── layout.tsx              ✅ (with SidebarProvider)
@@ -583,6 +641,8 @@ src/
 │   │       └── new/
 │   ├── settings/                 ✅ (new - org settings)
 │   └── api/
+│       ├── auth/
+│       │   └── accept-invitation/ ✅ (new - invitation acceptance endpoint)
 │       └── events/
 │           └── [eventId]/
 │               ├── abstracts/        ✅
@@ -607,8 +667,9 @@ src/
 │   └── sidebar-context.tsx         ✅ (new)
 ├── lib/
 │   ├── auth.ts                       ✅
-│   ├── auth.config.ts                ✅ (new - Edge-compatible)
+│   ├── auth.config.ts                ✅ (Edge-compatible)
 │   ├── db.ts                         ✅ (with logger)
+│   ├── email.ts                      ✅ (Brevo email service + templates)
 │   ├── logger.ts                     ✅ (pino logger)
 │   └── utils.ts                      ✅ (with UTC date utilities)
 └── types/
@@ -623,7 +684,7 @@ src/
 | Events | 5 | ✅ Complete |
 | Tickets | 5 | ✅ Complete |
 | Registrations | 7 | ✅ Complete |
-| Speakers | 5 | ✅ Complete |
+| Speakers | 6 | ✅ Complete |
 | Tracks | 5 | ✅ Complete |
 | Sessions | 5 | ✅ Complete |
 | Abstracts | 5 | ✅ Complete |
@@ -631,7 +692,10 @@ src/
 | Room Types | 5 | ✅ Complete |
 | Accommodations | 5 | ✅ Complete |
 | Organization | 2 | ✅ Complete |
-| **Total** | **54** | |
+| Organization Users | 4 | ✅ Complete |
+| Auth (Accept Invitation) | 2 | ✅ Complete |
+| Emails (Bulk) | 1 | ✅ Complete |
+| **Total** | **62** | |
 
 ---
 

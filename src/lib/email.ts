@@ -8,7 +8,7 @@ apiInstance.setApiKey(
   process.env.BREVO_API_KEY || ""
 );
 
-const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || "noreply@example.com";
+const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || "krishna@meetingmindsdubai.com";
 const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || "Event Management System";
 
 interface SendEmailParams {
@@ -462,6 +462,88 @@ ${params.eventAddress ? `- Address: ${params.eventAddress}` : ""}
 Don't forget to bring your registration confirmation or QR code for check-in.
 
 We look forward to seeing you!
+    `,
+  }),
+
+  userInvitation: (params: {
+    recipientName: string;
+    recipientEmail: string;
+    organizationName: string;
+    inviterName: string;
+    role: string;
+    setupLink: string;
+    expiresIn?: string;
+  }) => ({
+    subject: `You've been invited to join ${params.organizationName}`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team Invitation</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited!</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Join ${params.organizationName} on MMGroup EventsHub</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Hi <strong>${params.recipientName}</strong>,</p>
+
+    <p><strong>${params.inviterName}</strong> has invited you to join <strong>${params.organizationName}</strong> on MMGroup EventsHub as a <strong>${params.role}</strong>.</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Organization:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.organizationName}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Your Role:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.role}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Your Email:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.recipientEmail}</td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.setupLink}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept Invitation & Set Password</a>
+    </div>
+
+    ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This invitation will expire in ${params.expiresIn}.</p>` : ""}
+
+    <p style="color: #6b7280; font-size: 14px;">If you didn't expect this invitation, you can safely ignore this email.</p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>Sent from MMGroup EventsHub - Event Management Platform</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+You've been invited to join ${params.organizationName}
+
+Hi ${params.recipientName},
+
+${params.inviterName} has invited you to join ${params.organizationName} on MMGroup EventsHub as a ${params.role}.
+
+Invitation Details:
+- Organization: ${params.organizationName}
+- Your Role: ${params.role}
+- Your Email: ${params.recipientEmail}
+
+Accept Invitation & Set Password: ${params.setupLink}
+
+${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.` : ""}
+
+If you didn't expect this invitation, you can safely ignore this email.
     `,
   }),
 

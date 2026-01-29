@@ -77,7 +77,7 @@ export function Sidebar() {
           >
             <Calendar className="h-6 w-6 text-white flex-shrink-0" />
             {!isCollapsed && (
-              <span className="text-xl font-bold text-white">EventsHub</span>
+              <span className="text-xl font-bold text-white">MMGroup EventsHub</span>
             )}
           </Link>
         </div>

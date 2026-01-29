@@ -38,7 +38,10 @@ import {
   Trash2,
   Edit,
   Save,
+  Mail,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface Organization {
   id: string;
@@ -180,8 +183,11 @@ export default function SettingsPage() {
     }
   };
 
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingUser(true);
     try {
       if (editingUser) {
         const res = await fetch(`/api/organization/users/${editingUser.id}`, {
@@ -194,9 +200,13 @@ export default function SettingsPage() {
           }),
         });
         if (res.ok) {
+          toast.success("User updated successfully");
           fetchUsers();
           setIsUserDialogOpen(false);
           resetUserForm();
+        } else {
+          const data = await res.json();
+          toast.error(data.error || "Failed to update user");
         }
       } else {
         const res = await fetch("/api/organization/users", {
@@ -204,16 +214,31 @@ export default function SettingsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(userFormData),
         });
+        const data = await res.json();
         if (res.ok) {
-          const data = await res.json();
-          alert(`User created! Temporary password: ${data.tempPassword}`);
+          if (data.invitationSent) {
+            toast.success(
+              `Invitation sent to ${userFormData.email}! They will receive an email to set up their account.`,
+              { duration: 5000 }
+            );
+          } else {
+            toast.warning(
+              "User created but invitation email could not be sent. Please contact them directly.",
+              { duration: 5000 }
+            );
+          }
           fetchUsers();
           setIsUserDialogOpen(false);
           resetUserForm();
+        } else {
+          toast.error(data.error || "Failed to create user");
         }
       }
     } catch (error) {
       console.error("Error saving user:", error);
+      toast.error("An error occurred. Please try again.");
+    } finally {
+      setIsSubmittingUser(false);
     }
   };
 
@@ -508,16 +533,28 @@ export default function SettingsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {!editingUser && (
+                      <div className="flex items-center gap-2 p-3 bg-muted rounded-lg text-sm">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">
+                          An invitation email will be sent to set up their account
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-end gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => setIsUserDialogOpen(false)}
+                        disabled={isSubmittingUser}
                       >
                         Cancel
                       </Button>
-                      <Button type="submit">
-                        {editingUser ? "Save Changes" : "Add User"}
+                      <Button type="submit" disabled={isSubmittingUser}>
+                        {isSubmittingUser && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        {editingUser ? "Save Changes" : "Send Invitation"}
                       </Button>
                     </div>
                   </form>
