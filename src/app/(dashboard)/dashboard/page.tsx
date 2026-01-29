@@ -63,7 +63,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">
-          Welcome back, {session.user.firstName}!
+          Welcome, {session.user.firstName}!
         </h1>
         <p className="text-muted-foreground">
           Here&apos;s what&apos;s happening with your events.

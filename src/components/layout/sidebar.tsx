@@ -81,27 +81,7 @@ export function Sidebar() {
             )}
           </Link>
         </div>
-        {/* Collapse Toggle */}
-        <div className="border-t p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleSidebar}
-            className={cn(
-              "w-full justify-center",
-              !isCollapsed && "justify-start"
-            )}
-          >
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <>
-                <ChevronLeft className="h-4 w-4 mr-2" />
-                Collapse
-              </>
-            )}
-          </Button>
-        </div>
+        
         {/* Event indicator when on event page */}
         {isEventPage && !isCollapsed && (
           <div className="border-b px-3 py-2">
@@ -155,6 +135,27 @@ export function Sidebar() {
             return navLink;
           })}
         </nav>
+        {/* Collapse Toggle */}
+        <div className="border-t p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleSidebar}
+            className={cn(
+              "w-full justify-center",
+              !isCollapsed && "justify-start"
+            )}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Collapse
+              </>
+            )}
+          </Button>
+        </div>
 
         
       </aside>
