@@ -63,7 +63,8 @@ export const {
     async signIn() {
       return true;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // On sign in, fetch user data
       if (user) {
         const dbUser = await db.user.findUnique({
           where: { email: user.email! },
@@ -79,6 +80,21 @@ export const {
           token.lastName = dbUser.lastName;
         }
       }
+
+      // On explicit session update (e.g., after org settings change), refetch data
+      if (trigger === "update" && token.id) {
+        const dbUser = await db.user.findUnique({
+          where: { id: token.id as string },
+          include: { organization: { select: { name: true } } },
+        });
+        if (dbUser) {
+          token.organizationName = dbUser.organization.name;
+          token.firstName = dbUser.firstName;
+          token.lastName = dbUser.lastName;
+          token.role = dbUser.role;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {

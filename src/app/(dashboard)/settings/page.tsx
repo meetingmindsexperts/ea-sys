@@ -93,7 +93,7 @@ const dateFormats = [
 ];
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,9 +175,15 @@ export default function SettingsPage() {
 
       if (res.ok) {
         fetchOrganization();
+        // Refresh session to update organization name in header
+        await updateSession();
+        toast.success("Organization settings saved");
+      } else {
+        toast.error("Failed to save organization settings");
       }
     } catch (error) {
       console.error("Error saving organization:", error);
+      toast.error("Failed to save organization settings");
     } finally {
       setSaving(false);
     }
