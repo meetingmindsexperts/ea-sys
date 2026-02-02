@@ -21,7 +21,8 @@
       "Bash(vercel whoami:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npx prisma migrate:*)"
     ]
   }
 }

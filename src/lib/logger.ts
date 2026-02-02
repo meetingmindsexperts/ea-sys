@@ -1,7 +1,20 @@
 import pino from "pino";
+import fs from "fs";
+import path from "path";
 
-const isProduction = process.env.NODE_ENV === "production";
 const isDevelopment = process.env.NODE_ENV === "development";
+
+// Create logs directory if it doesn't exist (only on server-side)
+const logsDir = path.join(process.cwd(), "logs");
+if (typeof window === "undefined") {
+  try {
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+  } catch {
+    // Ignore errors (e.g., in serverless environments)
+  }
+}
 
 // Create the base logger configuration
 const loggerConfig: pino.LoggerOptions = {
@@ -52,24 +65,59 @@ const loggerConfig: pino.LoggerOptions = {
   timestamp: pino.stdTimeFunctions.isoTime,
 };
 
-// In development, use pino-pretty for readable output
-// In production, use JSON format for log aggregation
-const transport = isDevelopment
-  ? {
+// Configure transport based on environment
+// Development: pretty console output + file logging
+// Production: JSON to console (for log aggregation) + file logging
+const getTransport = () => {
+  const targets: pino.TransportTargetOptions[] = [];
+
+  // Console output
+  if (isDevelopment) {
+    targets.push({
       target: "pino-pretty",
+      level: "debug",
       options: {
         colorize: true,
         translateTime: "SYS:standard",
         ignore: "pid,hostname,env,app",
         singleLine: false,
       },
-    }
-  : undefined;
+    });
+  } else {
+    targets.push({
+      target: "pino/file",
+      level: "info",
+      options: { destination: 1 }, // stdout
+    });
+  }
+
+  // File logging - combined log (all levels)
+  targets.push({
+    target: "pino/file",
+    level: "debug",
+    options: {
+      destination: path.join(logsDir, "app.log"),
+      mkdir: true,
+    },
+  });
+
+  // File logging - errors only
+  targets.push({
+    target: "pino/file",
+    level: "error",
+    options: {
+      destination: path.join(logsDir, "error.log"),
+      mkdir: true,
+    },
+  });
+
+  return { targets };
+};
 
 // Create the logger instance
 export const logger = pino({
   ...loggerConfig,
-  ...(transport && { transport }),
+  transport: getTransport(),
 });
 
 // Create child loggers for different modules
