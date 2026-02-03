@@ -121,12 +121,13 @@ function LoginForm() {
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Sign in
             </Button>
-            <p className="text-sm text-muted-foreground text-center">
+{/* Public registration disabled - single organization mode */}
+            {/* <p className="text-sm text-muted-foreground text-center">
               Don&apos;t have an account?{" "}
               <Link href="/register" className="text-primary hover:underline">
                 Sign up
               </Link>
-            </p>
+            </p> */}
           </CardFooter>
         </form>
       </Form>

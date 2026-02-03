@@ -1,4 +1,17 @@
 import { NextResponse } from "next/server";
+
+// Public registration is disabled - single organization mode
+// Users must be invited by an admin via /api/organization/users (POST)
+// To enable multi-org registration later, restore this endpoint
+
+export async function POST() {
+  return NextResponse.json(
+    { error: "Public registration is disabled. Please contact an administrator for access." },
+    { status: 403 }
+  );
+}
+
+/* ORIGINAL CODE - Restore when enabling multi-org support
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -96,3 +109,4 @@ export async function POST(req: Request) {
     );
   }
 }
+*/

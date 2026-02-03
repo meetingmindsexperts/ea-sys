@@ -599,3 +599,39 @@ ${params.ctaText && params.ctaLink ? `${params.ctaText}: ${params.ctaLink}` : ""
     `,
   }),
 };
+
+// Helper function to send registration confirmation
+export async function sendRegistrationConfirmation(params: {
+  to: string;
+  firstName: string;
+  eventName: string;
+  eventDate: Date;
+  eventVenue: string;
+  eventCity: string;
+  ticketType: string;
+  registrationId: string;
+  qrCode: string;
+}) {
+  const template = emailTemplates.registrationConfirmation({
+    attendeeName: params.firstName,
+    eventName: params.eventName,
+    eventDate: new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(params.eventDate)),
+    eventVenue: [params.eventVenue, params.eventCity].filter(Boolean).join(", "),
+    ticketType: params.ticketType,
+    registrationId: params.registrationId,
+  });
+
+  return sendEmail({
+    to: [{ email: params.to, name: params.firstName }],
+    subject: template.subject,
+    htmlContent: template.htmlContent,
+    textContent: template.textContent,
+  });
+}
