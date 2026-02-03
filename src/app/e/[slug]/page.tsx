@@ -202,7 +202,7 @@ export default function PublicEventPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-gradient-primary text-white">
-        <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto px-4 py-8">
           <p className="text-sm opacity-80 mb-2">{event.organization.name}</p>
           <h1 className="text-3xl font-bold mb-4">{event.name}</h1>
 
@@ -231,9 +231,9 @@ export default function PublicEventPage() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Event Details */}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid md:grid-cols-5 gap-8">
+          {/* Event Details & Tickets */}
           <div className="md:col-span-2 space-y-6">
             {event.description && (
               <Card>
@@ -309,7 +309,7 @@ export default function PublicEventPage() {
           </div>
 
           {/* Registration Form */}
-          <div>
+          <div className="md:col-span-3">
             <Card className="sticky top-4">
               <CardHeader>
                 <CardTitle>Register</CardTitle>
