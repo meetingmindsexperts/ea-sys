@@ -6,14 +6,15 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
-// Get public event details
+// Get public event details (supports both slug and event ID)
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
 
+    // Support both slug and event ID lookup
     const event = await db.event.findFirst({
       where: {
-        slug,
+        OR: [{ slug }, { id: slug }],
         status: { in: ["PUBLISHED", "LIVE"] },
       },
       select: {

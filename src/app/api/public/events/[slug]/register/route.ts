@@ -36,10 +36,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { ticketTypeId, firstName, lastName, email, company, jobTitle, phone, dietaryReqs } =
       validated.data;
 
-    // Find the event
+    // Find the event (supports both slug and event ID)
     const event = await db.event.findFirst({
       where: {
-        slug,
+        OR: [{ slug }, { id: slug }],
         status: { in: ["PUBLISHED", "LIVE"] },
       },
       select: {
