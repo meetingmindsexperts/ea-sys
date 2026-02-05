@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,8 +31,12 @@ import {
   XCircle,
   Clock,
   User,
+  Loader2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useAbstracts, useSpeakers, useTracks, queryKeys } from "@/hooks/use-api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface Track {
   id: string;
@@ -64,10 +68,13 @@ interface Abstract {
 export default function AbstractsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
-  const [abstracts, setAbstracts] = useState<Abstract[]>([]);
-  const [speakers, setSpeakers] = useState<Speaker[]>([]);
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // React Query hooks - data is cached and shared across navigations
+  const { data: abstracts = [], isLoading: loading, isFetching } = useAbstracts(eventId);
+  const { data: speakers = [] } = useSpeakers(eventId);
+  const { data: tracks = [] } = useTracks(eventId);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
@@ -84,98 +91,64 @@ export default function AbstractsPage() {
     reviewScore: "",
   });
 
-  useEffect(() => {
-    Promise.all([fetchAbstracts(), fetchSpeakers(), fetchTracks()]);
-  }, [eventId]);
-
-  const fetchAbstracts = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/abstracts`);
-      if (res.ok) {
-        const data = await res.json();
-        setAbstracts(data);
-      }
-    } catch (error) {
-      console.error("Error fetching abstracts:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSpeakers = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/speakers`);
-      if (res.ok) {
-        const data = await res.json();
-        setSpeakers(data);
-      }
-    } catch (error) {
-      console.error("Error fetching speakers:", error);
-    }
-  };
-
-  const fetchTracks = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/tracks`);
-      if (res.ok) {
-        const data = await res.json();
-        setTracks(data);
-      }
-    } catch (error) {
-      console.error("Error fetching tracks:", error);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
+  // Create abstract mutation
+  const createAbstractMutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
       const res = await fetch(`/api/events/${eventId}/abstracts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...formData,
-          trackId: formData.trackId || undefined,
+          ...data,
+          trackId: data.trackId || undefined,
         }),
       });
+      if (!res.ok) throw new Error("Failed to create abstract");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      setIsDialogOpen(false);
+      resetForm();
+      toast.success("Abstract submitted successfully");
+    },
+    onError: () => toast.error("Failed to submit abstract"),
+  });
 
-      if (res.ok) {
-        fetchAbstracts();
-        setIsDialogOpen(false);
-        resetForm();
-      }
-    } catch (error) {
-      console.error("Error saving abstract:", error);
-    }
+  // Review abstract mutation
+  const reviewAbstractMutation = useMutation({
+    mutationFn: async ({ abstractId, data }: { abstractId: string; data: typeof reviewData }) => {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: data.status,
+          reviewNotes: data.reviewNotes || undefined,
+          reviewScore: data.reviewScore ? parseInt(data.reviewScore) : undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to review abstract");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      setIsReviewDialogOpen(false);
+      setSelectedAbstract(null);
+      toast.success("Review saved successfully");
+    },
+    onError: () => toast.error("Failed to save review"),
+  });
+
+  const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    createAbstractMutation.mutate(formData);
   };
 
   const handleReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAbstract) return;
-
-    try {
-      const res = await fetch(
-        `/api/events/${eventId}/abstracts/${selectedAbstract.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: reviewData.status,
-            reviewNotes: reviewData.reviewNotes || undefined,
-            reviewScore: reviewData.reviewScore
-              ? parseInt(reviewData.reviewScore)
-              : undefined,
-          }),
-        }
-      );
-
-      if (res.ok) {
-        fetchAbstracts();
-        setIsReviewDialogOpen(false);
-        setSelectedAbstract(null);
-      }
-    } catch (error) {
-      console.error("Error reviewing abstract:", error);
-    }
+    reviewAbstractMutation.mutate({ abstractId: selectedAbstract.id, data: reviewData });
   };
 
   const openReviewDialog = (abstract: Abstract) => {
@@ -238,6 +211,9 @@ export default function AbstractsPage() {
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <FileText className="h-8 w-8" />
               Abstracts
+              {isFetching && !loading && (
+                <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              )}
             </h1>
           </div>
           <p className="text-muted-foreground">
@@ -349,10 +325,14 @@ export default function AbstractsPage() {
                   type="button"
                   variant="outline"
                   onClick={() => setIsDialogOpen(false)}
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
-                <Button type="submit">Submit Abstract</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Submit Abstract
+                </Button>
               </div>
             </form>
           </DialogContent>
@@ -493,10 +473,14 @@ export default function AbstractsPage() {
                     type="button"
                     variant="outline"
                     onClick={() => setIsReviewDialogOpen(false)}
+                    disabled={isSubmitting}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">Save Review</Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save Review
+                  </Button>
                 </div>
               </form>
             </div>

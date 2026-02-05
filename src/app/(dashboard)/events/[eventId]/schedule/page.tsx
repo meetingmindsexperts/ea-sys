@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,9 @@ import {
   Loader2,
 } from "lucide-react";
 import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
+import { useSessions, useTracks, useSpeakers, queryKeys } from "@/hooks/use-api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface Track {
   id: string;
@@ -67,10 +70,13 @@ interface Session {
 export default function SchedulePage() {
   const params = useParams();
   const eventId = params.eventId as string;
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [speakers, setSpeakers] = useState<Speaker[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // React Query hooks - data is cached and shared across navigations
+  const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
+  const { data: tracks = [] } = useTracks(eventId);
+  const { data: speakers = [] } = useSpeakers(eventId);
+
   const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -91,118 +97,102 @@ export default function SchedulePage() {
     description: "",
     color: "#3B82F6",
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    Promise.all([fetchSessions(), fetchTracks(), fetchSpeakers()]);
-  }, [eventId]);
+  // Session mutations
+  const sessionMutation = useMutation({
+    mutationFn: async ({ data, sessionId }: { data: any; sessionId?: string }) => {
+      const url = sessionId
+        ? `/api/events/${eventId}/sessions/${sessionId}`
+        : `/api/events/${eventId}/sessions`;
+      const res = await fetch(url, {
+        method: sessionId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save session");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+      setIsSessionDialogOpen(false);
+      resetSessionForm();
+      toast.success(editingSession ? "Session updated" : "Session created");
+    },
+    onError: () => toast.error("Failed to save session"),
+  });
 
-  const fetchSessions = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/sessions`);
-      if (res.ok) {
-        const data = await res.json();
-        setSessions(data);
-      }
-    } catch (error) {
-      console.error("Error fetching sessions:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      const res = await fetch(`/api/events/${eventId}/sessions/${sessionId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete session");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+      toast.success("Session deleted");
+    },
+    onError: () => toast.error("Failed to delete session"),
+  });
 
-  const fetchTracks = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/tracks`);
-      if (res.ok) {
-        const data = await res.json();
-        setTracks(data);
-      }
-    } catch (error) {
-      console.error("Error fetching tracks:", error);
-    }
-  };
+  // Track mutations
+  const trackMutation = useMutation({
+    mutationFn: async ({ data, trackId }: { data: any; trackId?: string }) => {
+      const url = trackId
+        ? `/api/events/${eventId}/tracks/${trackId}`
+        : `/api/events/${eventId}/tracks`;
+      const res = await fetch(url, {
+        method: trackId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save track");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tracks(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+      setIsTrackDialogOpen(false);
+      resetTrackForm();
+      toast.success(editingTrack ? "Track updated" : "Track created");
+    },
+    onError: () => toast.error("Failed to save track"),
+  });
 
-  const fetchSpeakers = async () => {
-    try {
-      // Fetch all speakers so users can assign any speaker to sessions
-      const res = await fetch(`/api/events/${eventId}/speakers`);
-      if (res.ok) {
-        const data = await res.json();
-        setSpeakers(data);
-      }
-    } catch (error) {
-      console.error("Error fetching speakers:", error);
-    }
-  };
+  const deleteTrackMutation = useMutation({
+    mutationFn: async (trackId: string) => {
+      const res = await fetch(`/api/events/${eventId}/tracks/${trackId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete track");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tracks(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+      toast.success("Track deleted");
+    },
+    onError: () => toast.error("Failed to delete track"),
+  });
+
+  const isSubmitting = sessionMutation.isPending || trackMutation.isPending;
 
   const handleSessionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return; // Prevent double submission
-
-    setIsSubmitting(true);
-    try {
-      const url = editingSession
-        ? `/api/events/${eventId}/sessions/${editingSession.id}`
-        : `/api/events/${eventId}/sessions`;
-      const method = editingSession ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...sessionFormData,
-          trackId: sessionFormData.trackId || undefined,
-          capacity: sessionFormData.capacity ? parseInt(sessionFormData.capacity) : undefined,
-          startTime: new Date(sessionFormData.startTime).toISOString(),
-          endTime: new Date(sessionFormData.endTime).toISOString(),
-        }),
-      });
-
-      if (res.ok) {
-        fetchSessions();
-        setIsSessionDialogOpen(false);
-        resetSessionForm();
-      }
-    } catch (error) {
-      console.error("Error saving session:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    sessionMutation.mutate({
+      data: {
+        ...sessionFormData,
+        trackId: sessionFormData.trackId || undefined,
+        capacity: sessionFormData.capacity ? parseInt(sessionFormData.capacity) : undefined,
+        startTime: new Date(sessionFormData.startTime).toISOString(),
+        endTime: new Date(sessionFormData.endTime).toISOString(),
+      },
+      sessionId: editingSession?.id,
+    });
   };
 
   const handleTrackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return; // Prevent double submission
-
-    setIsSubmitting(true);
-    try {
-      const url = editingTrack
-        ? `/api/events/${eventId}/tracks/${editingTrack.id}`
-        : `/api/events/${eventId}/tracks`;
-      const method = editingTrack ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(trackFormData),
-      });
-
-      if (res.ok) {
-        fetchTracks();
-        fetchSessions();
-        setIsTrackDialogOpen(false);
-        resetTrackForm();
-      }
-    } catch (error) {
-      console.error("Error saving track:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    trackMutation.mutate({ data: trackFormData, trackId: editingTrack?.id });
   };
 
   const handleDeleteTrack = async (trackId: string) => {
-    const trackSessions = sessions.filter((s) => s.track?.id === trackId);
+    const trackSessions = sessions.filter((s: Session) => s.track?.id === trackId);
     if (trackSessions.length > 0) {
       if (
         !confirm(
@@ -213,18 +203,7 @@ export default function SchedulePage() {
     } else {
       if (!confirm("Are you sure you want to delete this track?")) return;
     }
-
-    try {
-      const res = await fetch(`/api/events/${eventId}/tracks/${trackId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        fetchTracks();
-        fetchSessions();
-      }
-    } catch (error) {
-      console.error("Error deleting track:", error);
-    }
+    deleteTrackMutation.mutate(trackId);
   };
 
   const openEditTrackDialog = (track: Track) => {
@@ -244,17 +223,7 @@ export default function SchedulePage() {
 
   const handleDeleteSession = async (sessionId: string) => {
     if (!confirm("Are you sure you want to delete this session?")) return;
-
-    try {
-      const res = await fetch(`/api/events/${eventId}/sessions/${sessionId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        fetchSessions();
-      }
-    } catch (error) {
-      console.error("Error deleting session:", error);
-    }
+    deleteSessionMutation.mutate(sessionId);
   };
 
   const openEditSessionDialog = (session: Session) => {
@@ -327,6 +296,9 @@ export default function SchedulePage() {
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Calendar className="h-8 w-8" />
               Schedule
+              {isFetching && !loading && (
+                <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              )}
             </h1>
           </div>
           <p className="text-muted-foreground">
@@ -766,13 +738,13 @@ export default function SchedulePage() {
                   {formatDateLong(date)}
                 </h2>
                 <div className="space-y-3">
-                  {dateSessions
+                  {(dateSessions as Session[])
                     .sort(
-                      (a, b) =>
+                      (a: Session, b: Session) =>
                         new Date(a.startTime).getTime() -
                         new Date(b.startTime).getTime()
                     )
-                    .map((session) => (
+                    .map((session: Session) => (
                       <Card
                         key={session.id}
                         className="hover:border-primary transition-colors"
@@ -838,7 +810,7 @@ export default function SchedulePage() {
                                   </span>
                                   {session.speakers
                                     .map(
-                                      (s) =>
+                                      (s: { speaker: Speaker }) =>
                                         `${s.speaker.firstName} ${s.speaker.lastName}`
                                     )
                                     .join(", ")}
