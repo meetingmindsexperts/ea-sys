@@ -21,7 +21,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 ```
 src/
 ├── app/
-│   ├── (auth)/              # Auth pages (login, register, accept-invitation)
+│   ├── (auth)/              # Auth pages (login, accept-invitation)
 │   ├── (dashboard)/         # Protected dashboard pages
 │   │   ├── dashboard/       # Main dashboard
 │   │   ├── events/          # Event management
@@ -34,11 +34,16 @@ src/
 │   │   │       ├── abstracts/
 │   │   │       └── settings/
 │   │   └── settings/        # Organization settings
+│   ├── e/                   # Public event pages (no auth)
+│   │   └── [slug]/          # Event registration page
+│   │       └── confirmation/
 │   └── api/                 # API routes
 │       ├── auth/            # Auth endpoints
-│       ├── events/          # Event CRUD
+│       ├── events/          # Event CRUD (protected)
 │       │   └── [eventId]/   # Event-specific endpoints
-│       └── organization/    # Organization endpoints
+│       ├── organization/    # Organization endpoints
+│       └── public/          # Public API (no auth required)
+│           └── events/[slug]/ # Public event details & registration
 ├── components/
 │   ├── layout/              # Header, Sidebar
 │   └── ui/                  # Shadcn/ui components
@@ -61,7 +66,7 @@ src/
 
 ## Database Models
 
-- **Organization** - Multi-tenant support
+- **Organization** - Organization entity (currently single-org mode)
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER)
 - **Event** - Events with status tracking
 - **TicketType** - Ticket configurations
@@ -142,11 +147,28 @@ npx tsc --noEmit     # Type check
 
 ## Recent Features
 
+- Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens
 - Cerulean Blue theme with gradients
 - Bulk email sending via Brevo
 - Session calendar view
 - API performance optimizations (Promise.all)
+- File-based logging (`logs/app.log`, `logs/error.log`)
+
+## Current Mode
+
+**Single Organization Mode** (multi-org support planned for later):
+- User account registration is disabled (`/register` redirects to `/login`)
+- New users must be invited by an admin via Settings → Users
+- Public event registration is open to all at `/e/[event-slug]`
+
+## Logging
+
+Logs are written to files in the `logs/` directory:
+- `logs/app.log` - All logs (debug, info, warn, error)
+- `logs/error.log` - Errors only
+
+View logs: `tail -f logs/app.log`
 
 ## Documentation
 
