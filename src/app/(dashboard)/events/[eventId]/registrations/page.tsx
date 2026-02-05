@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -39,6 +39,10 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useRegistrations, useTickets } from "@/hooks/use-api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/use-api";
+import { toast } from "sonner";
 
 interface Attendee {
   id: string;
@@ -90,11 +94,11 @@ const paymentStatusColors: Record<string, string> = {
 export default function RegistrationsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const queryClient = useQueryClient();
 
-  const [registrations, setRegistrations] = useState<Registration[]>([]);
-  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // React Query hooks - data is cached and shared across navigations
+  const { data: registrations = [], isLoading: loading, isFetching } = useRegistrations(eventId);
+  const { data: ticketTypes = [] } = useTickets(eventId);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,7 +108,7 @@ export default function RegistrationsPage() {
 
   // New registration dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     ticketTypeId: "",
     email: "",
@@ -117,88 +121,58 @@ export default function RegistrationsPage() {
     notes: "",
   });
 
-  useEffect(() => {
-    fetchRegistrations();
-    fetchTicketTypes();
-  }, [eventId]);
-
-  const fetchRegistrations = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/registrations`);
-      if (res.ok) {
-        const data = await res.json();
-        setRegistrations(data);
-      } else {
-        setError("Failed to load registrations");
-      }
-    } catch {
-      setError("Failed to load registrations");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTicketTypes = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/tickets`);
-      if (res.ok) {
-        const data = await res.json();
-        setTicketTypes(data);
-      }
-    } catch {
-      // Silent fail for ticket types
-      console.error("Failed to load ticket types");
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
+  // Create registration mutation
+  const createRegistration = useMutation({
+    mutationFn: async (data: typeof formData) => {
       const res = await fetch(`/api/events/${eventId}/registrations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticketTypeId: formData.ticketTypeId,
+          ticketTypeId: data.ticketTypeId,
           attendee: {
-            email: formData.email,
-            firstName: formData.firstName,
-            lastName: formData.lastName,
-            company: formData.company || undefined,
-            jobTitle: formData.jobTitle || undefined,
-            phone: formData.phone || undefined,
-            dietaryReqs: formData.dietaryReqs || undefined,
+            email: data.email,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            company: data.company || undefined,
+            jobTitle: data.jobTitle || undefined,
+            phone: data.phone || undefined,
+            dietaryReqs: data.dietaryReqs || undefined,
           },
-          notes: formData.notes || undefined,
+          notes: data.notes || undefined,
         }),
       });
-
-      if (res.ok) {
-        setDialogOpen(false);
-        setFormData({
-          ticketTypeId: "",
-          email: "",
-          firstName: "",
-          lastName: "",
-          company: "",
-          jobTitle: "",
-          phone: "",
-          dietaryReqs: "",
-          notes: "",
-        });
-        fetchRegistrations();
-        fetchTicketTypes();
-      } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create registration");
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create registration");
       }
-    } catch {
-      setError("An error occurred");
-    } finally {
-      setSubmitting(false);
-    }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+      setDialogOpen(false);
+      setFormData({
+        ticketTypeId: "",
+        email: "",
+        firstName: "",
+        lastName: "",
+        company: "",
+        jobTitle: "",
+        phone: "",
+        dietaryReqs: "",
+        notes: "",
+      });
+      toast.success("Registration created successfully");
+    },
+    onError: (error: Error) => {
+      setFormError(error.message);
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    createRegistration.mutate(formData);
   };
 
   const exportToCSV = () => {
@@ -288,6 +262,9 @@ export default function RegistrationsPage() {
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Users className="h-8 w-8" />
             Registrations
+            {isFetching && !loading && (
+              <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            )}
           </h1>
           <p className="text-muted-foreground mt-1">
             Manage attendee registrations
@@ -445,9 +422,9 @@ export default function RegistrationsPage() {
                     />
                   </div>
 
-                  {error && (
+                  {formError && (
                     <div className="text-sm text-red-600 bg-red-50 p-3 rounded">
-                      {error}
+                      {formError}
                     </div>
                   )}
                 </div>
@@ -459,8 +436,8 @@ export default function RegistrationsPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={submitting}>
-                    {submitting ? "Creating..." : "Create Registration"}
+                  <Button type="submit" disabled={createRegistration.isPending}>
+                    {createRegistration.isPending ? "Creating..." : "Create Registration"}
                   </Button>
                 </DialogFooter>
               </form>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Ticket, Plus, Edit, Trash2, ArrowLeft } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { useTickets, useCreateTicket, useUpdateTicket, useDeleteTicket } from "@/hooks/use-api";
+import { toast } from "sonner";
 
 interface TicketType {
   id: string;
@@ -40,8 +42,13 @@ interface TicketType {
 export default function TicketsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
-  const [tickets, setTickets] = useState<TicketType[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // React Query hooks - data is cached and shared across navigations
+  const { data: tickets = [], isLoading: loading, isFetching } = useTickets(eventId);
+  const createTicket = useCreateTicket(eventId);
+  const updateTicket = useUpdateTicket(eventId);
+  const deleteTicket = useDeleteTicket(eventId);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTicket, setEditingTicket] = useState<TicketType | null>(null);
   const [formData, setFormData] = useState({
@@ -55,45 +62,20 @@ export default function TicketsPage() {
     requiresApproval: false,
   });
 
-  useEffect(() => {
-    fetchTickets();
-  }, [eventId]);
-
-  const fetchTickets = async () => {
-    try {
-      const res = await fetch(`/api/events/${eventId}/tickets`);
-      if (res.ok) {
-        const data = await res.json();
-        setTickets(data);
-      }
-    } catch (error) {
-      console.error("Error fetching tickets:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const url = editingTicket
-        ? `/api/events/${eventId}/tickets/${editingTicket.id}`
-        : `/api/events/${eventId}/tickets`;
-      const method = editingTicket ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      if (res.ok) {
-        fetchTickets();
-        setIsDialogOpen(false);
-        resetForm();
+      if (editingTicket) {
+        await updateTicket.mutateAsync({ ticketId: editingTicket.id, data: formData });
+        toast.success("Ticket updated successfully");
+      } else {
+        await createTicket.mutateAsync(formData);
+        toast.success("Ticket created successfully");
       }
-    } catch (error) {
-      console.error("Error saving ticket:", error);
+      setIsDialogOpen(false);
+      resetForm();
+    } catch (error: any) {
+      toast.error(error.message || "Error saving ticket");
     }
   };
 
@@ -101,14 +83,10 @@ export default function TicketsPage() {
     if (!confirm("Are you sure you want to delete this ticket type?")) return;
 
     try {
-      const res = await fetch(`/api/events/${eventId}/tickets/${ticketId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        fetchTickets();
-      }
-    } catch (error) {
-      console.error("Error deleting ticket:", error);
+      await deleteTicket.mutateAsync(ticketId);
+      toast.success("Ticket deleted successfully");
+    } catch (error: any) {
+      toast.error(error.message || "Error deleting ticket");
     }
   };
 
@@ -174,6 +152,9 @@ export default function TicketsPage() {
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Ticket className="h-8 w-8" />
               Ticket Types
+              {isFetching && !loading && (
+                <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              )}
             </h1>
           </div>
           <p className="text-muted-foreground">
