@@ -21,42 +21,48 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth for faster response
+    const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
+    // Parallelize event validation and hotels fetch
+    const [event, hotels] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.hotel.findMany({
+        where: { eventId },
+        include: {
+          roomTypes: {
+            include: {
+              _count: {
+                select: { accommodations: true },
+              },
+            },
+          },
+          _count: {
+            select: { roomTypes: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const hotels = await db.hotel.findMany({
-      where: { eventId },
-      include: {
-        roomTypes: {
-          include: {
-            _count: {
-              select: { accommodations: true },
-            },
-          },
-        },
-        _count: {
-          select: { roomTypes: true },
-        },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    return NextResponse.json(hotels);
+    // Add cache headers for better performance
+    const response = NextResponse.json(hotels);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching hotels" });
     return NextResponse.json(
@@ -68,25 +74,30 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Use select for minimal data fetch
     const event = await db.event.findFirst({
       where: {
         id: eventId,
         organizationId: session.user.organizationId,
       },
+      select: { id: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const body = await req.json();
     const validated = createHotelSchema.safeParse(body);
 
     if (!validated.success) {
@@ -126,17 +137,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Hotel",
         entityId: hotel.id,
-        changes: { hotel },
+        changes: JSON.parse(JSON.stringify({ hotel })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(hotel, { status: 201 });
   } catch (error) {

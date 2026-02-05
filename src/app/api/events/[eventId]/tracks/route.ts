@@ -68,25 +68,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createTrackSchema.safeParse(body);
 
     if (!validated.success) {
@@ -98,15 +90,29 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { name, description, color, sortOrder } = validated.data;
 
-    // Get max sort order if not provided
-    let finalSortOrder = sortOrder;
-    if (finalSortOrder === undefined) {
-      const maxTrack = await db.track.findFirst({
-        where: { eventId },
-        orderBy: { sortOrder: "desc" },
-      });
-      finalSortOrder = maxTrack ? maxTrack.sortOrder + 1 : 0;
+    // Parallelize event validation and max sort order fetch
+    const [event, maxTrack] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      sortOrder === undefined
+        ? db.track.findFirst({
+            where: { eventId },
+            orderBy: { sortOrder: "desc" },
+            select: { sortOrder: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    const finalSortOrder = sortOrder ?? (maxTrack ? maxTrack.sortOrder + 1 : 0);
 
     const track = await db.track.create({
       data: {
@@ -126,17 +132,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Track",
         entityId: track.id,
-        changes: { track },
+        changes: JSON.parse(JSON.stringify({ track })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(track, { status: 201 });
   } catch (error) {

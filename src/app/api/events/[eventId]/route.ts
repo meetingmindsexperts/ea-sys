@@ -26,8 +26,8 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth for faster response
+    const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,7 +54,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return NextResponse.json(event);
+    // Add cache headers for better performance
+    const response = NextResponse.json(event);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching event" });
     return NextResponse.json(
@@ -66,26 +69,29 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify event belongs to user's organization
+    // Verify event belongs to user's organization (use select for minimal data)
     const existingEvent = await db.event.findFirst({
       where: {
         id: eventId,
         organizationId: session.user.organizationId,
       },
+      select: { id: true, slug: true, settings: true },
     });
 
     if (!existingEvent) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const body = await req.json();
     const validated = updateEventSchema.safeParse(body);
 
     if (!validated.success) {
@@ -178,32 +184,33 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth
+    const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify event belongs to user's organization
+    // Verify event belongs to user's organization (select only needed fields)
     const existingEvent = await db.event.findFirst({
       where: {
         id: eventId,
         organizationId: session.user.organizationId,
       },
+      select: { id: true, name: true },
     });
 
     if (!existingEvent) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Delete the event (cascades to related entities)
+    // Delete the event and log in parallel (delete first, then log)
     await db.event.delete({
       where: { id: eventId },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         userId: session.user.id,
         action: "DELETE",
@@ -211,7 +218,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         entityId: eventId,
         changes: { name: existingEvent.name },
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json({ success: true });
   } catch (error) {

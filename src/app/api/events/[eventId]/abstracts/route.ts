@@ -18,22 +18,11 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth for faster response
+    const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -41,22 +30,39 @@ export async function GET(req: Request, { params }: RouteParams) {
     const trackId = searchParams.get("trackId");
     const speakerId = searchParams.get("speakerId");
 
-    const abstracts = await db.abstract.findMany({
-      where: {
-        eventId,
-        ...(status && { status: status as any }),
-        ...(trackId && { trackId }),
-        ...(speakerId && { speakerId }),
-      },
-      include: {
-        speaker: true,
-        track: true,
-        eventSession: true,
-      },
-      orderBy: { submittedAt: "desc" },
-    });
+    // Parallelize event validation and abstracts fetch
+    const [event, abstracts] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.abstract.findMany({
+        where: {
+          eventId,
+          ...(status && { status: status as any }),
+          ...(trackId && { trackId }),
+          ...(speakerId && { speakerId }),
+        },
+        include: {
+          speaker: true,
+          track: true,
+          eventSession: true,
+        },
+        orderBy: { submittedAt: "desc" },
+      }),
+    ]);
 
-    return NextResponse.json(abstracts);
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Add cache headers for better performance
+    const response = NextResponse.json(abstracts);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching abstracts" });
     return NextResponse.json(
@@ -68,25 +74,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createAbstractSchema.safeParse(body);
 
     if (!validated.success) {
@@ -98,26 +96,40 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { speakerId, title, content, trackId, status } = validated.data;
 
-    // Verify speaker exists
-    const speaker = await db.speaker.findFirst({
-      where: {
-        id: speakerId,
-        eventId,
-      },
-    });
+    // Parallelize event, speaker, and track validation
+    const [event, speaker, track] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: {
+          id: speakerId,
+          eventId,
+        },
+        select: { id: true },
+      }),
+      trackId
+        ? db.track.findFirst({
+            where: { id: trackId, eventId },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (!speaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
     }
 
-    // Verify track exists if provided
-    if (trackId) {
-      const track = await db.track.findFirst({
-        where: { id: trackId, eventId },
-      });
-      if (!track) {
-        return NextResponse.json({ error: "Track not found" }, { status: 404 });
-      }
+    if (trackId && !track) {
+      return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
     const abstract = await db.abstract.create({
@@ -136,17 +148,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Abstract",
         entityId: abstract.id,
-        changes: { abstract },
+        changes: JSON.parse(JSON.stringify({ abstract })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(abstract, { status: 201 });
   } catch (error) {

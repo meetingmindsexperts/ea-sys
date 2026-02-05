@@ -19,54 +19,60 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params and auth for faster response
+    const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const hotelId = searchParams.get("hotelId");
 
-    const accommodations = await db.accommodation.findMany({
-      where: {
-        eventId,
-        ...(status && { status: status as any }),
-        ...(hotelId && {
+    // Parallelize event validation and accommodations fetch
+    const [event, accommodations] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.accommodation.findMany({
+        where: {
+          eventId,
+          ...(status && { status: status as any }),
+          ...(hotelId && {
+            roomType: {
+              hotelId,
+            },
+          }),
+        },
+        include: {
+          registration: {
+            include: {
+              attendee: true,
+            },
+          },
           roomType: {
-            hotelId,
-          },
-        }),
-      },
-      include: {
-        registration: {
-          include: {
-            attendee: true,
+            include: {
+              hotel: true,
+            },
           },
         },
-        roomType: {
-          include: {
-            hotel: true,
-          },
-        },
-      },
-      orderBy: { checkIn: "asc" },
-    });
+        orderBy: { checkIn: "asc" },
+      }),
+    ]);
 
-    return NextResponse.json(accommodations);
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Add cache headers for better performance
+    const response = NextResponse.json(accommodations);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching accommodations" });
     return NextResponse.json(
@@ -78,25 +84,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    const { eventId } = await params;
-    const session = await auth();
+    // Parallelize params, auth, and body parsing
+    const [{ eventId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const body = await req.json();
     const validated = createAccommodationSchema.safeParse(body);
 
     if (!validated.success) {
@@ -115,16 +113,42 @@ export async function POST(req: Request, { params }: RouteParams) {
       specialRequests,
     } = validated.data;
 
-    // Verify registration exists and belongs to this event
-    const registration = await db.registration.findFirst({
-      where: {
-        id: registrationId,
-        eventId,
-      },
-      include: {
-        accommodation: true,
-      },
-    });
+    // Parallelize event, registration, and room type validation
+    const [event, registration, roomType] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.registration.findFirst({
+        where: {
+          id: registrationId,
+          eventId,
+        },
+        include: {
+          accommodation: true,
+        },
+      }),
+      db.roomType.findFirst({
+        where: {
+          id: roomTypeId,
+          isActive: true,
+          hotel: {
+            eventId,
+            isActive: true,
+          },
+        },
+        include: {
+          hotel: true,
+        },
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (!registration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
@@ -137,21 +161,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
-
-    // Verify room type exists and has availability
-    const roomType = await db.roomType.findFirst({
-      where: {
-        id: roomTypeId,
-        isActive: true,
-        hotel: {
-          eventId,
-          isActive: true,
-        },
-      },
-      include: {
-        hotel: true,
-      },
-    });
 
     if (!roomType) {
       return NextResponse.json({ error: "Room type not found or inactive" }, { status: 404 });
@@ -218,17 +227,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       data: { bookedRooms: { increment: 1 } },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Accommodation",
         entityId: accommodation.id,
-        changes: { accommodation },
+        changes: JSON.parse(JSON.stringify({ accommodation })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(accommodation, { status: 201 });
   } catch (error) {

@@ -220,17 +220,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       data: { soldCount: { increment: 1 } },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Registration",
         entityId: registration.id,
-        changes: { registration: registration },
+        changes: JSON.parse(JSON.stringify({ registration })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(registration, { status: 201 });
   } catch (error) {

@@ -176,17 +176,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Log the action
-    await db.auditLog.create({
+    // Log the action (non-blocking for better response time)
+    db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
         action: "CREATE",
         entityType: "Speaker",
         entityId: speaker.id,
-        changes: { speaker },
+        changes: JSON.parse(JSON.stringify({ speaker })),
       },
-    });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(speaker, { status: 201 });
   } catch (error) {
