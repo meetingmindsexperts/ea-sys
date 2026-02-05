@@ -13,6 +13,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Database:** PostgreSQL with Prisma ORM
 - **Authentication:** NextAuth.js v5 with JWT strategy
 - **Styling:** TailwindCSS + Shadcn/ui components
+- **State Management:** TanStack Query (React Query) for client-side caching
 - **Email:** Brevo (formerly Sendinblue)
 - **Deployment:** Vercel
 
@@ -48,6 +49,8 @@ src/
 │   ├── layout/              # Header, Sidebar
 │   └── ui/                  # Shadcn/ui components
 ├── contexts/                # React contexts
+├── hooks/                   # React hooks
+│   └── use-api.ts           # React Query hooks for API calls
 ├── lib/                     # Utilities
 │   ├── auth.ts              # NextAuth configuration
 │   ├── db.ts                # Prisma client
@@ -62,6 +65,8 @@ src/
 - `prisma/schema.prisma` - Database schema
 - `src/lib/auth.ts` - Authentication configuration
 - `src/lib/email.ts` - Email templates and sending
+- `src/hooks/use-api.ts` - React Query hooks for data fetching
+- `src/components/providers.tsx` - App providers (QueryClient, SessionProvider)
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
@@ -143,7 +148,8 @@ npx tsc --noEmit     # Type check
 3. **Auth:** All dashboard routes require authentication via `auth()`
 4. **Forms:** Use react-hook-form with Zod validation
 5. **Toasts:** Use sonner for notifications
-6. **State:** Use React hooks, avoid global state when possible
+6. **State:** Use React Query for server state, local useState for UI state
+7. **Data Fetching:** Use hooks from `src/hooks/use-api.ts` for client-side data
 
 ## Performance Optimization
 
@@ -178,14 +184,46 @@ npx tsc --noEmit     # Type check
 - Lazy load heavy components with `dynamic()` imports
 - Minimize client-side state; prefer server components where possible
 
+### React Query (Client-Side Caching)
+Dashboard pages use React Query for client-side data caching. This provides:
+- **Instant navigation:** Cached data displays immediately when returning to pages
+- **Background refresh:** Data updates silently while showing cached content
+- **Optimistic UI:** Mutations update cache immediately for responsive feel
+
+**Configuration** (`src/components/providers.tsx`):
+- `staleTime: 5 minutes` - Data considered fresh for 5 minutes
+- `gcTime: 30 minutes` - Unused cache kept for 30 minutes
+- `refetchOnWindowFocus: true` - Refresh when tab becomes active
+
+**Using React Query hooks** (`src/hooks/use-api.ts`):
+```typescript
+// Fetching data
+const { data: tickets = [], isLoading, isFetching } = useTickets(eventId);
+
+// Mutations with cache invalidation
+const createTicket = useCreateTicket(eventId);
+await createTicket.mutateAsync(formData);
+
+// Manual cache invalidation
+const queryClient = useQueryClient();
+queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+```
+
+**Available hooks:**
+- `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket`
+- `useRegistrations`, `useSpeakers`, `useSessions`, `useTracks`
+- `useAbstracts`, `useHotels`, `useAccommodations`
+- `useEvents`, `useEvent`
+
 ## Recent Features
 
+- **React Query caching** for instant page navigation (tickets, registrations, schedule, abstracts)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens
 - Cerulean Blue theme with gradients
 - Bulk email sending via Brevo
 - Session calendar view
-- API performance optimizations (Promise.all)
+- API performance optimizations (Promise.all, Prisma select, cache headers)
 - File-based logging (`logs/app.log`, `logs/error.log`)
 
 ## Current Mode
