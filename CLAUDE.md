@@ -145,6 +145,39 @@ npx tsc --noEmit     # Type check
 5. **Toasts:** Use sonner for notifications
 6. **State:** Use React hooks, avoid global state when possible
 
+## Performance Optimization
+
+### API Routes
+- **Parallel queries:** Use `Promise.all()` for independent database calls
+  ```typescript
+  const [session, event, tickets] = await Promise.all([
+    auth(),
+    db.event.findFirst({ where: { id } }),
+    db.ticketType.findMany({ where: { eventId: id } })
+  ]);
+  ```
+- **Select only needed fields:** Use Prisma `select` instead of returning full objects
+  ```typescript
+  db.event.findFirst({
+    where: { id },
+    select: { id: true, name: true, status: true }  // Not the entire record
+  });
+  ```
+- **Cache headers:** Add appropriate cache headers for public endpoints
+  ```typescript
+  response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+  ```
+
+### Database
+- Use indexes for frequently queried fields (already defined in schema)
+- Avoid N+1 queries - use `include` for related data in single query
+- Use `findFirst` instead of `findUnique` when filtering by non-unique fields
+
+### Frontend
+- Use `Suspense` boundaries for loading states
+- Lazy load heavy components with `dynamic()` imports
+- Minimize client-side state; prefer server components where possible
+
 ## Recent Features
 
 - Public event registration at `/e/[slug]` (no auth required)
