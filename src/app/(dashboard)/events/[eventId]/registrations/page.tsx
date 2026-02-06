@@ -63,9 +63,10 @@ import {
   Hotel,
   Send,
   Trash2,
+  Share2,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
-import { useRegistrations, useTickets, queryKeys } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -149,6 +150,7 @@ export default function RegistrationsPage() {
   // React Query hooks
   const { data: registrations = [], isLoading: loading, isFetching } = useRegistrations(eventId);
   const { data: ticketTypes = [] } = useTickets(eventId);
+  const { data: event } = useEvent(eventId);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -433,6 +435,22 @@ export default function RegistrationsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (event?.slug) {
+                const url = `${window.location.origin}/e/${event.slug}`;
+                navigator.clipboard.writeText(url);
+                toast.success("Registration link copied to clipboard");
+              } else {
+                toast.error("Event slug not available");
+              }
+            }}
+            disabled={!event?.slug}
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            Share Link
+          </Button>
           <Button variant="outline" onClick={exportToCSV}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
