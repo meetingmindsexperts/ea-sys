@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Ticket, Plus, Edit, Trash2, ArrowLeft } from "lucide-react";
+import { ClipboardList, Plus, Edit, Trash2, ArrowLeft } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useTickets, useCreateTicket, useUpdateTicket, useDeleteTicket } from "@/hooks/use-api";
 import { toast } from "sonner";
@@ -67,26 +67,26 @@ export default function TicketsPage() {
     try {
       if (editingTicket) {
         await updateTicket.mutateAsync({ ticketId: editingTicket.id, data: formData });
-        toast.success("Ticket updated successfully");
+        toast.success("Registration type updated successfully");
       } else {
         await createTicket.mutateAsync(formData);
-        toast.success("Ticket created successfully");
+        toast.success("Registration type created successfully");
       }
       setIsDialogOpen(false);
       resetForm();
     } catch (error: any) {
-      toast.error(error.message || "Error saving ticket");
+      toast.error(error.message || "Error saving registration type");
     }
   };
 
   const handleDelete = async (ticketId: string) => {
-    if (!confirm("Are you sure you want to delete this ticket type?")) return;
+    if (!confirm("Are you sure you want to delete this registration type?")) return;
 
     try {
       await deleteTicket.mutateAsync(ticketId);
-      toast.success("Ticket deleted successfully");
+      toast.success("Registration type deleted successfully");
     } catch (error: any) {
-      toast.error(error.message || "Error deleting ticket");
+      toast.error(error.message || "Error deleting registration type");
     }
   };
 
@@ -150,15 +150,15 @@ export default function TicketsPage() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Ticket className="h-8 w-8" />
-              Ticket Types
+              <ClipboardList className="h-8 w-8" />
+              Registration Types
               {isFetching && !loading && (
                 <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               )}
             </h1>
           </div>
           <p className="text-muted-foreground">
-            Manage ticket types and pricing for your event
+            Manage registration types and pricing for your event
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => {
@@ -168,13 +168,13 @@ export default function TicketsPage() {
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add Ticket Type
+              Add Registration Type
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle>
-                {editingTicket ? "Edit Ticket Type" : "Create Ticket Type"}
+                {editingTicket ? "Edit Registration Type" : "Create Registration Type"}
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -283,7 +283,7 @@ export default function TicketsPage() {
                   Cancel
                 </Button>
                 <Button type="submit">
-                  {editingTicket ? "Save Changes" : "Create Ticket"}
+                  {editingTicket ? "Save Changes" : "Create Registration Type"}
                 </Button>
               </div>
             </form>
@@ -316,7 +316,7 @@ export default function TicketsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Sold
+              Total Registrations
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -337,14 +337,14 @@ export default function TicketsPage() {
         </Card>
       </div>
 
-      {/* Ticket Types List */}
+      {/* Registration Types List */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">All Ticket Types</h2>
+        <h2 className="text-lg font-semibold mb-4">All Registration Types</h2>
         {tickets.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No ticket types yet. Click "Add Ticket Type" to get started.
+                No registration types yet. Click &quot;Add Registration Type&quot; to get started.
               </p>
             </CardContent>
           </Card>
@@ -388,16 +388,14 @@ export default function TicketsPage() {
                           </span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Sold: </span>
+                          <span className="text-muted-foreground">Registrations: </span>
                           <span className="font-semibold">
-                            {ticket.soldCount} / {ticket.quantity}
+                            {ticket.soldCount}
                           </span>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Available: </span>
-                          <span className="font-semibold">
-                            {ticket.quantity - ticket.soldCount}
-                          </span>
+                          <span className="text-muted-foreground">Capacity: </span>
+                          <span className="font-semibold">{ticket.quantity}</span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Max per order: </span>

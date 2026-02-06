@@ -74,7 +74,7 @@ src/
 - **Organization** - Organization entity (currently single-org mode)
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER)
 - **Event** - Events with status tracking
-- **TicketType** - Ticket configurations
+- **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
 - **Attendee** - Attendee information
 - **Speaker** - Event speakers
@@ -224,12 +224,12 @@ Dashboard pages use React Query for client-side data caching. This provides:
 
 **Using React Query hooks** (`src/hooks/use-api.ts`):
 ```typescript
-// Fetching data
-const { data: tickets = [], isLoading, isFetching } = useTickets(eventId);
+// Fetching data (useTickets fetches registration types)
+const { data: regTypes = [], isLoading, isFetching } = useTickets(eventId);
 
 // Mutations with cache invalidation
-const createTicket = useCreateTicket(eventId);
-await createTicket.mutateAsync(formData);
+const createRegType = useCreateTicket(eventId);
+await createRegType.mutateAsync(formData);
 
 // Manual cache invalidation
 const queryClient = useQueryClient();
@@ -237,15 +237,17 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 ```
 
 **Available hooks:**
-- `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket`
+- `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket` (for registration types)
 - `useRegistrations`, `useSpeakers`, `useSessions`, `useTracks`
 - `useAbstracts`, `useHotels`, `useAccommodations`
 - `useEvents`, `useEvent`
 
 ## Recent Features
 
+- **UI Terminology** - "Tickets" renamed to "Registration Types" throughout the app; seat availability counts hidden from public-facing pages
+- **Registration detail edit** - Slide-out panel with full CRUD for registration details
 - **Module load optimization** - Tree-shaking for lucide-react/Radix UI, lazy-init for Brevo SDK
-- **React Query caching** for instant page navigation (tickets, registrations, schedule, abstracts)
+- **React Query caching** for instant page navigation (registration types, registrations, schedule, abstracts)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens
 - Cerulean Blue theme with gradients

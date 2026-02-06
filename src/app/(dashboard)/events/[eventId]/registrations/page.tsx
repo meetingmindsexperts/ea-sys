@@ -54,7 +54,7 @@ import {
   Phone,
   Building,
   Briefcase,
-  Ticket,
+  ClipboardList,
   QrCode,
   CheckCircle,
   Calendar,
@@ -64,6 +64,9 @@ import {
   Send,
   Trash2,
   Share2,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent, queryKeys } from "@/hooks/use-api";
@@ -161,6 +164,16 @@ export default function RegistrationsPage() {
   // Sheet state for registration details
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    company: "",
+    jobTitle: "",
+    dietaryReqs: "",
+    notes: "",
+  });
 
   // New registration dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -216,7 +229,7 @@ export default function RegistrationsPage() {
   });
 
   const updateRegistration = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<Registration> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const res = await fetch(`/api/events/${eventId}/registrations/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -318,7 +331,47 @@ export default function RegistrationsPage() {
   const handleRowClick = (registration: Registration) => {
     // Use data directly from the list - no need to fetch again
     setSelectedRegistration(registration);
+    setIsEditing(false);
     setSheetOpen(true);
+  };
+
+  const startEditing = () => {
+    if (selectedRegistration) {
+      setEditData({
+        firstName: selectedRegistration.attendee.firstName,
+        lastName: selectedRegistration.attendee.lastName,
+        phone: selectedRegistration.attendee.phone || "",
+        company: selectedRegistration.attendee.company || "",
+        jobTitle: selectedRegistration.attendee.jobTitle || "",
+        dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
+        notes: selectedRegistration.notes || "",
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+  };
+
+  const saveEdits = () => {
+    if (selectedRegistration) {
+      updateRegistration.mutate({
+        id: selectedRegistration.id,
+        data: {
+          notes: editData.notes || undefined,
+          attendee: {
+            firstName: editData.firstName,
+            lastName: editData.lastName,
+            phone: editData.phone || undefined,
+            company: editData.company || undefined,
+            jobTitle: editData.jobTitle || undefined,
+            dietaryReqs: editData.dietaryReqs || undefined,
+          },
+        },
+      });
+      setIsEditing(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -335,7 +388,7 @@ export default function RegistrationsPage() {
       "Company",
       "Job Title",
       "Phone",
-      "Ticket Type",
+      "Registration Type",
       "Status",
       "Payment Status",
       "Registered Date",
@@ -457,10 +510,10 @@ export default function RegistrationsPage() {
               <form onSubmit={handleSubmit}>
                 <div className="grid gap-4 py-4">
                   <div className="space-y-2">
-                    <Label htmlFor="ticketType">Ticket Type *</Label>
+                    <Label htmlFor="ticketType">Registration Type *</Label>
                     {ticketTypes.length === 0 ? (
                       <p className="text-sm text-muted-foreground p-3 bg-muted rounded">
-                        No ticket types available. Please create a ticket type first.
+                        No registration types available. Please create a registration type first.
                       </p>
                     ) : (
                       <Select
@@ -471,19 +524,19 @@ export default function RegistrationsPage() {
                         required
                       >
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select a ticket type" />
+                          <SelectValue placeholder="Select a registration type" />
                         </SelectTrigger>
                         <SelectContent className="z-[100]">
-                          {ticketTypes.map((ticket) => (
+                          {ticketTypes.map((regType) => (
                             <SelectItem
-                              key={ticket.id}
-                              value={ticket.id}
-                              disabled={ticket.soldCount >= ticket.quantity}
+                              key={regType.id}
+                              value={regType.id}
+                              disabled={regType.soldCount >= regType.quantity}
                             >
-                              {ticket.name} - ${ticket.price}
-                              {ticket.soldCount >= ticket.quantity
-                                ? " (Sold out)"
-                                : ` (${ticket.quantity - ticket.soldCount} available)`}
+                              {regType.name} - ${regType.price}
+                              {regType.soldCount >= regType.quantity
+                                ? " (Unavailable)"
+                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -708,13 +761,13 @@ export default function RegistrationsPage() {
             </Select>
             <Select value={ticketFilter} onValueChange={setTicketFilter}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Ticket Type" />
+                <SelectValue placeholder="Registration Type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Tickets</SelectItem>
-                {ticketTypes.map((ticket) => (
-                  <SelectItem key={ticket.id} value={ticket.id}>
-                    {ticket.name}
+                <SelectItem value="all">All Types</SelectItem>
+                {ticketTypes.map((regType) => (
+                  <SelectItem key={regType.id} value={regType.id}>
+                    {regType.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -756,7 +809,7 @@ export default function RegistrationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Attendee</TableHead>
-                  <TableHead>Ticket</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Registered</TableHead>
@@ -827,83 +880,206 @@ export default function RegistrationsPage() {
               <div className="mt-6 space-y-6">
                 {/* Quick Actions */}
                 <div className="flex flex-wrap gap-2">
-                  {selectedRegistration.status !== "CHECKED_IN" &&
-                    selectedRegistration.status !== "CANCELLED" && (
+                  {!isEditing ? (
+                    <>
                       <Button
                         size="sm"
-                        onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
-                        disabled={checkInRegistration.isPending}
+                        variant="outline"
+                        onClick={startEditing}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </Button>
+                      {selectedRegistration.status !== "CHECKED_IN" &&
+                        selectedRegistration.status !== "CANCELLED" && (
+                          <Button
+                            size="sm"
+                            onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
+                            disabled={checkInRegistration.isPending}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Check In
+                          </Button>
+                        )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => sendEmail.mutate(selectedRegistration.id)}
+                        disabled={sendEmail.isPending}
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        Send Email
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          if (confirm("Are you sure you want to delete this registration?")) {
+                            deleteRegistration.mutate(selectedRegistration.id);
+                          }
+                        }}
+                        disabled={deleteRegistration.isPending}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={saveEdits}
+                        disabled={updateRegistration.isPending}
                         className="bg-green-600 hover:bg-green-700"
                       >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Check In
+                        <Save className="mr-2 h-4 w-4" />
+                        {updateRegistration.isPending ? "Saving..." : "Save"}
                       </Button>
-                    )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => sendEmail.mutate(selectedRegistration.id)}
-                    disabled={sendEmail.isPending}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    Send Email
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-red-600 hover:text-red-700"
-                    onClick={() => {
-                      if (confirm("Are you sure you want to delete this registration?")) {
-                        deleteRegistration.mutate(selectedRegistration.id);
-                      }
-                    }}
-                    disabled={deleteRegistration.isPending}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={cancelEditing}
+                        disabled={updateRegistration.isPending}
+                      >
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 {/* Attendee Info */}
                 <div className="space-y-4">
                   <h3 className="font-semibold">Attendee Information</h3>
-                  <div className="grid gap-3">
-                    <div className="flex items-center gap-3">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span>{selectedRegistration.attendee.email}</span>
+                  {isEditing ? (
+                    <div className="grid gap-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-firstName">First Name *</Label>
+                          <Input
+                            id="edit-firstName"
+                            value={editData.firstName}
+                            onChange={(e) =>
+                              setEditData({ ...editData, firstName: e.target.value })
+                            }
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-lastName">Last Name *</Label>
+                          <Input
+                            id="edit-lastName"
+                            value={editData.lastName}
+                            onChange={(e) =>
+                              setEditData({ ...editData, lastName: e.target.value })
+                            }
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Email</Label>
+                        <Input
+                          value={selectedRegistration.attendee.email}
+                          disabled
+                          className="bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-phone">Phone</Label>
+                        <Input
+                          id="edit-phone"
+                          value={editData.phone}
+                          onChange={(e) =>
+                            setEditData({ ...editData, phone: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-company">Company</Label>
+                          <Input
+                            id="edit-company"
+                            value={editData.company}
+                            onChange={(e) =>
+                              setEditData({ ...editData, company: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-jobTitle">Job Title</Label>
+                          <Input
+                            id="edit-jobTitle"
+                            value={editData.jobTitle}
+                            onChange={(e) =>
+                              setEditData({ ...editData, jobTitle: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
+                        <Input
+                          id="edit-dietaryReqs"
+                          value={editData.dietaryReqs}
+                          onChange={(e) =>
+                            setEditData({ ...editData, dietaryReqs: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-notes">Notes</Label>
+                        <Input
+                          id="edit-notes"
+                          value={editData.notes}
+                          onChange={(e) =>
+                            setEditData({ ...editData, notes: e.target.value })
+                          }
+                        />
+                      </div>
                     </div>
-                    {selectedRegistration.attendee.phone && (
+                  ) : (
+                    <div className="grid gap-3">
                       <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.phone}</span>
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span>{selectedRegistration.attendee.email}</span>
                       </div>
-                    )}
-                    {selectedRegistration.attendee.company && (
-                      <div className="flex items-center gap-3">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.company}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.jobTitle && (
-                      <div className="flex items-center gap-3">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.jobTitle}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.dietaryReqs && (
-                      <div className="flex items-center gap-3">
-                        <Utensils className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.dietaryReqs}</span>
-                      </div>
-                    )}
-                  </div>
+                      {selectedRegistration.attendee.phone && (
+                        <div className="flex items-center gap-3">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.phone}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.company && (
+                        <div className="flex items-center gap-3">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.company}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.jobTitle && (
+                        <div className="flex items-center gap-3">
+                          <Briefcase className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.jobTitle}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.dietaryReqs && (
+                        <div className="flex items-center gap-3">
+                          <Utensils className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.dietaryReqs}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Ticket Info */}
+                {/* Registration Type Info */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold">Ticket</h3>
+                  <h3 className="font-semibold">Registration Type</h3>
                   <div className="flex items-center gap-3">
-                    <Ticket className="h-4 w-4 text-muted-foreground" />
+                    <ClipboardList className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <div className="font-medium">{selectedRegistration.ticketType.name}</div>
                       <div className="text-sm text-muted-foreground">
@@ -1049,7 +1225,7 @@ export default function RegistrationsPage() {
                 </div>
 
                 {/* Notes */}
-                {selectedRegistration.notes && (
+                {!isEditing && selectedRegistration.notes && (
                   <div className="space-y-4">
                     <h3 className="font-semibold">Notes</h3>
                     <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">

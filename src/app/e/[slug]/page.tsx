@@ -10,10 +10,9 @@ import {
   Calendar,
   MapPin,
   Clock,
-  Ticket,
+  ClipboardList,
   Loader2,
   CheckCircle2,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -77,7 +76,7 @@ interface Event {
 }
 
 const registrationSchema = z.object({
-  ticketTypeId: z.string().min(1, "Please select a ticket type"),
+  ticketTypeId: z.string().min(1, "Please select a registration type"),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
@@ -248,56 +247,50 @@ export default function PublicEventPage() {
               </Card>
             )}
 
-            {/* Tickets */}
+            {/* Registration Types */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Ticket className="h-5 w-5" />
-                  Tickets
+                  <ClipboardList className="h-5 w-5" />
+                  Registration Types
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {event.ticketTypes.map((ticket) => (
+                {event.ticketTypes.map((regType) => (
                   <div
-                    key={ticket.id}
+                    key={regType.id}
                     className={`p-4 border rounded-lg ${
-                      ticket.canPurchase
+                      regType.canPurchase
                         ? "border-gray-200"
                         : "border-gray-100 bg-gray-50 opacity-60"
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="font-medium">{ticket.name}</h4>
-                        {ticket.description && (
+                        <h4 className="font-medium">{regType.name}</h4>
+                        {regType.description && (
                           <p className="text-sm text-muted-foreground">
-                            {ticket.description}
+                            {regType.description}
                           </p>
                         )}
-                        <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-                          <Users className="h-3 w-3" />
-                          <span>
-                            {ticket.available} of {ticket.quantity} available
-                          </span>
-                        </div>
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">
-                          {Number(ticket.price) === 0
+                          {Number(regType.price) === 0
                             ? "Free"
-                            : `${ticket.currency} ${ticket.price}`}
+                            : `${regType.currency} ${regType.price}`}
                         </p>
-                        {ticket.soldOut && (
-                          <span className="text-xs text-red-500">Sold Out</span>
+                        {regType.soldOut && (
+                          <span className="text-xs text-red-500">Unavailable</span>
                         )}
-                        {!ticket.salesStarted && (
+                        {!regType.salesStarted && (
                           <span className="text-xs text-amber-500">
-                            Sales Not Started
+                            Not Yet Available
                           </span>
                         )}
-                        {ticket.salesEnded && (
+                        {regType.salesEnded && (
                           <span className="text-xs text-red-500">
-                            Sales Ended
+                            No Longer Available
                           </span>
                         )}
                       </div>
@@ -336,23 +329,23 @@ export default function PublicEventPage() {
                         name="ticketTypeId"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Ticket Type</FormLabel>
+                            <FormLabel>Registration Type</FormLabel>
                             <Select
                               onValueChange={field.onChange}
                               value={field.value}
                             >
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Select a ticket" />
+                                  <SelectValue placeholder="Select a registration type" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {availableTickets.map((ticket) => (
-                                  <SelectItem key={ticket.id} value={ticket.id}>
-                                    {ticket.name} -{" "}
-                                    {Number(ticket.price) === 0
+                                {availableTickets.map((regType) => (
+                                  <SelectItem key={regType.id} value={regType.id}>
+                                    {regType.name} -{" "}
+                                    {Number(regType.price) === 0
                                       ? "Free"
-                                      : `${ticket.currency} ${ticket.price}`}
+                                      : `${regType.currency} ${regType.price}`}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
