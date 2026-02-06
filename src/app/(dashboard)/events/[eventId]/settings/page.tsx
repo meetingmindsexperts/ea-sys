@@ -36,7 +36,8 @@ import {
   Globe,
   Bell,
   Shield,
-  CreditCard,
+  Image,
+  Code,
 } from "lucide-react";
 
 interface Event {
@@ -53,6 +54,7 @@ interface Event {
   country: string | null;
   status: string;
   bannerImage: string | null;
+  footerHtml: string | null;
   settings: {
     registrationOpen?: boolean;
     waitlistEnabled?: boolean;
@@ -129,6 +131,11 @@ export default function EventSettingsPage() {
     notifyOnAbstractSubmission: true,
   });
 
+  const [brandingSettings, setBrandingSettings] = useState({
+    bannerImage: "",
+    footerHtml: "",
+  });
+
   useEffect(() => {
     fetchEvent();
   }, [eventId]);
@@ -173,6 +180,11 @@ export default function EventSettingsPage() {
         setNotificationSettings({
           notifyOnRegistration: settings.notifyOnRegistration ?? true,
           notifyOnAbstractSubmission: settings.notifyOnAbstractSubmission ?? true,
+        });
+
+        setBrandingSettings({
+          bannerImage: data.bannerImage || "",
+          footerHtml: data.footerHtml || "",
         });
       }
     } catch (error) {
@@ -228,6 +240,28 @@ export default function EventSettingsPage() {
       }
     } catch (error) {
       console.error("Error saving settings:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveBranding = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bannerImage: brandingSettings.bannerImage || null,
+          footerHtml: brandingSettings.footerHtml || null,
+        }),
+      });
+
+      if (res.ok) {
+        fetchEvent();
+      }
+    } catch (error) {
+      console.error("Error saving branding:", error);
     } finally {
       setSaving(false);
     }
@@ -299,6 +333,10 @@ export default function EventSettingsPage() {
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="branding" className="flex items-center gap-2">
+            <Image className="h-4 w-4" />
+            Branding
           </TabsTrigger>
           <TabsTrigger value="danger" className="flex items-center gap-2 text-red-600">
             <Trash2 className="h-4 w-4" />
@@ -674,6 +712,85 @@ export default function EventSettingsPage() {
                 <Button onClick={handleSaveSettings} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Settings"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Branding Settings */}
+        <TabsContent value="branding">
+          <Card>
+            <CardHeader>
+              <CardTitle>Branding Settings</CardTitle>
+              <CardDescription>
+                Customize the appearance of your public event pages
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="bannerImage">Banner Image URL</Label>
+                <Input
+                  id="bannerImage"
+                  value={brandingSettings.bannerImage}
+                  onChange={(e) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      bannerImage: e.target.value,
+                    })
+                  }
+                  placeholder="https://example.com/banner.jpg"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Enter a URL for your event banner image. Recommended size: 1200x400px.
+                </p>
+                {brandingSettings.bannerImage && (
+                  <div className="mt-4 border rounded-lg overflow-hidden">
+                    <img
+                      src={brandingSettings.bannerImage}
+                      alt="Banner preview"
+                      className="w-full h-48 object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="footerHtml">Custom Footer HTML</Label>
+                <Textarea
+                  id="footerHtml"
+                  value={brandingSettings.footerHtml}
+                  onChange={(e) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      footerHtml: e.target.value,
+                    })
+                  }
+                  placeholder="<p>© 2024 Your Organization. All rights reserved.</p>"
+                  rows={6}
+                  className="font-mono text-sm"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Add custom HTML for the footer of your public event pages. Supports basic HTML tags.
+                </p>
+                {brandingSettings.footerHtml && (
+                  <div className="mt-4">
+                    <Label className="text-sm">Preview:</Label>
+                    <div
+                      className="mt-2 p-4 border rounded-lg bg-muted/50"
+                      dangerouslySetInnerHTML={{ __html: brandingSettings.footerHtml }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleSaveBranding} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving..." : "Save Branding"}
                 </Button>
               </div>
             </CardContent>

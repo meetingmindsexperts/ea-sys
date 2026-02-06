@@ -106,6 +106,7 @@ model Event {
   status         EventStatus @default(DRAFT)
   settings       Json        @default("{}")
   bannerImage    String?
+  footerHtml     String?     @db.Text
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

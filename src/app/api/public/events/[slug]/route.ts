@@ -30,6 +30,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         city: true,
         country: true,
         bannerImage: true,
+        footerHtml: true,
         organization: {
           select: {
             name: true,

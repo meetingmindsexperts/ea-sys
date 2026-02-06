@@ -68,6 +68,7 @@ interface Event {
   city: string | null;
   country: string | null;
   bannerImage: string | null;
+  footerHtml: string | null;
   organization: {
     name: string;
     logo: string | null;
@@ -198,7 +199,18 @@ export default function PublicEventPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Banner Image */}
+      {event.bannerImage && (
+        <div className="w-full">
+          <img
+            src={event.bannerImage}
+            alt={event.name}
+            className="w-full h-48 md:h-64 object-cover"
+          />
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-primary text-white">
         <div className="max-w-6xl mx-auto px-4 py-8">
@@ -230,7 +242,7 @@ export default function PublicEventPage() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8 flex-1">
         <div className="grid md:grid-cols-5 gap-8">
           {/* Event Details & Tickets */}
           <div className="md:col-span-2 space-y-6">
@@ -463,6 +475,14 @@ export default function PublicEventPage() {
           </div>
         </div>
       </div>
+
+      {/* Custom Footer */}
+      {event.footerHtml && (
+        <div
+          className="w-full border-t bg-white"
+          dangerouslySetInnerHTML={{ __html: event.footerHtml }}
+        />
+      )}
     </div>
   );
 }
