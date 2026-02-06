@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,20 +24,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatDate } from "@/lib/utils";
-
-interface Event {
-  id: string;
-  name: string;
-  startDate: string;
-}
+import { useEvents, useEvent } from "@/hooks/use-api";
 
 export function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-
-  const [events, setEvents] = useState<Event[]>([]);
-  const [currentEvent, setCurrentEvent] = useState<Event | null>(null);
 
   // Check if we're on an event page
   const eventMatch = pathname.match(/^\/events\/([^/]+)/);
@@ -49,37 +40,9 @@ export function Header() {
   const subPageMatch = pathname.match(/^\/events\/[^/]+\/(.+)/);
   const currentSubPage = subPageMatch ? subPageMatch[1] : null;
 
-  useEffect(() => {
-    if (isEventPage) {
-      fetchEvents();
-      fetchCurrentEvent();
-    }
-  }, [eventId, isEventPage]);
-
-  const fetchEvents = async () => {
-    try {
-      const res = await fetch("/api/events");
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
-      }
-    } catch {
-      // Silent fail
-    }
-  };
-
-  const fetchCurrentEvent = async () => {
-    if (!eventId) return;
-    try {
-      const res = await fetch(`/api/events/${eventId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentEvent(data);
-      }
-    } catch {
-      // Silent fail
-    }
-  };
+  // Use React Query hooks - caches data and avoids refetching on navigation
+  const { data: events = [] } = useEvents();
+  const { data: currentEvent } = useEvent(isEventPage ? eventId! : "");
 
   const handleEventChange = (newEventId: string) => {
     if (currentSubPage) {

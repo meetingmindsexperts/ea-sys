@@ -184,6 +184,33 @@ npx tsc --noEmit     # Type check
 - Lazy load heavy components with `dynamic()` imports
 - Minimize client-side state; prefer server components where possible
 
+### Build & Module Optimization
+
+The project uses several optimizations to reduce module load times:
+
+**Next.js Config** (`next.config.ts`):
+- `optimizePackageImports` - Tree-shakes large packages like `lucide-react` (44MB) and Radix UI
+- `transpilePackages` - Better tree-shaking for `@getbrevo/brevo`
+- `turbopack` - Faster builds with Next.js 16's default bundler
+
+**Lazy Initialization Patterns**:
+- **Brevo SDK** (`src/lib/email.ts`): Uses named imports instead of wildcard (`import * as brevo`), API client lazy-initialized on first use
+  ```typescript
+  // Good - named imports, lazy init
+  import { TransactionalEmailsApi, SendSmtpEmail } from "@getbrevo/brevo";
+  let apiInstance: TransactionalEmailsApi | null = null;
+  function getApiInstance() { /* create on first call */ }
+
+  // Bad - loads entire SDK at module load
+  import * as brevo from "@getbrevo/brevo";
+  const apiInstance = new brevo.TransactionalEmailsApi();
+  ```
+- **Logger** (`src/lib/logger.ts`): No synchronous file system operations at module load; pino transports handle directory creation
+
+**Header Component** (`src/components/layout/header.tsx`):
+- Uses React Query hooks (`useEvents`, `useEvent`) instead of manual `useEffect` fetching
+- Data cached across navigation, preventing duplicate API calls
+
 ### React Query (Client-Side Caching)
 Dashboard pages use React Query for client-side data caching. This provides:
 - **Instant navigation:** Cached data displays immediately when returning to pages
@@ -217,6 +244,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Module load optimization** - Tree-shaking for lucide-react/Radix UI, lazy-init for Brevo SDK
 - **React Query caching** for instant page navigation (tickets, registrations, schedule, abstracts)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens

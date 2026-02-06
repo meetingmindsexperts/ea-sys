@@ -1,12 +1,23 @@
-import * as brevo from "@getbrevo/brevo";
+import {
+  TransactionalEmailsApi,
+  TransactionalEmailsApiApiKeys,
+  SendSmtpEmail,
+} from "@getbrevo/brevo";
 import { apiLogger } from "./logger";
 
-// Initialize Brevo API client
-const apiInstance = new brevo.TransactionalEmailsApi();
-apiInstance.setApiKey(
-  brevo.TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY || ""
-);
+// Lazy-initialize Brevo API client to avoid module-level overhead
+let apiInstance: TransactionalEmailsApi | null = null;
+
+function getApiInstance(): TransactionalEmailsApi {
+  if (!apiInstance) {
+    apiInstance = new TransactionalEmailsApi();
+    apiInstance.setApiKey(
+      TransactionalEmailsApiApiKeys.apiKey,
+      process.env.BREVO_API_KEY || ""
+    );
+  }
+  return apiInstance;
+}
 
 const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || "krishna@meetingmindsdubai.com";
 const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || "Event Management System";
@@ -31,7 +42,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
   }
 
   try {
-    const sendSmtpEmail = new brevo.SendSmtpEmail();
+    const sendSmtpEmail = new SendSmtpEmail();
 
     sendSmtpEmail.sender = {
       email: DEFAULT_FROM_EMAIL,
@@ -62,7 +73,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
       }));
     }
 
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    const result = await getApiInstance().sendTransacEmail(sendSmtpEmail);
 
     apiLogger.info({
       msg: "Email sent successfully",

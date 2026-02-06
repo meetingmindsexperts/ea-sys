@@ -1,20 +1,10 @@
 import pino from "pino";
-import fs from "fs";
 import path from "path";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
-// Create logs directory if it doesn't exist (only on server-side)
+// Lazy-evaluated logs directory - avoids fs operations at module load
 const logsDir = path.join(process.cwd(), "logs");
-if (typeof window === "undefined") {
-  try {
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-  } catch {
-    // Ignore errors (e.g., in serverless environments)
-  }
-}
 
 // Create the base logger configuration
 const loggerConfig: pino.LoggerOptions = {
