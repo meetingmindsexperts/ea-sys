@@ -161,7 +161,6 @@ export default function RegistrationsPage() {
   // Sheet state for registration details
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   // New registration dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -316,24 +315,10 @@ export default function RegistrationsPage() {
     setFormError(null);
   };
 
-  const handleRowClick = async (registration: Registration) => {
-    setDetailLoading(true);
+  const handleRowClick = (registration: Registration) => {
+    // Use data directly from the list - no need to fetch again
+    setSelectedRegistration(registration);
     setSheetOpen(true);
-
-    // Fetch full registration details
-    try {
-      const res = await fetch(`/api/events/${eventId}/registrations/${registration.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedRegistration(data);
-      } else {
-        setSelectedRegistration(registration);
-      }
-    } catch {
-      setSelectedRegistration(registration);
-    } finally {
-      setDetailLoading(false);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -820,14 +805,10 @@ export default function RegistrationsPage() {
 
       {/* Registration Detail Sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-          {detailLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-          ) : selectedRegistration ? (
+        <SheetContent className="overflow-y-auto p-6">
+          {selectedRegistration ? (
             <>
-              <SheetHeader>
+              <SheetHeader className="pr-8">
                 <SheetTitle className="flex items-center gap-2">
                   {selectedRegistration.attendee.firstName} {selectedRegistration.attendee.lastName}
                 </SheetTitle>

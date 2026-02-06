@@ -62,7 +62,17 @@ export async function GET(req: Request, { params }: RouteParams) {
           ticketType: true,
           payments: {
             orderBy: { createdAt: "desc" },
-            take: 1,
+          },
+          accommodation: {
+            include: {
+              roomType: {
+                include: {
+                  hotel: {
+                    select: { id: true, name: true },
+                  },
+                },
+              },
+            },
           },
         },
         orderBy: { createdAt: "desc" },

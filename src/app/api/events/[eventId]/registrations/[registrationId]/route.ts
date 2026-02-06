@@ -25,52 +25,62 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, registrationId } = await params;
-    const session = await auth();
+    // Parallelize all async operations
+    const [{ eventId, registrationId }, session] = await Promise.all([
+      params,
+      auth(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
-    });
+    // Parallelize event check and registration fetch
+    const [event, registration] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId,
+        },
+        select: { id: true },
+      }),
+      db.registration.findFirst({
+        where: {
+          id: registrationId,
+          eventId,
+        },
+        include: {
+          attendee: true,
+          ticketType: true,
+          payments: {
+            orderBy: { createdAt: "desc" },
+          },
+          accommodation: {
+            include: {
+              roomType: {
+                include: {
+                  hotel: {
+                    select: { id: true, name: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const registration = await db.registration.findFirst({
-      where: {
-        id: registrationId,
-        eventId,
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-        payments: {
-          orderBy: { createdAt: "desc" },
-        },
-        accommodation: {
-          include: {
-            roomType: {
-              include: {
-                hotel: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
     if (!registration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    return NextResponse.json(registration);
+    const response = NextResponse.json(registration);
+    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registration" });
     return NextResponse.json(
