@@ -133,7 +133,7 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No speakers yet. Click "Add Speaker" to get started.
+                No speakers yet. Click &quot;Add Speaker&quot; to get started.
               </p>
             </CardContent>
           </Card>

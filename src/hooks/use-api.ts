@@ -30,14 +30,14 @@ export const queryKeys = {
 export function useEvents() {
   return useQuery({
     queryKey: queryKeys.events,
-    queryFn: () => fetchApi<any[]>("/api/events"),
+    queryFn: () => fetchApi<unknown[]>("/api/events"),
   });
 }
 
 export function useEvent(eventId: string) {
   return useQuery({
     queryKey: queryKeys.event(eventId),
-    queryFn: () => fetchApi<any>(`/api/events/${eventId}`),
+    queryFn: () => fetchApi<unknown>(`/api/events/${eventId}`),
     enabled: !!eventId,
   });
 }
@@ -46,7 +46,7 @@ export function useEvent(eventId: string) {
 export function useTickets(eventId: string) {
   return useQuery({
     queryKey: queryKeys.tickets(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/tickets`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/tickets`),
     enabled: !!eventId,
   });
 }
@@ -54,7 +54,7 @@ export function useTickets(eventId: string) {
 export function useCreateTicket(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) =>
+    mutationFn: (data: unknown) =>
       fetchApi(`/api/events/${eventId}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -69,7 +69,7 @@ export function useCreateTicket(eventId: string) {
 export function useUpdateTicket(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ ticketId, data }: { ticketId: string; data: any }) =>
+    mutationFn: ({ ticketId, data }: { ticketId: string; data: unknown }) =>
       fetchApi(`/api/events/${eventId}/tickets/${ticketId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -101,7 +101,7 @@ export function useRegistrations(eventId: string, filters?: Record<string, strin
 
   return useQuery({
     queryKey: [...queryKeys.registrations(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/registrations${queryString}`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/registrations${queryString}`),
     enabled: !!eventId,
   });
 }
@@ -110,7 +110,7 @@ export function useRegistrations(eventId: string, filters?: Record<string, strin
 export function useSpeakers(eventId: string) {
   return useQuery({
     queryKey: queryKeys.speakers(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/speakers`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/speakers`),
     enabled: !!eventId,
   });
 }
@@ -118,7 +118,7 @@ export function useSpeakers(eventId: string) {
 export function useCreateSpeaker(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) =>
+    mutationFn: (data: unknown) =>
       fetchApi(`/api/events/${eventId}/speakers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -137,7 +137,7 @@ export function useSessions(eventId: string, filters?: Record<string, string>) {
 
   return useQuery({
     queryKey: [...queryKeys.sessions(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/sessions${queryString}`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/sessions${queryString}`),
     enabled: !!eventId,
   });
 }
@@ -146,7 +146,7 @@ export function useSessions(eventId: string, filters?: Record<string, string>) {
 export function useTracks(eventId: string) {
   return useQuery({
     queryKey: queryKeys.tracks(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/tracks`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/tracks`),
     enabled: !!eventId,
   });
 }
@@ -158,7 +158,7 @@ export function useAbstracts(eventId: string, filters?: Record<string, string>) 
 
   return useQuery({
     queryKey: [...queryKeys.abstracts(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/abstracts${queryString}`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/abstracts${queryString}`),
     enabled: !!eventId,
   });
 }
@@ -167,7 +167,7 @@ export function useAbstracts(eventId: string, filters?: Record<string, string>) 
 export function useHotels(eventId: string) {
   return useQuery({
     queryKey: queryKeys.hotels(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/hotels`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/hotels`),
     enabled: !!eventId,
   });
 }
@@ -179,7 +179,7 @@ export function useAccommodations(eventId: string, filters?: Record<string, stri
 
   return useQuery({
     queryKey: [...queryKeys.accommodations(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/accommodations${queryString}`),
+    queryFn: () => fetchApi<unknown[]>(`/api/events/${eventId}/accommodations${queryString}`),
     enabled: !!eventId,
   });
 }

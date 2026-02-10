@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Users, Ticket, TrendingUp } from "lucide-react";
 
@@ -123,7 +124,7 @@ export default async function DashboardPage() {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <a
+            <Link
               href="/events/new"
               className="block rounded-lg border p-4 hover:bg-muted transition-colors"
             >
@@ -136,8 +137,8 @@ export default async function DashboardPage() {
                   </p>
                 </div>
               </div>
-            </a>
-            <a
+            </Link>
+            <Link
               href="/settings"
               className="block rounded-lg border p-4 hover:bg-muted transition-colors"
             >
@@ -150,7 +151,7 @@ export default async function DashboardPage() {
                   </p>
                 </div>
               </div>
-            </a>
+            </Link>
           </CardContent>
         </Card>
       </div>

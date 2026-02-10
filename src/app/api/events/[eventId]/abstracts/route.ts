@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { AbstractStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+
+const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1),
   title: z.string().min(1),
   content: z.string().min(1),
   trackId: z.string().optional(),
-  status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).default("SUBMITTED"),
+  status: abstractStatusSchema.default("SUBMITTED"),
 });
 
 interface RouteParams {
@@ -26,7 +29,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status");
+    const statusParam = searchParams.get("status");
+    const parsedStatus = statusParam ? abstractStatusSchema.safeParse(statusParam) : null;
+    const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const trackId = searchParams.get("trackId");
     const speakerId = searchParams.get("speakerId");
 
@@ -42,7 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.abstract.findMany({
         where: {
           eventId,
-          ...(status && { status: status as any }),
+          ...(status && { status }),
           ...(trackId && { trackId }),
           ...(speakerId && { speakerId }),
         },

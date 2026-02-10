@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { AccommodationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+
+const accommodationStatusSchema = z.nativeEnum(AccommodationStatus);
 
 const createAccommodationSchema = z.object({
   registrationId: z.string().min(1),
@@ -27,7 +30,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status");
+    const statusParam = searchParams.get("status");
+    const parsedStatus = statusParam ? accommodationStatusSchema.safeParse(statusParam) : null;
+    const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const hotelId = searchParams.get("hotelId");
 
     // Parallelize event validation and accommodations fetch
@@ -42,7 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.accommodation.findMany({
         where: {
           eventId,
-          ...(status && { status: status as any }),
+          ...(status && { status }),
           ...(hotelId && {
             roomType: {
               hotelId,

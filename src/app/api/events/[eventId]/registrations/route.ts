@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
+
+const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
+const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 
 const createRegistrationSchema = z.object({
   ticketTypeId: z.string().min(1),
@@ -37,8 +41,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get("status");
-    const paymentStatus = searchParams.get("paymentStatus");
+    const statusParam = searchParams.get("status");
+    const paymentStatusParam = searchParams.get("paymentStatus");
+    const parsedStatus = statusParam ? registrationStatusSchema.safeParse(statusParam) : null;
+    const parsedPaymentStatus = paymentStatusParam ? paymentStatusSchema.safeParse(paymentStatusParam) : null;
+    const status = parsedStatus?.success ? parsedStatus.data : undefined;
+    const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const ticketTypeId = searchParams.get("ticketTypeId");
 
     // Parallelize event validation and registrations fetch
@@ -53,8 +61,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.registration.findMany({
         where: {
           eventId,
-          ...(status && { status: status as any }),
-          ...(paymentStatus && { paymentStatus: paymentStatus as any }),
+          ...(status && { status }),
+          ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
         },
         include: {

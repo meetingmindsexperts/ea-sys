@@ -634,7 +634,7 @@ export default function AccommodationPage() {
             <Card>
               <CardContent className="pt-6">
                 <p className="text-muted-foreground text-center py-8">
-                  No hotels yet. Click "Add Hotel" to get started.
+                  No hotels yet. Click &quot;Add Hotel&quot; to get started.
                 </p>
               </CardContent>
             </Card>

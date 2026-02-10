@@ -90,7 +90,7 @@ function ConfirmationContent() {
                 <div>
                   <p className="font-medium text-blue-900">Check your email</p>
                   <p className="text-blue-700">
-                    We've sent a confirmation email with your registration details
+                    We&apos;ve sent a confirmation email with your registration details
                     and QR code.
                   </p>
                 </div>

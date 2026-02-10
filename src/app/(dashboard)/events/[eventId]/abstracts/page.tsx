@@ -495,7 +495,7 @@ export default function AbstractsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No abstracts yet. Click "Add Abstract" to get started.
+                No abstracts yet. Click &quot;Add Abstract&quot; to get started.
               </p>
             </CardContent>
           </Card>

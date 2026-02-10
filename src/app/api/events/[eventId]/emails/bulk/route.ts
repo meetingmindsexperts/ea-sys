@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { RegistrationStatus, SpeakerStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -18,6 +19,8 @@ const bulkEmailSchema = z.object({
     })
     .optional(),
 });
+const speakerStatusSchema = z.nativeEnum(SpeakerStatus);
+const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -86,11 +89,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const errors: Array<{ email: string; error: string }> = [];
 
     if (recipientType === "speakers") {
+      const parsedStatus = filters?.status ? speakerStatusSchema.safeParse(filters.status) : null;
+      const status = parsedStatus?.success ? parsedStatus.data : undefined;
+
       const speakers = await db.speaker.findMany({
         where: {
           eventId,
           ...(recipientIds && recipientIds.length > 0 ? { id: { in: recipientIds } } : {}),
-          ...(filters?.status ? { status: filters.status as any } : {}),
+          ...(status && { status }),
         },
       });
 
@@ -100,11 +106,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         name: `${s.firstName} ${s.lastName}`,
       }));
     } else {
+      const parsedStatus = filters?.status ? registrationStatusSchema.safeParse(filters.status) : null;
+      const status = parsedStatus?.success ? parsedStatus.data : undefined;
+
       const registrations = await db.registration.findMany({
         where: {
           eventId,
           ...(recipientIds && recipientIds.length > 0 ? { id: { in: recipientIds } } : {}),
-          ...(filters?.status ? { status: filters.status as any } : {}),
+          ...(status && { status }),
           ...(filters?.ticketTypeId ? { ticketTypeId: filters.ticketTypeId } : {}),
         },
         include: {

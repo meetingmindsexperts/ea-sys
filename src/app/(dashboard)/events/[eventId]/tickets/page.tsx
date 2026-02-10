@@ -74,8 +74,8 @@ export default function TicketsPage() {
       }
       setIsDialogOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast.error(error.message || "Error saving registration type");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Error saving registration type");
     }
   };
 
@@ -85,8 +85,8 @@ export default function TicketsPage() {
     try {
       await deleteTicket.mutateAsync(ticketId);
       toast.success("Registration type deleted successfully");
-    } catch (error: any) {
-      toast.error(error.message || "Error deleting registration type");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Error deleting registration type");
     }
   };
 

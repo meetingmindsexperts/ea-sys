@@ -100,7 +100,7 @@ export default function SchedulePage() {
 
   // Session mutations
   const sessionMutation = useMutation({
-    mutationFn: async ({ data, sessionId }: { data: any; sessionId?: string }) => {
+    mutationFn: async ({ data, sessionId }: { data: Record<string, unknown>; sessionId?: string }) => {
       const url = sessionId
         ? `/api/events/${eventId}/sessions/${sessionId}`
         : `/api/events/${eventId}/sessions`;
@@ -135,7 +135,7 @@ export default function SchedulePage() {
 
   // Track mutations
   const trackMutation = useMutation({
-    mutationFn: async ({ data, trackId }: { data: any; trackId?: string }) => {
+    mutationFn: async ({ data, trackId }: { data: Record<string, unknown>; trackId?: string }) => {
       const url = trackId
         ? `/api/events/${eventId}/tracks/${trackId}`
         : `/api/events/${eventId}/tracks`;
@@ -725,7 +725,7 @@ export default function SchedulePage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No sessions yet. Click "Add Session" to get started.
+                No sessions yet. Click &quot;Add Session&quot; to get started.
               </p>
             </CardContent>
           </Card>
