@@ -87,7 +87,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const quickActions = [
     {
-      title: "Manage Tickets",
+      title: "Manage Registration Types",
       description: "Create and edit ticket types",
       icon: Ticket,
       href: `/events/${eventId}/tickets`,

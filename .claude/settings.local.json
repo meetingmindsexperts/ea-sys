@@ -25,7 +25,10 @@
       "Bash(npx prisma migrate:*)",
       "Bash(npx tsc:*)",
       "Bash(ls:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(du:*)",
+      "Bash(npm run lint:*)"
     ]
   }
 }

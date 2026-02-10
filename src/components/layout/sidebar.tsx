@@ -34,7 +34,7 @@ const navigation = [
 const eventNavigation = [
   { name: "Overview", href: "", icon: LayoutDashboard },
   { name: "Registrations", href: "/registrations", icon: Ticket },
-  { name: "Tickets", href: "/tickets", icon: Ticket },
+  { name: "Reg. Types", href: "/tickets", icon: Ticket },
   { name: "Speakers", href: "/speakers", icon: Mic },
   { name: "Schedule", href: "/schedule", icon: Clock },
   { name: "Accommodation", href: "/accommodation", icon: Building2 },
