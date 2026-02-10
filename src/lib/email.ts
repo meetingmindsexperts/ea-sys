@@ -558,6 +558,61 @@ If you didn't expect this invitation, you can safely ignore this email.
     `,
   }),
 
+  passwordReset: (params: {
+    recipientName: string;
+    resetLink: string;
+    expiresIn?: string;
+  }) => ({
+    subject: "Reset your EventsHub password",
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password Reset</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Reset Your Password</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">We received a request to reset your password.</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Hi <strong>${params.recipientName}</strong>,</p>
+
+    <p>Use the button below to set a new password for your MMGroup EventsHub account.</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.resetLink}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Reset Password</a>
+    </div>
+
+    ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This reset link will expire in ${params.expiresIn}.</p>` : ""}
+
+    <p style="color: #6b7280; font-size: 14px;">If you did not request a password reset, you can safely ignore this email.</p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>Sent from MMGroup EventsHub - Event Management Platform</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Reset your EventsHub password
+
+Hi ${params.recipientName},
+
+Use the link below to set a new password for your MMGroup EventsHub account:
+
+${params.resetLink}
+
+${params.expiresIn ? `Note: This reset link will expire in ${params.expiresIn}.` : ""}
+
+If you did not request a password reset, you can safely ignore this email.
+    `,
+  }),
+
   customNotification: (params: {
     recipientName: string;
     subject: string;
