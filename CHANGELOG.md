@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- Hardened reviewer event permissions to enforce an abstracts-only event experience.
+- Kept reviewer event visibility scoped to explicitly assigned events.
+- Updated reviewer sidebar event navigation to display only the **Abstracts** item.
+- Added middleware redirects so reviewers visiting any non-abstract event route are sent to `/events/[eventId]/abstracts`.
+- Blocked direct URL access for reviewers to non-abstract event subpages (overview, registrations, tickets, schedule, accommodation, speakers, and settings).
+
 ## [2025-02-05] - React Query & Performance Improvements
 
 ### Added
