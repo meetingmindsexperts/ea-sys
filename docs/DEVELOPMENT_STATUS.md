@@ -252,6 +252,21 @@ This document outlines the current development status of the Event Administratio
 - Gradient End: `oklch(0.82 0.1 220)` (Light Blue)
 
 
+### Server & Database Optimization (February 10, 2026)
+- [x] Speakers page: parallelized `params`/`auth()`/event/speakers queries with `Promise.all`
+- [x] Event detail page: parallelized `params`/`auth()`; switched to Prisma `select` for minimal data transfer
+- [x] Added composite indexes on Registration: `[eventId, status]`, `[eventId, ticketTypeId]`
+- [x] Removed redundant `@@index([slug])` on Organization (duplicated `@unique`)
+- [x] Narrowed middleware matcher to dashboard routes only (`/events/*`, `/dashboard/*`, `/settings/*`)
+- [x] Fixed Prisma client `globalThis` caching to apply only in development
+
+**Observed but not yet addressed:**
+- Registrations page is ~1,200-line monolith client component — should be split and lazy-loaded
+- `next.config.ts` missing several Radix packages from `optimizePackageImports`
+- `date-fns` not in `optimizePackageImports`
+- Unused tRPC dependencies in `package.json` (`@trpc/client`, `@trpc/react-query`, `@trpc/server`)
+- React Query uses uniform 5-minute stale time for all data types — could be granular
+
 ### Reviewer Event Visibility Hardening (Updated February 10, 2026)
 - [x] Reviewer access remains limited to events where the reviewer is explicitly assigned.
 - [x] Reviewer sidebar event navigation now shows only **Abstracts** (no Overview or other event modules).
@@ -598,10 +613,19 @@ This document outlines the current development status of the Event Administratio
 ### Performance
 - [x] Implement database query optimization (parallel queries)
 - [x] Add cache headers (stale-while-revalidate)
+- [x] Server page query parallelization (speakers page, event detail page)
+- [x] Prisma `select` on server pages to reduce query payload size
+- [x] Composite database indexes on Registration (`[eventId, status]`, `[eventId, ticketTypeId]`)
+- [x] Removed redundant indexes (Organization `@@index([slug])` duplicated `@unique`)
+- [x] Narrowed middleware matcher to dashboard routes only (skip public/API/auth/static)
+- [x] Fixed Prisma client caching (dev-only `globalThis` pattern)
 - [ ] Add Redis caching for frequently accessed data
-- [ ] Optimize bundle size
+- [ ] Optimize bundle size (add missing Radix packages + date-fns to `optimizePackageImports`)
+- [ ] Remove unused tRPC dependencies (~200KB in node_modules)
 - [ ] Add image optimization for uploads
 - [ ] Implement pagination for large lists
+- [ ] Split large client components (registrations page ~1,200 lines) into lazy-loaded subcomponents
+- [ ] Add granular React Query stale times per data type
 
 ### Security
 - [ ] Add CSRF protection

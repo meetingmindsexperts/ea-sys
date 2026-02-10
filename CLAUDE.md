@@ -176,8 +176,15 @@ npx tsc --noEmit     # Type check
 
 ### Database
 - Use indexes for frequently queried fields (already defined in schema)
+- Composite indexes on `Registration` for common query patterns: `[eventId, status]` and `[eventId, ticketTypeId]`
 - Avoid N+1 queries - use `include` for related data in single query
 - Use `findFirst` instead of `findUnique` when filtering by non-unique fields
+- Don't add explicit `@@index` on fields that already have `@unique` (unique creates an implicit index)
+
+### Server Pages
+- **Parallelize `params` + `auth()`:** Always use `Promise.all([params, auth()])` in server page functions
+- **Parallelize independent DB queries:** When a page needs both an event and related data (e.g., speakers), fetch them in parallel with `Promise.all` after auth
+- **Use `select` over `include`:** Server pages should use Prisma `select` to fetch only columns rendered in the template, not full objects
 
 ### Frontend
 - Use `Suspense` boundaries for loading states
@@ -206,6 +213,14 @@ The project uses several optimizations to reduce module load times:
   const apiInstance = new brevo.TransactionalEmailsApi();
   ```
 - **Logger** (`src/lib/logger.ts`): No synchronous file system operations at module load; pino transports handle directory creation
+
+**Prisma Client** (`src/lib/db.ts`):
+- Singleton pattern with `globalThis` caching in development only (prevents HMR connection leaks)
+- In production (Vercel), each serverless function gets its own instance — no global caching needed
+
+**Middleware** (`src/middleware.ts`):
+- Matcher scoped to only dashboard routes (`/events/*`, `/dashboard/*`, `/settings/*`)
+- Public routes (`/e/*`), API routes, auth pages, and static assets skip middleware entirely
 
 **Header Component** (`src/components/layout/header.tsx`):
 - Uses React Query hooks (`useEvents`, `useEvent`) instead of manual `useEffect` fetching
@@ -244,6 +259,10 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Server page query optimization** - Parallelized `params`/`auth()`/DB queries on speakers and event detail pages; switched to Prisma `select` for minimal data transfer
+- **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries; removed redundant `@@index([slug])` on Organization
+- **Middleware scope narrowing** - Matcher now only targets `/events/*`, `/dashboard/*`, `/settings/*` — public, API, and auth routes skip middleware entirely
+- **Prisma client caching fix** - Dev-only `globalThis` caching (was incorrectly caching in both envs)
 - **UI Terminology** - "Tickets" renamed to "Registration Types" throughout the app; seat availability counts hidden from public-facing pages
 - **Registration detail edit** - Slide-out panel with full CRUD for registration details
 - **Module load optimization** - Tree-shaking for lucide-react/Radix UI, lazy-init for Brevo SDK

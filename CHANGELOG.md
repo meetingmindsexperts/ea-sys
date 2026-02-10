@@ -13,6 +13,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added middleware redirects so reviewers visiting any non-abstract event route are sent to `/events/[eventId]/abstracts`.
 - Blocked direct URL access for reviewers to non-abstract event subpages (overview, registrations, tickets, schedule, accommodation, speakers, and settings).
 
+## [2026-02-10] - Server & Database Optimization
+
+### Changed
+- **Speakers page**: Parallelized `params`, `auth()`, event lookup, and speakers query using `Promise.all` — reduces ~3 serial DB roundtrips to 2 parallel batches
+- **Event detail page**: Parallelized `params` + `auth()`; switched from `include` (all columns) to `select` (only 9 rendered fields) for smaller query payload
+- **Prisma client caching**: Fixed inverted logic — `globalThis` caching now correctly applies only in development (prevents HMR connection leaks); production uses one instance per serverless function
+- **Middleware matcher**: Narrowed from catch-all regex to only `/events/*`, `/dashboard/*`, `/settings/*` — public routes (`/e/*`), API routes, auth pages, and static assets no longer invoke middleware
+
+### Added
+- Composite database index `[eventId, status]` on Registration for faster status-filtered queries within an event
+- Composite database index `[eventId, ticketTypeId]` on Registration for faster ticket-type-grouped queries
+
+### Removed
+- Redundant `@@index([slug])` on Organization model (already covered by `@unique` constraint)
+
 ## [2025-02-05] - React Query & Performance Improvements
 
 ### Added
