@@ -151,7 +151,9 @@ export default function RegistrationsPage() {
   const queryClient = useQueryClient();
 
   // React Query hooks
-  const { data: registrations = [], isLoading: loading, isFetching } = useRegistrations(eventId);
+  const registrationsQuery = useRegistrations(eventId);
+  const registrations = (registrationsQuery.data ?? []) as Registration[];
+  const { isLoading: loading, isFetching } = registrationsQuery;
   const { data: ticketTypes = [] } = useTickets(eventId);
   const { data: event } = useEvent(eventId);
 
