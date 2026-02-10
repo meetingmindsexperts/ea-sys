@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** January 29, 2026
+**Last Updated:** February 10, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -250,6 +250,14 @@ This document outlines the current development status of the Event Administratio
 - Accent: Amber/Yellow `oklch(0.85 0.16 85)`
 - Gradient Start: `oklch(0.65 0.155 220)` (Cerulean)
 - Gradient End: `oklch(0.82 0.1 220)` (Light Blue)
+
+
+### Reviewer Event Visibility Hardening (Updated February 10, 2026)
+- [x] Reviewer access remains limited to events where the reviewer is explicitly assigned.
+- [x] Reviewer sidebar event navigation now shows only **Abstracts** (no Overview or other event modules).
+- [x] Middleware now redirects reviewers to `/events/[eventId]/abstracts` for any non-abstract event route.
+- [x] Direct URL access to event overview, registrations, tickets, schedule, accommodation, speakers, and event settings is blocked for reviewers.
+- [x] Final reviewer experience target achieved: reviewer users see only abstracts inside an event context.
 
 ### User Invitation System (Complete)
 - [x] User invitation email template with Cerulean Blue gradient header

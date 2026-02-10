@@ -55,7 +55,7 @@ export function Sidebar() {
   const isEventPage = eventId && eventId !== "new";
 
   const reviewerNavigation = navigation.filter((item) => ["Dashboard", "Events"].includes(item.name));
-  const reviewerEventNavigation = eventNavigation.filter((item) => ["Overview", "Abstracts"].includes(item.name));
+  const reviewerEventNavigation = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
 
   const baseNavigation = isReviewer ? reviewerNavigation : navigation;
   const baseEventNavigation = isReviewer ? reviewerEventNavigation : eventNavigation;
