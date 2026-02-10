@@ -13,6 +13,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added middleware redirects so reviewers visiting any non-abstract event route are sent to `/events/[eventId]/abstracts`.
 - Blocked direct URL access for reviewers to non-abstract event subpages (overview, registrations, tickets, schedule, accommodation, speakers, and settings).
 
+## [2026-02-10b] - Reviewer API Access Hardening
+
+### Fixed
+- **Critical security fix**: Reviewers could previously bypass UI restrictions and call API endpoints directly to create, update, or delete registrations, speakers, tickets, sessions, tracks, hotels, accommodations, and send bulk emails
+- Added `denyReviewer()` guard to **29 POST/PUT/DELETE handlers** across **20 API route files** — reviewers now receive 403 Forbidden on all write operations except abstract reviews
+
+### Added
+- `src/lib/auth-guards.ts` — reusable `denyReviewer(session)` helper that returns 403 if user is REVIEWER role
+- Registrations page refactored into 4 files: `page.tsx` (393 lines), `types.ts`, `add-registration-dialog.tsx`, `registration-detail-sheet.tsx`
+
+### Protected Routes
+- Registrations: POST, PUT, DELETE, check-in (POST/PUT), email (POST)
+- Speakers: POST, PUT, DELETE, email (POST)
+- Tickets: POST, PUT, DELETE
+- Sessions: POST, PUT, DELETE
+- Tracks: POST, PUT, DELETE
+- Hotels: POST, PUT, DELETE + room types (POST, PUT, DELETE)
+- Accommodations: POST, PUT, DELETE
+- Bulk emails: POST
+
 ## [2026-02-10] - Server & Database Optimization
 
 ### Changed

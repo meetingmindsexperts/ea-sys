@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { denyReviewer } from "@/lib/auth-guards";
 
 const sendEmailSchema = z.object({
   type: z.enum(["invitation", "agreement", "custom"]),
@@ -26,6 +27,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const denied = denyReviewer(session);
+    if (denied) return denied;
 
     const [event, speaker, user] = await Promise.all([
       db.event.findFirst({

@@ -261,11 +261,23 @@ This document outlines the current development status of the Event Administratio
 - [x] Fixed Prisma client `globalThis` caching to apply only in development
 
 **Observed but not yet addressed:**
-- Registrations page is ~1,200-line monolith client component — should be split and lazy-loaded
 - `next.config.ts` missing several Radix packages from `optimizePackageImports`
 - `date-fns` not in `optimizePackageImports`
 - Unused tRPC dependencies in `package.json` (`@trpc/client`, `@trpc/react-query`, `@trpc/server`)
 - React Query uses uniform 5-minute stale time for all data types — could be granular
+
+### Reviewer API Access Hardening (February 10, 2026)
+- [x] Created `src/lib/auth-guards.ts` with reusable `denyReviewer()` helper
+- [x] Added 403 Forbidden guard to **29 POST/PUT/DELETE handlers** across **20 API route files**
+- [x] Registrations: POST, PUT, DELETE, check-in, email — all blocked for reviewers
+- [x] Speakers: POST, PUT, DELETE, email — all blocked for reviewers
+- [x] Tickets (registration types): POST, PUT, DELETE — all blocked for reviewers
+- [x] Sessions: POST, PUT, DELETE — all blocked for reviewers
+- [x] Tracks: POST, PUT, DELETE — all blocked for reviewers
+- [x] Hotels + room types: POST, PUT, DELETE — all blocked for reviewers
+- [x] Accommodations: POST, PUT, DELETE — all blocked for reviewers
+- [x] Bulk emails: POST — blocked for reviewers
+- [x] Registrations page split into 4 focused files (~68% reduction in main page size)
 
 ### Reviewer Event Visibility Hardening (Updated February 10, 2026)
 - [x] Reviewer access remains limited to events where the reviewer is explicitly assigned.
@@ -624,7 +636,7 @@ This document outlines the current development status of the Event Administratio
 - [ ] Remove unused tRPC dependencies (~200KB in node_modules)
 - [ ] Add image optimization for uploads
 - [ ] Implement pagination for large lists
-- [ ] Split large client components (registrations page ~1,200 lines) into lazy-loaded subcomponents
+- [x] Split registrations page (1,246 → 393 lines) into 4 focused sub-components
 - [ ] Add granular React Query stale times per data type
 
 ### Security

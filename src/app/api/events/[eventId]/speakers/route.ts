@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { denyReviewer } from "@/lib/auth-guards";
 
 const createSpeakerSchema = z.object({
   email: z.string().email(),
@@ -101,6 +102,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const denied = denyReviewer(session);
+    if (denied) return denied;
 
     const validated = createSpeakerSchema.safeParse(body);
 
