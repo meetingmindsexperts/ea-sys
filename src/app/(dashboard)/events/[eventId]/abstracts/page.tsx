@@ -71,9 +71,13 @@ export default function AbstractsPage() {
   const queryClient = useQueryClient();
 
   // React Query hooks - data is cached and shared across navigations
-  const { data: abstracts = [], isLoading: loading, isFetching } = useAbstracts(eventId);
-  const { data: speakers = [] } = useSpeakers(eventId);
-  const { data: tracks = [] } = useTracks(eventId);
+  const { data: abstractsData = [], isLoading: loading, isFetching } = useAbstracts(eventId);
+  const { data: speakersData = [] } = useSpeakers(eventId);
+  const { data: tracksData = [] } = useTracks(eventId);
+
+  const abstracts = abstractsData as Abstract[];
+  const speakers = speakersData as Speaker[];
+  const tracks = tracksData as Track[];
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
