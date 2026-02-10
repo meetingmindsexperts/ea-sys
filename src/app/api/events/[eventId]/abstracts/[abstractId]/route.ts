@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 const updateAbstractSchema = z.object({
   title: z.string().min(1).optional(),
@@ -27,10 +28,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
+      where: buildEventAccessWhere(session.user, eventId),
     });
 
     if (!event) {
@@ -81,11 +79,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
+      where: buildEventAccessWhere(session.user, eventId),
     });
 
     if (!event) {
@@ -182,11 +178,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    if (session.user.role === "REVIEWER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId,
-      },
+      where: buildEventAccessWhere(session.user, eventId),
     });
 
     if (!event) {

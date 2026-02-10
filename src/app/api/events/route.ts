@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { slugify } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 const createEventSchema = z.object({
   name: z.string().min(2),
@@ -25,7 +26,7 @@ export async function GET() {
     }
 
     const events = await db.event.findMany({
-      where: { organizationId: session.user.organizationId },
+      where: buildEventAccessWhere(session.user),
       orderBy: { createdAt: "desc" },
       include: {
         _count: {
@@ -53,6 +54,10 @@ export async function POST(req: Request) {
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (session.user.role === "REVIEWER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json();

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Calendar,
   Home,
@@ -45,18 +46,26 @@ const eventNavigation = [
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { data: session } = useSession();
+  const isReviewer = session?.user?.role === "REVIEWER";
 
   // Check if we're on an event page
   const eventMatch = pathname.match(/^\/events\/([^/]+)/);
   const eventId = eventMatch ? eventMatch[1] : null;
   const isEventPage = eventId && eventId !== "new";
 
+  const reviewerNavigation = navigation.filter((item) => ["Dashboard", "Events"].includes(item.name));
+  const reviewerEventNavigation = eventNavigation.filter((item) => ["Overview", "Abstracts"].includes(item.name));
+
+  const baseNavigation = isReviewer ? reviewerNavigation : navigation;
+  const baseEventNavigation = isReviewer ? reviewerEventNavigation : eventNavigation;
+
   const navItems = isEventPage
-    ? eventNavigation.map((item) => ({
+    ? baseEventNavigation.map((item) => ({
         ...item,
         href: `/events/${eventId}${item.href}`,
       }))
-    : navigation;
+    : baseNavigation;
 
   return (
     <TooltipProvider delayDuration={0}>
