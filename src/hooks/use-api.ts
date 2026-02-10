@@ -198,7 +198,7 @@ export function useReviewers(eventId: string) {
 export function useAddReviewer(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { speakerId: string }) =>
+    mutationFn: (data: { type: "speaker"; speakerId: string } | { type: "direct"; email: string; firstName: string; lastName: string }) =>
       fetchApi(`/api/events/${eventId}/reviewers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

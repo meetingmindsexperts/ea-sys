@@ -8,9 +8,10 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, emailTemplates } from "@/lib/email";
 
-const addReviewerSchema = z.object({
-  speakerId: z.string().min(1),
-});
+const addReviewerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("speaker"), speakerId: z.string().min(1) }),
+  z.object({ type: z.literal("direct"), email: z.string().email(), firstName: z.string().min(1), lastName: z.string().min(1) }),
+]);
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -139,137 +140,72 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId } = validated.data;
-
-    const [event, speaker] = await Promise.all([
-      db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId },
-        select: { id: true, name: true, settings: true },
-      }),
-      db.speaker.findFirst({
-        where: { id: speakerId, eventId },
-        select: { id: true, email: true, firstName: true, lastName: true, userId: true },
-      }),
-    ]);
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId },
+      select: { id: true, name: true, settings: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-    if (!speaker) {
-      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
     }
 
     const settings = (event.settings as Record<string, unknown>) || {};
     const reviewerUserIds = (settings.reviewerUserIds as string[]) || [];
 
-    let userId = speaker.userId;
+    let userId: string;
     let invitationSent = false;
+    let reviewerEmail: string;
 
-    if (!userId) {
-      // Check if a User with this email already exists
-      const existingUser = await db.user.findUnique({
-        where: { email: speaker.email },
-        select: { id: true, role: true, organizationId: true },
+    if (validated.data.type === "speaker") {
+      // ---- Add from speaker ----
+      const { speakerId } = validated.data;
+
+      const speaker = await db.speaker.findFirst({
+        where: { id: speakerId, eventId },
+        select: { id: true, email: true, firstName: true, lastName: true, userId: true },
       });
 
-      if (existingUser) {
-        if (existingUser.organizationId !== session.user.organizationId) {
-          return NextResponse.json(
-            { error: "This email belongs to a different organization" },
-            { status: 400 }
-          );
-        }
-        if (existingUser.role !== "REVIEWER") {
-          return NextResponse.json(
-            { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` },
-            { status: 400 }
-          );
-        }
-        userId = existingUser.id;
-      } else {
-        // Create new REVIEWER User with invitation
-        const invitationToken = crypto.randomBytes(32).toString("hex");
-        const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-        const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
-
-        const newUser = await db.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              organizationId: session.user.organizationId,
-              email: speaker.email,
-              firstName: speaker.firstName,
-              lastName: speaker.lastName,
-              role: "REVIEWER",
-              passwordHash: placeholderHash,
-            },
-            select: { id: true },
-          });
-
-          await tx.verificationToken.create({
-            data: {
-              identifier: speaker.email,
-              token: invitationToken,
-              expires: tokenExpiry,
-            },
-          });
-
-          return user;
-        });
-
-        userId = newUser.id;
-
-        // Send invitation email
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-        const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(speaker.email)}`;
-
-        const organization = await db.organization.findUnique({
-          where: { id: session.user.organizationId },
-          select: { name: true },
-        });
-
-        const inviterName = session.user.firstName && session.user.lastName
-          ? `${session.user.firstName} ${session.user.lastName}`
-          : session.user.email || "A team member";
-
-        const emailTemplate = emailTemplates.userInvitation({
-          recipientName: `${speaker.firstName} ${speaker.lastName}`,
-          recipientEmail: speaker.email,
-          organizationName: organization?.name || "your organization",
-          inviterName,
-          role: "Reviewer",
-          setupLink,
-          expiresIn: "7 days",
-        });
-
-        const emailResult = await sendEmail({
-          to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
-          subject: emailTemplate.subject,
-          htmlContent: emailTemplate.htmlContent,
-          textContent: emailTemplate.textContent,
-        });
-
-        invitationSent = emailResult.success;
-
-        if (!emailResult.success) {
-          apiLogger.warn({
-            msg: "Failed to send reviewer invitation email",
-            email: speaker.email,
-            error: emailResult.error,
-          });
-        }
+      if (!speaker) {
+        return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
       }
 
-      // Link speaker to user
-      await db.speaker.update({
-        where: { id: speaker.id },
-        data: { userId },
-      });
+      reviewerEmail = speaker.email;
+
+      if (speaker.userId) {
+        userId = speaker.userId;
+      } else {
+        const result = await findOrCreateReviewerUser(
+          speaker.email, speaker.firstName, speaker.lastName, session
+        );
+        if ("error" in result) {
+          return NextResponse.json({ error: result.error }, { status: 400 });
+        }
+        userId = result.userId;
+        invitationSent = result.invitationSent;
+
+        // Link speaker to user
+        await db.speaker.update({
+          where: { id: speaker.id },
+          data: { userId },
+        });
+      }
+    } else {
+      // ---- Add by email directly ----
+      const { email, firstName, lastName } = validated.data;
+      reviewerEmail = email;
+
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session);
+      if ("error" in result) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      userId = result.userId;
+      invitationSent = result.invitationSent;
     }
 
     // Check if already assigned
     if (reviewerUserIds.includes(userId)) {
       return NextResponse.json(
-        { error: "This speaker is already a reviewer for this event" },
+        { error: "This person is already a reviewer for this event" },
         { status: 400 }
       );
     }
@@ -293,7 +229,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "EventReviewer",
         entityId: userId,
-        changes: { speakerId, speakerEmail: speaker.email, invitationSent },
+        changes: { type: validated.data.type, email: reviewerEmail, invitationSent },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
@@ -304,9 +240,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         invitationSent,
         message: invitationSent
           ? "Reviewer added and invitation email sent"
-          : userId === speaker.userId
-          ? "Reviewer added to event"
-          : "Reviewer added but invitation email could not be sent",
+          : "Reviewer added to event",
       },
       { status: 201 }
     );
@@ -317,4 +251,96 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: 500 }
     );
   }
+}
+
+// Shared helper: find existing REVIEWER user or create one with invitation
+async function findOrCreateReviewerUser(
+  email: string,
+  firstName: string,
+  lastName: string,
+  session: { user: { organizationId: string; firstName?: string | null; lastName?: string | null; email?: string | null } }
+): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
+  const existingUser = await db.user.findUnique({
+    where: { email },
+    select: { id: true, role: true, organizationId: true },
+  });
+
+  if (existingUser) {
+    if (existingUser.organizationId !== session.user.organizationId) {
+      return { error: "This email belongs to a different organization" };
+    }
+    if (existingUser.role !== "REVIEWER") {
+      return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
+    }
+    return { userId: existingUser.id, invitationSent: false };
+  }
+
+  // Create new REVIEWER User with invitation
+  const invitationToken = crypto.randomBytes(32).toString("hex");
+  const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
+
+  const newUser = await db.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        organizationId: session.user.organizationId,
+        email,
+        firstName,
+        lastName,
+        role: "REVIEWER",
+        passwordHash: placeholderHash,
+      },
+      select: { id: true },
+    });
+
+    await tx.verificationToken.create({
+      data: {
+        identifier: email,
+        token: invitationToken,
+        expires: tokenExpiry,
+      },
+    });
+
+    return user;
+  });
+
+  // Send invitation email
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
+
+  const organization = await db.organization.findUnique({
+    where: { id: session.user.organizationId },
+    select: { name: true },
+  });
+
+  const inviterName = session.user.firstName && session.user.lastName
+    ? `${session.user.firstName} ${session.user.lastName}`
+    : session.user.email || "A team member";
+
+  const emailTemplate = emailTemplates.userInvitation({
+    recipientName: `${firstName} ${lastName}`,
+    recipientEmail: email,
+    organizationName: organization?.name || "your organization",
+    inviterName,
+    role: "Reviewer",
+    setupLink,
+    expiresIn: "7 days",
+  });
+
+  const emailResult = await sendEmail({
+    to: [{ email, name: `${firstName} ${lastName}` }],
+    subject: emailTemplate.subject,
+    htmlContent: emailTemplate.htmlContent,
+    textContent: emailTemplate.textContent,
+  });
+
+  if (!emailResult.success) {
+    apiLogger.warn({
+      msg: "Failed to send reviewer invitation email",
+      email,
+      error: emailResult.error,
+    });
+  }
+
+  return { userId: newUser.id, invitationSent: emailResult.success };
 }

@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2 } from "lucide-react";
 import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
 import { toast } from "sonner";
@@ -70,16 +73,53 @@ export default function ReviewersPage() {
   const availableSpeakers: AvailableSpeaker[] = data?.availableSpeakers ?? [];
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [addTab, setAddTab] = useState<string>("speaker");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState<string>("");
+  const [directEmail, setDirectEmail] = useState("");
+  const [directFirstName, setDirectFirstName] = useState("");
+  const [directLastName, setDirectLastName] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const handleAddReviewer = async () => {
+  const resetForm = () => {
+    setSelectedSpeakerId("");
+    setDirectEmail("");
+    setDirectFirstName("");
+    setDirectLastName("");
+  };
+
+  const handleDialogChange = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open) {
+      resetForm();
+      setAddTab("speaker");
+    }
+  };
+
+  const handleAddFromSpeaker = async () => {
     if (!selectedSpeakerId) return;
 
     try {
-      const result = await addReviewer.mutateAsync({ speakerId: selectedSpeakerId });
+      const result = await addReviewer.mutateAsync({ type: "speaker", speakerId: selectedSpeakerId });
       toast.success((result as { message?: string }).message || "Reviewer added");
-      setSelectedSpeakerId("");
+      resetForm();
+      setDialogOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add reviewer");
+    }
+  };
+
+  const handleAddByEmail = async () => {
+    if (!directEmail || !directFirstName || !directLastName) return;
+
+    try {
+      const result = await addReviewer.mutateAsync({
+        type: "direct",
+        email: directEmail,
+        firstName: directFirstName,
+        lastName: directLastName,
+      });
+      toast.success((result as { message?: string }).message || "Reviewer added");
+      resetForm();
       setDialogOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to add reviewer");
@@ -123,7 +163,7 @@ export default function ReviewersPage() {
           </p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -134,39 +174,88 @@ export default function ReviewersPage() {
             <DialogHeader>
               <DialogTitle>Add Reviewer</DialogTitle>
               <DialogDescription>
-                Select a speaker to assign as a reviewer for this event.
-                If they don&apos;t have an account, an invitation email will be sent.
+                Add a reviewer from your event speakers or invite someone directly by email.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 pt-4">
-              {availableSpeakers.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No available speakers. All speakers are already reviewers or no speakers exist for this event.
+            <Tabs value={addTab} onValueChange={setAddTab} className="pt-2">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="speaker">From Speakers</TabsTrigger>
+                <TabsTrigger value="email">By Email</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="speaker" className="space-y-4 pt-2">
+                {availableSpeakers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No available speakers. All speakers are already reviewers or no speakers exist for this event.
+                  </p>
+                ) : (
+                  <>
+                    <Select value={selectedSpeakerId} onValueChange={setSelectedSpeakerId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a speaker..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSpeakers.map((speaker) => (
+                          <SelectItem key={speaker.id} value={speaker.id}>
+                            {speaker.firstName} {speaker.lastName} — {speaker.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={handleAddFromSpeaker}
+                      disabled={!selectedSpeakerId || addReviewer.isPending}
+                      className="w-full"
+                    >
+                      {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
+                    </Button>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="email" className="space-y-4 pt-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewer-firstName">First Name</Label>
+                    <Input
+                      id="reviewer-firstName"
+                      value={directFirstName}
+                      onChange={(e) => setDirectFirstName(e.target.value)}
+                      placeholder="John"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewer-lastName">Last Name</Label>
+                    <Input
+                      id="reviewer-lastName"
+                      value={directLastName}
+                      onChange={(e) => setDirectLastName(e.target.value)}
+                      placeholder="Doe"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reviewer-email">Email</Label>
+                  <Input
+                    id="reviewer-email"
+                    type="email"
+                    value={directEmail}
+                    onChange={(e) => setDirectEmail(e.target.value)}
+                    placeholder="reviewer@example.com"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  An invitation email will be sent if this person doesn&apos;t have an account yet.
                 </p>
-              ) : (
-                <>
-                  <Select value={selectedSpeakerId} onValueChange={setSelectedSpeakerId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a speaker..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSpeakers.map((speaker) => (
-                        <SelectItem key={speaker.id} value={speaker.id}>
-                          {speaker.firstName} {speaker.lastName} — {speaker.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={handleAddReviewer}
-                    disabled={!selectedSpeakerId || addReviewer.isPending}
-                    className="w-full"
-                  >
-                    {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
-                  </Button>
-                </>
-              )}
-            </div>
+                <Button
+                  onClick={handleAddByEmail}
+                  disabled={!directEmail || !directFirstName || !directLastName || addReviewer.isPending}
+                  className="w-full"
+                >
+                  {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
+                </Button>
+              </TabsContent>
+            </Tabs>
           </DialogContent>
         </Dialog>
       </div>
@@ -204,7 +293,7 @@ export default function ReviewersPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No reviewers assigned yet. Click &quot;Add Reviewer&quot; to assign a speaker as a reviewer.
+                No reviewers assigned yet. Click &quot;Add Reviewer&quot; to get started.
               </p>
             </CardContent>
           </Card>
