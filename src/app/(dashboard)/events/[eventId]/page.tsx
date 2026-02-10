@@ -30,8 +30,7 @@ interface EventPageProps {
 }
 
 export default async function EventPage({ params }: EventPageProps) {
-  const { eventId } = await params;
-  const session = await auth();
+  const [{ eventId }, session] = await Promise.all([params, auth()]);
 
   if (!session?.user) {
     notFound();
@@ -42,7 +41,16 @@ export default async function EventPage({ params }: EventPageProps) {
       id: eventId,
       organizationId: session.user.organizationId,
     },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      venue: true,
+      city: true,
+      country: true,
       _count: {
         select: {
           registrations: true,

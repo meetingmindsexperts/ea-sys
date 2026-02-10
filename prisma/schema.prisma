@@ -21,8 +21,6 @@ model Organization {
 
   users  User[]
   events Event[]
-
-  @@index([slug])
 }
 
 model User {
@@ -199,6 +197,8 @@ model Registration {
   accommodation Accommodation?
 
   @@index([eventId])
+  @@index([eventId, status])
+  @@index([eventId, ticketTypeId])
   @@index([attendeeId])
   @@index([status])
   @@index([qrCode])

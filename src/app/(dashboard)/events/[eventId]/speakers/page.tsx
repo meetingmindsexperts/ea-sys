@@ -19,40 +19,37 @@ interface SpeakersPageProps {
 }
 
 export default async function SpeakersPage({ params }: SpeakersPageProps) {
-  const { eventId } = await params;
-  const session = await auth();
+  const [{ eventId }, session] = await Promise.all([params, auth()]);
 
   if (!session?.user) {
     notFound();
   }
 
-  const event = await db.event.findFirst({
-    where: {
-      id: eventId,
-      organizationId: session.user.organizationId,
-    },
-  });
+  const [event, speakers] = await Promise.all([
+    db.event.findFirst({
+      where: {
+        id: eventId,
+        organizationId: session.user.organizationId,
+      },
+      select: { id: true, name: true },
+    }),
+    db.speaker.findMany({
+      where: { eventId },
+      include: {
+        _count: {
+          select: {
+            sessions: true,
+            abstracts: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   if (!event) {
     notFound();
   }
-
-  const speakers = await db.speaker.findMany({
-    where: {
-      eventId,
-    },
-    include: {
-      _count: {
-        select: {
-          sessions: true,
-          abstracts: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
 
   const stats = {
     total: speakers.length,

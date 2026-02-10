@@ -45,10 +45,7 @@ function createPrismaClient() {
 
 export const db = globalForPrisma.prisma ?? createPrismaClient();
 
-// In production, also cache the client to prevent connection pool exhaustion
+// Cache the client in dev to prevent HMR from creating new connections
 if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = db;
-} else {
-  // In production (Vercel), cache the client to reuse connections
   globalForPrisma.prisma = db;
 }
