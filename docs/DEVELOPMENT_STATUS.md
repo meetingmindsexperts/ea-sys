@@ -266,6 +266,16 @@ This document outlines the current development status of the Event Administratio
 - Unused tRPC dependencies in `package.json` (`@trpc/client`, `@trpc/react-query`, `@trpc/server`)
 - React Query uses uniform 5-minute stale time for all data types — could be granular
 
+### Reviewers Module (February 10, 2026)
+- [x] Per-event reviewer management page at `/events/[eventId]/reviewers`
+- [x] GET API returns reviewer list (cross-referenced from `event.settings.reviewerUserIds`, speakers, and users) + available speakers
+- [x] POST API assigns a speaker as reviewer: finds/creates REVIEWER User, links `Speaker.userId`, adds to `reviewerUserIds`, sends invitation email
+- [x] DELETE API removes reviewer from event (does not delete User account)
+- [x] React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
+- [x] "Reviewers" sidebar tab added after "Abstracts" (not visible to reviewer role)
+- [x] Stats cards: Total Reviewers, Active Accounts
+- [x] Add Reviewer dialog with speaker picker, Remove button per reviewer card
+
 ### Reviewer API Access Hardening (February 10, 2026)
 - [x] Created `src/lib/auth-guards.ts` with reusable `denyReviewer()` helper
 - [x] Added 403 Forbidden guard to **29 POST/PUT/DELETE handlers** across **20 API route files**

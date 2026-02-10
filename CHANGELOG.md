@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Reviewers module**: New per-event reviewer management page at `/events/[eventId]/reviewers`.
+- Admins can pick any event speaker and assign them as a reviewer.
+- Auto-creates a REVIEWER User account and sends an invitation email when the speaker has no account.
+- API routes: GET/POST `/api/events/[eventId]/reviewers`, DELETE `/api/events/[eventId]/reviewers/[reviewerId]`.
+- React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`.
+- "Reviewers" tab in sidebar navigation (hidden from reviewer role).
+
 ### Changed
 - Hardened reviewer event permissions to enforce an abstracts-only event experience.
 - Kept reviewer event visibility scoped to explicitly assigned events.

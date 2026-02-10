@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,8 +37,7 @@ import {
   Globe,
   Bell,
   Shield,
-  Image,
-  Code,
+  ImageIcon,
 } from "lucide-react";
 
 interface Event {
@@ -335,7 +335,7 @@ export default function EventSettingsPage() {
             Notifications
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
-            <Image className="h-4 w-4" />
+            <ImageIcon className="h-4 w-4" />
             Branding
           </TabsTrigger>
           <TabsTrigger value="danger" className="flex items-center gap-2 text-red-600">
@@ -746,13 +746,13 @@ export default function EventSettingsPage() {
                 </p>
                 {brandingSettings.bannerImage && (
                   <div className="mt-4 border rounded-lg overflow-hidden">
-                    <img
+                    <Image
                       src={brandingSettings.bannerImage}
                       alt="Banner preview"
+                      width={1200}
+                      height={400}
                       className="w-full h-48 object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
+                      unoptimized
                     />
                   </div>
                 )}

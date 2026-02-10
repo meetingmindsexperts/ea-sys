@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useParams } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, Calendar, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,10 +54,13 @@ function ConfirmationContent() {
       {/* Banner Image */}
       {branding?.bannerImage && (
         <div className="w-full">
-          <img
+          <Image
             src={branding.bannerImage}
             alt="Event banner"
+            width={1200}
+            height={400}
             className="w-full h-32 md:h-48 object-cover"
+            unoptimized
           />
         </div>
       )}

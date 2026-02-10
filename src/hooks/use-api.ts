@@ -25,6 +25,7 @@ export const queryKeys = {
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
+  reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
 };
 
 // ============ EVENTS ============
@@ -182,5 +183,42 @@ export function useAccommodations(eventId: string, filters?: Record<string, stri
     queryKey: [...queryKeys.accommodations(eventId), filters],
     queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/accommodations${queryString}`),
     enabled: !!eventId,
+  });
+}
+
+// ============ REVIEWERS ============
+export function useReviewers(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.reviewers(eventId),
+    queryFn: () => fetchApi<any>(`/api/events/${eventId}/reviewers`),
+    enabled: !!eventId,
+  });
+}
+
+export function useAddReviewer(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { speakerId: string }) =>
+      fetchApi(`/api/events/${eventId}/reviewers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
+  });
+}
+
+export function useRemoveReviewer(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (reviewerId: string) =>
+      fetchApi(`/api/events/${eventId}/reviewers/${reviewerId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
   });
 }

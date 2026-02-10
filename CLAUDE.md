@@ -33,6 +33,7 @@ src/
 │   │   │       ├── accommodation/
 │   │   │       ├── tickets/
 │   │   │       ├── abstracts/
+│   │   │       ├── reviewers/
 │   │   │       └── settings/
 │   │   └── settings/        # Organization settings
 │   ├── e/                   # Public event pages (no auth)
@@ -53,8 +54,10 @@ src/
 │   └── use-api.ts           # React Query hooks for API calls
 ├── lib/                     # Utilities
 │   ├── auth.ts              # NextAuth configuration
+│   ├── auth-guards.ts       # Role-based access guards (denyReviewer)
 │   ├── db.ts                # Prisma client
 │   ├── email.ts             # Brevo email service
+│   ├── event-access.ts      # Event scoping by role (buildEventAccessWhere)
 │   ├── logger.ts            # Pino logger
 │   └── utils.ts             # Helper functions
 └── types/                   # TypeScript types
@@ -64,9 +67,13 @@ src/
 
 - `prisma/schema.prisma` - Database schema
 - `src/lib/auth.ts` - Authentication configuration
+- `src/lib/auth-guards.ts` - `denyReviewer()` guard for API route protection
+- `src/lib/event-access.ts` - `buildEventAccessWhere()` for role-scoped event queries
 - `src/lib/email.ts` - Email templates and sending
 - `src/hooks/use-api.ts` - React Query hooks for data fetching
 - `src/components/providers.tsx` - App providers (QueryClient, SessionProvider)
+- `src/components/layout/sidebar.tsx` - Sidebar with role-based navigation
+- `src/middleware.ts` - Route-level REVIEWER redirects
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
@@ -98,6 +105,10 @@ export async function GET/POST/PUT/DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Block reviewers from write operations (POST/PUT/DELETE on non-abstract routes)
+  const denied = denyReviewer(session);
+  if (denied) return denied;
+
   // Verify event access
   const event = await db.event.findFirst({
     where: { id: eventId, organizationId: session.user.organizationId }
@@ -106,6 +117,8 @@ export async function GET/POST/PUT/DELETE(
   // ... handle request
 }
 ```
+
+**Important:** All POST/PUT/DELETE handlers (except abstract reviews) must call `denyReviewer(session)` from `@/lib/auth-guards`. This is enforced across 29 handlers in 20 route files.
 
 ## Styling
 
@@ -141,15 +154,37 @@ npx prisma studio    # Open Prisma Studio
 npx tsc --noEmit     # Type check
 ```
 
+## Role-Based Access Control (RBAC)
+
+### Roles
+- **SUPER_ADMIN / ADMIN** - Full access to all features
+- **ORGANIZER** - Full access to assigned events
+- **REVIEWER** - Abstracts-only access to assigned events
+
+### Reviewer Restrictions (3-layer enforcement)
+1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract reviews) returns 403
+2. **Middleware Layer:** `src/middleware.ts` redirects reviewers from non-abstract event routes to `/events/[eventId]/abstracts`, and `/events/new` to `/events`
+3. **UI Layer:** Write-action buttons (Add, Edit, Delete) hidden via `isReviewer` checks in both server components (`session.user.role === "REVIEWER"`) and client components (`useSession()`)
+
+### Event Scoping
+- `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
+- Admins/Organizers see all org events; Reviewers see only events where their userId is in `event.settings.reviewerUserIds`
+
+### Reviewer Assignment
+- Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
+- `Speaker.userId` (nullable FK) links speakers to User accounts
+- The Reviewers page lets admins pick speakers and auto-creates REVIEWER User accounts with invitation emails
+
 ## Code Conventions
 
 1. **API Routes:** Use Promise.all for parallel queries, validate with Zod
 2. **Error Handling:** Use try/catch with apiLogger for errors
 3. **Auth:** All dashboard routes require authentication via `auth()`
-4. **Forms:** Use react-hook-form with Zod validation
-5. **Toasts:** Use sonner for notifications
-6. **State:** Use React Query for server state, local useState for UI state
-7. **Data Fetching:** Use hooks from `src/hooks/use-api.ts` for client-side data
+4. **Auth Guards:** All write API routes must call `denyReviewer(session)` from `@/lib/auth-guards`
+5. **Forms:** Use react-hook-form with Zod validation
+6. **Toasts:** Use sonner for notifications
+7. **State:** Use React Query for server state, local useState for UI state
+8. **Data Fetching:** Use hooks from `src/hooks/use-api.ts` for client-side data
 
 ## Performance Optimization
 
@@ -255,24 +290,24 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket` (for registration types)
 - `useRegistrations`, `useSpeakers`, `useSessions`, `useTracks`
 - `useAbstracts`, `useHotels`, `useAccommodations`
+- `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
 - `useEvents`, `useEvent`
 
 ## Recent Features
 
+- **Reviewers module** - Per-event reviewer management page; pick speakers as reviewers with auto-invitation; API routes for add/remove; React Query hooks
+- **Reviewer access hardening** - 3-layer RBAC enforcement (API guards on 29 handlers, middleware redirects, UI write-action hiding) restricting reviewers to abstracts-only
+- **Event scoping for reviewers** - Events list uses `buildEventAccessWhere` so reviewers only see assigned events
 - **Server page query optimization** - Parallelized `params`/`auth()`/DB queries on speakers and event detail pages; switched to Prisma `select` for minimal data transfer
-- **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries; removed redundant `@@index([slug])` on Organization
-- **Middleware scope narrowing** - Matcher now only targets `/events/*`, `/dashboard/*`, `/settings/*` — public, API, and auth routes skip middleware entirely
-- **Prisma client caching fix** - Dev-only `globalThis` caching (was incorrectly caching in both envs)
-- **UI Terminology** - "Tickets" renamed to "Registration Types" throughout the app; seat availability counts hidden from public-facing pages
+- **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries
+- **Middleware scope narrowing** - Matcher targets only dashboard routes; reviewers redirected from non-abstract event routes
 - **Registration detail edit** - Slide-out panel with full CRUD for registration details
-- **Module load optimization** - Tree-shaking for lucide-react/Radix UI, lazy-init for Brevo SDK
-- **React Query caching** for instant page navigation (registration types, registrations, schedule, abstracts)
+- **React Query caching** for instant page navigation (registration types, registrations, schedule, abstracts, reviewers)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens
 - Cerulean Blue theme with gradients
 - Bulk email sending via Brevo
 - Session calendar view
-- API performance optimizations (Promise.all, Prisma select, cache headers)
 - File-based logging (`logs/app.log`, `logs/error.log`)
 
 ## Current Mode

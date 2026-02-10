@@ -58,7 +58,7 @@ export default function NewSpeakerPage() {
         const data = await res.json();
         setError(data.error || "Failed to create speaker");
       }
-    } catch (err) {
+    } catch {
       setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);

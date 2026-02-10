@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +22,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -144,7 +144,7 @@ export default function SpeakerDetailPage() {
       } else {
         setError("Speaker not found");
       }
-    } catch (err) {
+    } catch {
       setError("Failed to load speaker");
     } finally {
       setLoading(false);
@@ -170,7 +170,7 @@ export default function SpeakerDetailPage() {
         const data = await res.json();
         setError(data.error || "Failed to save speaker");
       }
-    } catch (err) {
+    } catch {
       setError("An error occurred. Please try again.");
     } finally {
       setSaving(false);
@@ -191,7 +191,7 @@ export default function SpeakerDetailPage() {
         const data = await res.json();
         setError(data.error || "Failed to delete speaker");
       }
-    } catch (err) {
+    } catch {
       setError("An error occurred. Please try again.");
     }
   };
@@ -230,7 +230,7 @@ export default function SpeakerDetailPage() {
       } else {
         setError(data.error || "Failed to send email");
       }
-    } catch (err) {
+    } catch {
       setError("An error occurred while sending email");
     } finally {
       setSendingEmail(false);
@@ -561,10 +561,13 @@ export default function SpeakerDetailPage() {
           {speaker.headshot && (
             <Card>
               <CardContent className="pt-6">
-                <img
+                <Image
                   src={speaker.headshot}
                   alt={`${speaker.firstName} ${speaker.lastName}`}
+                  width={400}
+                  height={400}
                   className="w-full rounded-lg"
+                  unoptimized
                 />
               </CardContent>
             </Card>

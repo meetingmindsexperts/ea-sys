@@ -28,7 +28,8 @@
       "Bash(grep:*)",
       "Bash(cat:*)",
       "Bash(du:*)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   FileText,
   Clock,
+  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ const eventNavigation = [
   { name: "Schedule", href: "/schedule", icon: Clock },
   { name: "Accommodation", href: "/accommodation", icon: Building2 },
   { name: "Abstracts", href: "/abstracts", icon: FileText },
+  { name: "Reviewers", href: "/reviewers", icon: UserCheck },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

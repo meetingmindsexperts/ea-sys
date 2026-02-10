@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -203,10 +204,13 @@ export default function PublicEventPage() {
       {/* Banner Image */}
       {event.bannerImage && (
         <div className="w-full">
-          <img
+          <Image
             src={event.bannerImage}
             alt={event.name}
+            width={1200}
+            height={400}
             className="w-full h-48 md:h-64 object-cover"
+            unoptimized
           />
         </div>
       )}
