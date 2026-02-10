@@ -36,7 +36,19 @@ export const {
 
         // Find user in database
         const user = await db.user.findUnique({
-          where: { email: validated.data.email },
+          where: { email: validated.data.email.toLowerCase() },
+          select: {
+            id: true,
+            email: true,
+            passwordHash: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            organizationId: true,
+            organization: {
+              select: { name: true },
+            },
+          },
         });
 
         if (!user || !user.passwordHash) return null;
@@ -54,6 +66,11 @@ export const {
           id: user.id,
           email: user.email,
           name: `${user.firstName} ${user.lastName}`,
+          role: user.role,
+          organizationId: user.organizationId,
+          organizationName: user.organization.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
         };
       },
     }),
@@ -66,19 +83,12 @@ export const {
     async jwt({ token, user, trigger }) {
       // On sign in, fetch user data
       if (user) {
-        const dbUser = await db.user.findUnique({
-          where: { email: user.email! },
-          include: { organization: true },
-        });
-
-        if (dbUser) {
-          token.id = dbUser.id;
-          token.role = dbUser.role;
-          token.organizationId = dbUser.organizationId;
-          token.organizationName = dbUser.organization.name;
-          token.firstName = dbUser.firstName;
-          token.lastName = dbUser.lastName;
-        }
+        token.id = user.id;
+        token.role = user.role;
+        token.organizationId = user.organizationId;
+        token.organizationName = user.organizationName;
+        token.firstName = user.firstName;
+        token.lastName = user.lastName;
       }
 
       // On explicit session update (e.g., after org settings change), refetch data

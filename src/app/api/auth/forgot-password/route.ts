@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { dbLogger } from "@/lib/logger";
@@ -82,20 +82,30 @@ export async function POST(req: Request) {
       expiresIn: "1 hour",
     });
 
-    const emailResult = await sendEmail({
-      to: [{ email: user.email, name: `${user.firstName} ${user.lastName}` }],
-      subject: emailTemplate.subject,
-      htmlContent: emailTemplate.htmlContent,
-      textContent: emailTemplate.textContent,
-    });
+    after(async () => {
+      try {
+        const emailResult = await sendEmail({
+          to: [{ email: user.email, name: `${user.firstName} ${user.lastName}` }],
+          subject: emailTemplate.subject,
+          htmlContent: emailTemplate.htmlContent,
+          textContent: emailTemplate.textContent,
+        });
 
-    if (!emailResult.success) {
-      dbLogger.warn({
-        msg: "Failed to send password reset email",
-        email,
-        error: emailResult.error,
-      });
-    }
+        if (!emailResult.success) {
+          dbLogger.warn({
+            msg: "Failed to send password reset email",
+            email,
+            error: emailResult.error,
+          });
+        }
+      } catch (sendError) {
+        dbLogger.warn({
+          msg: "Password reset email dispatch error",
+          email,
+          error: sendError instanceof Error ? sendError.message : "Unknown error",
+        });
+      }
+    });
 
     return NextResponse.json({
       success: true,
