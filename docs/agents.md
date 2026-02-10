@@ -60,7 +60,7 @@ src/lib/utils.ts             # Formatting helpers
 | AuditLog | Action history | `[entityType, entityId]`, `createdAt` |
 | Payment | Financial records | `registrationId`, `stripePaymentId` |
 
-**Roles:** `SUPER_ADMIN`, `ADMIN`, `ORGANIZER`, `REVIEWER` (reviewer sees only abstracts).
+**Roles:** `SUPER_ADMIN`, `ADMIN`, `ORGANIZER`, `REVIEWER` (reviewer sees only abstracts, cannot create events).
 
 ---
 
@@ -142,7 +142,8 @@ Available hooks: `useEvents`, `useEvent`, `useTickets`, `useRegistrations`, `use
 ## Middleware
 
 - Only runs on `/events/*`, `/dashboard/*`, `/settings/*`
-- Redirects REVIEWER role users to `/events/[eventId]/abstracts` for any non-abstract route
+- Redirects REVIEWER role users from `/events/new` to `/events`
+- Redirects REVIEWER role users to `/events/[eventId]/abstracts` for any non-abstract event route
 - Uses Edge-compatible auth config (no bcrypt, no Prisma)
 - Public routes (`/e/*`), API routes, auth pages, and static assets are excluded
 

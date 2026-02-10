@@ -51,6 +51,8 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
     notFound();
   }
 
+  const isReviewer = session.user.role === "REVIEWER";
+
   const stats = {
     total: speakers.length,
     confirmed: speakers.filter((s) => s.status === "CONFIRMED").length,
@@ -71,12 +73,14 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
             Manage speakers for {event.name}
           </p>
         </div>
-        <Button asChild>
-          <Link href={`/events/${eventId}/speakers/new`}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Speaker
-          </Link>
-        </Button>
+        {!isReviewer && (
+          <Button asChild>
+            <Link href={`/events/${eventId}/speakers/new`}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Speaker
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Stats */}

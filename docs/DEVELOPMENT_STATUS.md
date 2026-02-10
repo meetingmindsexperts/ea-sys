@@ -285,6 +285,10 @@ This document outlines the current development status of the Event Administratio
 - [x] Middleware now redirects reviewers to `/events/[eventId]/abstracts` for any non-abstract event route.
 - [x] Direct URL access to event overview, registrations, tickets, schedule, accommodation, speakers, and event settings is blocked for reviewers.
 - [x] Final reviewer experience target achieved: reviewer users see only abstracts inside an event context.
+- [x] **Event creation blocked**: "Create Event" button hidden from events list page for REVIEWER role.
+- [x] Middleware redirects reviewers from `/events/new` to `/events` (previously redirected to non-existent `/events/new/abstracts`).
+- [x] Events list page now uses `buildEventAccessWhere` to scope query — reviewers only see assigned events (was showing all org events).
+- [x] **Write-action UI hidden for reviewers**: Speakers page (Add Speaker button), Schedule page (Add Track, Add Session, edit/delete buttons on tracks and sessions), Registrations page (Add Registration, Share Link), Registration detail sheet (Edit, Check In, Send Email, Delete, status management dropdowns).
 
 ### User Invitation System (Complete)
 - [x] User invitation email template with Cerulean Blue gradient header

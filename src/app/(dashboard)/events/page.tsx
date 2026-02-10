@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Plus, Calendar, MapPin, Users } from "lucide-react";
 import { formatDateRange } from "@/lib/utils";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 const statusColors = {
   DRAFT: "bg-gray-100 text-gray-800",
@@ -29,8 +30,10 @@ export default async function EventsPage() {
     redirect("/login");
   }
 
+  const isReviewer = session.user.role === "REVIEWER";
+
   const events = await db.event.findMany({
-    where: { organizationId: session.user.organizationId },
+    where: buildEventAccessWhere(session.user),
     orderBy: { createdAt: "desc" },
     include: {
       _count: {
@@ -51,12 +54,14 @@ export default async function EventsPage() {
             Manage all your events in one place
           </p>
         </div>
-        <Button asChild>
-          <Link href="/events/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Create Event
-          </Link>
-        </Button>
+        {!isReviewer && (
+          <Button asChild>
+            <Link href="/events/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Event
+            </Link>
+          </Button>
+        )}
       </div>
 
       {events.length > 0 ? (
@@ -110,15 +115,18 @@ export default async function EventsPage() {
             <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No events yet</h3>
             <p className="text-muted-foreground mb-4 text-center">
-              Create your first event to start managing registrations,
-              speakers, and more.
+              {isReviewer
+                ? "You have no assigned events yet."
+                : "Create your first event to start managing registrations, speakers, and more."}
             </p>
-            <Button asChild>
-              <Link href="/events/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Event
-              </Link>
-            </Button>
+            {!isReviewer && (
+              <Button asChild>
+                <Link href="/events/new">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Event
+                </Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

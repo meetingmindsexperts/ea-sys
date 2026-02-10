@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Updated reviewer sidebar event navigation to display only the **Abstracts** item.
 - Added middleware redirects so reviewers visiting any non-abstract event route are sent to `/events/[eventId]/abstracts`.
 - Blocked direct URL access for reviewers to non-abstract event subpages (overview, registrations, tickets, schedule, accommodation, speakers, and settings).
+- **Blocked event creation for reviewers**: Hidden "Create Event" button from events list page for REVIEWER role.
+- Middleware now redirects reviewers from `/events/new` to `/events`.
+- Events list page now uses `buildEventAccessWhere` to scope events to reviewer-assigned events only (previously showed all org events).
+- **Hidden all write-action UI for reviewers** on speakers page (Add Speaker), schedule page (Add Track, Add Session, edit/delete buttons), registrations page (Add Registration, Share Link), and registration detail sheet (Edit, Check In, Send Email, Delete, status management).
 
 ## [2026-02-10b] - Reviewer API Access Hardening
 

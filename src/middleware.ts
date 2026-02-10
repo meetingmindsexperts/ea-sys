@@ -13,6 +13,14 @@ export default auth((req) => {
   }
 
   const { pathname } = req.nextUrl;
+
+  // Block reviewers from creating new events
+  if (pathname === "/events/new") {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/events";
+    return NextResponse.redirect(redirectUrl);
+  }
+
   const reviewerEventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
 
   if (!reviewerEventPath) {

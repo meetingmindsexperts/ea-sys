@@ -39,6 +39,7 @@ import {
 import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
 import { useSessions, useTracks, useSpeakers, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 
 interface Track {
@@ -71,6 +72,8 @@ export default function SchedulePage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const isReviewer = session?.user?.role === "REVIEWER";
 
   // React Query hooks - data is cached and shared across navigations
   const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
@@ -312,103 +315,106 @@ export default function SchedulePage() {
               Calendar View
             </Link>
           </Button>
-          <Dialog
-            open={isTrackDialogOpen}
-            onOpenChange={(open) => {
-              setIsTrackDialogOpen(open);
-              if (!open) resetTrackForm();
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Track
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  {editingTrack ? "Edit Track" : "Create Track"}
-                </DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleTrackSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="trackName">Name</Label>
-                  <Input
-                    id="trackName"
-                    value={trackFormData.name}
-                    onChange={(e) =>
-                      setTrackFormData({ ...trackFormData, name: e.target.value })
-                    }
-                    placeholder="e.g., Main Stage, Workshop Room"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="trackDescription">Description</Label>
-                  <Textarea
-                    id="trackDescription"
-                    value={trackFormData.description}
-                    onChange={(e) =>
-                      setTrackFormData({
-                        ...trackFormData,
-                        description: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="trackColor">Color</Label>
-                  <div className="flex gap-2">
+          {!isReviewer && (
+            <Dialog
+              open={isTrackDialogOpen}
+              onOpenChange={(open) => {
+                setIsTrackDialogOpen(open);
+                if (!open) resetTrackForm();
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Track
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingTrack ? "Edit Track" : "Create Track"}
+                  </DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleTrackSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="trackName">Name</Label>
                     <Input
-                      id="trackColor"
-                      type="color"
-                      value={trackFormData.color}
+                      id="trackName"
+                      value={trackFormData.name}
                       onChange={(e) =>
-                        setTrackFormData({ ...trackFormData, color: e.target.value })
+                        setTrackFormData({ ...trackFormData, name: e.target.value })
                       }
-                      className="w-16 h-10 p-1"
-                    />
-                    <Input
-                      value={trackFormData.color}
-                      onChange={(e) =>
-                        setTrackFormData({ ...trackFormData, color: e.target.value })
-                      }
-                      className="flex-1"
+                      placeholder="e.g., Main Stage, Workshop Room"
+                      required
                     />
                   </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsTrackDialogOpen(false)}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingTrack ? "Save Changes" : "Create Track"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <div className="space-y-2">
+                    <Label htmlFor="trackDescription">Description</Label>
+                    <Textarea
+                      id="trackDescription"
+                      value={trackFormData.description}
+                      onChange={(e) =>
+                        setTrackFormData({
+                          ...trackFormData,
+                          description: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="trackColor">Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="trackColor"
+                        type="color"
+                        value={trackFormData.color}
+                        onChange={(e) =>
+                          setTrackFormData({ ...trackFormData, color: e.target.value })
+                        }
+                        className="w-16 h-10 p-1"
+                      />
+                      <Input
+                        value={trackFormData.color}
+                        onChange={(e) =>
+                          setTrackFormData({ ...trackFormData, color: e.target.value })
+                        }
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsTrackDialogOpen(false)}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={isSubmitting}>
+                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {editingTrack ? "Save Changes" : "Create Track"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
 
-          <Dialog
-            open={isSessionDialogOpen}
-            onOpenChange={(open) => {
-              setIsSessionDialogOpen(open);
-              if (!open) resetSessionForm();
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Session
-              </Button>
-            </DialogTrigger>
+          {!isReviewer && (
+            <Dialog
+              open={isSessionDialogOpen}
+              onOpenChange={(open) => {
+                setIsSessionDialogOpen(open);
+                if (!open) resetSessionForm();
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Session
+                </Button>
+              </DialogTrigger>
             <DialogContent className="sm:max-w-[600px]">
               <DialogHeader>
                 <DialogTitle>
@@ -624,6 +630,7 @@ export default function SchedulePage() {
               </form>
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </div>
 
@@ -646,24 +653,26 @@ export default function SchedulePage() {
                     style={{ backgroundColor: track.color }}
                   />
                   <span className="text-sm font-medium">{track.name}</span>
-                  <div className="flex gap-1 ml-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => openEditTrackDialog(track)}
-                    >
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                      onClick={() => handleDeleteTrack(track.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+                  {!isReviewer && (
+                    <div className="flex gap-1 ml-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() => openEditTrackDialog(track)}
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                        onClick={() => handleDeleteTrack(track.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -818,6 +827,7 @@ export default function SchedulePage() {
                               )}
                             </div>
 
+                            {!isReviewer && (
                             <div className="flex gap-2">
                               <Button
                                 variant="outline"
@@ -834,6 +844,7 @@ export default function SchedulePage() {
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>

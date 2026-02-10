@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
@@ -45,6 +46,8 @@ import { AddRegistrationDialog } from "./add-registration-dialog";
 export default function RegistrationsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const { data: userSession } = useSession();
+  const isReviewer = userSession?.user?.role === "REVIEWER";
 
   // React Query hooks
   const registrationsQuery = useRegistrations(eventId);
@@ -161,30 +164,34 @@ export default function RegistrationsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (event?.slug) {
-                const url = `${window.location.origin}/e/${event.slug}`;
-                navigator.clipboard.writeText(url);
-                toast.success("Registration link copied to clipboard");
-              } else {
-                toast.error("Event slug not available");
-              }
-            }}
-            disabled={!event?.slug}
-          >
-            <Share2 className="mr-2 h-4 w-4" />
-            Share Link
-          </Button>
+          {!isReviewer && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (event?.slug) {
+                  const url = `${window.location.origin}/e/${event.slug}`;
+                  navigator.clipboard.writeText(url);
+                  toast.success("Registration link copied to clipboard");
+                } else {
+                  toast.error("Event slug not available");
+                }
+              }}
+              disabled={!event?.slug}
+            >
+              <Share2 className="mr-2 h-4 w-4" />
+              Share Link
+            </Button>
+          )}
           <Button variant="outline" onClick={exportToCSV}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
-          <AddRegistrationDialog
-            eventId={eventId}
-            ticketTypes={ticketTypes as TicketType[]}
-          />
+          {!isReviewer && (
+            <AddRegistrationDialog
+              eventId={eventId}
+              ticketTypes={ticketTypes as TicketType[]}
+            />
+          )}
         </div>
       </div>
 

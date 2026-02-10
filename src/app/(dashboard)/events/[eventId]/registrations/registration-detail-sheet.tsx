@@ -40,6 +40,7 @@ import {
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
@@ -58,6 +59,8 @@ export function RegistrationDetailSheet({
   onOpenChange,
 }: RegistrationDetailSheetProps) {
   const queryClient = useQueryClient();
+  const { data: userSession } = useSession();
+  const isReviewer = userSession?.user?.role === "REVIEWER";
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({
@@ -219,6 +222,7 @@ export function RegistrationDetailSheet({
 
             <div className="mt-6 space-y-6">
               {/* Quick Actions */}
+              {!isReviewer && (
               <div className="flex flex-wrap gap-2">
                 {!isEditing ? (
                   <>
@@ -285,6 +289,7 @@ export function RegistrationDetailSheet({
                   </>
                 )}
               </div>
+              )}
 
               {/* Attendee Info */}
               <div className="space-y-4">
@@ -408,6 +413,7 @@ export function RegistrationDetailSheet({
               </div>
 
               {/* Status Management */}
+              {!isReviewer && (
               <div className="space-y-4">
                 <h3 className="font-semibold">Manage Status</h3>
                 <div className="grid gap-3">
@@ -461,6 +467,7 @@ export function RegistrationDetailSheet({
                   </div>
                 </div>
               </div>
+              )}
 
               {/* QR Code */}
               {selectedRegistration.qrCode && (
