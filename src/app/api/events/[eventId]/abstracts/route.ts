@@ -4,6 +4,7 @@ import { AbstractStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -38,10 +39,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Parallelize event validation and abstracts fetch
     const [event, abstracts] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId,
-        },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.abstract.findMany({
@@ -90,6 +88,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    if (session.user.role === "REVIEWER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const validated = createAbstractSchema.safeParse(body);
 
     if (!validated.success) {
@@ -104,10 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Parallelize event, speaker, and track validation
     const [event, speaker, track] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId,
-        },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.speaker.findFirst({
