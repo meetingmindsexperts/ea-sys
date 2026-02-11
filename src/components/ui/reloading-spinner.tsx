@@ -15,8 +15,8 @@ export function ReloadingSpinner({
   label = "Reloading...",
 }: ReloadingSpinnerProps) {
   return (
-    <div className={cn("flex items-center justify-center gap-2 text-muted-foreground", className)}>
-      <Loader2 className={cn("h-6 w-6 animate-spin", iconClassName)} aria-hidden="true" />
+    <div className={cn("flex items-center justify-center gap-3 text-primary", className)}>
+      <Loader2 className={cn("h-[70px] w-[70px] animate-spin", iconClassName)} aria-hidden="true" />
       <span className="text-sm">{label}</span>
     </div>
   );
