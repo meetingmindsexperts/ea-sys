@@ -38,6 +38,8 @@ import { formatDate } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
@@ -139,10 +141,12 @@ export default function RegistrationsPage() {
     paid: registrations.filter((r) => r.paymentStatus === "PAID").length,
   };
 
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading registrations..." /> : null}
       </div>
     );
   }

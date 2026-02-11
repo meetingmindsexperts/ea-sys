@@ -41,6 +41,8 @@ import { useSessions, useTracks, useSpeakers, queryKeys } from "@/hooks/use-api"
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface Track {
   id: string;
@@ -276,10 +278,12 @@ export default function SchedulePage() {
     CANCELLED: "bg-red-100 text-red-800",
   };
 
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading schedule..." /> : null}
       </div>
     );
   }

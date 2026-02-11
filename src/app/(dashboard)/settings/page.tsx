@@ -42,6 +42,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface Organization {
   id: string;
@@ -99,6 +101,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
   const [editingUser, setEditingUser] = useState<User | null>(null);
 
   const [orgFormData, setOrgFormData] = useState({
@@ -293,8 +296,10 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? (
+          <ReloadingSpinner label="Reloading organization settings..." />
+        ) : null}
       </div>
     );
   }

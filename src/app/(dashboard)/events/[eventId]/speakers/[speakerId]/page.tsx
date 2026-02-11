@@ -42,6 +42,8 @@ import {
   Loader2,
   ChevronDown,
 } from "lucide-react";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 const statusColors = {
   INVITED: "bg-yellow-100 text-yellow-800",
@@ -237,10 +239,12 @@ export default function SpeakerDetailPage() {
     }
   };
 
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading speaker details..." /> : null}
       </div>
     );
   }
