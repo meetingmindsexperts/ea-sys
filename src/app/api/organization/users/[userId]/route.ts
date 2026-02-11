@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const user = await db.user.findFirst({
       where: {
         id: userId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
       select: {
         id: true,
@@ -85,7 +85,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const user = await db.user.findFirst({
       where: {
         id: userId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
     });
 
@@ -149,7 +149,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const user = await db.user.findFirst({
       where: {
         id: userId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
     });
 

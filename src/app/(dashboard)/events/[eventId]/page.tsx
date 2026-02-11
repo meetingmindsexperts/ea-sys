@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,10 +38,7 @@ export default async function EventPage({ params }: EventPageProps) {
   }
 
   const event = await db.event.findFirst({
-    where: {
-      id: eventId,
-      organizationId: session.user.organizationId,
-    },
+    where: buildEventAccessWhere(session.user, eventId),
     select: {
       id: true,
       name: true,

@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     let slug = slugify(name);
     const existingEvent = await db.event.findFirst({
       where: {
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
         slug,
       },
     });
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
     const event = await db.event.create({
       data: {
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
         name,
         slug,
         description: description || null,

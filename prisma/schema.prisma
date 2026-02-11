@@ -25,7 +25,7 @@ model Organization {
 
 model User {
   id             String    @id @default(cuid())
-  organizationId String
+  organizationId String?
   email          String    @unique
   passwordHash   String
   firstName      String
@@ -36,7 +36,7 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   speakers     Speaker[]
   auditLogs    AuditLog[]
   accounts     Account[]

@@ -269,12 +269,23 @@ This document outlines the current development status of the Event Administratio
 ### Reviewers Module (February 10, 2026)
 - [x] Per-event reviewer management page at `/events/[eventId]/reviewers`
 - [x] GET API returns reviewer list (cross-referenced from `event.settings.reviewerUserIds`, speakers, and users) + available speakers
-- [x] POST API assigns a speaker as reviewer: finds/creates REVIEWER User, links `Speaker.userId`, adds to `reviewerUserIds`, sends invitation email
+- [x] POST API with dual add mode: from speakers (links `Speaker.userId`) or by email (creates standalone reviewer)
 - [x] DELETE API removes reviewer from event (does not delete User account)
 - [x] React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
 - [x] "Reviewers" sidebar tab added after "Abstracts" (not visible to reviewer role)
 - [x] Stats cards: Total Reviewers, Active Accounts
-- [x] Add Reviewer dialog with speaker picker, Remove button per reviewer card
+- [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
+
+### Org-Independent Reviewers (February 11, 2026)
+- [x] `User.organizationId` made nullable in Prisma schema
+- [x] Reviewers created with `organizationId: null` — not tied to any organization
+- [x] One reviewer can be invited to events across multiple organizations
+- [x] `buildEventAccessWhere()` removes org filter for reviewers — scoped only by `event.settings.reviewerUserIds`
+- [x] Auth system (NextAuth) handles nullable `organizationId` in JWT/session callbacks
+- [x] Dashboard redirects reviewers to `/events` (no org dashboard data)
+- [x] Header shows "Reviewer Portal" fallback for org-less users
+- [x] Cross-org check removed from `findOrCreateReviewerUser()` — existing reviewers can be re-assigned to any org's events
+- [x] All 30+ admin-only API routes use non-null assertion (`!`) for `organizationId` (safe behind `denyReviewer()` guard)
 
 ### Reviewer API Access Hardening (February 10, 2026)
 - [x] Created `src/lib/auth-guards.ts` with reusable `denyReviewer()` helper

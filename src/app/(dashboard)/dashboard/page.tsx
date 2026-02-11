@@ -12,17 +12,22 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  // Reviewers have no org dashboard — redirect to events list
+  if (session.user.role === "REVIEWER") {
+    redirect("/events");
+  }
+
   const [eventCount, registrationCount, recentEvents] = await Promise.all([
     db.event.count({
-      where: { organizationId: session.user.organizationId },
+      where: { organizationId: session.user.organizationId! },
     }),
     db.registration.count({
       where: {
-        event: { organizationId: session.user.organizationId },
+        event: { organizationId: session.user.organizationId! },
       },
     }),
     db.event.findMany({
-      where: { organizationId: session.user.organizationId },
+      where: { organizationId: session.user.organizationId! },
       orderBy: { createdAt: "desc" },
       take: 5,
       include: {

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 type SessionUser = {
   id: string;
   role: string;
-  organizationId: string;
+  organizationId?: string | null;
 };
 
 export function buildEventAccessWhere(
@@ -11,9 +11,9 @@ export function buildEventAccessWhere(
   eventId?: string
 ): Prisma.EventWhereInput {
   if (user.role === "REVIEWER") {
+    // Reviewers are org-independent — scoped only by event assignment
     return {
       ...(eventId && { id: eventId }),
-      organizationId: user.organizationId,
       settings: {
         path: ["reviewerUserIds"],
         array_contains: user.id,
@@ -23,6 +23,6 @@ export function buildEventAccessWhere(
 
   return {
     ...(eventId && { id: eventId }),
-    organizationId: user.organizationId,
+    organizationId: user.organizationId!,
   };
 }

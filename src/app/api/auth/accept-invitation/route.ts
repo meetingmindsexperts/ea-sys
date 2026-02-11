@@ -184,7 +184,7 @@ export async function GET(req: Request) {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        organizationName: user.organization.name,
+        organizationName: user.organization?.name ?? null,
       },
     });
   } catch (error) {

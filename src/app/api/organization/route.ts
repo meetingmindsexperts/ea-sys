@@ -24,7 +24,7 @@ export async function GET() {
     }
 
     const organization = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: session.user.organizationId! },
       include: {
         users: {
           select: {
@@ -86,7 +86,7 @@ export async function PUT(req: Request) {
 
     // Get current organization to merge settings
     const currentOrg = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: session.user.organizationId! },
     });
 
     if (!currentOrg) {
@@ -99,7 +99,7 @@ export async function PUT(req: Request) {
       : JSON.parse(JSON.stringify(currentSettings));
 
     const organization = await db.organization.update({
-      where: { id: session.user.organizationId },
+      where: { id: session.user.organizationId! },
       data: {
         ...(name && { name }),
         ...(logo !== undefined && { logo }),

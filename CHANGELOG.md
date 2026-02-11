@@ -8,13 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **Reviewers module**: New per-event reviewer management page at `/events/[eventId]/reviewers`.
-- Admins can pick any event speaker and assign them as a reviewer.
-- Auto-creates a REVIEWER User account and sends an invitation email when the speaker has no account.
+- Dual add mode: pick from event speakers or invite directly by email.
+- Auto-creates a REVIEWER User account (org-independent) and sends invitation email.
 - API routes: GET/POST `/api/events/[eventId]/reviewers`, DELETE `/api/events/[eventId]/reviewers/[reviewerId]`.
 - React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`.
 - "Reviewers" tab in sidebar navigation (hidden from reviewer role).
 
 ### Changed
+- **Decoupled reviewers from organizations**: `User.organizationId` is now nullable. Reviewers are created with `organizationId: null`, making them org-independent. One reviewer can be invited to events across multiple organizations.
+- `buildEventAccessWhere()` no longer applies org filter for reviewers — scoped only by `event.settings.reviewerUserIds`.
+- Dashboard redirects reviewers to `/events` (no org-level dashboard data).
+- Header shows "Reviewer Portal" fallback for users without an organization.
+- `findOrCreateReviewerUser()` no longer enforces cross-org check — existing REVIEWER users can be re-assigned to events in any org.
 - Hardened reviewer event permissions to enforce an abstracts-only event experience.
 - Kept reviewer event visibility scoped to explicitly assigned events.
 - Updated reviewer sidebar event navigation to display only the **Abstracts** item.

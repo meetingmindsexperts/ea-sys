@@ -23,7 +23,7 @@ export async function GET() {
     }
 
     const users = await db.user.findMany({
-      where: { organizationId: session.user.organizationId },
+      where: { organizationId: session.user.organizationId! },
       select: {
         id: true,
         email: true,
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
 
     // Get organization name for the email
     const organization = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: session.user.organizationId! },
       select: { name: true },
     });
 
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
     const user = await db.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
-          organizationId: session.user.organizationId,
+          organizationId: session.user.organizationId!,
           email,
           firstName,
           lastName,

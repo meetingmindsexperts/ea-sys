@@ -20,7 +20,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+      where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true, settings: true },
     });
 

@@ -67,8 +67,8 @@ export const {
           email: user.email,
           name: `${user.firstName} ${user.lastName}`,
           role: user.role,
-          organizationId: user.organizationId,
-          organizationName: user.organization.name,
+          organizationId: user.organizationId ?? null,
+          organizationName: user.organization?.name ?? null,
           firstName: user.firstName,
           lastName: user.lastName,
         };
@@ -85,8 +85,8 @@ export const {
       if (user) {
         token.id = user.id;
         token.role = user.role;
-        token.organizationId = user.organizationId;
-        token.organizationName = user.organizationName;
+        token.organizationId = user.organizationId ?? null;
+        token.organizationName = user.organizationName ?? null;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
       }
@@ -98,7 +98,7 @@ export const {
           include: { organization: { select: { name: true } } },
         });
         if (dbUser) {
-          token.organizationName = dbUser.organization.name;
+          token.organizationName = dbUser.organization?.name ?? null;
           token.firstName = dbUser.firstName;
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;
@@ -111,8 +111,8 @@ export const {
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
-        session.user.organizationId = token.organizationId as string;
-        session.user.organizationName = token.organizationName as string;
+        session.user.organizationId = (token.organizationId as string) ?? null;
+        session.user.organizationName = (token.organizationName as string) ?? null;
         session.user.firstName = token.firstName as string;
         session.user.lastName = token.lastName as string;
       }

@@ -33,7 +33,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
     });
 
@@ -92,7 +92,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
     });
 
@@ -191,7 +191,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
-        organizationId: session.user.organizationId,
+        organizationId: session.user.organizationId!,
       },
     });
 

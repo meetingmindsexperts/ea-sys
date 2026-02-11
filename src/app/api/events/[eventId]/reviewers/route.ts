@@ -30,7 +30,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const [event, speakers] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId },
+        where: { id: eventId, organizationId: session.user.organizationId! },
         select: { id: true, settings: true },
       }),
       db.speaker.findMany({
@@ -141,7 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+      where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true, name: true, settings: true },
     });
 
@@ -258,24 +258,22 @@ async function findOrCreateReviewerUser(
   email: string,
   firstName: string,
   lastName: string,
-  session: { user: { organizationId: string; firstName?: string | null; lastName?: string | null; email?: string | null } }
+  session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } }
 ): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
   const existingUser = await db.user.findUnique({
     where: { email },
-    select: { id: true, role: true, organizationId: true },
+    select: { id: true, role: true },
   });
 
   if (existingUser) {
-    if (existingUser.organizationId !== session.user.organizationId) {
-      return { error: "This email belongs to a different organization" };
-    }
+    // Reviewers are org-independent, so no cross-org check needed
     if (existingUser.role !== "REVIEWER") {
       return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
     }
     return { userId: existingUser.id, invitationSent: false };
   }
 
-  // Create new REVIEWER User with invitation
+  // Create new REVIEWER User with invitation (no organizationId — reviewers are org-independent)
   const invitationToken = crypto.randomBytes(32).toString("hex");
   const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
@@ -283,7 +281,6 @@ async function findOrCreateReviewerUser(
   const newUser = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
-        organizationId: session.user.organizationId,
         email,
         firstName,
         lastName,
@@ -308,10 +305,12 @@ async function findOrCreateReviewerUser(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
   const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
 
-  const organization = await db.organization.findUnique({
-    where: { id: session.user.organizationId },
-    select: { name: true },
-  });
+  const organization = session.user.organizationId
+    ? await db.organization.findUnique({
+        where: { id: session.user.organizationId! },
+        select: { name: true },
+      })
+    : null;
 
   const inviterName = session.user.firstName && session.user.lastName
     ? `${session.user.firstName} ${session.user.lastName}`

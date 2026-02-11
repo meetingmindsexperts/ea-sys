@@ -157,9 +157,15 @@ npx tsc --noEmit     # Type check
 ## Role-Based Access Control (RBAC)
 
 ### Roles
-- **SUPER_ADMIN / ADMIN** - Full access to all features
-- **ORGANIZER** - Full access to assigned events
-- **REVIEWER** - Abstracts-only access to assigned events
+- **SUPER_ADMIN / ADMIN** - Full access to all features (org-bound)
+- **ORGANIZER** - Full access to assigned events (org-bound)
+- **REVIEWER** - Abstracts-only access to assigned events (org-independent)
+
+### Architecture: Org-bound vs. Org-independent Users
+- **Team members** (ADMIN, ORGANIZER) have a required `organizationId` and are scoped to their organization
+- **Reviewers** have `organizationId: null` — they are independent entities scoped only by event assignment
+- This allows one reviewer to be invited to review events across multiple organizations
+- `User.organizationId` is nullable in the schema; non-null assertion (`!`) is used in admin-only code paths
 
 ### Reviewer Restrictions (3-layer enforcement)
 1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract reviews) returns 403
@@ -168,12 +174,13 @@ npx tsc --noEmit     # Type check
 
 ### Event Scoping
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
-- Admins/Organizers see all org events; Reviewers see only events where their userId is in `event.settings.reviewerUserIds`
+- Admins/Organizers see all org events; Reviewers see only events where their userId is in `event.settings.reviewerUserIds` (no org filter)
 
 ### Reviewer Assignment
 - Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
 - `Speaker.userId` (nullable FK) links speakers to User accounts
-- The Reviewers page lets admins pick speakers and auto-creates REVIEWER User accounts with invitation emails
+- The Reviewers page lets admins add reviewers via two methods: pick from speakers, or invite by email
+- New reviewer accounts are created with `organizationId: null` and sent an invitation email
 
 ## Code Conventions
 
@@ -295,9 +302,10 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
-- **Reviewers module** - Per-event reviewer management page; pick speakers as reviewers with auto-invitation; API routes for add/remove; React Query hooks
+- **Org-independent reviewers** - Reviewers decoupled from organizations (`User.organizationId = null`); one reviewer can review across multiple orgs; scoped only by `event.settings.reviewerUserIds`
+- **Reviewers module** - Per-event reviewer management page with dual add mode (from speakers or by email); auto-invitation; API routes for add/remove; React Query hooks
 - **Reviewer access hardening** - 3-layer RBAC enforcement (API guards on 29 handlers, middleware redirects, UI write-action hiding) restricting reviewers to abstracts-only
-- **Event scoping for reviewers** - Events list uses `buildEventAccessWhere` so reviewers only see assigned events
+- **Event scoping for reviewers** - `buildEventAccessWhere` removes org filter for reviewers; reviewers see only assigned events across all orgs
 - **Server page query optimization** - Parallelized `params`/`auth()`/DB queries on speakers and event detail pages; switched to Prisma `select` for minimal data transfer
 - **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries
 - **Middleware scope narrowing** - Matcher targets only dashboard routes; reviewers redirected from non-abstract event routes
@@ -314,7 +322,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 **Single Organization Mode** (multi-org support planned for later):
 - User account registration is disabled (`/register` redirects to `/login`)
-- New users must be invited by an admin via Settings → Users
+- Team members (Admin/Organizer) must be invited by an admin via Settings → Users
+- Reviewers are org-independent (`User.organizationId = null`) — invited per-event via the Reviewers page
 - Public event registration is open to all at `/e/[event-slug]`
 
 ## Logging

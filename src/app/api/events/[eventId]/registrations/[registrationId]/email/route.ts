@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       db.event.findFirst({
         where: {
           id: eventId,
-          organizationId: session.user.organizationId,
+          organizationId: session.user.organizationId!,
         },
       }),
       db.registration.findFirst({

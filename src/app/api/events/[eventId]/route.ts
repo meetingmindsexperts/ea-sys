@@ -120,7 +120,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (slug && slug !== existingEvent.slug) {
       const slugExists = await db.event.findFirst({
         where: {
-          organizationId: session.user.organizationId,
+          organizationId: session.user.organizationId!,
           slug,
           id: { not: eventId },
         },
