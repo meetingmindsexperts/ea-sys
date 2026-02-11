@@ -31,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2 } from "lucide-react";
 import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
 import { toast } from "sonner";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface Reviewer {
   speakerId: string;
@@ -66,6 +68,7 @@ export default function ReviewersPage() {
   const eventId = params.eventId as string;
 
   const { data, isLoading, isFetching } = useReviewers(eventId);
+  const showDelayedLoader = useDelayedLoading(isLoading, 1000);
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
 
@@ -140,8 +143,8 @@ export default function ReviewersPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading reviewers..." /> : null}
       </div>
     );
   }

@@ -37,6 +37,8 @@ import {
   Mail,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface RoomType {
   id: string;
@@ -287,10 +289,12 @@ export default function AccommodationPage() {
       .length,
   };
 
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading accommodations..." /> : null}
       </div>
     );
   }

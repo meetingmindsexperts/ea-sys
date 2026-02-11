@@ -37,6 +37,8 @@ import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface Track {
   id: string;
@@ -192,10 +194,12 @@ export default function AbstractsPage() {
     rejected: abstracts.filter((a) => a.status === "REJECTED").length,
   };
 
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner label="Reloading abstracts..." /> : null}
       </div>
     );
   }
