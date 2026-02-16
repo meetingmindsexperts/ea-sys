@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { format } from "date-fns";
+import Link from "next/link";
 import {
   Calendar,
   MapPin,
@@ -14,6 +15,7 @@ import {
   ClipboardList,
   Loader2,
   CheckCircle2,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,6 +77,10 @@ interface Event {
     logo: string | null;
   };
   ticketTypes: TicketType[];
+  abstractSettings?: {
+    allowAbstractSubmissions: boolean;
+    abstractDeadline: string | null;
+  };
 }
 
 const registrationSchema = z.object({
@@ -315,6 +321,30 @@ export default function PublicEventPage() {
                 ))}
               </CardContent>
             </Card>
+
+            {/* Submit Abstract Link */}
+            {event.abstractSettings?.allowAbstractSubmissions && (
+              <Card>
+                <CardContent className="py-6">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-full bg-primary/10 p-2">
+                      <FileText className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-medium">Call for Abstracts</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Submit your abstract for review
+                      </p>
+                    </div>
+                    <Link href={`/e/${slug}/submit`}>
+                      <Button variant="outline" size="sm">
+                        Submit Abstract
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Registration Form */}

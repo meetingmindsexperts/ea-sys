@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { sendEmail, emailTemplates } from "@/lib/email";
 
 const updateAbstractSchema = z.object({
   title: z.string().min(1).optional(),
@@ -141,6 +142,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         speaker: true,
         track: true,
         eventSession: true,
+        event: { select: { slug: true, name: true } },
       },
     });
 
@@ -158,6 +160,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Send status notification email to speaker if this is a review action
+    if (isReview && abstract.speaker?.email && data.status) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const managementLink = abstract.managementToken
+        ? `${appUrl}/e/${event.slug}/abstract/${abstract.managementToken}`
+        : appUrl;
+
+      const template = emailTemplates.abstractStatusUpdate({
+        recipientName: `${abstract.speaker.firstName} ${abstract.speaker.lastName}`,
+        recipientEmail: abstract.speaker.email,
+        eventName: event.name,
+        abstractTitle: abstract.title,
+        newStatus: data.status,
+        reviewNotes: data.reviewNotes || undefined,
+        reviewScore: data.reviewScore ?? undefined,
+        managementLink,
+      });
+
+      sendEmail({
+        to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
+        subject: template.subject,
+        htmlContent: template.htmlContent,
+        textContent: template.textContent,
+      }).catch((err) => {
+        apiLogger.error({ err, msg: "Failed to send abstract status notification email" });
+      });
+    }
 
     return NextResponse.json(abstract);
   } catch (error) {

@@ -157,20 +157,26 @@ This document outlines the current development status of the Event Administratio
 ### Abstract Management
 | Feature | API | UI | Status |
 |---------|-----|-----|--------|
-| Submit Abstract | ✅ | ✅ | Complete |
+| Submit Abstract (Dashboard) | ✅ | ✅ | Complete |
+| Public Abstract Submission | ✅ | ✅ | Complete |
+| Token-based Abstract Management | ✅ | ✅ | Complete |
 | List Abstracts | ✅ | ✅ | Complete |
 | View Abstract | ✅ | ✅ | Complete |
 | Review Abstract | ✅ | ✅ | Complete |
 | Score Abstract | ✅ | ✅ | Complete |
 | Accept/Reject Abstract | ✅ | ✅ | Complete |
+| Status Notification Emails | ✅ | N/A | Complete |
 | Link Abstract to Session | ✅ | ❌ | API Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/abstracts` - List abstracts (with filters)
-- `POST /api/events/[eventId]/abstracts` - Submit abstract
+- `POST /api/events/[eventId]/abstracts` - Submit abstract (dashboard)
 - `GET /api/events/[eventId]/abstracts/[id]` - Get abstract details
 - `PUT /api/events/[eventId]/abstracts/[id]` - Update/Review abstract
 - `DELETE /api/events/[eventId]/abstracts/[id]` - Delete abstract
+- `POST /api/public/events/[slug]/abstracts` - Public abstract submission (no auth)
+- `GET /api/public/abstracts/[token]` - Get abstract by management token (no auth)
+- `PUT /api/public/abstracts/[token]` - Update abstract by management token (no auth)
 
 ---
 
@@ -275,6 +281,36 @@ This document outlines the current development status of the Event Administratio
 - [x] "Reviewers" sidebar tab added after "Abstracts" (not visible to reviewer role)
 - [x] Stats cards: Total Reviewers, Active Accounts
 - [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
+
+### Public Abstract Submission & Token Management (February 16, 2026)
+- [x] Public abstract submission form at `/e/[slug]/submit` (no auth required)
+- [x] Zod-validated submission API at `POST /api/public/events/[slug]/abstracts`
+- [x] Checks `event.settings.allowAbstractSubmissions` and `abstractDeadline` before accepting
+- [x] Find-or-create Speaker by `(eventId, email)` on submission
+- [x] Generates `managementToken` (64-char hex) for secure token-based access
+- [x] Confirmation email with management link sent on submission
+- [x] Token management page at `/e/[slug]/abstract/[token]` — view status, edit, see feedback
+- [x] Token management API: `GET/PUT /api/public/abstracts/[token]` — editable only for DRAFT/SUBMITTED/REVISION_REQUESTED
+- [x] Auto-resubmits on edit when status is REVISION_REQUESTED
+- [x] Status notification emails sent to speaker when reviewer changes abstract status
+- [x] "Call for Abstracts" card on public event page (`/e/[slug]`) when submissions are open
+- [x] Public event API extended with tracks and abstract settings
+- [x] `SUBMITTER` role added to UserRole enum (for future use)
+- [x] `managementToken` unique field added to Abstract model
+
+**New Files:**
+- `src/app/api/public/events/[slug]/abstracts/route.ts` — Public submission POST
+- `src/app/api/public/abstracts/[token]/route.ts` — Token-based GET/PUT
+- `src/app/e/[slug]/submit/page.tsx` — Submission form
+- `src/app/e/[slug]/submit/confirmation/page.tsx` — Confirmation page
+- `src/app/e/[slug]/abstract/[token]/page.tsx` — Token management page
+
+**Modified Files:**
+- `prisma/schema.prisma` — `managementToken` on Abstract, `SUBMITTER` in UserRole
+- `src/lib/email.ts` — `abstractSubmissionConfirmation` + `abstractStatusUpdate` templates
+- `src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts` — Status notification emails
+- `src/app/api/public/events/[slug]/route.ts` — Tracks + abstract settings in response
+- `src/app/e/[slug]/page.tsx` — Submit Abstract link
 
 ### Org-Independent Reviewers (February 11, 2026)
 - [x] `User.organizationId` made nullable in Prisma schema
@@ -555,7 +591,8 @@ This document outlines the current development status of the Event Administratio
 | Bulk Email to Attendees | Low | ✅ Complete |
 | Custom Notification Emails | Low | ✅ Complete |
 | Payment Receipt Email | High | Pending |
-| Abstract Status Notification | Medium | Pending |
+| Abstract Status Notification | Medium | ✅ Complete |
+| Abstract Submission Confirmation | Medium | ✅ Complete |
 | Check-in Confirmation | Low | Pending |
 | Email Preferences Management | Low | Pending |
 

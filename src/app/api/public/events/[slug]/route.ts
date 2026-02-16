@@ -31,6 +31,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         country: true,
         bannerImage: true,
         footerHtml: true,
+        settings: true,
         organization: {
           select: {
             name: true,
@@ -54,6 +55,14 @@ export async function GET(req: Request, { params }: RouteParams) {
             salesEnd: true,
           },
           orderBy: { price: "asc" },
+        },
+        tracks: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+          orderBy: { sortOrder: "asc" },
         },
       },
     });
@@ -79,9 +88,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       };
     });
 
+    const settings = (event.settings || {}) as Record<string, unknown>;
+
     return NextResponse.json({
       ...event,
+      settings: undefined,
       ticketTypes,
+      abstractSettings: {
+        allowAbstractSubmissions: settings.allowAbstractSubmissions === true,
+        abstractDeadline: settings.abstractDeadline || null,
+      },
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });

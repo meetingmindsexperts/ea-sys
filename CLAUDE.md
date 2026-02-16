@@ -79,7 +79,7 @@ src/
 ## Database Models
 
 - **Organization** - Organization entity (currently single-org mode)
-- **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER)
+- **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER)
 - **Event** - Events with status tracking
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
@@ -87,7 +87,7 @@ src/
 - **Speaker** - Event speakers
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
-- **Abstract** - Paper submissions
+- **Abstract** - Paper submissions (with `managementToken` for public token-based access)
 - **Hotel/RoomType/Accommodation** - Lodging management
 - **AuditLog** - Action logging
 
@@ -302,6 +302,9 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Public abstract submission** - Speakers submit abstracts at `/e/[slug]/submit` (no auth); form validates speaker info, title, content, track; auto-creates Speaker record; sends confirmation email with management token link
+- **Token-based abstract management** - Speakers manage their submission at `/e/[slug]/abstract/[token]`; view status, edit (if DRAFT/SUBMITTED/REVISION_REQUESTED), see reviewer feedback and score; auto-resubmits on edit after revision request
+- **Abstract status notification emails** - Automatic email to speaker on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with status-specific messaging, reviewer notes, and management link
 - **Org-independent reviewers** - Reviewers decoupled from organizations (`User.organizationId = null`); one reviewer can review across multiple orgs; scoped only by `event.settings.reviewerUserIds`
 - **Reviewers module** - Per-event reviewer management page with dual add mode (from speakers or by email); auto-invitation; API routes for add/remove; React Query hooks
 - **Reviewer access hardening** - 3-layer RBAC enforcement (API guards on 29 handlers, middleware redirects, UI write-action hiding) restricting reviewers to abstracts-only

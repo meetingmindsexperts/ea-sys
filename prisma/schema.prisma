@@ -86,6 +86,7 @@ enum UserRole {
   ADMIN
   ORGANIZER
   REVIEWER
+  SUBMITTER
 }
 
 model Event {
@@ -276,19 +277,20 @@ enum SpeakerStatus {
 }
 
 model Abstract {
-  id           String         @id @default(cuid())
-  eventId      String
-  speakerId    String
-  title        String
-  content      String         @db.Text
-  trackId      String?
-  status       AbstractStatus @default(SUBMITTED)
-  reviewNotes  String?        @db.Text
-  reviewScore  Int?
-  submittedAt  DateTime       @default(now())
-  reviewedAt   DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  eventId         String
+  speakerId       String
+  title           String
+  content         String         @db.Text
+  trackId         String?
+  status          AbstractStatus @default(SUBMITTED)
+  reviewNotes     String?        @db.Text
+  reviewScore     Int?
+  managementToken String?        @unique
+  submittedAt     DateTime       @default(now())
+  reviewedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   speaker      Speaker       @relation(fields: [speakerId], references: [id], onDelete: Cascade)

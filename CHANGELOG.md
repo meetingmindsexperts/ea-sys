@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Public abstract submission**: Speakers can submit abstracts at `/e/[slug]/submit` without login. Form includes speaker info, title, content, and optional track selection.
+- **Token-based abstract management**: After submission, speakers receive an email with a unique token link (`/e/[slug]/abstract/[token]`) to view status, edit their abstract, and see reviewer feedback.
+- **Abstract status notification emails**: When a reviewer accepts, rejects, or requests revision on an abstract, the speaker automatically receives an email with the status update and reviewer notes.
+- **Submit Abstract link on public event page**: "Call for Abstracts" card appears on `/e/[slug]` when abstract submissions are enabled.
+- New API endpoints: `POST /api/public/events/[slug]/abstracts`, `GET/PUT /api/public/abstracts/[token]`
+- New email templates: `abstractSubmissionConfirmation`, `abstractStatusUpdate` (status-specific gradients and messaging)
+- `managementToken` field on Abstract model for secure token-based access
+- `SUBMITTER` role in UserRole enum (for future use)
+- Public event API now returns tracks and abstract settings (`allowAbstractSubmissions`, `abstractDeadline`)
 - **Reviewers module**: New per-event reviewer management page at `/events/[eventId]/reviewers`.
 - Dual add mode: pick from event speakers or invite directly by email.
 - Auto-creates a REVIEWER User account (org-independent) and sends invitation email.

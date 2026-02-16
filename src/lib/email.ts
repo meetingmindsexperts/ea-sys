@@ -613,6 +613,196 @@ If you did not request a password reset, you can safely ignore this email.
     `,
   }),
 
+  abstractSubmissionConfirmation: (params: {
+    recipientName: string;
+    recipientEmail: string;
+    eventName: string;
+    abstractTitle: string;
+    managementLink: string;
+  }) => ({
+    subject: `Abstract Submitted - ${params.eventName}`,
+    htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abstract Submitted</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Abstract Submitted!</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.recipientName}</strong>,</p>
+
+    <p>Your abstract has been successfully submitted for <strong>${params.eventName}</strong>.</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Submission Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Title:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.abstractTitle}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Status:</td>
+          <td style="padding: 8px 0; font-weight: 500;">Submitted</td>
+        </tr>
+      </table>
+    </div>
+
+    <p>You can view the status of your abstract, make edits, and see reviewer feedback using the link below:</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.managementLink}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
+    </div>
+
+    <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Important:</strong> Save this email! The link above is your personal access link to manage your submission.</p>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding your abstract submission for ${params.eventName}</p>
+  </div>
+</body>
+</html>
+    `,
+    textContent: `
+Abstract Submitted - ${params.eventName}
+
+Dear ${params.recipientName},
+
+Your abstract has been successfully submitted for ${params.eventName}.
+
+Submission Details:
+- Title: ${params.abstractTitle}
+- Status: Submitted
+
+You can view the status of your abstract, make edits, and see reviewer feedback at:
+${params.managementLink}
+
+Important: Save this email! The link above is your personal access link to manage your submission.
+    `,
+  }),
+
+  abstractStatusUpdate: (params: {
+    recipientName: string;
+    recipientEmail: string;
+    eventName: string;
+    abstractTitle: string;
+    newStatus: string;
+    reviewNotes?: string;
+    reviewScore?: number;
+    managementLink: string;
+  }) => {
+    const statusMessages: Record<string, { heading: string; body: string; gradient: string }> = {
+      UNDER_REVIEW: {
+        heading: "Abstract Under Review",
+        body: "Your abstract is now being reviewed by our committee. We will notify you once a decision has been made.",
+        gradient: "linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)",
+      },
+      ACCEPTED: {
+        heading: "Abstract Accepted!",
+        body: "Congratulations! Your abstract has been accepted. We look forward to your presentation.",
+        gradient: "linear-gradient(135deg, #10b981 0%, #34d399 100%)",
+      },
+      REJECTED: {
+        heading: "Abstract Decision",
+        body: "Thank you for your submission. After careful review, we are unable to accept your abstract for this event.",
+        gradient: "linear-gradient(135deg, #6b7280 0%, #9ca3af 100%)",
+      },
+      REVISION_REQUESTED: {
+        heading: "Revision Requested",
+        body: "The review committee has requested revisions to your abstract. Please update your submission using the link below.",
+        gradient: "linear-gradient(135deg, #f97316 0%, #fb923c 100%)",
+      },
+    };
+
+    const status = statusMessages[params.newStatus] || {
+      heading: "Abstract Status Update",
+      body: `Your abstract status has been updated to: ${params.newStatus}.`,
+      gradient: "linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%)",
+    };
+
+    return {
+      subject: `${status.heading} - ${params.eventName}`,
+      htmlContent: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${status.heading}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: ${status.gradient}; padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">${status.heading}</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">${params.eventName}</p>
+  </div>
+
+  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Dear <strong>${params.recipientName}</strong>,</p>
+
+    <p>${status.body}</p>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Abstract Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Title:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.abstractTitle}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Status:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.newStatus.replace(/_/g, " ")}</td>
+        </tr>
+        ${params.reviewScore !== undefined ? `
+        <tr>
+          <td style="padding: 8px 0; color: #6b7280;">Score:</td>
+          <td style="padding: 8px 0; font-weight: 500;">${params.reviewScore}/10</td>
+        </tr>
+        ` : ""}
+      </table>
+    </div>
+
+    ${params.reviewNotes ? `
+    <div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;">
+      <strong>Reviewer Notes:</strong><br>
+      <span style="white-space: pre-wrap;">${params.reviewNotes}</span>
+    </div>
+    ` : ""}
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${params.managementLink}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
+    </div>
+  </div>
+
+  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+    <p>This email was sent regarding your abstract submission for ${params.eventName}</p>
+  </div>
+</body>
+</html>
+      `,
+      textContent: `
+${status.heading} - ${params.eventName}
+
+Dear ${params.recipientName},
+
+${status.body}
+
+Abstract Details:
+- Title: ${params.abstractTitle}
+- Status: ${params.newStatus.replace(/_/g, " ")}
+${params.reviewScore !== undefined ? `- Score: ${params.reviewScore}/10` : ""}
+${params.reviewNotes ? `\nReviewer Notes:\n${params.reviewNotes}` : ""}
+
+View Your Abstract: ${params.managementLink}
+      `,
+    };
+  },
+
   customNotification: (params: {
     recipientName: string;
     subject: string;
