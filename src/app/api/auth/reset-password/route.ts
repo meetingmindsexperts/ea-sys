@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { dbLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
 const resetPasswordSchema = z
   .object({
@@ -22,6 +23,20 @@ function getPasswordResetIdentifier(email: string) {
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `reset-password:post:ip:${clientIp}`,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const validated = resetPasswordSchema.safeParse(body);
 
@@ -35,11 +50,12 @@ export async function POST(req: Request) {
     const { token, password } = validated.data;
     const email = validated.data.email.toLowerCase();
     const identifier = getPasswordResetIdentifier(email);
+    const tokenHash = hashVerificationToken(token);
 
     const verificationToken = await db.verificationToken.findFirst({
       where: {
         identifier,
-        token,
+        token: tokenHash,
       },
     });
 
@@ -55,7 +71,7 @@ export async function POST(req: Request) {
         where: {
           identifier_token: {
             identifier,
-            token,
+            token: tokenHash,
           },
         },
       });
@@ -87,7 +103,7 @@ export async function POST(req: Request) {
         where: {
           identifier_token: {
             identifier,
-            token,
+            token: tokenHash,
           },
         },
       });
@@ -118,6 +134,20 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `reset-password:get:ip:${clientIp}`,
+      limit: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { valid: false, error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const token = searchParams.get("token");
     const email = searchParams.get("email");
@@ -129,11 +159,13 @@ export async function GET(req: Request) {
       );
     }
 
-    const identifier = getPasswordResetIdentifier(email);
+    const normalizedEmail = email.toLowerCase();
+    const identifier = getPasswordResetIdentifier(normalizedEmail);
+    const tokenHash = hashVerificationToken(token);
     const verificationToken = await db.verificationToken.findFirst({
       where: {
         identifier,
-        token,
+        token: tokenHash,
       },
     });
 

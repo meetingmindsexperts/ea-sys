@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { dbLogger } from "@/lib/logger";
 import { emailTemplates, sendEmail } from "@/lib/email";
+import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Please provide a valid email address"),
@@ -15,6 +16,23 @@ function getPasswordResetIdentifier(email: string) {
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `forgot-password:ip:${clientIp}`,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     const body = await req.json();
     const validated = forgotPasswordSchema.safeParse(body);
 
@@ -26,6 +44,22 @@ export async function POST(req: Request) {
     }
 
     const email = validated.data.email.toLowerCase();
+    const emailRateLimit = checkRateLimit({
+      key: `forgot-password:email:${email}`,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!emailRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(emailRateLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     const user = await db.user.findUnique({
       where: { email },
       select: {
@@ -45,6 +79,7 @@ export async function POST(req: Request) {
     }
 
     const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashVerificationToken(token);
     const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     const identifier = getPasswordResetIdentifier(email);
 
@@ -54,7 +89,7 @@ export async function POST(req: Request) {
       await tx.verificationToken.create({
         data: {
           identifier,
-          token,
+          token: tokenHash,
           expires: tokenExpiry,
         },
       });
