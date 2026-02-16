@@ -36,6 +36,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     const trackId = searchParams.get("trackId");
     const speakerId = searchParams.get("speakerId");
 
+    // For SUBMITTER, restrict to their own abstracts via speaker.userId
+    const submitterFilter = session.user.role === "SUBMITTER"
+      ? { speaker: { userId: session.user.id } }
+      : {};
+
     // Parallelize event validation and abstracts fetch
     const [event, abstracts] = await Promise.all([
       db.event.findFirst({
@@ -48,6 +53,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(trackId && { trackId }),
           ...(speakerId && { speakerId }),
+          ...submitterFilter,
         },
         include: {
           speaker: true,
@@ -103,6 +109,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { speakerId, title, content, trackId, status } = validated.data;
 
+    // SUBMITTER can only submit for their own speaker record
+    const speakerWhere = session.user.role === "SUBMITTER"
+      ? { id: speakerId, eventId, userId: session.user.id }
+      : { id: speakerId, eventId };
+
     // Parallelize event, speaker, and track validation
     const [event, speaker, track] = await Promise.all([
       db.event.findFirst({
@@ -110,10 +121,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { id: true },
       }),
       db.speaker.findFirst({
-        where: {
-          id: speakerId,
-          eventId,
-        },
+        where: speakerWhere,
         select: { id: true },
       }),
       trackId
@@ -129,7 +137,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (!speaker) {
-      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: session.user.role === "SUBMITTER" ? "Forbidden" : "Speaker not found" },
+        { status: session.user.role === "SUBMITTER" ? 403 : 404 }
+      );
     }
 
     if (trackId && !track) {

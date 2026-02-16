@@ -12,8 +12,8 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Reviewers have no org dashboard — redirect to events list
-  if (session.user.role === "REVIEWER") {
+  // Reviewers and submitters have no org dashboard — redirect to events list
+  if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {
     redirect("/events");
   }
 

@@ -50,17 +50,19 @@ export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { data: session } = useSession();
   const isReviewer = session?.user?.role === "REVIEWER";
+  const isSubmitter = session?.user?.role === "SUBMITTER";
+  const isRestricted = isReviewer || isSubmitter;
 
   // Check if we're on an event page
   const eventMatch = pathname.match(/^\/events\/([^/]+)/);
   const eventId = eventMatch ? eventMatch[1] : null;
   const isEventPage = eventId && eventId !== "new";
 
-  const reviewerNavigation = navigation.filter((item) => ["Dashboard", "Events"].includes(item.name));
-  const reviewerEventNavigation = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
+  const restrictedNavigation = navigation.filter((item) => ["Events"].includes(item.name));
+  const restrictedEventNavigation = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
 
-  const baseNavigation = isReviewer ? reviewerNavigation : navigation;
-  const baseEventNavigation = isReviewer ? reviewerEventNavigation : eventNavigation;
+  const baseNavigation = isRestricted ? restrictedNavigation : navigation;
+  const baseEventNavigation = isRestricted ? restrictedEventNavigation : eventNavigation;
 
   const navItems = isEventPage
     ? baseEventNavigation.map((item) => ({

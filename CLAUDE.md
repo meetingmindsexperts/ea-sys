@@ -67,13 +67,13 @@ src/
 
 - `prisma/schema.prisma` - Database schema
 - `src/lib/auth.ts` - Authentication configuration
-- `src/lib/auth-guards.ts` - `denyReviewer()` guard for API route protection
+- `src/lib/auth-guards.ts` - `denyReviewer()` guard for API route protection (blocks REVIEWER + SUBMITTER)
 - `src/lib/event-access.ts` - `buildEventAccessWhere()` for role-scoped event queries
 - `src/lib/email.ts` - Email templates and sending
 - `src/hooks/use-api.ts` - React Query hooks for data fetching
 - `src/components/providers.tsx` - App providers (QueryClient, SessionProvider)
 - `src/components/layout/sidebar.tsx` - Sidebar with role-based navigation
-- `src/middleware.ts` - Route-level REVIEWER redirects
+- `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
@@ -105,7 +105,7 @@ export async function GET/POST/PUT/DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Block reviewers from write operations (POST/PUT/DELETE on non-abstract routes)
+  // Block reviewers/submitters from write operations (POST/PUT/DELETE on non-abstract routes)
   const denied = denyReviewer(session);
   if (denied) return denied;
 
@@ -118,7 +118,7 @@ export async function GET/POST/PUT/DELETE(
 }
 ```
 
-**Important:** All POST/PUT/DELETE handlers (except abstract reviews) must call `denyReviewer(session)` from `@/lib/auth-guards`. This is enforced across 29 handlers in 20 route files.
+**Important:** All POST/PUT/DELETE handlers (except abstract reviews) must call `denyReviewer(session)` from `@/lib/auth-guards`. This blocks both REVIEWER and SUBMITTER roles. Enforced across 29+ handlers in 20+ route files.
 
 ## Styling
 
@@ -159,28 +159,37 @@ npx tsc --noEmit     # Type check
 ### Roles
 - **SUPER_ADMIN / ADMIN** - Full access to all features (org-bound)
 - **ORGANIZER** - Full access to assigned events (org-bound)
-- **REVIEWER** - Abstracts-only access to assigned events (org-independent)
+- **REVIEWER** - Abstracts-only access to assigned events (org-independent, scoped by `event.settings.reviewerUserIds`)
+- **SUBMITTER** - Abstracts-only access to own submissions (org-independent, scoped by `Speaker.userId`)
 
 ### Architecture: Org-bound vs. Org-independent Users
 - **Team members** (ADMIN, ORGANIZER) have a required `organizationId` and are scoped to their organization
-- **Reviewers** have `organizationId: null` — they are independent entities scoped only by event assignment
-- This allows one reviewer to be invited to review events across multiple organizations
+- **Reviewers** and **Submitters** have `organizationId: null` — they are independent entities scoped only by event assignment
+- This allows one reviewer to review events across multiple organizations; submitters self-register per event
 - `User.organizationId` is nullable in the schema; non-null assertion (`!`) is used in admin-only code paths
 
-### Reviewer Restrictions (3-layer enforcement)
-1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract reviews) returns 403
-2. **Middleware Layer:** `src/middleware.ts` redirects reviewers from non-abstract event routes to `/events/[eventId]/abstracts`, and `/events/new` to `/events`
-3. **UI Layer:** Write-action buttons (Add, Edit, Delete) hidden via `isReviewer` checks in both server components (`session.user.role === "REVIEWER"`) and client components (`useSession()`)
+### Restricted Role Enforcement (3-layer, applies to REVIEWER and SUBMITTER)
+1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations) returns 403 for both REVIEWER and SUBMITTER
+2. **Middleware Layer:** `src/middleware.ts` redirects restricted roles from non-abstract event routes to `/events/[eventId]/abstracts`, `/events/new` to `/events`, and `/dashboard`/`/settings` to `/events`
+3. **UI Layer:** Write-action buttons hidden; sidebar shows only "Events" (global) and "Abstracts" (event context); header shows "Reviewer Portal" or "Submitter Portal"
 
 ### Event Scoping
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
-- Admins/Organizers see all org events; Reviewers see only events where their userId is in `event.settings.reviewerUserIds` (no org filter)
+- Admins/Organizers see all org events
+- Reviewers see only events where their userId is in `event.settings.reviewerUserIds` (no org filter)
+- Submitters see only events where they have a linked Speaker record (`speakers.some.userId`)
 
 ### Reviewer Assignment
 - Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
 - `Speaker.userId` (nullable FK) links speakers to User accounts
 - The Reviewers page lets admins add reviewers via two methods: pick from speakers, or invite by email
 - New reviewer accounts are created with `organizationId: null` and sent an invitation email
+
+### Submitter Registration
+- Submitters self-register via `/e/[slug]/register` (public page, no auth)
+- Registration creates User (role=SUBMITTER, organizationId=null) + finds-or-creates Speaker linked to event
+- After login, submitters see only the event they registered for, with access to Abstracts only
+- Submitters can submit abstracts (auto-linked to their speaker record), edit own abstracts (DRAFT/SUBMITTED/REVISION_REQUESTED), and view review feedback
 
 ## Code Conventions
 
@@ -302,12 +311,12 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
-- **Public abstract submission** - Speakers submit abstracts at `/e/[slug]/submit` (no auth); form validates speaker info, title, content, track; auto-creates Speaker record; sends confirmation email with management token link
-- **Token-based abstract management** - Speakers manage their submission at `/e/[slug]/abstract/[token]`; view status, edit (if DRAFT/SUBMITTED/REVISION_REQUESTED), see reviewer feedback and score; auto-resubmits on edit after revision request
-- **Abstract status notification emails** - Automatic email to speaker on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with status-specific messaging, reviewer notes, and management link
+- **Authenticated abstract submission (SUBMITTER role)** - Speakers create an account at `/e/[slug]/register`, then log in to submit/edit abstracts via dashboard; SUBMITTER role mirrors REVIEWER pattern (org-independent, abstracts-only access, scoped by `Speaker.userId`)
+- **Submitter registration** - Public form at `/e/[slug]/register` creates User (role=SUBMITTER) + Speaker record linked to event; redirects to login on success
+- **Abstract status notification emails** - Automatic email to speaker on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with status-specific messaging, reviewer notes, and login link
 - **Org-independent reviewers** - Reviewers decoupled from organizations (`User.organizationId = null`); one reviewer can review across multiple orgs; scoped only by `event.settings.reviewerUserIds`
 - **Reviewers module** - Per-event reviewer management page with dual add mode (from speakers or by email); auto-invitation; API routes for add/remove; React Query hooks
-- **Reviewer access hardening** - 3-layer RBAC enforcement (API guards on 29 handlers, middleware redirects, UI write-action hiding) restricting reviewers to abstracts-only
+- **Restricted role access hardening** - 3-layer RBAC enforcement (API guards on 29+ handlers, middleware redirects, UI write-action hiding) restricting REVIEWER and SUBMITTER to abstracts-only
 - **Event scoping for reviewers** - `buildEventAccessWhere` removes org filter for reviewers; reviewers see only assigned events across all orgs
 - **Server page query optimization** - Parallelized `params`/`auth()`/DB queries on speakers and event detail pages; switched to Prisma `select` for minimal data transfer
 - **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries
@@ -327,6 +336,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - User account registration is disabled (`/register` redirects to `/login`)
 - Team members (Admin/Organizer) must be invited by an admin via Settings → Users
 - Reviewers are org-independent (`User.organizationId = null`) — invited per-event via the Reviewers page
+- Submitters are org-independent (`User.organizationId = null`) — self-register per event via `/e/[slug]/register`
 - Public event registration is open to all at `/e/[event-slug]`
 
 ## Logging

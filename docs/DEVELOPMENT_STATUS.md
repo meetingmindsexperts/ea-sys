@@ -158,10 +158,11 @@ This document outlines the current development status of the Event Administratio
 | Feature | API | UI | Status |
 |---------|-----|-----|--------|
 | Submit Abstract (Dashboard) | ✅ | ✅ | Complete |
-| Public Abstract Submission | ✅ | ✅ | Complete |
-| Token-based Abstract Management | ✅ | ✅ | Complete |
+| Submitter Account Registration | ✅ | ✅ | Complete |
+| SUBMITTER Role (abstracts-only access) | ✅ | ✅ | Complete |
 | List Abstracts | ✅ | ✅ | Complete |
 | View Abstract | ✅ | ✅ | Complete |
+| Edit Own Abstract (Submitter) | ✅ | ✅ | Complete |
 | Review Abstract | ✅ | ✅ | Complete |
 | Score Abstract | ✅ | ✅ | Complete |
 | Accept/Reject Abstract | ✅ | ✅ | Complete |
@@ -169,14 +170,12 @@ This document outlines the current development status of the Event Administratio
 | Link Abstract to Session | ✅ | ❌ | API Complete |
 
 **API Endpoints:**
-- `GET /api/events/[eventId]/abstracts` - List abstracts (with filters)
-- `POST /api/events/[eventId]/abstracts` - Submit abstract (dashboard)
+- `GET /api/events/[eventId]/abstracts` - List abstracts (filtered to own for SUBMITTER)
+- `POST /api/events/[eventId]/abstracts` - Submit abstract
 - `GET /api/events/[eventId]/abstracts/[id]` - Get abstract details
-- `PUT /api/events/[eventId]/abstracts/[id]` - Update/Review abstract
-- `DELETE /api/events/[eventId]/abstracts/[id]` - Delete abstract
-- `POST /api/public/events/[slug]/abstracts` - Public abstract submission (no auth)
-- `GET /api/public/abstracts/[token]` - Get abstract by management token (no auth)
-- `PUT /api/public/abstracts/[token]` - Update abstract by management token (no auth)
+- `PUT /api/events/[eventId]/abstracts/[id]` - Update/Review abstract (SUBMITTER: content only)
+- `DELETE /api/events/[eventId]/abstracts/[id]` - Delete abstract (admin only)
+- `POST /api/public/events/[slug]/submitter` - Create submitter account (no auth)
 
 ---
 
@@ -282,35 +281,42 @@ This document outlines the current development status of the Event Administratio
 - [x] Stats cards: Total Reviewers, Active Accounts
 - [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
 
-### Public Abstract Submission & Token Management (February 16, 2026)
-- [x] Public abstract submission form at `/e/[slug]/submit` (no auth required)
-- [x] Zod-validated submission API at `POST /api/public/events/[slug]/abstracts`
+### Authenticated Abstract Submission via SUBMITTER Accounts (February 16, 2026)
+- [x] SUBMITTER role — org-independent restricted user (mirrors REVIEWER pattern)
+- [x] Submitter account registration at `/e/[slug]/register` (public, no auth)
+- [x] Registration API at `POST /api/public/events/[slug]/submitter` — creates User (role=SUBMITTER) + Speaker linkage
 - [x] Checks `event.settings.allowAbstractSubmissions` and `abstractDeadline` before accepting
-- [x] Find-or-create Speaker by `(eventId, email)` on submission
-- [x] Generates `managementToken` (64-char hex) for secure token-based access
-- [x] Confirmation email with management link sent on submission
-- [x] Token management page at `/e/[slug]/abstract/[token]` — view status, edit, see feedback
-- [x] Token management API: `GET/PUT /api/public/abstracts/[token]` — editable only for DRAFT/SUBMITTED/REVISION_REQUESTED
-- [x] Auto-resubmits on edit when status is REVISION_REQUESTED
+- [x] Find-or-create Speaker by `(eventId, email)` on registration
+- [x] Event scoping: submitters see only events where they have a linked Speaker record
+- [x] Abstracts page: SUBMITTER view shows only own abstracts, submit dialog auto-selects speaker, edit button for DRAFT/SUBMITTED/REVISION_REQUESTED
+- [x] Review actions hidden for submitters; review feedback shown read-only
+- [x] `denyReviewer()` guard blocks both REVIEWER and SUBMITTER on all non-abstract write endpoints
+- [x] Middleware redirects SUBMITTER from non-abstract routes to abstracts (same as REVIEWER)
+- [x] Sidebar shows only "Events" globally, only "Abstracts" in event context for SUBMITTER
+- [x] Dashboard redirects SUBMITTER to `/events`; header shows "Submitter Portal"
 - [x] Status notification emails sent to speaker when reviewer changes abstract status
-- [x] "Call for Abstracts" card on public event page (`/e/[slug]`) when submissions are open
+- [x] "Call for Abstracts" card on public event page (`/e/[slug]`) links to registration
 - [x] Public event API extended with tracks and abstract settings
-- [x] `SUBMITTER` role added to UserRole enum (for future use)
-- [x] `managementToken` unique field added to Abstract model
+- [x] Email templates: `abstractSubmissionConfirmation`, `abstractStatusUpdate`
 
 **New Files:**
-- `src/app/api/public/events/[slug]/abstracts/route.ts` — Public submission POST
-- `src/app/api/public/abstracts/[token]/route.ts` — Token-based GET/PUT
-- `src/app/e/[slug]/submit/page.tsx` — Submission form
-- `src/app/e/[slug]/submit/confirmation/page.tsx` — Confirmation page
-- `src/app/e/[slug]/abstract/[token]/page.tsx` — Token management page
+- `src/app/api/public/events/[slug]/submitter/route.ts` — Submitter account creation
+- `src/app/e/[slug]/register/page.tsx` — Submitter registration form
 
 **Modified Files:**
 - `prisma/schema.prisma` — `managementToken` on Abstract, `SUBMITTER` in UserRole
 - `src/lib/email.ts` — `abstractSubmissionConfirmation` + `abstractStatusUpdate` templates
-- `src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts` — Status notification emails
+- `src/lib/auth-guards.ts` — `denyReviewer()` now blocks SUBMITTER too
+- `src/lib/event-access.ts` — `buildEventAccessWhere()` adds SUBMITTER branch (`speakers.some.userId`)
+- `src/middleware.ts` — Redirects both REVIEWER and SUBMITTER from non-abstract routes
+- `src/components/layout/sidebar.tsx` — SUBMITTER nav filtering (Events only, Abstracts only)
+- `src/components/layout/header.tsx` — "Submitter Portal" fallback
+- `src/app/(dashboard)/dashboard/page.tsx` — Redirect SUBMITTER to `/events`
+- `src/app/(dashboard)/events/[eventId]/abstracts/page.tsx` — SUBMITTER-specific view (own abstracts, edit, no review actions)
+- `src/app/api/events/[eventId]/abstracts/route.ts` — SUBMITTER filter + speaker ownership validation
+- `src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts` — SUBMITTER edit restrictions + status notification emails
 - `src/app/api/public/events/[slug]/route.ts` — Tracks + abstract settings in response
-- `src/app/e/[slug]/page.tsx` — Submit Abstract link
+- `src/app/e/[slug]/page.tsx` — "Call for Abstracts" link to `/e/[slug]/register`
 
 ### Org-Independent Reviewers (February 11, 2026)
 - [x] `User.organizationId` made nullable in Prisma schema

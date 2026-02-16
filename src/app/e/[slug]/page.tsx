@@ -336,7 +336,7 @@ export default function PublicEventPage() {
                         Submit your abstract for review
                       </p>
                     </div>
-                    <Link href={`/e/${slug}/submit`}>
+                    <Link href={`/e/${slug}/register`}>
                       <Button variant="outline" size="sm">
                         Submit Abstract
                       </Button>

@@ -117,7 +117,7 @@ export function Header() {
           </div>
         ) : (
           <h1 className="text-lg font-semibold">
-            {session?.user?.organizationName || (session?.user?.role === "REVIEWER" ? "Reviewer Portal" : "Dashboard")}
+            {session?.user?.organizationName || (session?.user?.role === "REVIEWER" ? "Reviewer Portal" : session?.user?.role === "SUBMITTER" ? "Submitter Portal" : "Dashboard")}
           </h1>
         )}
       </div>

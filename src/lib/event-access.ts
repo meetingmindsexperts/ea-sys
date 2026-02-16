@@ -21,6 +21,14 @@ export function buildEventAccessWhere(
     };
   }
 
+  if (user.role === "SUBMITTER") {
+    // Submitters are org-independent — scoped by Speaker.userId linkage
+    return {
+      ...(eventId && { id: eventId }),
+      speakers: { some: { userId: user.id } },
+    };
+  }
+
   return {
     ...(eventId && { id: eventId }),
     organizationId: user.organizationId!,

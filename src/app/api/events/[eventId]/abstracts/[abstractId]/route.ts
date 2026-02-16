@@ -80,7 +80,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
     });
@@ -94,6 +93,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         id: abstractId,
         eventId,
       },
+      include: { speaker: { select: { userId: true } } },
     });
 
     if (!existingAbstract) {
@@ -111,6 +111,27 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+
+    // SUBMITTER restrictions: can only edit own abstracts, no review fields
+    if (session.user.role === "SUBMITTER") {
+      if (existingAbstract.speaker?.userId !== session.user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
+      if (data.status && reviewStatuses.includes(data.status)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
+      if (!editableStatuses.includes(existingAbstract.status)) {
+        return NextResponse.json(
+          { error: "Cannot edit abstract in current status" },
+          { status: 403 }
+        );
+      }
+    }
 
     // Verify track exists if provided
     if (data.trackId) {
@@ -164,9 +185,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Send status notification email to speaker if this is a review action
     if (isReview && abstract.speaker?.email && data.status) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const managementLink = abstract.managementToken
-        ? `${appUrl}/e/${event.slug}/abstract/${abstract.managementToken}`
-        : appUrl;
+      const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
 
       const template = emailTemplates.abstractStatusUpdate({
         recipientName: `${abstract.speaker.firstName} ${abstract.speaker.lastName}`,
@@ -208,7 +227,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER") {
+    if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

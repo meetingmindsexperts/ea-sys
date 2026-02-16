@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ import {
   Clock,
   User,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, queryKeys } from "@/hooks/use-api";
@@ -51,6 +53,7 @@ interface Speaker {
   firstName: string;
   lastName: string;
   email: string;
+  userId: string | null;
 }
 
 interface Abstract {
@@ -71,6 +74,9 @@ export default function AbstractsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
+
+  const isSubmitter = session?.user?.role === "SUBMITTER";
 
   // React Query hooks - data is cached and shared across navigations
   const { data: abstractsData = [], isLoading: loading, isFetching } = useAbstracts(eventId);
@@ -81,8 +87,14 @@ export default function AbstractsPage() {
   const speakers = speakersData as Speaker[];
   const tracks = tracksData as Track[];
 
+  // For SUBMITTER: find their speaker record
+  const mySpeaker = isSubmitter
+    ? speakers.find((s) => s.userId === session?.user?.id)
+    : null;
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
   const [formData, setFormData] = useState({
     speakerId: "",
@@ -90,6 +102,11 @@ export default function AbstractsPage() {
     content: "",
     trackId: "",
     status: "SUBMITTED",
+  });
+  const [editData, setEditData] = useState({
+    title: "",
+    content: "",
+    trackId: "",
   });
   const [reviewData, setReviewData] = useState({
     status: "",
@@ -100,11 +117,14 @@ export default function AbstractsPage() {
   // Create abstract mutation
   const createAbstractMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      // For submitters, always use their own speaker ID
+      const speakerId = isSubmitter && mySpeaker ? mySpeaker.id : data.speakerId;
       const res = await fetch(`/api/events/${eventId}/abstracts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          speakerId,
           trackId: data.trackId || undefined,
         }),
       });
@@ -118,6 +138,30 @@ export default function AbstractsPage() {
       toast.success("Abstract submitted successfully");
     },
     onError: () => toast.error("Failed to submit abstract"),
+  });
+
+  // Edit abstract mutation (for submitters)
+  const editAbstractMutation = useMutation({
+    mutationFn: async ({ abstractId, data }: { abstractId: string; data: typeof editData }) => {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: data.title,
+          content: data.content,
+          trackId: data.trackId || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to update abstract");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      setIsEditDialogOpen(false);
+      setSelectedAbstract(null);
+      toast.success("Abstract updated successfully");
+    },
+    onError: () => toast.error("Failed to update abstract"),
   });
 
   // Review abstract mutation
@@ -144,17 +188,33 @@ export default function AbstractsPage() {
     onError: () => toast.error("Failed to save review"),
   });
 
-  const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending;
+  const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending || editAbstractMutation.isPending;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     createAbstractMutation.mutate(formData);
   };
 
+  const handleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAbstract) return;
+    editAbstractMutation.mutate({ abstractId: selectedAbstract.id, data: editData });
+  };
+
   const handleReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAbstract) return;
     reviewAbstractMutation.mutate({ abstractId: selectedAbstract.id, data: reviewData });
+  };
+
+  const openEditDialog = (abstract: Abstract) => {
+    setSelectedAbstract(abstract);
+    setEditData({
+      title: abstract.title,
+      content: abstract.content,
+      trackId: abstract.track?.id || "",
+    });
+    setIsEditDialogOpen(true);
   };
 
   const openReviewDialog = (abstract: Abstract) => {
@@ -169,7 +229,7 @@ export default function AbstractsPage() {
 
   const resetForm = () => {
     setFormData({
-      speakerId: "",
+      speakerId: isSubmitter && mySpeaker ? mySpeaker.id : "",
       title: "",
       content: "",
       trackId: "",
@@ -185,6 +245,8 @@ export default function AbstractsPage() {
     REJECTED: "bg-red-100 text-red-800",
     REVISION_REQUESTED: "bg-orange-100 text-orange-800",
   };
+
+  const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
   const stats = {
     total: abstracts.length,
@@ -218,21 +280,23 @@ export default function AbstractsPage() {
             </Link>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <FileText className="h-8 w-8" />
-              Abstracts
+              {isSubmitter ? "My Abstracts" : "Abstracts"}
               {isFetching && !loading && (
                 <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               )}
             </h1>
           </div>
           <p className="text-muted-foreground">
-            Manage abstract submissions and reviews
+            {isSubmitter
+              ? "Submit and manage your abstracts"
+              : "Manage abstract submissions and reviews"}
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Add Abstract
+              {isSubmitter ? "Submit Abstract" : "Add Abstract"}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[600px]">
@@ -240,26 +304,28 @@ export default function AbstractsPage() {
               <DialogTitle>Submit Abstract</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="speaker">Speaker</Label>
-                <Select
-                  value={formData.speakerId}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, speakerId: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select speaker" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {speakers.map((speaker) => (
-                      <SelectItem key={speaker.id} value={speaker.id}>
-                        {speaker.firstName} {speaker.lastName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!isSubmitter && (
+                <div className="space-y-2">
+                  <Label htmlFor="speaker">Speaker</Label>
+                  <Select
+                    value={formData.speakerId}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, speakerId: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select speaker" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {speakers.map((speaker) => (
+                        <SelectItem key={speaker.id} value={speaker.id}>
+                          {speaker.firstName} {speaker.lastName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="title">Title</Label>
                 <Input
@@ -283,7 +349,7 @@ export default function AbstractsPage() {
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={isSubmitter ? "" : "grid grid-cols-2 gap-4"}>
                 <div className="space-y-2">
                   <Label htmlFor="track">Track</Label>
                   <Select
@@ -310,23 +376,25 @@ export default function AbstractsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={formData.status}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, status: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="DRAFT">Draft</SelectItem>
-                      <SelectItem value="SUBMITTED">Submitted</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!isSubmitter && (
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select
+                      value={formData.status}
+                      onValueChange={(value) =>
+                        setFormData({ ...formData, status: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DRAFT">Draft</SelectItem>
+                        <SelectItem value="SUBMITTED">Submitted</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -403,107 +471,197 @@ export default function AbstractsPage() {
         </Card>
       </div>
 
-      {/* Review Dialog */}
-      <Dialog
-        open={isReviewDialogOpen}
-        onOpenChange={(open) => {
-          setIsReviewDialogOpen(open);
-          if (!open) setSelectedAbstract(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Review Abstract</DialogTitle>
-          </DialogHeader>
-          {selectedAbstract && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold">{selectedAbstract.title}</h3>
-                <p className="text-sm text-muted-foreground">
-                  By {selectedAbstract.speaker.firstName}{" "}
-                  {selectedAbstract.speaker.lastName}
-                </p>
+      {/* Review Dialog (admin/reviewer only) */}
+      {!isSubmitter && (
+        <Dialog
+          open={isReviewDialogOpen}
+          onOpenChange={(open) => {
+            setIsReviewDialogOpen(open);
+            if (!open) setSelectedAbstract(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Review Abstract</DialogTitle>
+            </DialogHeader>
+            {selectedAbstract && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold">{selectedAbstract.title}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    By {selectedAbstract.speaker.firstName}{" "}
+                    {selectedAbstract.speaker.lastName}
+                  </p>
+                </div>
+                <div className="bg-muted p-4 rounded-lg max-h-48 overflow-y-auto">
+                  <p className="text-sm whitespace-pre-wrap">
+                    {selectedAbstract.content}
+                  </p>
+                </div>
+                <form onSubmit={handleReview} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewStatus">Decision</Label>
+                    <Select
+                      value={reviewData.status}
+                      onValueChange={(value) =>
+                        setReviewData({ ...reviewData, status: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
+                        <SelectItem value="ACCEPTED">Accept</SelectItem>
+                        <SelectItem value="REJECTED">Reject</SelectItem>
+                        <SelectItem value="REVISION_REQUESTED">
+                          Request Revision
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewScore">Score (0-100)</Label>
+                    <Input
+                      id="reviewScore"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={reviewData.reviewScore}
+                      onChange={(e) =>
+                        setReviewData({ ...reviewData, reviewScore: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewNotes">Review Notes</Label>
+                    <Textarea
+                      id="reviewNotes"
+                      value={reviewData.reviewNotes}
+                      onChange={(e) =>
+                        setReviewData({ ...reviewData, reviewNotes: e.target.value })
+                      }
+                      rows={4}
+                      placeholder="Feedback for the speaker..."
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsReviewDialogOpen(false)}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={isSubmitting}>
+                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Save Review
+                    </Button>
+                  </div>
+                </form>
               </div>
-              <div className="bg-muted p-4 rounded-lg max-h-48 overflow-y-auto">
-                <p className="text-sm whitespace-pre-wrap">
-                  {selectedAbstract.content}
-                </p>
-              </div>
-              <form onSubmit={handleReview} className="space-y-4">
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Edit Dialog (for submitters editing their own abstracts) */}
+      {isSubmitter && (
+        <Dialog
+          open={isEditDialogOpen}
+          onOpenChange={(open) => {
+            setIsEditDialogOpen(open);
+            if (!open) setSelectedAbstract(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Edit Abstract</DialogTitle>
+            </DialogHeader>
+            {selectedAbstract && (
+              <form onSubmit={handleEdit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="reviewStatus">Decision</Label>
+                  <Label htmlFor="editTitle">Title</Label>
+                  <Input
+                    id="editTitle"
+                    value={editData.title}
+                    onChange={(e) =>
+                      setEditData({ ...editData, title: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editContent">Abstract Content</Label>
+                  <Textarea
+                    id="editContent"
+                    value={editData.content}
+                    onChange={(e) =>
+                      setEditData({ ...editData, content: e.target.value })
+                    }
+                    rows={6}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editTrack">Track</Label>
                   <Select
-                    value={reviewData.status}
+                    value={editData.trackId}
                     onValueChange={(value) =>
-                      setReviewData({ ...reviewData, status: value })
+                      setEditData({ ...editData, trackId: value })
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select track" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="UNDER_REVIEW">Under Review</SelectItem>
-                      <SelectItem value="ACCEPTED">Accept</SelectItem>
-                      <SelectItem value="REJECTED">Reject</SelectItem>
-                      <SelectItem value="REVISION_REQUESTED">
-                        Request Revision
-                      </SelectItem>
+                      {tracks.map((track) => (
+                        <SelectItem key={track.id} value={track.id}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: track.color }}
+                            />
+                            {track.name}
+                          </div>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reviewScore">Score (0-100)</Label>
-                  <Input
-                    id="reviewScore"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={reviewData.reviewScore}
-                    onChange={(e) =>
-                      setReviewData({ ...reviewData, reviewScore: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reviewNotes">Review Notes</Label>
-                  <Textarea
-                    id="reviewNotes"
-                    value={reviewData.reviewNotes}
-                    onChange={(e) =>
-                      setReviewData({ ...reviewData, reviewNotes: e.target.value })
-                    }
-                    rows={4}
-                    placeholder="Feedback for the speaker..."
-                  />
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setIsReviewDialogOpen(false)}
+                    onClick={() => setIsEditDialogOpen(false)}
                     disabled={isSubmitting}
                   >
                     Cancel
                   </Button>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Save Review
+                    Save Changes
                   </Button>
                 </div>
               </form>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Abstracts List */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">All Abstracts</h2>
+        <h2 className="text-lg font-semibold mb-4">
+          {isSubmitter ? "Your Abstracts" : "All Abstracts"}
+        </h2>
         {abstracts.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
               <p className="text-muted-foreground text-center py-8">
-                No abstracts yet. Click &quot;Add Abstract&quot; to get started.
+                {isSubmitter
+                  ? "You haven't submitted any abstracts yet. Click \"Submit Abstract\" to get started."
+                  : "No abstracts yet. Click \"Add Abstract\" to get started."}
               </p>
             </CardContent>
           </Card>
@@ -540,10 +698,12 @@ export default function AbstractsPage() {
                       </div>
 
                       <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
-                        <div className="flex items-center gap-1">
-                          <User className="h-4 w-4" />
-                          {abstract.speaker.firstName} {abstract.speaker.lastName}
-                        </div>
+                        {!isSubmitter && (
+                          <div className="flex items-center gap-1">
+                            <User className="h-4 w-4" />
+                            {abstract.speaker.firstName} {abstract.speaker.lastName}
+                          </div>
+                        )}
                         <div className="flex items-center gap-1">
                           <Clock className="h-4 w-4" />
                           Submitted {formatDate(abstract.submittedAt)}
@@ -576,47 +736,64 @@ export default function AbstractsPage() {
                     </div>
 
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openReviewDialog(abstract)}
-                      >
-                        Review
-                      </Button>
-                      {abstract.status === "SUBMITTED" && (
+                      {isSubmitter ? (
+                        // Submitter actions: Edit (if editable status)
+                        editableStatuses.includes(abstract.status) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEditDialog(abstract)}
+                          >
+                            <Pencil className="mr-1 h-4 w-4" />
+                            Edit
+                          </Button>
+                        )
+                      ) : (
+                        // Admin/Reviewer actions: Review + quick accept/reject
                         <>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="text-green-600"
-                            onClick={() => {
-                              setSelectedAbstract(abstract);
-                              setReviewData({
-                                status: "ACCEPTED",
-                                reviewNotes: "",
-                                reviewScore: "",
-                              });
-                              setIsReviewDialogOpen(true);
-                            }}
+                            onClick={() => openReviewDialog(abstract)}
                           >
-                            <CheckCircle className="h-4 w-4" />
+                            Review
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600"
-                            onClick={() => {
-                              setSelectedAbstract(abstract);
-                              setReviewData({
-                                status: "REJECTED",
-                                reviewNotes: "",
-                                reviewScore: "",
-                              });
-                              setIsReviewDialogOpen(true);
-                            }}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
+                          {abstract.status === "SUBMITTED" && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-green-600"
+                                onClick={() => {
+                                  setSelectedAbstract(abstract);
+                                  setReviewData({
+                                    status: "ACCEPTED",
+                                    reviewNotes: "",
+                                    reviewScore: "",
+                                  });
+                                  setIsReviewDialogOpen(true);
+                                }}
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600"
+                                onClick={() => {
+                                  setSelectedAbstract(abstract);
+                                  setReviewData({
+                                    status: "REJECTED",
+                                    reviewNotes: "",
+                                    reviewScore: "",
+                                  });
+                                  setIsReviewDialogOpen(true);
+                                }}
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
                         </>
                       )}
                     </div>

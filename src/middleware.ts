@@ -6,28 +6,36 @@ import authConfig from "@/lib/auth.config";
 const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
-  const isReviewer = req.auth?.user?.role === "REVIEWER";
+  const role = req.auth?.user?.role;
+  const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
-  if (!isReviewer) {
+  if (!isRestricted) {
     return NextResponse.next();
   }
 
   const { pathname } = req.nextUrl;
 
-  // Block reviewers from creating new events
+  // Block restricted roles from dashboard and settings
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/settings")) {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/events";
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Block restricted roles from creating new events
   if (pathname === "/events/new") {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/events";
     return NextResponse.redirect(redirectUrl);
   }
 
-  const reviewerEventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
+  const eventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
 
-  if (!reviewerEventPath) {
+  if (!eventPath) {
     return NextResponse.next();
   }
 
-  const eventSubPath = reviewerEventPath[1] ?? "";
+  const eventSubPath = eventPath[1] ?? "";
   const isAbstractsPath = eventSubPath === "abstracts" || eventSubPath.startsWith("abstracts/");
 
   if (isAbstractsPath) {
