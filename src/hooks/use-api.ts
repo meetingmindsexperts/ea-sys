@@ -13,6 +13,32 @@ async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+function buildQueryString(filters?: Record<string, string>): string {
+  if (!filters) {
+    return "";
+  }
+
+  const params = new URLSearchParams(filters);
+  const queryString = params.toString();
+
+  return queryString ? `?${queryString}` : "";
+}
+
+function useEventListQuery<T>(
+  eventId: string,
+  key: readonly unknown[],
+  path: string,
+  filters?: Record<string, string>
+) {
+  const queryString = buildQueryString(filters);
+
+  return useQuery({
+    queryKey: filters ? [...key, filters] : key,
+    queryFn: () => fetchApi<T>(`/api/events/${eventId}/${path}${queryString}`),
+    enabled: !!eventId,
+  });
+}
+
 // Query keys for cache management
 export const queryKeys = {
   events: ["events"] as const,
@@ -46,11 +72,7 @@ export function useEvent(eventId: string) {
 
 // ============ TICKETS ============
 export function useTickets(eventId: string) {
-  return useQuery({
-    queryKey: queryKeys.tickets(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/tickets`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.tickets(eventId), "tickets");
 }
 
 export function useCreateTicket(eventId: string) {
@@ -98,23 +120,12 @@ export function useDeleteTicket(eventId: string) {
 
 // ============ REGISTRATIONS ============
 export function useRegistrations(eventId: string, filters?: Record<string, string>) {
-  const params = new URLSearchParams(filters);
-  const queryString = params.toString() ? `?${params.toString()}` : "";
-
-  return useQuery({
-    queryKey: [...queryKeys.registrations(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/registrations${queryString}`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.registrations(eventId), "registrations", filters);
 }
 
 // ============ SPEAKERS ============
 export function useSpeakers(eventId: string) {
-  return useQuery({
-    queryKey: queryKeys.speakers(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/speakers`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.speakers(eventId), "speakers");
 }
 
 export function useCreateSpeaker(eventId: string) {
@@ -134,56 +145,27 @@ export function useCreateSpeaker(eventId: string) {
 
 // ============ SESSIONS ============
 export function useSessions(eventId: string, filters?: Record<string, string>) {
-  const params = new URLSearchParams(filters);
-  const queryString = params.toString() ? `?${params.toString()}` : "";
-
-  return useQuery({
-    queryKey: [...queryKeys.sessions(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/sessions${queryString}`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.sessions(eventId), "sessions", filters);
 }
 
 // ============ TRACKS ============
 export function useTracks(eventId: string) {
-  return useQuery({
-    queryKey: queryKeys.tracks(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/tracks`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.tracks(eventId), "tracks");
 }
 
 // ============ ABSTRACTS ============
 export function useAbstracts(eventId: string, filters?: Record<string, string>) {
-  const params = new URLSearchParams(filters);
-  const queryString = params.toString() ? `?${params.toString()}` : "";
-
-  return useQuery({
-    queryKey: [...queryKeys.abstracts(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/abstracts${queryString}`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.abstracts(eventId), "abstracts", filters);
 }
 
 // ============ HOTELS ============
 export function useHotels(eventId: string) {
-  return useQuery({
-    queryKey: queryKeys.hotels(eventId),
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/hotels`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.hotels(eventId), "hotels");
 }
 
 // ============ ACCOMMODATIONS ============
 export function useAccommodations(eventId: string, filters?: Record<string, string>) {
-  const params = new URLSearchParams(filters);
-  const queryString = params.toString() ? `?${params.toString()}` : "";
-
-  return useQuery({
-    queryKey: [...queryKeys.accommodations(eventId), filters],
-    queryFn: () => fetchApi<any[]>(`/api/events/${eventId}/accommodations${queryString}`),
-    enabled: !!eventId,
-  });
+  return useEventListQuery<any[]>(eventId, queryKeys.accommodations(eventId), "accommodations", filters);
 }
 
 // ============ REVIEWERS ============
