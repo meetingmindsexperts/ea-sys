@@ -146,7 +146,7 @@ export default function RegistrationsPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner label="Reloading registrations..." /> : null}
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
       </div>
     );
   }

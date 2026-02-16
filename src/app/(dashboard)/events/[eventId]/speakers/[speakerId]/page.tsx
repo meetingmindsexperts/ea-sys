@@ -244,7 +244,7 @@ export default function SpeakerDetailPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner label="Reloading speaker details..." /> : null}
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
       </div>
     );
   }

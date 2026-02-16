@@ -294,7 +294,7 @@ export default function AccommodationPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner label="Reloading accommodations..." /> : null}
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
       </div>
     );
   }

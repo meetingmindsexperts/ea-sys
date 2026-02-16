@@ -1,6 +1,5 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ReloadingSpinnerProps {
@@ -12,12 +11,26 @@ interface ReloadingSpinnerProps {
 export function ReloadingSpinner({
   className,
   iconClassName,
-  label = "Reloading...",
+  label,
 }: ReloadingSpinnerProps) {
   return (
-    <div className={cn("flex items-center justify-center gap-3 text-primary", className)}>
-      <Loader2 className={cn("h-[70px] w-[70px] animate-spin", iconClassName)} aria-hidden="true" />
-      <span className="text-sm">{label}</span>
+    <div className={cn("flex flex-col items-center justify-center gap-3", className)}>
+      <div className="relative h-12 w-12" aria-hidden="true">
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full border-2 border-primary/20",
+            iconClassName
+          )}
+        />
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full border-2 border-transparent border-t-primary border-r-primary animate-spin",
+            iconClassName
+          )}
+        />
+        <span className="absolute inset-[10px] rounded-full bg-primary/10 animate-pulse" />
+      </div>
+      {label ? <span className="text-sm text-muted-foreground">{label}</span> : null}
     </div>
   );
 }
