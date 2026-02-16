@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1),
@@ -22,6 +23,20 @@ interface RouteParams {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `public-register:ip:${clientIp}`,
+      limit: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const [{ slug }, body] = await Promise.all([params, req.json()]);
 
     const validated = registrationSchema.safeParse(body);
@@ -33,8 +48,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, firstName, lastName, email, company, jobTitle, phone, dietaryReqs } =
+    const { ticketTypeId, firstName, lastName, company, jobTitle, phone, dietaryReqs } =
       validated.data;
+    const email = validated.data.email.toLowerCase();
+
+    const emailRateLimit = checkRateLimit({
+      key: `public-register:email:${email}`,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!emailRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(emailRateLimit.retryAfterSeconds) } }
+      );
+    }
 
     // Find the event (supports both slug and event ID)
     const event = await db.event.findFirst({

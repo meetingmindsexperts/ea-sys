@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -12,6 +13,20 @@ const acceptInvitationSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `accept-invitation:post:ip:${clientIp}`,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const validated = acceptInvitationSchema.safeParse(body);
 
@@ -22,13 +37,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const { token, email, password } = validated.data;
+    const { token, password } = validated.data;
+    const email = validated.data.email.toLowerCase();
+    const tokenHash = hashVerificationToken(token);
 
     // Find the verification token
     const verificationToken = await db.verificationToken.findFirst({
       where: {
         identifier: email,
-        token: token,
+        token: tokenHash,
       },
     });
 
@@ -46,7 +63,7 @@ export async function POST(req: Request) {
         where: {
           identifier_token: {
             identifier: email,
-            token: token,
+            token: tokenHash,
           },
         },
       });
@@ -86,7 +103,7 @@ export async function POST(req: Request) {
         where: {
           identifier_token: {
             identifier: email,
-            token: token,
+            token: tokenHash,
           },
         },
       });
@@ -124,6 +141,20 @@ export async function POST(req: Request) {
 // GET endpoint to validate the token without setting password
 export async function GET(req: Request) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `accept-invitation:get:ip:${clientIp}`,
+      limit: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { valid: false, error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const token = searchParams.get("token");
     const email = searchParams.get("email");
@@ -135,11 +166,14 @@ export async function GET(req: Request) {
       );
     }
 
+    const normalizedEmail = email.toLowerCase();
+    const tokenHash = hashVerificationToken(token);
+
     // Find the verification token
     const verificationToken = await db.verificationToken.findFirst({
       where: {
-        identifier: email,
-        token: token,
+        identifier: normalizedEmail,
+        token: tokenHash,
       },
     });
 
@@ -160,7 +194,7 @@ export async function GET(req: Request) {
 
     // Get user info
     const user = await db.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       select: {
         firstName: true,
         lastName: true,

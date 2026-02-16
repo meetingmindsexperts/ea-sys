@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { hashVerificationToken } from "@/lib/security";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1) }),
@@ -260,8 +261,10 @@ async function findOrCreateReviewerUser(
   lastName: string,
   session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } }
 ): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
+  const normalizedEmail = email.toLowerCase();
+
   const existingUser = await db.user.findUnique({
-    where: { email },
+    where: { email: normalizedEmail },
     select: { id: true, role: true },
   });
 
@@ -275,13 +278,14 @@ async function findOrCreateReviewerUser(
 
   // Create new REVIEWER User with invitation (no organizationId — reviewers are org-independent)
   const invitationToken = crypto.randomBytes(32).toString("hex");
+  const invitationTokenHash = hashVerificationToken(invitationToken);
   const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const placeholderHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 10);
 
   const newUser = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
-        email,
+        email: normalizedEmail,
         firstName,
         lastName,
         role: "REVIEWER",
@@ -292,8 +296,8 @@ async function findOrCreateReviewerUser(
 
     await tx.verificationToken.create({
       data: {
-        identifier: email,
-        token: invitationToken,
+        identifier: normalizedEmail,
+        token: invitationTokenHash,
         expires: tokenExpiry,
       },
     });
@@ -303,7 +307,7 @@ async function findOrCreateReviewerUser(
 
   // Send invitation email
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
+  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
   const organization = session.user.organizationId
     ? await db.organization.findUnique({
@@ -327,7 +331,7 @@ async function findOrCreateReviewerUser(
   });
 
   const emailResult = await sendEmail({
-    to: [{ email, name: `${firstName} ${lastName}` }],
+    to: [{ email: normalizedEmail, name: `${firstName} ${lastName}` }],
     subject: emailTemplate.subject,
     htmlContent: emailTemplate.htmlContent,
     textContent: emailTemplate.textContent,
@@ -336,7 +340,7 @@ async function findOrCreateReviewerUser(
   if (!emailResult.success) {
     apiLogger.warn({
       msg: "Failed to send reviewer invitation email",
-      email,
+      email: normalizedEmail,
       error: emailResult.error,
     });
   }

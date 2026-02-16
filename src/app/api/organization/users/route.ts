@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { hashVerificationToken } from "@/lib/security";
 
 const inviteUserSchema = z.object({
   email: z.string().email(),
@@ -68,7 +69,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, firstName, lastName, role } = validated.data;
+    const { firstName, lastName, role } = validated.data;
+    const email = validated.data.email.toLowerCase();
 
     // Check if user already exists
     const existingUser = await db.user.findUnique({
@@ -84,6 +86,7 @@ export async function POST(req: Request) {
 
     // Generate a secure invitation token
     const invitationToken = crypto.randomBytes(32).toString("hex");
+    const invitationTokenHash = hashVerificationToken(invitationToken);
     const tokenExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     // Create a placeholder password hash (user will set their own via invitation link)
@@ -120,7 +123,7 @@ export async function POST(req: Request) {
       await tx.verificationToken.create({
         data: {
           identifier: email,
-          token: invitationToken,
+          token: invitationTokenHash,
           expires: tokenExpiry,
         },
       });
