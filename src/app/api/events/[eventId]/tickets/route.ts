@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { validateEventAccess, withPrivateCache } from "@/lib/api-route-helpers";
 
 const createTicketTypeSchema = z.object({
   name: z.string().min(1),
@@ -31,15 +32,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parallelize event validation and tickets fetch
-    const [event, ticketTypes] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
+    const [eventError, ticketTypes] = await Promise.all([
+      validateEventAccess(eventId, session.user.organizationId!),
       db.ticketType.findMany({
         where: { eventId },
         include: {
@@ -51,14 +45,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (eventError) {
+      return eventError;
     }
 
     // Add cache headers for better performance
-    const response = NextResponse.json(ticketTypes);
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
-    return response;
+    return withPrivateCache(NextResponse.json(ticketTypes));
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching ticket types" });
     return NextResponse.json(
@@ -84,17 +76,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    // Use select for minimal data fetch
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-      select: { id: true },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    if (eventError) {
+      return eventError;
     }
 
     const validated = createTicketTypeSchema.safeParse(body);

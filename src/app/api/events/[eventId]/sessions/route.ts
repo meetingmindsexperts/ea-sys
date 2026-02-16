@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { validateEventAccess, withPrivateCache } from "@/lib/api-route-helpers";
 
 const createSessionSchema = z.object({
   name: z.string().min(1),
@@ -39,15 +40,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
-    // Fetch event validation and sessions in parallel
-    const [event, sessions] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
+    const [eventError, sessions] = await Promise.all([
+      validateEventAccess(eventId, session.user.organizationId!),
       db.eventSession.findMany({
         where: {
           eventId,
@@ -73,14 +67,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (eventError) {
+      return eventError;
     }
 
     // Add cache headers for better performance
-    const response = NextResponse.json(sessions);
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
-    return response;
+    return withPrivateCache(NextResponse.json(sessions));
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching sessions" });
     return NextResponse.json(
@@ -129,14 +121,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     } = validated.data;
 
     // Parallelize all validation queries
-    const [event, track, abstract, existingAbstractSession, speakers] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
+    const [eventError, track, abstract, existingAbstractSession, speakers] = await Promise.all([
+      validateEventAccess(eventId, session.user.organizationId!),
       trackId
         ? db.track.findFirst({ where: { id: trackId, eventId } })
         : Promise.resolve(null),
@@ -151,8 +137,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         : Promise.resolve([]),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (eventError) {
+      return eventError;
     }
 
     if (trackId && !track) {

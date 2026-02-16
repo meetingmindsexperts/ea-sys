@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { validateEventAccess, withPrivateCache } from "@/lib/api-route-helpers";
 
 const createTrackSchema = z.object({
   name: z.string().min(1),
@@ -28,15 +29,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fetch event validation and tracks in parallel
-    const [event, tracks] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
+    const [eventError, tracks] = await Promise.all([
+      validateEventAccess(eventId, session.user.organizationId!),
       db.track.findMany({
         where: { eventId },
         include: {
@@ -51,13 +45,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (eventError) {
+      return eventError;
     }
 
-    const response = NextResponse.json(tracks);
-    response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
-    return response;
+    return withPrivateCache(NextResponse.json(tracks));
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching tracks" });
     return NextResponse.json(
@@ -95,14 +87,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { name, description, color, sortOrder } = validated.data;
 
     // Parallelize event validation and max sort order fetch
-    const [event, maxTrack] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
+    const [eventError, maxTrack] = await Promise.all([
+      validateEventAccess(eventId, session.user.organizationId!),
       sortOrder === undefined
         ? db.track.findFirst({
             where: { eventId },
@@ -112,8 +98,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         : Promise.resolve(null),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (eventError) {
+      return eventError;
     }
 
     const finalSortOrder = sortOrder ?? (maxTrack ? maxTrack.sortOrder + 1 : 0);

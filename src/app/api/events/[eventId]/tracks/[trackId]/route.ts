@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getAuthenticatedUserSession, validateEventAccess } from "@/lib/api-route-helpers";
 
 const updateTrackSchema = z.object({
   name: z.string().min(1).optional(),
@@ -19,21 +19,15 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { eventId, trackId } = await params;
-    const session = await auth();
+    const { session, unauthorized } = await getAuthenticatedUserSession();
 
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (unauthorized || !session) {
+      return unauthorized;
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    if (eventError) {
+      return eventError;
     }
 
     const track = await db.track.findFirst({
@@ -83,24 +77,18 @@ export async function GET(req: Request, { params }: RouteParams) {
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const { eventId, trackId } = await params;
-    const session = await auth();
+    const { session, unauthorized } = await getAuthenticatedUserSession();
 
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (unauthorized || !session) {
+      return unauthorized;
     }
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    if (eventError) {
+      return eventError;
     }
 
     const existingTrack = await db.track.findFirst({
@@ -172,24 +160,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const { eventId, trackId } = await params;
-    const session = await auth();
+    const { session, unauthorized } = await getAuthenticatedUserSession();
 
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (unauthorized || !session) {
+      return unauthorized;
     }
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    if (eventError) {
+      return eventError;
     }
 
     const track = await db.track.findFirst({
