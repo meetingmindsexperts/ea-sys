@@ -103,6 +103,26 @@ export default function SchedulePage() {
     color: "#3B82F6",
   });
 
+  const timeOptions = Array.from({ length: 96 }, (_, index) => {
+    const hour = Math.floor(index / 4)
+      .toString()
+      .padStart(2, "0");
+    const minute = ((index % 4) * 15).toString().padStart(2, "0");
+    return `${hour}:${minute}`;
+  });
+
+  const getDatePart = (dateTime: string) => (dateTime ? dateTime.split("T")[0] : "");
+  const getTimePart = (dateTime: string) => {
+    if (!dateTime) return "";
+    const time = dateTime.split("T")[1] || "";
+    return time.slice(0, 5);
+  };
+
+  const buildDateTime = (date: string, time: string) => {
+    if (!date) return "";
+    return `${date}T${time || "00:00"}`;
+  };
+
   // Session mutations
   const sessionMutation = useMutation({
     mutationFn: async ({ data, sessionId }: { data: Record<string, unknown>; sessionId?: string }) => {
@@ -283,7 +303,7 @@ export default function SchedulePage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner label="Reloading schedule..." /> : null}
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
       </div>
     );
   }
@@ -457,33 +477,91 @@ export default function SchedulePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="startTime">Start Time</Label>
-                    <Input
-                      id="startTime"
-                      type="datetime-local"
-                      value={sessionFormData.startTime}
-                      onChange={(e) =>
-                        setSessionFormData({
-                          ...sessionFormData,
-                          startTime: e.target.value,
-                        })
-                      }
-                      required
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        id="startTime"
+                        type="date"
+                        value={getDatePart(sessionFormData.startTime)}
+                        onChange={(e) =>
+                          setSessionFormData({
+                            ...sessionFormData,
+                            startTime: buildDateTime(
+                              e.target.value,
+                              getTimePart(sessionFormData.startTime)
+                            ),
+                          })
+                        }
+                        required
+                      />
+                      <Select
+                        value={getTimePart(sessionFormData.startTime)}
+                        onValueChange={(value) =>
+                          setSessionFormData({
+                            ...sessionFormData,
+                            startTime: buildDateTime(
+                              getDatePart(sessionFormData.startTime),
+                              value
+                            ),
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select time" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {timeOptions.map((time) => (
+                            <SelectItem key={`start-${time}`} value={time}>
+                              {time}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <input type="hidden" value={sessionFormData.startTime} required readOnly />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="endTime">End Time</Label>
-                    <Input
-                      id="endTime"
-                      type="datetime-local"
-                      value={sessionFormData.endTime}
-                      onChange={(e) =>
-                        setSessionFormData({
-                          ...sessionFormData,
-                          endTime: e.target.value,
-                        })
-                      }
-                      required
-                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        id="endTime"
+                        type="date"
+                        value={getDatePart(sessionFormData.endTime)}
+                        onChange={(e) =>
+                          setSessionFormData({
+                            ...sessionFormData,
+                            endTime: buildDateTime(
+                              e.target.value,
+                              getTimePart(sessionFormData.endTime)
+                            ),
+                          })
+                        }
+                        required
+                      />
+                      <Select
+                        value={getTimePart(sessionFormData.endTime)}
+                        onValueChange={(value) =>
+                          setSessionFormData({
+                            ...sessionFormData,
+                            endTime: buildDateTime(
+                              getDatePart(sessionFormData.endTime),
+                              value
+                            ),
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select time" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {timeOptions.map((time) => (
+                            <SelectItem key={`end-${time}`} value={time}>
+                              {time}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <input type="hidden" value={sessionFormData.endTime} required readOnly />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">

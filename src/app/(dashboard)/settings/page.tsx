@@ -298,7 +298,7 @@ export default function SettingsPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         {showDelayedLoader ? (
-          <ReloadingSpinner label="Reloading organization settings..." />
+          <ReloadingSpinner />
         ) : null}
       </div>
     );

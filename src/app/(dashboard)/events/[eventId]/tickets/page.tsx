@@ -136,7 +136,7 @@ export default function TicketsPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        {showDelayedLoader ? <ReloadingSpinner label="Reloading tickets..." /> : null}
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
       </div>
     );
   }
