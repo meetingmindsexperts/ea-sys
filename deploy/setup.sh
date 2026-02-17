@@ -2,59 +2,73 @@
 # deploy/setup.sh
 # One-time EC2 server setup script.
 # Run as ubuntu user on a fresh Ubuntu 22.04 LTS instance.
-# Usage: bash deploy/setup.sh YOUR_DOMAIN (e.g. app.meetingmindsdubai.com)
+# Usage: bash deploy/setup.sh YOUR_DOMAIN EMAIL
+# Example: bash deploy/setup.sh events.meetingmindsgroup.com admin@meetingmindsgroup.com
 
 set -euo pipefail
 
 DOMAIN="${1:-YOUR_DOMAIN}"
+EMAIL="${2:-admin@meetingmindsgroup.com}"
 APP_DIR="/home/ubuntu/ea-sys"
 
-echo "==> [1/6] Updating system packages"
+echo "==> [1/7] Updating system packages"
 sudo apt-get update -y && sudo apt-get upgrade -y
 
-echo "==> [2/6] Installing nginx, certbot, git"
+echo "==> [2/7] Installing nginx, certbot, git"
 sudo apt-get install -y nginx certbot python3-certbot-nginx git
 
-echo "==> [3/6] Installing Docker"
+echo "==> [3/7] Installing Docker"
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker ubuntu
-# Apply group without needing logout — only works for the remainder of this script
-newgrp docker <<DOCKERGROUP
+sudo systemctl enable docker
 
-echo "==> [4/6] Setting up nginx"
-sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/ea-sys
-sudo sed -i "s/YOUR_DOMAIN/$DOMAIN/g" /etc/nginx/sites-available/ea-sys
+echo "==> [4/7] Starting nginx with temporary HTTP-only config"
+# Certbot needs nginx running on port 80 to issue the SSL cert.
+# We start with a plain HTTP config first, then switch to full SSL after.
+sudo tee /etc/nginx/sites-available/ea-sys > /dev/null << NGINXEOF
+server {
+    listen 80;
+    server_name $DOMAIN;
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+NGINXEOF
+
 sudo ln -sf /etc/nginx/sites-available/ea-sys /etc/nginx/sites-enabled/ea-sys
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl enable nginx
 sudo systemctl restart nginx
 
-echo "==> [5/6] Obtaining SSL certificate via Let's Encrypt"
-sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@${DOMAIN#*.}"
+echo "==> [5/7] Obtaining SSL certificate via Let's Encrypt"
+echo "    NOTE: Port 80 must be open in your EC2 Security Group for this step."
+echo "    After the cert is issued you can remove port 80 from the Security Group."
+sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
+
+echo "==> [6/7] Applying production nginx config (SSL + proxy)"
+sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/ea-sys
+sudo sed -i "s/YOUR_DOMAIN/$DOMAIN/g" /etc/nginx/sites-available/ea-sys
+sudo nginx -t
 sudo systemctl reload nginx
 
-echo "==> [6/6] Enable Docker on boot"
-sudo systemctl enable docker
-
-DOCKERGROUP
+echo "==> [7/7] Done"
 
 echo ""
 echo "============================================================"
 echo " Server setup complete!"
 echo ""
-echo " Next steps:"
-echo "   1. Clone your repo:  git clone <repo-url> $APP_DIR"
-echo "   2. Create .env file: cp $APP_DIR/.env.example $APP_DIR/.env"
-echo "                        nano $APP_DIR/.env  (fill in all values)"
-echo "   3. First deploy:"
-echo "      cd $APP_DIR"
-echo "      docker compose -f docker-compose.prod.yml up -d --build"
+echo " You can now remove port 80 from your EC2 Security Group."
+echo " Only port 443 (HTTPS) and 22 (SSH) are needed going forward."
 echo ""
-echo " To add another app in future:"
-echo "   1. Add service to docker-compose.prod.yml (use commented template)"
-echo "   2. Add nginx server block (use commented template in nginx.conf)"
-echo "   3. Run: sudo certbot --nginx -d new-app.domain.com"
+echo " First deploy:"
+echo "   cd $APP_DIR"
+echo "   docker compose -f docker-compose.prod.yml up -d --build"
+echo ""
+echo " To add another app later:"
+echo "   1. Add service block to docker-compose.prod.yml"
+echo "   2. Add server block to /etc/nginx/sites-available/ea-sys"
+echo "   3. sudo certbot --nginx -d new-app.domain.com"
 echo "   4. sudo nginx -t && sudo systemctl reload nginx"
-echo "   5. docker compose -f docker-compose.prod.yml up -d --build new-app"
+echo "   5. docker compose -f docker-compose.prod.yml up -d --build new-app-name"
 echo "============================================================"
