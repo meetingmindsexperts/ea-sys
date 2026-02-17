@@ -9,7 +9,9 @@ RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists
 # Install dependencies first (cached layer — only re-runs when package.json changes)
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
-RUN npm install
+# Delete lockfile so npm resolves platform-specific native binaries fresh for
+# Linux (the lockfile was generated on macOS and records darwin binaries only).
+RUN rm -f package-lock.json && npm install
 
 # Copy source and build
 COPY . .
