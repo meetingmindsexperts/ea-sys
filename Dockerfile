@@ -1,25 +1,17 @@
-# ── Stage 1: Install dependencies ────────────────────────────────────────────
-# Use Debian-based (slim) to match the glibc binaries in package-lock.json.
-# Alpine uses musl which conflicts with native binaries like lightningcss.
-FROM node:20-slim AS deps
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-COPY prisma ./prisma/
-
-# Use npm install (not npm ci) so npm resolves the correct platform-specific
-# native binaries (e.g. lightningcss-linux-x64-gnu) regardless of which OS
-# the package-lock.json was generated on (macOS).
-RUN npm install
-
-# ── Stage 2: Build ────────────────────────────────────────────────────────────
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+# node:20-slim is Debian-based (glibc), avoiding musl/lightningcss binary issues.
 FROM node:20-slim AS builder
 WORKDIR /app
 
-# Prisma needs openssl at build time on Debian slim
+# Prisma + lightningcss both need openssl on Debian slim
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-COPY --from=deps /app/node_modules ./node_modules
+# Install dependencies first (cached layer — only re-runs when package.json changes)
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma/
+RUN npm install
+
+# Copy source and build
 COPY . .
 
 ENV NODE_ENV=production
@@ -28,11 +20,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate
 RUN npm run build
 
-# ── Stage 3: Production runtime ───────────────────────────────────────────────
+# ── Stage 2: Production runtime ───────────────────────────────────────────────
 FROM node:20-slim AS runner
 WORKDIR /app
 
-# Prisma needs openssl at runtime on Debian slim
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
