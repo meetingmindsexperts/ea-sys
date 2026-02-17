@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
 
-RUN npm ci
+# Use npm install (not npm ci) so npm resolves the correct platform-specific
+# native binaries (e.g. lightningcss-linux-x64-gnu) regardless of which OS
+# the package-lock.json was generated on (macOS).
+RUN npm install
 
 # ── Stage 2: Build ────────────────────────────────────────────────────────────
 FROM node:20-slim AS builder
