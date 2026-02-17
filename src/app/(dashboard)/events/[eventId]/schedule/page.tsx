@@ -12,6 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,6 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   Calendar,
+  List,
   Plus,
   Edit,
   Trash2,
@@ -176,6 +183,7 @@ export default function SchedulePage() {
   const [selectedTrack, setSelectedTrack] = useState("all");
   const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
+  const [isSessionListOpen, setIsSessionListOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [sessionForm, setSessionForm] = useState(DEFAULT_SESSION_FORM);
@@ -432,6 +440,22 @@ export default function SchedulePage() {
     days: allEventDates,
   };
 
+  // Sessions grouped by date for the list panel
+  const sessionsByDate = useMemo(() => {
+    const map: Record<string, Session[]> = {};
+    (sessions as Session[]).forEach((s) => {
+      const day = new Date(s.startTime).toLocaleDateString("sv-SE");
+      (map[day] ??= []).push(s);
+    });
+    // Sort each day's sessions by start time
+    Object.values(map).forEach((arr) =>
+      arr.sort(
+        (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      )
+    );
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [sessions]);
+
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   if (loading) {
@@ -486,8 +510,19 @@ export default function SchedulePage() {
 
         {/* ── Stats ────────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card
+            className="py-3 cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
+            onClick={() => setIsSessionListOpen(true)}
+          >
+            <CardContent className="px-4">
+              <p className="text-xs text-muted-foreground mb-0.5 flex items-center gap-1">
+                Sessions
+                <List className="h-3 w-3" />
+              </p>
+              <p className="text-2xl font-bold">{stats.total}</p>
+            </CardContent>
+          </Card>
           {[
-            { label: "Sessions", value: stats.total },
             { label: "Scheduled", value: stats.scheduled },
             { label: "Tracks", value: stats.tracks },
             { label: "Event Days", value: stats.days },
@@ -1024,6 +1059,116 @@ export default function SchedulePage() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* ── All Sessions Panel ───────────────────────────────────────────── */}
+        <Sheet open={isSessionListOpen} onOpenChange={setIsSessionListOpen}>
+          <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+            <SheetHeader className="pb-4">
+              <SheetTitle className="flex items-center gap-2">
+                <List className="h-5 w-5" />
+                All Sessions
+                <span className="ml-auto text-sm font-normal text-muted-foreground">
+                  {stats.total} total
+                </span>
+              </SheetTitle>
+            </SheetHeader>
+
+            {sessionsByDate.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
+                <Calendar className="h-10 w-10 opacity-30" />
+                <p className="text-sm">No sessions yet</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {sessionsByDate.map(([day, daySessions]) => (
+                  <div key={day}>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      {formatDateDisplay(day)}
+                    </p>
+                    <div className="space-y-2">
+                      {daySessions.map((s) => (
+                        <div
+                          key={s.id}
+                          className="rounded-lg border bg-card p-3 text-sm space-y-1.5"
+                          style={{ borderLeft: `3px solid ${s.track?.color || "#6B7280"}` }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium leading-snug">{s.name}</p>
+                            <span
+                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[s.status] ?? "bg-gray-100 text-gray-700"}`}
+                            >
+                              {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {formatTime(s.startTime)} – {formatTime(s.endTime)}
+                            </span>
+                            {s.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {s.location}
+                              </span>
+                            )}
+                            {s.speakers.length > 0 && (
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {s.speakers
+                                  .map(
+                                    ({ speaker: sp }) =>
+                                      `${sp.firstName} ${sp.lastName}`
+                                  )
+                                  .join(", ")}
+                              </span>
+                            )}
+                          </div>
+
+                          {s.track && (
+                            <div className="flex items-center gap-1.5">
+                              <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: s.track.color }}
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {s.track.name}
+                              </span>
+                            </div>
+                          )}
+
+                          {!isReviewer && (
+                            <div className="flex gap-2 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsSessionListOpen(false);
+                                  openEditSession(s);
+                                }}
+                                className="text-xs text-primary hover:underline flex items-center gap-1"
+                              >
+                                <Edit className="h-3 w-3" />
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSession(s.id)}
+                                className="text-xs text-red-500 hover:underline flex items-center gap-1"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </TooltipProvider>
   );
