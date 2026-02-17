@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,10 +33,10 @@ import {
   Clock,
   MapPin,
   Users,
-  User,
   Loader2,
+  LayoutGrid,
 } from "lucide-react";
-import { formatDateTime, formatDateLong, formatTime } from "@/lib/utils";
+import { formatDateLong, formatTime } from "@/lib/utils";
 import { useSessions, useTracks, useSpeakers, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -70,6 +70,38 @@ interface Session {
   speakers: Array<{ speaker: Speaker }>;
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: "bg-gray-100 text-gray-700",
+  SCHEDULED: "bg-blue-100 text-blue-700",
+  LIVE: "bg-green-100 text-green-700",
+  COMPLETED: "bg-purple-100 text-purple-700",
+  CANCELLED: "bg-red-100 text-red-700",
+};
+
+const SPEAKER_STATUS_COLORS: Record<string, string> = {
+  CONFIRMED: "bg-green-100 text-green-700",
+  INVITED: "bg-yellow-100 text-yellow-700",
+  DECLINED: "bg-red-100 text-red-700",
+};
+
+const DEFAULT_SESSION_FORM = {
+  name: "",
+  description: "",
+  trackId: "",
+  startTime: "",
+  endTime: "",
+  location: "",
+  capacity: "",
+  status: "SCHEDULED",
+  speakerIds: [] as string[],
+};
+
+const DEFAULT_TRACK_FORM = {
+  name: "",
+  description: "",
+  color: "#3B82F6",
+};
+
 export default function SchedulePage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -77,7 +109,6 @@ export default function SchedulePage() {
   const { data: session } = useSession();
   const isReviewer = session?.user?.role === "REVIEWER";
 
-  // React Query hooks - data is cached and shared across navigations
   const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
   const { data: tracks = [] } = useTracks(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
@@ -86,54 +117,22 @@ export default function SchedulePage() {
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
-  const [sessionFormData, setSessionFormData] = useState({
-    name: "",
-    description: "",
-    trackId: "",
-    startTime: "",
-    endTime: "",
-    location: "",
-    capacity: "",
-    status: "SCHEDULED",
-    speakerIds: [] as string[],
-  });
-  const [trackFormData, setTrackFormData] = useState({
-    name: "",
-    description: "",
-    color: "#3B82F6",
-  });
+  const [sessionForm, setSessionForm] = useState(DEFAULT_SESSION_FORM);
+  const [trackForm, setTrackForm] = useState(DEFAULT_TRACK_FORM);
 
-  const timeOptions = Array.from({ length: 96 }, (_, index) => {
-    const hour = Math.floor(index / 4)
-      .toString()
-      .padStart(2, "0");
-    const minute = ((index % 4) * 15).toString().padStart(2, "0");
-    return `${hour}:${minute}`;
-  });
-
-  const getDatePart = (dateTime: string) => (dateTime ? dateTime.split("T")[0] : "");
-  const getTimePart = (dateTime: string) => {
-    if (!dateTime) return "";
-    const time = dateTime.split("T")[1] || "";
-    return time.slice(0, 5);
-  };
-
-  const buildDateTime = (date: string, time: string) => {
-    if (!date) return "";
-    return `${date}T${time || "00:00"}`;
-  };
-
-  // Session mutations
+  // ── Mutations ────────────────────────────────────────────────────────────
   const sessionMutation = useMutation({
     mutationFn: async ({ data, sessionId }: { data: Record<string, unknown>; sessionId?: string }) => {
-      const url = sessionId
-        ? `/api/events/${eventId}/sessions/${sessionId}`
-        : `/api/events/${eventId}/sessions`;
-      const res = await fetch(url, {
-        method: sessionId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+      const res = await fetch(
+        sessionId
+          ? `/api/events/${eventId}/sessions/${sessionId}`
+          : `/api/events/${eventId}/sessions`,
+        {
+          method: sessionId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      );
       if (!res.ok) throw new Error("Failed to save session");
       return res.json();
     },
@@ -158,17 +157,18 @@ export default function SchedulePage() {
     onError: () => toast.error("Failed to delete session"),
   });
 
-  // Track mutations
   const trackMutation = useMutation({
     mutationFn: async ({ data, trackId }: { data: Record<string, unknown>; trackId?: string }) => {
-      const url = trackId
-        ? `/api/events/${eventId}/tracks/${trackId}`
-        : `/api/events/${eventId}/tracks`;
-      const res = await fetch(url, {
-        method: trackId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+      const res = await fetch(
+        trackId
+          ? `/api/events/${eventId}/tracks/${trackId}`
+          : `/api/events/${eventId}/tracks`,
+        {
+          method: trackId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      );
       if (!res.ok) throw new Error("Failed to save track");
       return res.json();
     },
@@ -195,107 +195,93 @@ export default function SchedulePage() {
     onError: () => toast.error("Failed to delete track"),
   });
 
-  const isSubmitting = sessionMutation.isPending || trackMutation.isPending;
+  const isSaving = sessionMutation.isPending || trackMutation.isPending;
 
-  const handleSessionSubmit = async (e: React.FormEvent) => {
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleSessionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     sessionMutation.mutate({
       data: {
-        ...sessionFormData,
-        trackId: sessionFormData.trackId || undefined,
-        capacity: sessionFormData.capacity ? parseInt(sessionFormData.capacity) : undefined,
-        startTime: new Date(sessionFormData.startTime).toISOString(),
-        endTime: new Date(sessionFormData.endTime).toISOString(),
+        ...sessionForm,
+        trackId: sessionForm.trackId || undefined,
+        capacity: sessionForm.capacity ? parseInt(sessionForm.capacity) : undefined,
+        startTime: new Date(sessionForm.startTime).toISOString(),
+        endTime: new Date(sessionForm.endTime).toISOString(),
       },
       sessionId: editingSession?.id,
     });
   };
 
-  const handleTrackSubmit = async (e: React.FormEvent) => {
+  const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    trackMutation.mutate({ data: trackFormData, trackId: editingTrack?.id });
+    trackMutation.mutate({ data: trackForm, trackId: editingTrack?.id });
   };
 
-  const handleDeleteTrack = async (trackId: string) => {
-    const trackSessions = sessions.filter((s: Session) => s.track?.id === trackId);
-    if (trackSessions.length > 0) {
-      if (
-        !confirm(
-          `This track has ${trackSessions.length} session(s) assigned. Deleting it will remove the track from those sessions. Continue?`
-        )
-      )
-        return;
-    } else {
-      if (!confirm("Are you sure you want to delete this track?")) return;
-    }
+  const handleDeleteTrack = (trackId: string) => {
+    const assignedCount = (sessions as Session[]).filter((s) => s.track?.id === trackId).length;
+    const msg = assignedCount > 0
+      ? `This track has ${assignedCount} session(s) assigned. Deleting it will unassign them. Continue?`
+      : "Are you sure you want to delete this track?";
+    if (!confirm(msg)) return;
     deleteTrackMutation.mutate(trackId);
   };
 
-  const openEditTrackDialog = (track: Track) => {
-    setEditingTrack(track);
-    setTrackFormData({
-      name: track.name,
-      description: "",
-      color: track.color,
-    });
-    setIsTrackDialogOpen(true);
-  };
-
-  const resetTrackForm = () => {
-    setEditingTrack(null);
-    setTrackFormData({ name: "", description: "", color: "#3B82F6" });
-  };
-
-  const handleDeleteSession = async (sessionId: string) => {
+  const handleDeleteSession = (sessionId: string) => {
     if (!confirm("Are you sure you want to delete this session?")) return;
     deleteSessionMutation.mutate(sessionId);
   };
 
-  const openEditSessionDialog = (session: Session) => {
-    setEditingSession(session);
-    setSessionFormData({
-      name: session.name,
-      description: session.description || "",
-      trackId: session.track?.id || "",
-      startTime: new Date(session.startTime).toISOString().slice(0, 16),
-      endTime: new Date(session.endTime).toISOString().slice(0, 16),
-      location: session.location || "",
-      capacity: session.capacity?.toString() || "",
-      status: session.status,
-      speakerIds: session.speakers.map((s) => s.speaker.id),
+  const openEditSession = (s: Session) => {
+    setEditingSession(s);
+    // Convert UTC ISO to local datetime-local format (YYYY-MM-DDTHH:MM)
+    const toLocalInput = (iso: string) =>
+      new Date(iso).toLocaleString("sv-SE", { hour12: false }).slice(0, 16);
+    setSessionForm({
+      name: s.name,
+      description: s.description || "",
+      trackId: s.track?.id || "",
+      startTime: toLocalInput(s.startTime),
+      endTime: toLocalInput(s.endTime),
+      location: s.location || "",
+      capacity: s.capacity?.toString() || "",
+      status: s.status,
+      speakerIds: s.speakers.map((sp) => sp.speaker.id),
     });
     setIsSessionDialogOpen(true);
   };
 
-  const resetSessionForm = () => {
-    setEditingSession(null);
-    setSessionFormData({
-      name: "",
-      description: "",
-      trackId: "",
-      startTime: "",
-      endTime: "",
-      location: "",
-      capacity: "",
-      status: "SCHEDULED",
-      speakerIds: [],
-    });
+  const openEditTrack = (t: Track) => {
+    setEditingTrack(t);
+    setTrackForm({ name: t.name, description: "", color: t.color });
+    setIsTrackDialogOpen(true);
   };
 
-  // Group sessions by date
-  const sessionsByDate = sessions.reduce((acc, session) => {
-    const date = new Date(session.startTime).toDateString();
-    if (!acc[date]) acc[date] = [];
-    acc[date].push(session);
-    return acc;
-  }, {} as Record<string, Session[]>);
+  const resetSessionForm = () => {
+    setEditingSession(null);
+    setSessionForm(DEFAULT_SESSION_FORM);
+  };
 
-  const statusColors: Record<string, string> = {
-    DRAFT: "bg-gray-100 text-gray-800",
-    SCHEDULED: "bg-blue-100 text-blue-800",
-    LIVE: "bg-green-100 text-green-800",
-    COMPLETED: "bg-purple-100 text-purple-800",
-    CANCELLED: "bg-red-100 text-red-800",
+  const resetTrackForm = () => {
+    setEditingTrack(null);
+    setTrackForm(DEFAULT_TRACK_FORM);
+  };
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const sessionsByDate = (sessions as Session[]).reduce<Record<string, Session[]>>((acc, s) => {
+    const key = new Date(s.startTime).toDateString();
+    (acc[key] ??= []).push(s);
+    return acc;
+  }, {});
+
+  const sortedDates = Object.keys(sessionsByDate).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime()
+  );
+
+  const stats = {
+    total: (sessions as Session[]).length,
+    scheduled: (sessions as Session[]).filter((s) => s.status === "SCHEDULED").length,
+    tracks: (tracks as Track[]).length,
+    days: sortedDates.length,
   };
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
@@ -310,632 +296,457 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+      {/* ── Page header ──────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Link
-              href={`/events/${eventId}`}
-              className="text-muted-foreground hover:text-foreground"
-            >
+          <div className="flex items-center gap-2 mb-1">
+            <Link href={`/events/${eventId}`} className="text-muted-foreground hover:text-foreground">
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Calendar className="h-8 w-8" />
+              <Calendar className="h-7 w-7" />
               Schedule
               {isFetching && !loading && (
-                <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               )}
             </h1>
           </div>
-          <p className="text-muted-foreground">
-            Manage sessions, tracks, and the event schedule
+          <p className="text-muted-foreground text-sm ml-6">
+            Manage sessions, tracks, and the event programme
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button asChild variant="outline">
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Button asChild variant="outline" size="sm">
             <Link href={`/events/${eventId}/schedule/calendar`}>
-              <Calendar className="mr-2 h-4 w-4" />
-              Calendar View
+              <LayoutGrid className="mr-2 h-4 w-4" />
+              Calendar
             </Link>
           </Button>
-          {!isReviewer && (
-            <Dialog
-              open={isTrackDialogOpen}
-              onOpenChange={(open) => {
-                setIsTrackDialogOpen(open);
-                if (!open) resetTrackForm();
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Track
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>
-                    {editingTrack ? "Edit Track" : "Create Track"}
-                  </DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleTrackSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="trackName">Name</Label>
-                    <Input
-                      id="trackName"
-                      value={trackFormData.name}
-                      onChange={(e) =>
-                        setTrackFormData({ ...trackFormData, name: e.target.value })
-                      }
-                      placeholder="e.g., Main Stage, Workshop Room"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="trackDescription">Description</Label>
-                    <Textarea
-                      id="trackDescription"
-                      value={trackFormData.description}
-                      onChange={(e) =>
-                        setTrackFormData({
-                          ...trackFormData,
-                          description: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="trackColor">Color</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="trackColor"
-                        type="color"
-                        value={trackFormData.color}
-                        onChange={(e) =>
-                          setTrackFormData({ ...trackFormData, color: e.target.value })
-                        }
-                        className="w-16 h-10 p-1"
-                      />
-                      <Input
-                        value={trackFormData.color}
-                        onChange={(e) =>
-                          setTrackFormData({ ...trackFormData, color: e.target.value })
-                        }
-                        className="flex-1"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsTrackDialogOpen(false)}
-                      disabled={isSubmitting}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={isSubmitting}>
-                      {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {editingTrack ? "Save Changes" : "Create Track"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
-          )}
 
           {!isReviewer && (
-            <Dialog
-              open={isSessionDialogOpen}
-              onOpenChange={(open) => {
-                setIsSessionDialogOpen(open);
-                if (!open) resetSessionForm();
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Session
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingSession ? "Edit Session" : "Create Session"}
-                </DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSessionSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="sessionName">Name</Label>
-                  <Input
-                    id="sessionName"
-                    value={sessionFormData.name}
-                    onChange={(e) =>
-                      setSessionFormData({
-                        ...sessionFormData,
-                        name: e.target.value,
-                      })
-                    }
-                    placeholder="Session title"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sessionDescription">Description</Label>
-                  <Textarea
-                    id="sessionDescription"
-                    value={sessionFormData.description}
-                    onChange={(e) =>
-                      setSessionFormData({
-                        ...sessionFormData,
-                        description: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="startTime">Start Time</Label>
-                    <div className="grid grid-cols-2 gap-2">
+            <>
+              {/* Add Track */}
+              <Dialog
+                open={isTrackDialogOpen}
+                onOpenChange={(open) => { setIsTrackDialogOpen(open); if (!open) resetTrackForm(); }}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Track
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingTrack ? "Edit Track" : "Create Track"}</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleTrackSubmit} className="space-y-4 pt-1">
+                    <div className="space-y-1.5">
+                      <Label>Name</Label>
                       <Input
-                        id="startTime"
-                        type="date"
-                        value={getDatePart(sessionFormData.startTime)}
-                        onChange={(e) =>
-                          setSessionFormData({
-                            ...sessionFormData,
-                            startTime: buildDateTime(
-                              e.target.value,
-                              getTimePart(sessionFormData.startTime)
-                            ),
-                          })
-                        }
+                        value={trackForm.name}
+                        onChange={(e) => setTrackForm({ ...trackForm, name: e.target.value })}
+                        placeholder="e.g. Main Stage, Workshop Room"
                         required
                       />
-                      <Select
-                        value={getTimePart(sessionFormData.startTime)}
-                        onValueChange={(value) =>
-                          setSessionFormData({
-                            ...sessionFormData,
-                            startTime: buildDateTime(
-                              getDatePart(sessionFormData.startTime),
-                              value
-                            ),
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select time" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {timeOptions.map((time) => (
-                            <SelectItem key={`start-${time}`} value={time}>
-                              {time}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </div>
-                    <input type="hidden" value={sessionFormData.startTime} required readOnly />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="endTime">End Time</Label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label>Description (optional)</Label>
+                      <Textarea
+                        value={trackForm.description}
+                        onChange={(e) => setTrackForm({ ...trackForm, description: e.target.value })}
+                        rows={2}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Color</Label>
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="color"
+                          aria-label="Track color"
+                          value={trackForm.color}
+                          onChange={(e) => setTrackForm({ ...trackForm, color: e.target.value })}
+                          className="h-9 w-14 rounded-md border cursor-pointer p-1"
+                        />
+                        <Input
+                          value={trackForm.color}
+                          onChange={(e) => setTrackForm({ ...trackForm, color: e.target.value })}
+                          className="flex-1 font-mono text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="outline" onClick={() => setIsTrackDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {editingTrack ? "Save Changes" : "Create Track"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+
+              {/* Add Session */}
+              <Dialog
+                open={isSessionDialogOpen}
+                onOpenChange={(open) => { setIsSessionDialogOpen(open); if (!open) resetSessionForm(); }}
+              >
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Session
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{editingSession ? "Edit Session" : "Create Session"}</DialogTitle>
+                  </DialogHeader>
+                  <form onSubmit={handleSessionSubmit} className="space-y-4 pt-1">
+                    {/* Name */}
+                    <div className="space-y-1.5">
+                      <Label>Session Name</Label>
                       <Input
-                        id="endTime"
-                        type="date"
-                        value={getDatePart(sessionFormData.endTime)}
-                        onChange={(e) =>
-                          setSessionFormData({
-                            ...sessionFormData,
-                            endTime: buildDateTime(
-                              e.target.value,
-                              getTimePart(sessionFormData.endTime)
-                            ),
-                          })
-                        }
+                        value={sessionForm.name}
+                        onChange={(e) => setSessionForm({ ...sessionForm, name: e.target.value })}
+                        placeholder="e.g. Opening Keynote"
                         required
                       />
-                      <Select
-                        value={getTimePart(sessionFormData.endTime)}
-                        onValueChange={(value) =>
-                          setSessionFormData({
-                            ...sessionFormData,
-                            endTime: buildDateTime(
-                              getDatePart(sessionFormData.endTime),
-                              value
-                            ),
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select time" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {timeOptions.map((time) => (
-                            <SelectItem key={`end-${time}`} value={time}>
-                              {time}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </div>
-                    <input type="hidden" value={sessionFormData.endTime} required readOnly />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="track">Track</Label>
-                    <Select
-                      value={sessionFormData.trackId}
-                      onValueChange={(value) =>
-                        setSessionFormData({ ...sessionFormData, trackId: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select track" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {tracks.map((track) => (
-                          <SelectItem key={track.id} value={track.id}>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-3 h-3 rounded-full"
-                                style={{ backgroundColor: track.color }}
+
+                    {/* Description */}
+                    <div className="space-y-1.5">
+                      <Label>Description (optional)</Label>
+                      <Textarea
+                        value={sessionForm.description}
+                        onChange={(e) => setSessionForm({ ...sessionForm, description: e.target.value })}
+                        rows={2}
+                        placeholder="Brief description of the session…"
+                      />
+                    </div>
+
+                    {/* Date & Times */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Start</Label>
+                        <Input
+                          type="datetime-local"
+                          value={sessionForm.startTime}
+                          onChange={(e) => setSessionForm({ ...sessionForm, startTime: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>End</Label>
+                        <Input
+                          type="datetime-local"
+                          value={sessionForm.endTime}
+                          onChange={(e) => setSessionForm({ ...sessionForm, endTime: e.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Track + Status */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Track</Label>
+                        <Select
+                          value={sessionForm.trackId}
+                          onValueChange={(v) => setSessionForm({ ...sessionForm, trackId: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="None" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(tracks as Track[]).map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color }} />
+                                  {t.name}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Status</Label>
+                        <Select
+                          value={sessionForm.status}
+                          onValueChange={(v) => setSessionForm({ ...sessionForm, status: v })}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="DRAFT">Draft</SelectItem>
+                            <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                            <SelectItem value="LIVE">Live</SelectItem>
+                            <SelectItem value="COMPLETED">Completed</SelectItem>
+                            <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Location + Capacity */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>Location</Label>
+                        <Input
+                          value={sessionForm.location}
+                          onChange={(e) => setSessionForm({ ...sessionForm, location: e.target.value })}
+                          placeholder="Room or venue"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Capacity</Label>
+                        <Input
+                          type="number"
+                          value={sessionForm.capacity}
+                          onChange={(e) => setSessionForm({ ...sessionForm, capacity: e.target.value })}
+                          placeholder="Max attendees"
+                          min={1}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Speakers */}
+                    {(speakers as Speaker[]).length > 0 && (
+                      <div className="space-y-1.5">
+                        <Label>Speakers</Label>
+                        <div className="border rounded-md divide-y max-h-36 overflow-y-auto">
+                          {(speakers as Speaker[]).map((sp) => (
+                            <label
+                              key={sp.id}
+                              className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50"
+                            >
+                              <Checkbox
+                                checked={sessionForm.speakerIds.includes(sp.id)}
+                                onCheckedChange={(checked: boolean) =>
+                                  setSessionForm({
+                                    ...sessionForm,
+                                    speakerIds: checked
+                                      ? [...sessionForm.speakerIds, sp.id]
+                                      : sessionForm.speakerIds.filter((id) => id !== sp.id),
+                                  })
+                                }
                               />
-                              {track.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select
-                      value={sessionFormData.status}
-                      onValueChange={(value) =>
-                        setSessionFormData({ ...sessionFormData, status: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DRAFT">Draft</SelectItem>
-                        <SelectItem value="SCHEDULED">Scheduled</SelectItem>
-                        <SelectItem value="LIVE">Live</SelectItem>
-                        <SelectItem value="COMPLETED">Completed</SelectItem>
-                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="location">Location</Label>
-                    <Input
-                      id="location"
-                      value={sessionFormData.location}
-                      onChange={(e) =>
-                        setSessionFormData({
-                          ...sessionFormData,
-                          location: e.target.value,
-                        })
-                      }
-                      placeholder="Room or venue"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="capacity">Capacity</Label>
-                    <Input
-                      id="capacity"
-                      type="number"
-                      value={sessionFormData.capacity}
-                      onChange={(e) =>
-                        setSessionFormData({
-                          ...sessionFormData,
-                          capacity: e.target.value,
-                        })
-                      }
-                      placeholder="Max attendees"
-                    />
-                  </div>
-                </div>
-                {speakers.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <User className="h-4 w-4" />
-                      Speakers
-                    </Label>
-                    <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-                      {speakers.map((speaker) => (
-                        <div key={speaker.id} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`speaker-${speaker.id}`}
-                            checked={sessionFormData.speakerIds.includes(speaker.id)}
-                            onCheckedChange={(checked: boolean) => {
-                              if (checked) {
-                                setSessionFormData({
-                                  ...sessionFormData,
-                                  speakerIds: [...sessionFormData.speakerIds, speaker.id],
-                                });
-                              } else {
-                                setSessionFormData({
-                                  ...sessionFormData,
-                                  speakerIds: sessionFormData.speakerIds.filter(
-                                    (id) => id !== speaker.id
-                                  ),
-                                });
-                              }
-                            }}
-                          />
-                          <label
-                            htmlFor={`speaker-${speaker.id}`}
-                            className="text-sm cursor-pointer flex-1 flex items-center gap-2"
-                          >
-                            {speaker.firstName} {speaker.lastName}
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${
-                              speaker.status === "CONFIRMED" ? "bg-green-100 text-green-700" :
-                              speaker.status === "INVITED" ? "bg-yellow-100 text-yellow-700" :
-                              speaker.status === "DECLINED" ? "bg-red-100 text-red-700" :
-                              "bg-gray-100 text-gray-700"
-                            }`}>
-                              {speaker.status}
-                            </span>
-                          </label>
+                              <span className="flex-1 text-sm">
+                                {sp.firstName} {sp.lastName}
+                              </span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${SPEAKER_STATUS_COLORS[sp.status] ?? "bg-gray-100 text-gray-700"}`}>
+                                {sp.status}
+                              </span>
+                            </label>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                    {sessionFormData.speakerIds.length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {sessionFormData.speakerIds.length} speaker{sessionFormData.speakerIds.length !== 1 ? "s" : ""} selected
-                      </p>
+                        {sessionForm.speakerIds.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {sessionForm.speakerIds.length} speaker{sessionForm.speakerIds.length !== 1 ? "s" : ""} selected
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsSessionDialogOpen(false)}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {editingSession ? "Save Changes" : "Create Session"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button type="button" variant="outline" onClick={() => setIsSessionDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {editingSession ? "Save Changes" : "Create Session"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </>
           )}
         </div>
       </div>
 
-      {/* Tracks Overview */}
-      {tracks.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Tracks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {tracks.map((track) => (
-                <div
-                  key={track.id}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg border"
-                  style={{ borderColor: track.color }}
-                >
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: track.color }}
-                  />
-                  <span className="text-sm font-medium">{track.name}</span>
-                  {!isReviewer && (
-                    <div className="flex gap-1 ml-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0"
-                        onClick={() => openEditTrackDialog(track)}
-                      >
-                        <Edit className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                        onClick={() => handleDeleteTrack(track.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Sessions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{sessions.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Tracks
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{tracks.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Scheduled
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {sessions.filter((s) => s.status === "SCHEDULED").length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Event Days
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {Object.keys(sessionsByDate).length}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sessions by Date */}
-      <div className="space-y-6">
-        {sessions.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-muted-foreground text-center py-8">
-                No sessions yet. Click &quot;Add Session&quot; to get started.
-              </p>
+      {/* ── Stats row ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Sessions", value: stats.total, color: "" },
+          { label: "Scheduled", value: stats.scheduled, color: "text-blue-600" },
+          { label: "Tracks", value: stats.tracks, color: "" },
+          { label: "Event Days", value: stats.days, color: "" },
+        ].map(({ label, value, color }) => (
+          <Card key={label} className="py-3">
+            <CardContent className="px-4">
+              <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+              <p className={`text-2xl font-bold ${color}`}>{value}</p>
             </CardContent>
           </Card>
-        ) : (
-          Object.entries(sessionsByDate)
-            .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
-            .map(([date, dateSessions]) => (
-              <div key={date}>
-                <h2 className="text-lg font-semibold mb-4">
-                  {formatDateLong(date)}
-                </h2>
-                <div className="space-y-3">
-                  {(dateSessions as Session[])
-                    .sort(
-                      (a: Session, b: Session) =>
-                        new Date(a.startTime).getTime() -
-                        new Date(b.startTime).getTime()
-                    )
-                    .map((session: Session) => (
-                      <Card
-                        key={session.id}
-                        className="hover:border-primary transition-colors"
-                      >
-                        <CardContent className="pt-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="text-lg font-semibold">
-                                  {session.name}
-                                </h3>
+        ))}
+      </div>
+
+      {/* ── Tracks bar ──────────────────────────────────────────────── */}
+      {(tracks as Track[]).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tracks</span>
+          {(tracks as Track[]).map((t) => (
+            <div
+              key={t.id}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm border"
+              style={{ borderColor: t.color, color: t.color }}
+            >
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
+              <span className="font-medium">{t.name}</span>
+              {!isReviewer && (
+                <div className="flex gap-0.5 ml-1">
+                  <button
+                    type="button"
+                    onClick={() => openEditTrack(t)}
+                    className="p-0.5 rounded hover:bg-black/5 transition-colors"
+                    title="Edit track"
+                  >
+                    <Edit className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTrack(t.id)}
+                    className="p-0.5 rounded hover:bg-red-50 text-red-500 transition-colors"
+                    title="Delete track"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Sessions by date ─────────────────────────────────────────── */}
+      {(sessions as Session[]).length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <Calendar className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="font-medium text-muted-foreground">No sessions yet</p>
+            {!isReviewer && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Click <strong>Add Session</strong> to build your schedule.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-8">
+          {sortedDates.map((dateKey) => {
+            const daySessions = [...(sessionsByDate[dateKey] as Session[])].sort(
+              (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+            );
+            return (
+              <div key={dateKey}>
+                {/* Date heading */}
+                <div className="flex items-center gap-3 mb-3">
+                  <h2 className="text-base font-semibold">{formatDateLong(dateKey)}</h2>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {daySessions.length} session{daySessions.length !== 1 ? "s" : ""}
+                  </span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                <div className="space-y-2">
+                  {daySessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="flex items-stretch rounded-lg border bg-card hover:shadow-sm transition-shadow group"
+                    >
+                      {/* Track color strip */}
+                      <div
+                        className="w-1 rounded-l-lg shrink-0"
+                        style={{ backgroundColor: s.track?.color ?? "#e5e7eb" }}
+                      />
+
+                      {/* Time column */}
+                      <div className="flex flex-col items-center justify-center px-4 py-3 min-w-[80px] border-r">
+                        <span className="text-sm font-semibold tabular-nums">{formatTime(s.startTime)}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{formatTime(s.endTime)}</span>
+                      </div>
+
+                      {/* Main content */}
+                      <div className="flex-1 px-4 py-3 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm truncate">{s.name}</span>
+                              <Badge className={`${STATUS_COLORS[s.status]} text-xs px-1.5 py-0`} variant="outline">
+                                {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
+                              </Badge>
+                              {s.track && (
                                 <Badge
-                                  className={statusColors[session.status]}
                                   variant="outline"
+                                  className="text-xs px-1.5 py-0"
+                                  style={{ borderColor: s.track.color, color: s.track.color }}
                                 >
-                                  {session.status}
+                                  {s.track.name}
                                 </Badge>
-                                {session.track && (
-                                  <Badge
-                                    variant="outline"
-                                    style={{ borderColor: session.track.color }}
-                                  >
-                                    <div
-                                      className="w-2 h-2 rounded-full mr-1"
-                                      style={{
-                                        backgroundColor: session.track.color,
-                                      }}
-                                    />
-                                    {session.track.name}
-                                  </Badge>
-                                )}
-                              </div>
-
-                              {session.description && (
-                                <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                                  {session.description}
-                                </p>
-                              )}
-
-                              <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  <Clock className="h-4 w-4" />
-                                  {formatDateTime(session.startTime)} - {formatTime(session.endTime)}
-                                </div>
-                                {session.location && (
-                                  <div className="flex items-center gap-1">
-                                    <MapPin className="h-4 w-4" />
-                                    {session.location}
-                                  </div>
-                                )}
-                                {session.capacity && (
-                                  <div className="flex items-center gap-1">
-                                    <Users className="h-4 w-4" />
-                                    Capacity: {session.capacity}
-                                  </div>
-                                )}
-                              </div>
-
-                              {session.speakers.length > 0 && (
-                                <div className="mt-2 text-sm">
-                                  <span className="text-muted-foreground">
-                                    Speakers:{" "}
-                                  </span>
-                                  {session.speakers
-                                    .map(
-                                      (s: { speaker: Speaker }) =>
-                                        `${s.speaker.firstName} ${s.speaker.lastName}`
-                                    )
-                                    .join(", ")}
-                                </div>
                               )}
                             </div>
 
-                            {!isReviewer && (
-                            <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditSessionDialog(session)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteSession(session.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            {s.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                {s.description}
+                              </p>
                             )}
+
+                            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-muted-foreground">
+                              {s.location && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {s.location}
+                                </span>
+                              )}
+                              {s.capacity && (
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {s.capacity}
+                                </span>
+                              )}
+                              {s.speakers.length > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {s.speakers.map((sp) => `${sp.speaker.firstName} ${sp.speaker.lastName}`).join(", ")}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+
+                          {!isReviewer && (
+                            <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0"
+                                onClick={() => openEditSession(s)}
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                onClick={() => handleDeleteSession(s.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 const createSessionSchema = z.object({
   name: z.string().min(1),
@@ -42,10 +43,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Fetch event validation and sessions in parallel
     const [event, sessions] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.eventSession.findMany({
@@ -60,12 +58,22 @@ export async function GET(req: Request, { params }: RouteParams) {
             },
           }),
         },
-        include: {
-          track: true,
-          abstract: true,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          startTime: true,
+          endTime: true,
+          location: true,
+          capacity: true,
+          status: true,
+          track: { select: { id: true, name: true, color: true } },
+          abstract: { select: { id: true, title: true } },
           speakers: {
-            include: {
-              speaker: true,
+            select: {
+              speaker: {
+                select: { id: true, firstName: true, lastName: true, status: true },
+              },
             },
           },
         },
@@ -195,12 +203,22 @@ export async function POST(req: Request, { params }: RouteParams) {
             }
           : undefined,
       },
-      include: {
-        track: true,
-        abstract: true,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        startTime: true,
+        endTime: true,
+        location: true,
+        capacity: true,
+        status: true,
+        track: { select: { id: true, name: true, color: true } },
+        abstract: { select: { id: true, title: true } },
         speakers: {
-          include: {
-            speaker: true,
+          select: {
+            speaker: {
+              select: { id: true, firstName: true, lastName: true, status: true },
+            },
           },
         },
       },
