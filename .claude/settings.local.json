@@ -30,7 +30,8 @@
       "Bash(du:*)",
       "Bash(npm run lint:*)",
       "Bash(find:*)",
-      "Bash(xargs sed -i:*)"
+      "Bash(xargs sed -i:*)",
+      "Bash(npx tsx:*)"
     ]
   }
 }

@@ -34,6 +34,7 @@ import {
   User,
   Loader2,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, queryKeys } from "@/hooks/use-api";
@@ -76,7 +77,9 @@ export default function AbstractsPage() {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 
-  const isSubmitter = session?.user?.role === "SUBMITTER";
+  const isSubmitter  = session?.user?.role === "SUBMITTER";
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+  const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
 
   // React Query hooks - data is cached and shared across navigations
   const { data: abstractsData = [], isLoading: loading, isFetching } = useAbstracts(eventId);
@@ -187,6 +190,27 @@ export default function AbstractsPage() {
     },
     onError: () => toast.error("Failed to save review"),
   });
+
+  // Delete abstract mutation (SUPER_ADMIN only)
+  const deleteAbstractMutation = useMutation({
+    mutationFn: async (abstractId: string) => {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete abstract");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+      toast.success("Abstract deleted");
+    },
+    onError: () => toast.error("Failed to delete abstract"),
+  });
+
+  const handleDelete = (abstractId: string) => {
+    if (!confirm("Delete this abstract? This cannot be undone.")) return;
+    deleteAbstractMutation.mutate(abstractId);
+  };
 
   const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending || editAbstractMutation.isPending;
 
@@ -471,8 +495,8 @@ export default function AbstractsPage() {
         </Card>
       </div>
 
-      {/* Review Dialog (admin/reviewer only) */}
-      {!isSubmitter && (
+      {/* Review Dialog (admin only) */}
+      {isAdmin && (
         <Dialog
           open={isReviewDialogOpen}
           onOpenChange={(open) => {
@@ -748,8 +772,8 @@ export default function AbstractsPage() {
                             Edit
                           </Button>
                         )
-                      ) : (
-                        // Admin/Reviewer actions: Review + quick accept/reject
+                      ) : isAdmin ? (
+                        // Admin / Super Admin actions
                         <>
                           <Button
                             variant="outline"
@@ -794,8 +818,19 @@ export default function AbstractsPage() {
                               </Button>
                             </>
                           )}
+                          {isSuperAdmin && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:bg-red-50"
+                              onClick={() => handleDelete(abstract.id)}
+                              disabled={deleteAbstractMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </CardContent>

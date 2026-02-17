@@ -112,6 +112,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
+    const isAdmin =
+      session.user.role === "SUPER_ADMIN" || session.user.role === "ADMIN";
+
     // SUBMITTER restrictions: can only edit own abstracts, no review fields
     if (session.user.role === "SUBMITTER") {
       if (existingAbstract.speaker?.userId !== session.user.id) {
@@ -128,6 +131,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (!editableStatuses.includes(existingAbstract.status)) {
         return NextResponse.json(
           { error: "Cannot edit abstract in current status" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Only ADMIN/SUPER_ADMIN can set review statuses, review notes, or review score
+    const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
+    if (!isAdmin) {
+      if (data.status && reviewStatuses.includes(data.status)) {
+        return NextResponse.json(
+          { error: "Only admins can approve, reject, or set review status" },
+          { status: 403 }
+        );
+      }
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
+        return NextResponse.json(
+          { error: "Only admins can add review notes or scores" },
           { status: 403 }
         );
       }
@@ -227,8 +247,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER" || session.user.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (session.user.role !== "SUPER_ADMIN") {
+      return NextResponse.json(
+        { error: "Only super admins can delete abstracts" },
+        { status: 403 }
+      );
     }
 
     const event = await db.event.findFirst({
