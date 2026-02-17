@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,11 +122,7 @@ export default function AccommodationPage() {
     isActive: true,
   });
 
-  useEffect(() => {
-    Promise.all([fetchHotels(), fetchAccommodations()]);
-  }, [eventId]);
-
-  const fetchHotels = async () => {
+  const fetchHotels = useCallback(async () => {
     try {
       const res = await fetch(`/api/events/${eventId}/hotels`);
       if (res.ok) {
@@ -138,9 +134,9 @@ export default function AccommodationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [eventId]);
 
-  const fetchAccommodations = async () => {
+  const fetchAccommodations = useCallback(async () => {
     try {
       const res = await fetch(`/api/events/${eventId}/accommodations`);
       if (res.ok) {
@@ -150,7 +146,11 @@ export default function AccommodationPage() {
     } catch (error) {
       console.error("Error fetching accommodations:", error);
     }
-  };
+  }, [eventId]);
+
+  useEffect(() => {
+    Promise.all([fetchHotels(), fetchAccommodations()]);
+  }, [fetchHotels, fetchAccommodations]);
 
   const handleHotelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

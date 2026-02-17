@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -117,11 +117,7 @@ export default function SpeakerDetailPage() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSpeaker();
-  }, [eventId, speakerId]);
-
-  const fetchSpeaker = async () => {
+  const fetchSpeaker = useCallback(async () => {
     try {
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`);
       if (res.ok) {
@@ -151,7 +147,11 @@ export default function SpeakerDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [eventId, speakerId]);
+
+  useEffect(() => {
+    fetchSpeaker();
+  }, [fetchSpeaker]);
 
   const handleSave = async () => {
     setSaving(true);

@@ -43,7 +43,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
-import { useSessions, useTracks, useSpeakers, queryKeys } from "@/hooks/use-api";
+import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -161,11 +161,18 @@ export default function SchedulePage() {
     authSession?.user?.role === "REVIEWER" ||
     authSession?.user?.role === "SUBMITTER";
 
+  const { data: event } = useEvent(eventId);
   const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
   const { data: tracks = [] } = useTracks(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
 
-  const [selectedDate, setSelectedDate] = useState(() => toLocalDateStr(new Date()));
+  // Event date boundaries (YYYY-MM-DD)
+  const minDate = event?.startDate ? toLocalDateStr(new Date(event.startDate)) : "";
+  const maxDate = event?.endDate ? toLocalDateStr(new Date(event.endDate)) : "";
+
+  // null = not yet chosen by user; resolves to event start date once loaded
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const resolvedDate = selectedDate ?? (minDate || toLocalDateStr(new Date()));
   const [selectedTrack, setSelectedTrack] = useState("all");
   const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
@@ -361,8 +368,8 @@ export default function SchedulePage() {
     const m = snapped % 60;
     const startH = Math.min(h, END_HOUR - 2);
     const endH = Math.min(startH + 1, END_HOUR - 1);
-    const startDT = `${selectedDate}T${padZ(startH)}:${padZ(m)}`;
-    const endDT = `${selectedDate}T${padZ(endH)}:${padZ(m)}`;
+    const startDT = `${resolvedDate}T${padZ(startH)}:${padZ(m)}`;
+    const endDT = `${resolvedDate}T${padZ(endH)}:${padZ(m)}`;
     setEditingSession(null);
     setSessionForm({
       ...DEFAULT_SESSION_FORM,
@@ -374,9 +381,12 @@ export default function SchedulePage() {
   };
 
   const navigateDate = (dir: 1 | -1) => {
-    const d = new Date(selectedDate + "T00:00:00");
+    const d = new Date(resolvedDate + "T00:00:00");
     d.setDate(d.getDate() + dir);
-    setSelectedDate(toLocalDateStr(d));
+    const next = toLocalDateStr(d);
+    if (minDate && next < minDate) return;
+    if (maxDate && next > maxDate) return;
+    setSelectedDate(next);
   };
 
   // ── Derived data ──────────────────────────────────────────────────────────
@@ -384,11 +394,11 @@ export default function SchedulePage() {
   const filteredSessions = useMemo(() => {
     return (sessions as Session[]).filter((s) => {
       const sd = new Date(s.startTime).toLocaleDateString("sv-SE");
-      const matchDate = sd === selectedDate;
+      const matchDate = sd === resolvedDate;
       const matchTrack = selectedTrack === "all" || s.track?.id === selectedTrack;
       return matchDate && matchTrack;
     });
-  }, [sessions, selectedDate, selectedTrack]);
+  }, [sessions, resolvedDate, selectedTrack]);
 
   const sessionsByTrack = useMemo(() => {
     const grouped: Record<string, Session[]> = {};
@@ -539,21 +549,33 @@ export default function SchedulePage() {
             <div className="flex items-center justify-between gap-4 flex-wrap">
               {/* Date navigation */}
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={() => navigateDate(-1)}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => navigateDate(-1)}
+                  disabled={!!minDate && resolvedDate <= minDate}
+                >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <input
                   type="date"
                   aria-label="Select date"
-                  value={selectedDate}
+                  value={resolvedDate}
+                  min={minDate || undefined}
+                  max={maxDate || undefined}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
-                <Button variant="outline" size="icon" onClick={() => navigateDate(1)}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => navigateDate(1)}
+                  disabled={!!maxDate && resolvedDate >= maxDate}
+                >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
                 <span className="text-sm font-medium hidden sm:block text-muted-foreground">
-                  {formatDateDisplay(selectedDate)}
+                  {formatDateDisplay(resolvedDate)}
                 </span>
               </div>
 

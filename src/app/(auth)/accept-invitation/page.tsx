@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -67,17 +67,7 @@ function AcceptInvitationForm() {
     },
   });
 
-  useEffect(() => {
-    if (!token || !email) {
-      setError("Invalid invitation link. Missing required parameters.");
-      setIsValidating(false);
-      return;
-    }
-
-    validateToken();
-  }, [token, email]);
-
-  const validateToken = async () => {
+  const validateToken = useCallback(async () => {
     try {
       const res = await fetch(
         `/api/auth/accept-invitation?token=${token}&email=${encodeURIComponent(email!)}`
@@ -95,7 +85,17 @@ function AcceptInvitationForm() {
     } finally {
       setIsValidating(false);
     }
-  };
+  }, [token, email]);
+
+  useEffect(() => {
+    if (!token || !email) {
+      setError("Invalid invitation link. Missing required parameters.");
+      setIsValidating(false);
+      return;
+    }
+
+    validateToken();
+  }, [token, email, validateToken]);
 
   async function onSubmit(data: PasswordForm) {
     if (!token || !email) return;
