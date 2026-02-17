@@ -1,0 +1,47 @@
+services:
+  ea-sys:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ea-sys
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    networks:
+      - web
+
+  # ── Add future apps below this line ──────────────────────────────────────────
+  # other-next-app:
+  #   build:
+  #     context: ../other-next-app
+  #     dockerfile: Dockerfile
+  #   container_name: other-next-app
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ../other-next-app/.env
+  #   ports:
+  #     - "3001:3000"
+  #   networks:
+  #     - web
+  #
+  # python-api:
+  #   build:
+  #     context: ../python-api
+  #     dockerfile: Dockerfile
+  #   container_name: python-api
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ../python-api/.env
+  #   ports:
+  #     - "8000:8000"
+  #   networks:
+  #     - web
+
+networks:
+  web:
+    driver: bridge

@@ -1,0 +1,45 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          # Build timeout: Next.js builds can take 3-5 min on t3.large
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /home/ubuntu/ea-sys
+
+            echo "==> Pulling latest code"
+            git pull origin main
+
+            echo "==> Building Docker image"
+            docker compose -f docker-compose.prod.yml build ea-sys
+
+            echo "==> Restarting container (zero-downtime swap)"
+            docker compose -f docker-compose.prod.yml up -d --no-deps ea-sys
+
+            echo "==> Cleaning up old images"
+            docker image prune -f
+
+            echo "==> Deploy complete"
+            docker compose -f docker-compose.prod.yml ps
