@@ -30,7 +30,8 @@ jobs:
             cd /home/ubuntu/ea-sys
 
             echo "==> Pulling latest code"
-            git pull --rebase origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "==> Building Docker image"
             docker compose -f docker-compose.prod.yml build ea-sys
