@@ -54,6 +54,7 @@ export const queryKeys = {
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
   contacts: ["contacts"] as const,
   contact: (contactId: string) => ["contacts", contactId] as const,
+  apiKeys: ["api-keys"] as const,
 };
 
 // ============ EVENTS ============
@@ -292,6 +293,40 @@ export function useImportContactsToRegistrations(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
+  });
+}
+
+// ============ API KEYS ============
+export function useApiKeys() {
+  return useQuery({
+    queryKey: queryKeys.apiKeys,
+    queryFn: () => fetchApi<any[]>("/api/organization/api-keys"),
+  });
+}
+
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; expiresAt?: string }) =>
+      fetchApi<{ key: string; prefix: string }>("/api/organization/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+    },
+  });
+}
+
+export function useRevokeApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (keyId: string) =>
+      fetchApi(`/api/organization/api-keys/${keyId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
     },
   });
 }

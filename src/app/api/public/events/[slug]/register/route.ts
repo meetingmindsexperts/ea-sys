@@ -11,7 +11,7 @@ const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
-  company: z.string().optional(),
+  organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
   dietaryReqs: z.string().optional(),
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, firstName, lastName, company, jobTitle, phone, dietaryReqs } =
+    const { ticketTypeId, firstName, lastName, organization, jobTitle, phone, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -133,7 +133,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           email,
           firstName,
           lastName,
-          company: company || null,
+          organization: organization || null,
           jobTitle: jobTitle || null,
           phone: phone || null,
           dietaryReqs: dietaryReqs || null,

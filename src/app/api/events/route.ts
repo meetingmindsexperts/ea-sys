@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { slugify } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { validateApiKey } from "@/lib/api-key";
 
 const createEventSchema = z.object({
   name: z.string().min(2),
@@ -17,24 +18,46 @@ const createEventSchema = z.object({
   country: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const session = await auth();
+    const { searchParams } = new URL(req.url);
+    const slug = searchParams.get("slug") ?? undefined;
 
-    if (!session?.user) {
+    // Session auth covers all roles (ADMIN, ORGANIZER, REVIEWER, SUBMITTER).
+    // REVIEWER and SUBMITTER have organizationId=null, so getOrgContext() would
+    // incorrectly return null for them — handle session auth separately here.
+    const session = await auth();
+    if (session?.user) {
+      const events = await db.event.findMany({
+        where: { ...buildEventAccessWhere(session.user), ...(slug && { slug }) },
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { registrations: true, speakers: true } },
+        },
+      });
+      return NextResponse.json(events);
+    }
+
+    // No session — check for API key (external tools like n8n)
+    const rawKey =
+      req.headers.get("x-api-key") ??
+      req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+      null;
+
+    if (!rawKey) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const result = await validateApiKey(rawKey);
+    if (!result) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const events = await db.event.findMany({
-      where: buildEventAccessWhere(session.user),
+      where: { organizationId: result.organizationId, ...(slug && { slug }) },
       orderBy: { createdAt: "desc" },
       include: {
-        _count: {
-          select: {
-            registrations: true,
-            speakers: true,
-          },
-        },
+        _count: { select: { registrations: true, speakers: true } },
       },
     });
 

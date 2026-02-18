@@ -4,16 +4,17 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getOrgContext } from "@/lib/api-auth";
 
 const createSpeakerSchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   bio: z.string().optional(),
-  company: z.string().optional(),
+  organization: z.string().optional(),
   jobTitle: z.string().optional(),
   website: z.string().url().optional().or(z.literal("")),
-  headshot: z.string().url().optional().or(z.literal("")),
+  photo: z.string().url().optional().or(z.literal("")),
   socialLinks: z.object({
     twitter: z.string().optional(),
     linkedin: z.string().optional(),
@@ -28,13 +29,9 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    // Fetch params and auth in parallel
-    const [{ eventId }, session] = await Promise.all([
-      params,
-      auth(),
-    ]);
+    const [{ eventId }, orgCtx] = await Promise.all([params, getOrgContext(req)]);
 
-    if (!session?.user) {
+    if (!orgCtx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -46,7 +43,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.event.findFirst({
         where: {
           id: eventId,
-          organizationId: session.user.organizationId!,
+          organizationId: orgCtx.organizationId,
         },
         select: { id: true },
       }),
@@ -120,10 +117,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       firstName,
       lastName,
       bio,
-      company,
+      organization,
       jobTitle,
       website,
-      headshot,
+      photo,
       socialLinks,
       status,
     } = validated.data;
@@ -163,10 +160,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         firstName,
         lastName,
         bio: bio || null,
-        company: company || null,
+        organization: organization || null,
         jobTitle: jobTitle || null,
         website: website || null,
-        headshot: headshot || null,
+        photo: photo || null,
         socialLinks: socialLinks || {},
         status,
       },

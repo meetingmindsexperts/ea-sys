@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getOrgContext } from "@/lib/api-auth";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -16,7 +17,7 @@ const createRegistrationSchema = z.object({
     email: z.string().email(),
     firstName: z.string().min(1),
     lastName: z.string().min(1),
-    company: z.string().optional(),
+    organization: z.string().optional(),
     jobTitle: z.string().optional(),
     phone: z.string().optional(),
     dietaryReqs: z.string().optional(),
@@ -31,13 +32,9 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    // Parallelize params and auth
-    const [{ eventId }, session] = await Promise.all([
-      params,
-      auth(),
-    ]);
+    const [{ eventId }, orgCtx] = await Promise.all([params, getOrgContext(req)]);
 
-    if (!session?.user) {
+    if (!orgCtx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -55,7 +52,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.event.findFirst({
         where: {
           id: eventId,
-          organizationId: session.user.organizationId!,
+          organizationId: orgCtx.organizationId,
         },
         select: { id: true },
       }),
@@ -194,7 +191,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           email: attendee.email,
           firstName: attendee.firstName,
           lastName: attendee.lastName,
-          company: attendee.company || null,
+          organization: attendee.organization || null,
           jobTitle: attendee.jobTitle || null,
           phone: attendee.phone || null,
           dietaryReqs: attendee.dietaryReqs || null,

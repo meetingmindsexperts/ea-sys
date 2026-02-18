@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       firstName: headers.indexOf("firstname"),
       lastName: headers.indexOf("lastname"),
       email: headers.indexOf("email"),
-      company: headers.indexOf("company"),
+      organization: headers.indexOf("organization"),
       jobTitle: headers.indexOf("jobtitle"),
       phone: headers.indexOf("phone"),
       tags: headers.indexOf("tags"),
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
       email: string;
       firstName: string;
       lastName: string;
-      company?: string;
+      organization?: string;
       jobTitle?: string;
       phone?: string;
       tags: string[];
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
         email,
         firstName,
         lastName,
-        company: idx.company >= 0 ? fields[idx.company]?.trim() || undefined : undefined,
+        organization: idx.organization >= 0 ? fields[idx.organization]?.trim() || undefined : undefined,
         jobTitle: idx.jobTitle >= 0 ? fields[idx.jobTitle]?.trim() || undefined : undefined,
         phone: idx.phone >= 0 ? fields[idx.phone]?.trim() || undefined : undefined,
         tags,

@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: { in: contactIds },
           organizationId: session.user.organizationId!,
         },
-        select: { id: true, email: true, firstName: true, lastName: true, company: true, jobTitle: true },
+        select: { id: true, email: true, firstName: true, lastName: true, organization: true, jobTitle: true },
       }),
       db.speaker.findMany({
         where: { eventId },
@@ -63,7 +63,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           email: c.email,
           firstName: c.firstName,
           lastName: c.lastName,
-          company: c.company ?? undefined,
+          organization: c.organization ?? undefined,
           jobTitle: c.jobTitle ?? undefined,
         })),
         skipDuplicates: true,

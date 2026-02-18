@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.contact.findMany({
         where: { id: { in: contactIds }, organizationId: session.user.organizationId! },
-        select: { email: true, firstName: true, lastName: true, company: true, jobTitle: true, phone: true },
+        select: { email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true },
       }),
     ]);
 
@@ -76,7 +76,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               email: contact.email,
               firstName: contact.firstName,
               lastName: contact.lastName,
-              company: contact.company ?? undefined,
+              organization: contact.organization ?? undefined,
               jobTitle: contact.jobTitle ?? undefined,
               phone: contact.phone ?? undefined,
             },

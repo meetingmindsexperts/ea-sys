@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { UserPlus, Upload, Download, Search, Pencil, Trash2, ChevronLeft, ChevronRight, Users, Tag } from "lucide-react";
+import { UserPlus, Upload, Download, FileDown, Search, Pencil, Trash2, ChevronLeft, ChevronRight, Users, Tag } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 interface Contact {
@@ -186,6 +186,20 @@ export default function ContactsPage() {
     window.location.href = "/api/contacts/export";
   };
 
+  const handleDownloadTemplate = () => {
+    const csv = [
+      "firstName,lastName,email,company,jobTitle,phone,tags,notes",
+      'John,Smith,john@example.com,Acme Corp,CEO,+1-555-0123,"VIP, Speaker",Met at conference 2025',
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "contacts-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -215,6 +229,9 @@ export default function ContactsPage() {
         </div>
         <div className="flex gap-2">
           <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+          <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+            <FileDown className="h-4 w-4 mr-1" /> CSV Template
+          </Button>
           <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
             <Upload className="h-4 w-4 mr-1" /> Import CSV
           </Button>

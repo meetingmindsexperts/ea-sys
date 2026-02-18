@@ -9,7 +9,7 @@ const registerSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  company: z.string().optional(),
+  organization: z.string().optional(),
 });
 
 interface RouteParams {
@@ -117,7 +117,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             userId: user.id,
             firstName: data.firstName,
             lastName: data.lastName,
-            ...(data.company && { company: data.company }),
+            ...(data.organization && { organization: data.organization }),
           },
         });
       } else {
@@ -128,7 +128,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             email: emailLower,
             firstName: data.firstName,
             lastName: data.lastName,
-            company: data.company || null,
+            organization: data.organization || null,
             status: "CONFIRMED",
           },
         });

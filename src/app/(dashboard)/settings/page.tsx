@@ -40,7 +40,21 @@ import {
   Save,
   Mail,
   Loader2,
+  Key,
+  Copy,
+  Check,
 } from "lucide-react";
+import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "@/hooks/use-api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -661,6 +675,211 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* API Keys */}
+      {isAdmin && <ApiKeysCard />}
     </div>
   );
+}
+
+// ── API Keys sub-component ────────────────────────────────────────────────────
+function ApiKeysCard() {
+  const { data: apiKeys = [], isLoading } = useApiKeys();
+  const createKey = useCreateApiKey();
+  const revokeKey = useRevokeApiKey();
+
+  const [name, setName] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [revokeId, setRevokeId] = useState<string | null>(null);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      const result = await createKey.mutateAsync({ name: name.trim() });
+      setNewKey(result.key);
+      setName("");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create API key");
+    }
+  };
+
+  const copyKey = async () => {
+    if (!newKey) return;
+    await navigator.clipboard.writeText(newKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRevoke = async () => {
+    if (!revokeId) return;
+    try {
+      await revokeKey.mutateAsync(revokeId);
+      toast.success("API key revoked");
+    } catch {
+      toast.error("Failed to revoke key");
+    }
+    setRevokeId(null);
+  };
+
+  const formatLastUsed = (d: string | null) =>
+    d ? new Date(d).toLocaleDateString() : "Never";
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                API Keys
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Use API keys to connect external tools (e.g. n8n) to the MMG Events API.
+                Send the key in an <code className="text-xs bg-muted px-1 py-0.5 rounded">x-api-key</code> header.
+              </CardDescription>
+            </div>
+            <Button size="sm" className="btn-gradient" onClick={() => { setNewKey(null); setDialogOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> New Key
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
+          ) : (apiKeys as ApiKeyRow[]).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No API keys yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Key prefix</TableHead>
+                  <TableHead>Last used</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(apiKeys as ApiKeyRow[]).map((k) => (
+                  <TableRow key={k.id}>
+                    <TableCell className="font-medium">{k.name}</TableCell>
+                    <TableCell>
+                      <code className="text-xs bg-muted px-2 py-1 rounded">{k.prefix}…</code>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{formatLastUsed(k.lastUsedAt)}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {new Date(k.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => setRevokeId(k.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+          {/* n8n instructions */}
+          <div className="mt-6 rounded-lg border bg-muted/40 p-4 text-sm space-y-2">
+            <p className="font-medium">n8n HTTP Request setup</p>
+            <p className="text-muted-foreground">Add a header to your HTTP Request node:</p>
+            <div className="font-mono text-xs bg-background rounded border px-3 py-2 space-y-1">
+              <div><span className="text-blue-600">Header:</span> x-api-key</div>
+              <div><span className="text-blue-600">Value:</span>  {'<your key>'}</div>
+            </div>
+            <p className="text-muted-foreground">Example URLs:</p>
+            <div className="font-mono text-xs bg-background rounded border px-3 py-2 space-y-1">
+              <div>GET /api/events/EVENT_ID/speakers</div>
+              <div>GET /api/events/EVENT_ID/registrations</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Create key dialog */}
+      <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) { setNewKey(null); } setDialogOpen(o); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+          </DialogHeader>
+          {newKey ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Copy your key now — it will <strong>not</strong> be shown again.
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs bg-muted rounded px-3 py-2 break-all">{newKey}</code>
+                <Button size="icon" variant="outline" onClick={copyKey}>
+                  {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <Button className="w-full btn-gradient" onClick={() => { setNewKey(null); setDialogOpen(false); }}>
+                Done
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Key Name</Label>
+                <Input
+                  placeholder="e.g. n8n automation"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" className="btn-gradient" disabled={createKey.isPending}>
+                  {createKey.isPending ? "Creating…" : "Create Key"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke confirm */}
+      <AlertDialog open={!!revokeId} onOpenChange={(o) => !o && setRevokeId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke API Key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any n8n workflows or integrations using this key will stop working immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleRevoke}
+            >
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  prefix: string;
+  isActive: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
 }

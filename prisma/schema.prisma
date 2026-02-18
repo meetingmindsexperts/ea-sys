@@ -22,6 +22,7 @@ model Organization {
   users    User[]
   events   Event[]
   contacts Contact[]
+  apiKeys  ApiKey[]
 }
 
 model User {
@@ -166,9 +167,10 @@ model Attendee {
   email        String
   firstName    String
   lastName     String
-  company      String?
+  organization String?
   jobTitle     String?
   phone        String?
+  photo        String?
   dietaryReqs  String?
   customFields Json     @default("{}")
   createdAt    DateTime @default(now())
@@ -250,11 +252,11 @@ model Speaker {
   email       String
   firstName   String
   lastName    String
-  bio         String?       @db.Text
-  company     String?
-  jobTitle    String?
-  website     String?
-  headshot    String?
+  bio          String?       @db.Text
+  organization String?
+  jobTitle     String?
+  website      String?
+  photo        String?
   socialLinks Json          @default("{}")
   status      SpeakerStatus @default(INVITED)
   createdAt   DateTime      @default(now())
@@ -457,11 +459,11 @@ enum AccommodationStatus {
 model Contact {
   id             String       @id @default(cuid())
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   email          String
   firstName      String
   lastName       String
-  company        String?
+  organization   String?
   jobTitle       String?
   phone          String?
   tags           String[]     @default([])
@@ -494,4 +496,23 @@ model AuditLog {
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ==================== API KEYS ====================
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  keyHash        String    @unique
+  prefix         String
+  createdAt      DateTime  @default(now())
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean   @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([isActive])
 }

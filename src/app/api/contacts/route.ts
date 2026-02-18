@@ -9,7 +9,7 @@ const createContactSchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  company: z.string().optional(),
+  organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
   tags: z.array(z.string()).optional().default([]),
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
           { firstName: { contains: search, mode: "insensitive" as const } },
           { lastName: { contains: search, mode: "insensitive" as const } },
           { email: { contains: search, mode: "insensitive" as const } },
-          { company: { contains: search, mode: "insensitive" as const } },
+          { organization: { contains: search, mode: "insensitive" as const } },
         ],
       }),
       ...(tags.length > 0 && {
@@ -59,7 +59,7 @@ export async function GET(req: Request) {
           email: true,
           firstName: true,
           lastName: true,
-          company: true,
+          organization: true,
           jobTitle: true,
           phone: true,
           tags: true,
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, firstName, lastName, company, jobTitle, phone, tags, notes } = validated.data;
+    const { email, firstName, lastName, organization, jobTitle, phone, tags, notes } = validated.data;
 
     const existing = await db.contact.findUnique({
       where: { organizationId_email: { organizationId: session.user.organizationId!, email } },
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
         email,
         firstName,
         lastName,
-        company,
+        organization,
         jobTitle,
         phone,
         tags,

@@ -12,7 +12,7 @@ const updateRegistrationSchema = z.object({
   attendee: z.object({
     firstName: z.string().min(1).optional(),
     lastName: z.string().min(1).optional(),
-    company: z.string().optional(),
+    organization: z.string().optional(),
     jobTitle: z.string().optional(),
     phone: z.string().optional(),
     dietaryReqs: z.string().optional(),
@@ -145,7 +145,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         data: {
           ...(attendee.firstName && { firstName: attendee.firstName }),
           ...(attendee.lastName && { lastName: attendee.lastName }),
-          ...(attendee.company !== undefined && { company: attendee.company || null }),
+          ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
           ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
           ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
           ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
