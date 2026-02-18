@@ -187,10 +187,10 @@ function AcceptInvitationForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold">Welcome to MMGroup EventsHub!</CardTitle>
+        <CardTitle className="text-2xl font-bold">You&apos;ve been invited!</CardTitle>
         <CardDescription>
           Hi {userInfo?.firstName}, set up your password to join{" "}
-          <strong>{userInfo?.organizationName}</strong>
+          <strong>{userInfo?.organizationName}</strong> on MMGroup EventsHub
         </CardDescription>
       </CardHeader>
       <Form {...form}>

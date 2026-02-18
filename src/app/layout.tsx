@@ -14,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MMGroup EventsHub - Event Management Platform",
-  description: "A comprehensive event management platform for conferences, meetings, and events",
+  title: "MMGroup EventsHub",
+  description: "Event management platform by Meeting Minds Group — conferences, meetings, and events",
+  icons: {
+    icon: "/mmg-logo.png",
+    shortcut: "/mmg-logo.png",
+    apple: "/mmg-logo.png",
+  },
 };
 
 export default function RootLayout({

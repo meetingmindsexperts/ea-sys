@@ -31,7 +31,8 @@
       "Bash(npm run lint:*)",
       "Bash(find:*)",
       "Bash(xargs sed -i:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "WebFetch(domain:www.meetingmindsgroup.com)"
     ]
   }
 }

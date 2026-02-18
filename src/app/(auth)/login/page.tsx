@@ -79,7 +79,7 @@ function LoginForm() {
       <CardHeader className="space-y-1">
         <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
         <CardDescription>
-          Enter your credentials to access your account
+          Sign in to MMGroup EventsHub
         </CardDescription>
       </CardHeader>
       <Form {...form}>

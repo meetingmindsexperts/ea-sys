@@ -1,4 +1,5 @@
-import { Calendar, Users, MapPin, Ticket } from "lucide-react";
+import Image from "next/image";
+import { Users, MapPin, Ticket } from "lucide-react";
 
 export default function AuthLayout({
   children,
@@ -7,9 +8,23 @@ export default function AuthLayout({
 }) {
   return (
     <div className="min-h-screen flex">
-      <div className="flex-1 flex items-center justify-center p-8 bg-background">
+      {/* ── Left: form panel ───────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-background">
+        {/* Logo above the form */}
+        <div className="mb-8">
+          <Image
+            src="/mmg-logo.png"
+            alt="Meeting Minds Group"
+            width={140}
+            height={50}
+            className="object-contain"
+            priority
+          />
+        </div>
         {children}
       </div>
+
+      {/* ── Right: brand panel ─────────────────────────────────────────────── */}
       <div className="hidden lg:flex lg:flex-1 bg-gradient-primary items-center justify-center p-8 relative overflow-hidden">
         {/* Decorative circles */}
         <div className="absolute top-20 right-20 w-64 h-64 rounded-full bg-white/5" />
@@ -17,10 +32,19 @@ export default function AuthLayout({
         <div className="absolute top-1/2 left-1/4 w-32 h-32 rounded-full bg-white/5" />
 
         <div className="max-w-md text-center text-white relative z-10">
-          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center">
-            <Calendar className="h-10 w-10" />
+          {/* Logo on white pill */}
+          <div className="inline-flex items-center justify-center bg-white rounded-2xl px-8 py-5 mb-8 shadow-lg">
+            <Image
+              src="/mmg-logo.png"
+              alt="Meeting Minds Group"
+              width={140}
+              height={50}
+              className="object-contain"
+            />
           </div>
-          <h1 className="text-4xl font-bold mb-4">MMGroup EventsHub</h1>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60 mb-3">
+            EventsHub
+          </p>
           <p className="text-lg opacity-90 mb-8">
             The complete event management platform for conferences, meetings,
             and events. Manage registrations, speakers, accommodations, and more.

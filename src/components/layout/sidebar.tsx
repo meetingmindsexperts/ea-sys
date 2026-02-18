@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
-  Calendar,
   Home,
   Settings,
   Ticket,
@@ -18,6 +18,7 @@ import {
   UserCheck,
   Users,
   BookUser,
+  Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -107,17 +108,22 @@ export function Sidebar() {
         )}
       >
         {/* ── Logo ─────────────────────────────────────────────────────────── */}
-        <div className="flex h-16 items-center border-b px-3 bg-gradient-primary shrink-0">
+        <div className="flex h-16 items-center border-b px-4 bg-white shrink-0">
           <Link
             href="/dashboard"
-            className={cn("flex items-center gap-2.5", isCollapsed && "justify-center w-full")}
+            className={cn("flex items-center gap-3 min-w-0", isCollapsed && "justify-center w-full")}
           >
-            <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
-              <Calendar className="h-4 w-4 text-white" />
-            </div>
+            <Image
+              src="/mmg-logo.png"
+              alt="Meeting Minds Group"
+              width={isCollapsed ? 32 : 108}
+              height={36}
+              className="object-contain shrink-0"
+              priority
+            />
             {!isCollapsed && (
-              <span className="text-base font-bold text-white leading-tight">
-                MMGroup EventsHub
+              <span className="text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 border-l border-border pl-3 leading-tight">
+                EventsHub
               </span>
             )}
           </Link>
