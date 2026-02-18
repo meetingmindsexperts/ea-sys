@@ -32,7 +32,7 @@ interface Contact {
   firstName: string;
   lastName: string;
   email: string;
-  company?: string;
+  organization?: string;
   jobTitle?: string;
   phone?: string;
   tags?: string[];
@@ -61,7 +61,7 @@ const emptyForm = {
   firstName: "",
   lastName: "",
   email: "",
-  company: "",
+  organization: "",
   jobTitle: "",
   phone: "",
   tags: "",
@@ -114,7 +114,7 @@ export default function ContactsPage() {
       firstName: contact.firstName,
       lastName: contact.lastName,
       email: contact.email,
-      company: contact.company || "",
+      organization: contact.organization || "",
       jobTitle: contact.jobTitle || "",
       phone: contact.phone || "",
       tags: contact.tags?.join(", ") || "",
@@ -129,7 +129,7 @@ export default function ContactsPage() {
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       email: form.email.trim().toLowerCase(),
-      company: form.company.trim() || undefined,
+      organization: form.organization.trim() || undefined,
       jobTitle: form.jobTitle.trim() || undefined,
       phone: form.phone.trim() || undefined,
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
@@ -188,7 +188,7 @@ export default function ContactsPage() {
 
   const handleDownloadTemplate = () => {
     const csv = [
-      "firstName,lastName,email,company,jobTitle,phone,tags,notes",
+      "firstName,lastName,email,organization,jobTitle,phone,tags,notes",
       'John,Smith,john@example.com,Acme Corp,CEO,+1-555-0123,"VIP, Speaker",Met at conference 2025',
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -264,7 +264,7 @@ export default function ContactsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name, email, company…"
+          placeholder="Search by name, email, organization…"
           className="pl-9"
           value={searchInput}
           onChange={(e) => handleSearchChange(e.target.value)}
@@ -286,7 +286,7 @@ export default function ContactsPage() {
               </th>
               <th className="text-left px-3 py-3 font-medium">Name</th>
               <th className="text-left px-3 py-3 font-medium">Email</th>
-              <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Company</th>
+              <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Organization</th>
               <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Tags</th>
               <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Added</th>
               <th className="w-20 px-3 py-3" />
@@ -324,7 +324,7 @@ export default function ContactsPage() {
                   </td>
                   <td className="px-3 py-3 text-muted-foreground">{contact.email}</td>
                   <td className="px-3 py-3 text-muted-foreground hidden md:table-cell">
-                    {contact.company || "—"}
+                    {contact.organization || "—"}
                   </td>
                   <td className="px-3 py-3 hidden lg:table-cell">
                     <div className="flex flex-wrap gap-1">
@@ -401,8 +401,8 @@ export default function ContactsPage() {
               <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
             </div>
             <div className="space-y-1.5">
-              <Label>Company</Label>
-              <Input value={form.company} onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))} />
+              <Label>Organization</Label>
+              <Input value={form.organization} onChange={(e) => setForm((f) => ({ ...f, organization: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
               <Label>Job Title</Label>

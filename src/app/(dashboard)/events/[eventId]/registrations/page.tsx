@@ -79,7 +79,7 @@ export default function RegistrationsPage() {
       "First Name",
       "Last Name",
       "Email",
-      "Company",
+      "Organization",
       "Job Title",
       "Phone",
       "Registration Type",
@@ -93,7 +93,7 @@ export default function RegistrationsPage() {
       r.attendee.firstName,
       r.attendee.lastName,
       r.attendee.email,
-      r.attendee.company || "",
+      r.attendee.organization || "",
       r.attendee.jobTitle || "",
       r.attendee.phone || "",
       r.ticketType.name,
@@ -124,8 +124,8 @@ export default function RegistrationsPage() {
       r.attendee.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.attendee.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.attendee.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.attendee.company &&
-        r.attendee.company.toLowerCase().includes(searchQuery.toLowerCase()));
+      (r.attendee.organization &&
+        r.attendee.organization.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesStatus = statusFilter === "all" || r.status === statusFilter;
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
@@ -265,7 +265,7 @@ export default function RegistrationsPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, email, or company..."
+                  placeholder="Search by name, email, or organization..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"

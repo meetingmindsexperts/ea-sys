@@ -28,10 +28,10 @@ export default function NewSpeakerPage() {
     firstName: "",
     lastName: "",
     bio: "",
-    company: "",
+    organization: "",
     jobTitle: "",
     website: "",
-    headshot: "",
+    photo: "",
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -133,12 +133,12 @@ export default function NewSpeakerPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="company">Company</Label>
+                <Label htmlFor="organization">Organization</Label>
                 <Input
-                  id="company"
-                  value={formData.company}
+                  id="organization"
+                  value={formData.organization}
                   onChange={(e) =>
-                    setFormData({ ...formData, company: e.target.value })
+                    setFormData({ ...formData, organization: e.target.value })
                   }
                 />
               </div>
@@ -181,13 +181,13 @@ export default function NewSpeakerPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="headshot">Headshot URL</Label>
+                <Label htmlFor="photo">Photo URL</Label>
                 <Input
-                  id="headshot"
+                  id="photo"
                   type="url"
-                  value={formData.headshot}
+                  value={formData.photo}
                   onChange={(e) =>
-                    setFormData({ ...formData, headshot: e.target.value })
+                    setFormData({ ...formData, photo: e.target.value })
                   }
                   placeholder="https://..."
                 />

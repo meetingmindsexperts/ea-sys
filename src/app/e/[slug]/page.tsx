@@ -88,7 +88,7 @@ const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
-  company: z.string().optional(),
+  organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
 });
@@ -112,7 +112,7 @@ export default function PublicEventPage() {
       firstName: "",
       lastName: "",
       email: "",
-      company: "",
+      organization: "",
       jobTitle: "",
       phone: "",
     },
@@ -450,10 +450,10 @@ export default function PublicEventPage() {
 
                       <FormField
                         control={form.control}
-                        name="company"
+                        name="organization"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Company (Optional)</FormLabel>
+                            <FormLabel>Organization (Optional)</FormLabel>
                             <FormControl>
                               <Input placeholder="Acme Inc." {...field} />
                             </FormControl>

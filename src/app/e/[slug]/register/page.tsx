@@ -65,7 +65,7 @@ const registerSchema = z
     email: z.string().email("Valid email is required"),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
-    company: z.string().optional(),
+    organization: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -92,7 +92,7 @@ export default function SubmitterRegisterPage() {
       email: "",
       password: "",
       confirmPassword: "",
-      company: "",
+      organization: "",
     },
   });
 
@@ -143,7 +143,7 @@ export default function SubmitterRegisterPage() {
           lastName: data.lastName,
           email: data.email,
           password: data.password,
-          company: data.company || undefined,
+          organization: data.organization || undefined,
         }),
       });
 
@@ -322,10 +322,10 @@ export default function SubmitterRegisterPage() {
 
                 <FormField
                   control={form.control}
-                  name="company"
+                  name="organization"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Company / Institution (Optional)</FormLabel>
+                      <FormLabel>Organization / Institution (Optional)</FormLabel>
                       <FormControl>
                         <Input placeholder="Acme Inc." {...field} />
                       </FormControl>

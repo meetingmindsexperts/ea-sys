@@ -36,7 +36,7 @@ const initialFormData = {
   email: "",
   firstName: "",
   lastName: "",
-  company: "",
+  organization: "",
   jobTitle: "",
   phone: "",
   dietaryReqs: "",
@@ -60,7 +60,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
             email: data.email,
             firstName: data.firstName,
             lastName: data.lastName,
-            company: data.company || undefined,
+            organization: data.organization || undefined,
             jobTitle: data.jobTitle || undefined,
             phone: data.phone || undefined,
             dietaryReqs: data.dietaryReqs || undefined,
@@ -175,11 +175,11 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="company">Company</Label>
+                <Label htmlFor="organization">Organization</Label>
                 <Input
-                  id="company"
-                  value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  id="organization"
+                  value={formData.organization}
+                  onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
                 />
               </div>
               <div className="space-y-2">

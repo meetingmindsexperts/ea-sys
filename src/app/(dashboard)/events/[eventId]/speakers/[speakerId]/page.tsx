@@ -58,10 +58,10 @@ interface Speaker {
   firstName: string;
   lastName: string;
   bio: string | null;
-  company: string | null;
+  organization: string | null;
   jobTitle: string | null;
   website: string | null;
-  headshot: string | null;
+  photo: string | null;
   status: keyof typeof statusColors;
   socialLinks: {
     twitter?: string;
@@ -99,10 +99,10 @@ export default function SpeakerDetailPage() {
     firstName: "",
     lastName: "",
     bio: "",
-    company: "",
+    organization: "",
     jobTitle: "",
     website: "",
-    headshot: "",
+    photo: "",
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -128,10 +128,10 @@ export default function SpeakerDetailPage() {
           firstName: data.firstName,
           lastName: data.lastName,
           bio: data.bio || "",
-          company: data.company || "",
+          organization: data.organization || "",
           jobTitle: data.jobTitle || "",
           website: data.website || "",
-          headshot: data.headshot || "",
+          photo: data.photo || "",
           status: data.status,
           socialLinks: {
             twitter: data.socialLinks?.twitter || "",
@@ -289,10 +289,10 @@ export default function SpeakerDetailPage() {
                 {speaker.email}
               </div>
             )}
-            {speaker.company && (
+            {speaker.organization && (
               <div className="flex items-center gap-1">
                 <Building className="h-4 w-4" />
-                {speaker.company}
+                {speaker.organization}
               </div>
             )}
             {speaker.website && (
@@ -417,12 +417,12 @@ export default function SpeakerDetailPage() {
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="company">Company</Label>
+                      <Label htmlFor="organization">Organization</Label>
                       <Input
-                        id="company"
-                        value={formData.company}
+                        id="organization"
+                        value={formData.organization}
                         onChange={(e) =>
-                          setFormData({ ...formData, company: e.target.value })
+                          setFormData({ ...formData, organization: e.target.value })
                         }
                       />
                     </div>
@@ -562,11 +562,11 @@ export default function SpeakerDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {speaker.headshot && (
+          {speaker.photo && (
             <Card>
               <CardContent className="pt-6">
                 <Image
-                  src={speaker.headshot}
+                  src={speaker.photo}
                   alt={`${speaker.firstName} ${speaker.lastName}`}
                   width={400}
                   height={400}

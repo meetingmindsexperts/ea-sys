@@ -40,7 +40,7 @@ interface Reviewer {
   firstName: string;
   lastName: string;
   email: string;
-  company: string | null;
+  organization: string | null;
   jobTitle: string | null;
   speakerStatus: string | null;
   accountActive: boolean;
@@ -51,7 +51,7 @@ interface AvailableSpeaker {
   email: string;
   firstName: string;
   lastName: string;
-  company: string | null;
+  organization: string | null;
   jobTitle: string | null;
   status: string;
 }
@@ -335,10 +335,10 @@ export default function ReviewersPage() {
                           <Mail className="h-4 w-4" />
                           {reviewer.email}
                         </div>
-                        {reviewer.company && (
+                        {reviewer.organization && (
                           <div className="flex items-center gap-2">
                             <Building2 className="h-4 w-4" />
-                            {reviewer.company}
+                            {reviewer.organization}
                             {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
                           </div>
                         )}

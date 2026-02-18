@@ -65,7 +65,7 @@ export function ImportContactsDialog({
   const importToSpeakers = useImportContactsToSpeakers(eventId);
   const importToRegistrations = useImportContactsToRegistrations(eventId);
 
-  interface Contact { id: string; firstName: string; lastName: string; email: string; company?: string; tags?: string[]; }
+  interface Contact { id: string; firstName: string; lastName: string; email: string; organization?: string; tags?: string[]; }
   interface Ticket { id: string; name: string; }
   const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
   const tickets: Ticket[] = (ticketsData ?? []) as Ticket[];
@@ -165,7 +165,7 @@ export function ImportContactsDialog({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by name, email, company…"
+              placeholder="Search by name, email, organization…"
               className="pl-9"
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
@@ -200,7 +200,7 @@ export function ImportContactsDialog({
                   </th>
                   <th className="text-left px-3 py-2.5 font-medium">Name</th>
                   <th className="text-left px-3 py-2.5 font-medium">Email</th>
-                  <th className="text-left px-3 py-2.5 font-medium hidden sm:table-cell">Company</th>
+                  <th className="text-left px-3 py-2.5 font-medium hidden sm:table-cell">Organization</th>
                   <th className="text-left px-3 py-2.5 font-medium hidden md:table-cell">Tags</th>
                 </tr>
               </thead>
@@ -236,7 +236,7 @@ export function ImportContactsDialog({
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground text-xs">{contact.email}</td>
                       <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell">
-                        {contact.company || "—"}
+                        {contact.organization || "—"}
                       </td>
                       <td className="px-3 py-2.5 hidden md:table-cell">
                         <div className="flex flex-wrap gap-1">

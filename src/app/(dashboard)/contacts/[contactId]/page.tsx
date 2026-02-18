@@ -111,10 +111,10 @@ export default async function ContactDetailPage({
               <span>{contact.phone}</span>
             </div>
           )}
-          {contact.company && (
+          {contact.organization && (
             <div className="flex items-center gap-2 text-sm">
               <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span>{contact.company}</span>
+              <span>{contact.organization}</span>
             </div>
           )}
           {contact.jobTitle && (

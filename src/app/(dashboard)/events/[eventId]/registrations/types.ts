@@ -3,9 +3,10 @@ export interface Attendee {
   email: string;
   firstName: string;
   lastName: string;
-  company: string | null;
+  organization: string | null;
   jobTitle: string | null;
   phone: string | null;
+  photo: string | null;
   dietaryReqs: string | null;
   customFields?: Record<string, unknown>;
 }

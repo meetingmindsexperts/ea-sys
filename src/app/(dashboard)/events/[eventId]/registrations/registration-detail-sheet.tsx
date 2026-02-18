@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,8 +68,9 @@ export function RegistrationDetailSheet({
     firstName: "",
     lastName: "",
     phone: "",
-    company: "",
+    organization: "",
     jobTitle: "",
+    photo: "",
     dietaryReqs: "",
     notes: "",
   });
@@ -170,8 +172,9 @@ export function RegistrationDetailSheet({
         firstName: selectedRegistration.attendee.firstName,
         lastName: selectedRegistration.attendee.lastName,
         phone: selectedRegistration.attendee.phone || "",
-        company: selectedRegistration.attendee.company || "",
+        organization: selectedRegistration.attendee.organization || "",
         jobTitle: selectedRegistration.attendee.jobTitle || "",
+        photo: selectedRegistration.attendee.photo || "",
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
       });
@@ -189,8 +192,9 @@ export function RegistrationDetailSheet({
             firstName: editData.firstName,
             lastName: editData.lastName,
             phone: editData.phone || undefined,
-            company: editData.company || undefined,
+            organization: editData.organization || undefined,
             jobTitle: editData.jobTitle || undefined,
+            photo: editData.photo || undefined,
             dietaryReqs: editData.dietaryReqs || undefined,
           },
         },
@@ -331,11 +335,11 @@ export function RegistrationDetailSheet({
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="edit-company">Company</Label>
+                        <Label htmlFor="edit-organization">Organization</Label>
                         <Input
-                          id="edit-company"
-                          value={editData.company}
-                          onChange={(e) => setEditData({ ...editData, company: e.target.value })}
+                          id="edit-organization"
+                          value={editData.organization}
+                          onChange={(e) => setEditData({ ...editData, organization: e.target.value })}
                         />
                       </div>
                       <div className="space-y-2">
@@ -346,6 +350,15 @@ export function RegistrationDetailSheet({
                           onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })}
                         />
                       </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-photo">Photo URL</Label>
+                      <Input
+                        id="edit-photo"
+                        placeholder="https://…"
+                        value={editData.photo}
+                        onChange={(e) => setEditData({ ...editData, photo: e.target.value })}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
@@ -376,10 +389,22 @@ export function RegistrationDetailSheet({
                         <span>{selectedRegistration.attendee.phone}</span>
                       </div>
                     )}
-                    {selectedRegistration.attendee.company && (
+                    {selectedRegistration.attendee.photo && (
+                      <div className="flex items-center gap-3">
+                        <Image
+                          src={selectedRegistration.attendee.photo}
+                          alt="Photo"
+                          width={64}
+                          height={64}
+                          className="rounded-full object-cover border"
+                          unoptimized
+                        />
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.organization && (
                       <div className="flex items-center gap-3">
                         <Building className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.company}</span>
+                        <span>{selectedRegistration.attendee.organization}</span>
                       </div>
                     )}
                     {selectedRegistration.attendee.jobTitle && (
