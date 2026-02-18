@@ -52,6 +52,8 @@ export const queryKeys = {
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
+  contacts: ["contacts"] as const,
+  contact: (contactId: string) => ["contacts", contactId] as const,
 };
 
 // ============ EVENTS ============
@@ -201,6 +203,95 @@ export function useRemoveReviewer(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
+  });
+}
+
+// ============ CONTACTS ============
+export function useContacts(filters?: Record<string, string>) {
+  const queryString = buildQueryString(filters);
+  return useQuery({
+    queryKey: filters ? [...queryKeys.contacts, filters] : queryKeys.contacts,
+    queryFn: () => fetchApi<any>(`/api/contacts${queryString}`),
+  });
+}
+
+export function useContact(contactId: string) {
+  return useQuery({
+    queryKey: queryKeys.contact(contactId),
+    queryFn: () => fetchApi<any>(`/api/contacts/${contactId}`),
+    enabled: !!contactId,
+  });
+}
+
+export function useCreateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetchApi("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+    },
+  });
+}
+
+export function useUpdateContact(contactId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetchApi(`/api/contacts/${contactId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.contact(contactId) });
+    },
+  });
+}
+
+export function useDeleteContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: string) =>
+      fetchApi(`/api/contacts/${contactId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+    },
+  });
+}
+
+export function useImportContactsToSpeakers(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (contactIds: string[]) =>
+      fetchApi(`/api/events/${eventId}/speakers/import-contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactIds }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+    },
+  });
+}
+
+export function useImportContactsToRegistrations(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contactIds, ticketTypeId }: { contactIds: string[]; ticketTypeId: string }) =>
+      fetchApi(`/api/events/${eventId}/registrations/import-contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactIds, ticketTypeId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
     },
   });
 }

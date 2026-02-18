@@ -44,6 +44,7 @@ import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { AddRegistrationDialog } from "./add-registration-dialog";
+import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 
 export default function RegistrationsPage() {
   const params = useParams();
@@ -191,10 +192,13 @@ export default function RegistrationsPage() {
             Export CSV
           </Button>
           {!isReviewer && (
-            <AddRegistrationDialog
-              eventId={eventId}
-              ticketTypes={ticketTypes as TicketType[]}
-            />
+            <>
+              <ImportContactsButton eventId={eventId} mode="registration" />
+              <AddRegistrationDialog
+                eventId={eventId}
+                ticketTypes={ticketTypes as TicketType[]}
+              />
+            </>
           )}
         </div>
       </div>

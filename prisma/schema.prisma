@@ -19,8 +19,9 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users  User[]
-  events Event[]
+  users    User[]
+  events   Event[]
+  contacts Contact[]
 }
 
 model User {
@@ -449,6 +450,27 @@ enum AccommodationStatus {
   CANCELLED
   CHECKED_IN
   CHECKED_OUT
+}
+
+// ==================== CONTACT STORE ====================
+
+model Contact {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  firstName      String
+  lastName       String
+  company        String?
+  jobTitle       String?
+  phone          String?
+  tags           String[]     @default([])
+  notes          String?      @db.Text
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
 }
 
 // ==================== AUDIT & LOGGING ====================

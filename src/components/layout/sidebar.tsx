@@ -17,6 +17,7 @@ import {
   Clock,
   UserCheck,
   Users,
+  BookUser,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
+  { name: "Contacts",  href: "/contacts",  icon: BookUser },
   { name: "Settings",  href: "/settings",  icon: Settings },
 ];
 

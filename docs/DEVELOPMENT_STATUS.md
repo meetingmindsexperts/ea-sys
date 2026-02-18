@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 18, 2026
+**Last Updated:** February 18, 2026 (Contact Store)
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -86,6 +86,7 @@ This document outlines the current development status of the Event Administratio
 | Delete Registration | ✅ | ❌ | API Complete |
 | Search/Filter Registrations | ✅ | ✅ | Complete |
 | Export to CSV | N/A | ✅ | Complete |
+| Import from Contact Store | ✅ | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/registrations` - List registrations (with filters)
@@ -110,6 +111,7 @@ This document outlines the current development status of the Event Administratio
 | Delete Speaker | ✅ | ✅ | Complete |
 | Speaker Status Management | ✅ | ✅ | Complete |
 | Social Links | ✅ | ✅ | Complete |
+| Import from Contact Store | ✅ | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/speakers` - List speakers (with status filter)
@@ -280,6 +282,64 @@ This document outlines the current development status of the Event Administratio
 - [x] "Reviewers" sidebar tab added after "Abstracts" (not visible to reviewer role)
 - [x] Stats cards: Total Reviewers, Active Accounts
 - [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
+
+### Contact Store (February 18, 2026)
+Org-wide contact repository holding up to 100k contacts, with CSV import/export, tagging, event history, and one-click import into event speakers or registrations.
+
+| Feature | API | UI | Status |
+|---------|-----|-----|--------|
+| Contact list with pagination (50/page) | ✅ | ✅ | Complete |
+| Server-side search (name/email/company) | ✅ | ✅ | Complete |
+| Tag filtering & colored tag pills | ✅ | ✅ | Complete |
+| Add/Edit contact (slide-out Sheet) | ✅ | ✅ | Complete |
+| Delete contact | ✅ | ✅ | Complete |
+| CSV bulk import (skip duplicates) | ✅ | ✅ | Complete |
+| CSV export (all org contacts) | ✅ | ✅ | Complete |
+| Contact detail + event history | ✅ | ✅ | Complete |
+| Import contacts → Event Speakers | ✅ | ✅ | Complete |
+| Import contacts → Event Registrations | ✅ | ✅ | Complete |
+| "Import from Contacts" button on Speakers page | N/A | ✅ | Complete |
+| "Import from Contacts" button on Registrations page | N/A | ✅ | Complete |
+
+**API Endpoints:**
+- `GET /api/contacts` — Paginated list with `search`, `tags`, `page`, `limit`
+- `POST /api/contacts` — Create single contact (409 on duplicate email per org)
+- `GET /api/contacts/[contactId]` — Single contact + event history (speaker/attendee appearances)
+- `PUT /api/contacts/[contactId]` — Update contact
+- `DELETE /api/contacts/[contactId]` — Delete contact
+- `POST /api/contacts/import` — CSV bulk import via multipart/form-data; returns `{ created, skipped, errors[] }`
+- `GET /api/contacts/export` — Downloads CSV attachment with all org contacts
+- `POST /api/events/[eventId]/speakers/import-contacts` — `{ contactIds }` → creates speakers skipping duplicates
+- `POST /api/events/[eventId]/registrations/import-contacts` — `{ contactIds, ticketTypeId }` → creates attendees + registrations in transaction
+
+**Key Design Decisions:**
+- Contacts are org-scoped (`@@unique([organizationId, email])`) — no cross-org leakage
+- Event history is _derived_ (no join table) — queried live from Speaker/Registration by email match
+- CSV import uses manual parser (no extra deps), handles quoted fields with embedded commas
+- Import dialog remounts on open (via incrementing `key`) to avoid `setState-in-effect` lint issues
+- `createMany({ skipDuplicates: true })` for idempotent CSV imports
+- All list queries paginated — never loads full 100k dataset client-side
+
+**New Files:**
+- `prisma/schema.prisma` — Contact model + `contacts Contact[]` on Organization
+- `src/app/api/contacts/route.ts`
+- `src/app/api/contacts/[contactId]/route.ts`
+- `src/app/api/contacts/import/route.ts`
+- `src/app/api/contacts/export/route.ts`
+- `src/app/api/events/[eventId]/speakers/import-contacts/route.ts`
+- `src/app/api/events/[eventId]/registrations/import-contacts/route.ts`
+- `src/app/(dashboard)/contacts/page.tsx`
+- `src/app/(dashboard)/contacts/[contactId]/page.tsx`
+- `src/components/contacts/import-contacts-dialog.tsx`
+- `src/components/contacts/import-contacts-button.tsx`
+
+**Modified Files:**
+- `src/hooks/use-api.ts` — 7 new hooks + `contacts`/`contact` query keys
+- `src/components/layout/sidebar.tsx` — Contacts nav item (after Events, hidden for REVIEWER/SUBMITTER)
+- `src/app/(dashboard)/events/[eventId]/speakers/page.tsx` — Import from Contacts button
+- `src/app/(dashboard)/events/[eventId]/registrations/page.tsx` — Import from Contacts button
+
+---
 
 ### EC2 Production Deployment (February 18, 2026)
 - [x] Docker multi-stage build (builder + runner stages, `node:22-slim`)
@@ -706,7 +766,7 @@ This document outlines the current development status of the Event Administratio
 | User Invitation Emails | High | Medium | ✅ Complete |
 | Role-based Permissions | Medium | Medium | Pending |
 | Audit Log Viewer | Medium | Low | Pending |
-| Data Import (Bulk) | Medium | Medium | Pending |
+| Data Import (Bulk) | Medium | Medium | ✅ Complete (Contact Store CSV) |
 | Event Duplication | Low | Low | Pending |
 | Archive/Delete Events | Low | Low | ✅ Complete |
 
@@ -769,6 +829,10 @@ src/
 │   │   └── accept-invitation/     ✅ (new - user invitation acceptance)
 │   ├── (dashboard)/
 │   │   ├── dashboard/
+│   │   ├── contacts/               ✅ (new - Contact Store)
+│   │   │   ├── page.tsx            ✅ (list + search + CSV import/export)
+│   │   │   └── [contactId]/
+│   │   │       └── page.tsx        ✅ (detail + event history)
 │   │   ├── layout.tsx              ✅ (with SidebarProvider)
 │   │   └── events/
 │   │       ├── [eventId]/
@@ -788,18 +852,31 @@ src/
 │   └── api/
 │       ├── auth/
 │       │   └── accept-invitation/ ✅ (new - invitation acceptance endpoint)
+│       ├── contacts/              ✅ (new - Contact Store)
+│       │   ├── route.ts           ✅ (GET list, POST create)
+│       │   ├── [contactId]/
+│       │   │   └── route.ts       ✅ (GET, PUT, DELETE + event history)
+│       │   ├── import/
+│       │   │   └── route.ts       ✅ (CSV bulk import)
+│       │   └── export/
+│       │       └── route.ts       ✅ (CSV download)
 │       └── events/
 │           └── [eventId]/
 │               ├── abstracts/        ✅
 │               ├── accommodations/   ✅
 │               ├── hotels/           ✅
-│               ├── registrations/    ✅
+│               ├── registrations/
+│               │   └── import-contacts/ ✅ (new)
 │               ├── sessions/         ✅
-│               ├── speakers/         ✅
+│               ├── speakers/
+│               │   └── import-contacts/ ✅ (new)
 │               ├── tickets/          ✅
 │               ├── tracks/           ✅
 │               └── route.ts          ✅ (new - single event CRUD)
 ├── components/
+│   ├── contacts/                   ✅ (new - Contact Store shared components)
+│   │   ├── import-contacts-dialog.tsx  ✅ (reusable contact picker dialog)
+│   │   └── import-contacts-button.tsx  ✅ (client wrapper for server pages)
 │   ├── layout/
 │   │   ├── header.tsx              ✅ (with event selector)
 │   │   └── sidebar.tsx             ✅ (collapsible)
@@ -840,7 +917,10 @@ src/
 | Organization Users | 4 | ✅ Complete |
 | Auth (Accept Invitation) | 2 | ✅ Complete |
 | Emails (Bulk) | 1 | ✅ Complete |
-| **Total** | **62** | |
+| Contacts (CRUD + import/export) | 7 | ✅ Complete |
+| Event Speaker Import | 1 | ✅ Complete |
+| Event Registration Import | 1 | ✅ Complete |
+| **Total** | **71** | |
 
 ---
 
@@ -851,6 +931,31 @@ src/
 3. **Phase 7: Public Registration Portal** - Required for attendee self-service
 4. **Phase 10: Event Settings Page** - Complete the admin experience
 5. **Phase 8: Reporting** - Important for event organizers
+
+---
+
+## Planned: Event People Overview Page
+
+> **Context:** Speakers and Registrations remain separate entities (different workflows, data, and statuses). A unified "People" view is planned as a UI-only merge — no schema changes needed.
+
+**Route:** `/events/[eventId]/people`
+
+**Concept:** Client-side merge of `useSpeakers` + `useRegistrations` hooks into a single table with a **Role** column:
+
+| Name | Email | Role | Status | Company |
+|------|-------|------|--------|---------|
+| Jane Smith | jane@example.com | Speaker + Attendee | CONFIRMED / CONFIRMED | Acme |
+| John Doe | john@acme.com | Speaker | INVITED | Acme |
+| Alice Wu | alice@corp.com | Attendee | CHECKED_IN | Corp |
+
+**Key features planned:**
+- Deduplication by email — persons appearing in both lists shown as a single row with "Speaker + Attendee" role
+- Filter by role (All / Speaker only / Attendee only / Both)
+- Quick-action column: send email, view speaker profile, view registration
+- Export combined list to CSV
+- No backend API changes needed — pure UI aggregation of existing endpoints
+
+**Design note:** Same contact can be imported as a speaker into **multiple events** independently. The `@@unique([eventId, email])` constraint on Speaker prevents duplicates _within_ an event but allows the same person across any number of events. Their full cross-event history is visible on the Contact Store detail page (`/contacts/[contactId]`).
 
 ---
 

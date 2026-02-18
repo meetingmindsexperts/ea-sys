@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Mic, Plus, Mail, MapPin } from "lucide-react";
+import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 
 const statusColors = {
   INVITED: "bg-yellow-100 text-yellow-800",
@@ -72,12 +73,15 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
           </p>
         </div>
         {!isReviewer && (
-          <Button asChild>
-            <Link href={`/events/${eventId}/speakers/new`}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Speaker
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <ImportContactsButton eventId={eventId} mode="speaker" />
+            <Button asChild>
+              <Link href={`/events/${eventId}/speakers/new`}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Speaker
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
 
