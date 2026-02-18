@@ -34,13 +34,17 @@ jobs:
             git reset --hard origin/main
 
             echo "==> Building Docker image"
+            # The build process is what eats the most space on /mnt/data
             docker compose -f docker-compose.prod.yml build ea-sys
 
             echo "==> Restarting container (zero-downtime swap)"
             docker compose -f docker-compose.prod.yml up -d --no-deps ea-sys
 
-            echo "==> Cleaning up old images"
-            docker image prune -f
+            echo "==> Deep cleaning storage"
+            # 1. Remove dangling images (what you had before)
+            # 2. Remove unused build cache (crucial for Next.js builds)
+            # 3. Remove stopped containers from failed previous runs
+            docker system prune -f
 
             echo "==> Deploy complete"
             docker compose -f docker-compose.prod.yml ps
