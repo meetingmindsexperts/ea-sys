@@ -116,7 +116,7 @@ export function Sidebar() {
             <Image
               src="/mmg-logo.png"
               alt="Meeting Minds Group"
-              width={isCollapsed ? 32 : 108}
+              width={isCollapsed ? 32 : 60}
               height={36}
               className="object-contain shrink-0"
               priority
