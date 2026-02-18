@@ -15,7 +15,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Styling:** TailwindCSS + Shadcn/ui components
 - **State Management:** TanStack Query (React Query) for client-side caching
 - **Email:** Brevo (formerly Sendinblue)
-- **Deployment:** Vercel
+- **Deployment:** Vercel (primary) + AWS EC2 t3.large via Docker (events.meetingmindsgroup.com)
 
 ## Project Structure
 

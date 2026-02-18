@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 10, 2026
+**Last Updated:** February 18, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -281,6 +281,38 @@ This document outlines the current development status of the Event Administratio
 - [x] Stats cards: Total Reviewers, Active Accounts
 - [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
 
+### EC2 Production Deployment (February 18, 2026)
+- [x] Docker multi-stage build (builder + runner stages, `node:22-slim`)
+- [x] `docker-compose.prod.yml` — production compose file with `ea-sys` service on port 3000
+- [x] nginx reverse proxy with HTTP→HTTPS redirect, gzip, security headers, long-cache for `/_next/static/`
+- [x] SSL via Let's Encrypt — automated renewal with `certbot-dns-godaddy` plugin (no manual renewal needed)
+- [x] GitHub Actions workflow (`.github/workflows/deploy.yml`) — triggers on push to `main`, SSHes into EC2, `git fetch/reset --hard`, docker compose build + up, image prune
+- [x] systemd service (`ea-sys.service`) — Docker container auto-starts on EC2 reboot
+- [x] Elastic IP associated to EC2 instance for stable DNS
+
+**Infrastructure:**
+- Platform: AWS EC2 t3.large (2 vCPU, 8 GB RAM) — `me-central-1` region
+- OS: Ubuntu 24.04 LTS
+- Domain: `events.meetingmindsgroup.com`
+- Container: Docker Compose (`docker-compose.prod.yml`)
+- Reverse proxy: nginx (system service)
+- SSL: Let's Encrypt via certbot + GoDaddy DNS plugin (auto-renews)
+- Deploy: GitHub Actions → SSH → git reset → docker compose build + restart
+
+**New Files:**
+- `Dockerfile` — multi-stage Docker build
+- `docker-compose.prod.yml` — production compose with template blocks for future apps
+- `deploy/nginx.conf` — nginx SSL config with template for additional apps
+- `deploy/setup.sh` — one-time EC2 server setup script
+- `.github/workflows/deploy.yml` — GitHub Actions CI/CD pipeline
+- `.dockerignore` — excludes node_modules, .env, .next, logs
+
+**Disk Maintenance:**
+- `docker image prune -f` runs automatically after each deploy
+- Run `docker system prune -af` on EC2 manually if disk fills up
+
+---
+
 ### Authenticated Abstract Submission via SUBMITTER Accounts (February 16, 2026)
 - [x] SUBMITTER role — org-independent restricted user (mirrors REVIEWER pattern)
 - [x] Submitter account registration at `/e/[slug]/register` (public, no auth)
@@ -390,7 +422,7 @@ This document outlines the current development status of the Event Administratio
 
 ## Updates (January 27, 2026)
 
-### Vercel Deployment
+### Vercel Deployment (runs in parallel with EC2 — both deploy from `main`)
 - [x] Configured project for Vercel deployment
 - [x] Added `postinstall` script for Prisma client generation
 - [x] Created `vercel.json` with build configuration
@@ -717,7 +749,8 @@ This document outlines the current development status of the Event Administratio
 ### DevOps
 - [x] Vercel deployment configured
 - [x] Create deployment documentation
-- [ ] Set up CI/CD pipeline
+- [x] CI/CD pipeline via GitHub Actions (auto-deploy to EC2 on push to `main`)
+- [x] EC2 production deployment (Docker + nginx + SSL)
 - [ ] Configure staging environment
 - [ ] Set up database backups
 - [ ] Configure monitoring (error tracking)
