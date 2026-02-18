@@ -48,5 +48,6 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-
+# Set the NODE_OPTIONS environment variable to increase the memory limit for Node.js
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 CMD ["node", "server.js"]
