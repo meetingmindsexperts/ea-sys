@@ -1,5 +1,4 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-# node:20-slim is Debian-based (glibc), avoiding musl/lightningcss binary issues.
 FROM node:22-slim AS builder
 WORKDIR /app
 
@@ -7,11 +6,9 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies first (cached layer — only re-runs when package.json changes)
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-# Delete lockfile so npm resolves platform-specific native binaries fresh for
-# Linux (the lockfile was generated on macOS and records darwin binaries only).
-RUN rm -f package-lock.json && npm install
+RUN npm ci
 
 # Copy source and build
 COPY . .
