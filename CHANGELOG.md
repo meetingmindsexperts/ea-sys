@@ -6,38 +6,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+_Nothing pending._
+
+---
+
+## [2026-02-18] - Schema Cleanup, Contact Store, n8n API Key Support, EC2 Storage
+
 ### Added
-- **Public abstract submission**: Speakers can submit abstracts at `/e/[slug]/submit` without login. Form includes speaker info, title, content, and optional track selection.
-- **Token-based abstract management**: After submission, speakers receive an email with a unique token link (`/e/[slug]/abstract/[token]`) to view status, edit their abstract, and see reviewer feedback.
-- **Abstract status notification emails**: When a reviewer accepts, rejects, or requests revision on an abstract, the speaker automatically receives an email with the status update and reviewer notes.
-- **Submit Abstract link on public event page**: "Call for Abstracts" card appears on `/e/[slug]` when abstract submissions are enabled.
-- New API endpoints: `POST /api/public/events/[slug]/abstracts`, `GET/PUT /api/public/abstracts/[token]`
-- New email templates: `abstractSubmissionConfirmation`, `abstractStatusUpdate` (status-specific gradients and messaging)
-- `managementToken` field on Abstract model for secure token-based access
-- `SUBMITTER` role in UserRole enum (for future use)
-- Public event API now returns tracks and abstract settings (`allowAbstractSubmissions`, `abstractDeadline`)
-- **Reviewers module**: New per-event reviewer management page at `/events/[eventId]/reviewers`.
-- Dual add mode: pick from event speakers or invite directly by email.
-- Auto-creates a REVIEWER User account (org-independent) and sends invitation email.
-- API routes: GET/POST `/api/events/[eventId]/reviewers`, DELETE `/api/events/[eventId]/reviewers/[reviewerId]`.
-- React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`.
-- "Reviewers" tab in sidebar navigation (hidden from reviewer role).
+- **Contact Store** — org-wide contact repository at `/contacts` with:
+  - Paginated list (50/page) with server-side search (name / email / organization)
+  - Tag filtering with colored tag pills
+  - Add / edit contact (slide-out Sheet), delete
+  - CSV bulk import (`POST /api/contacts/import`) with duplicate skipping and per-row error reporting
+  - CSV export (`GET /api/contacts/export`) — downloads all org contacts
+  - CSV template download button (client-side Blob, no API call) — shows all 8 columns with an example row
+  - Contact detail page with full event history derived from Speaker and Registration records
+  - "Import from Contacts" one-click flow on Speakers page and Registrations page
+  - API routes: `GET/POST /api/contacts`, `GET/PUT/DELETE /api/contacts/[id]`, import, export
+  - Reusable `ImportContactsDialog` + `ImportContactsButton` components
+  - 7 new React Query hooks: `useContacts`, `useContact`, `useCreateContact`, `useUpdateContact`, `useDeleteContact`, `useImportContacts`, `useExportContacts`
+- **API key authentication for `GET /api/events`** — external tools (n8n, Zapier, etc.) can now list all org events without a browser session:
+  - Accepts `x-api-key` header or `Authorization: Bearer <key>`
+  - Session callers (all roles, including REVIEWER/SUBMITTER) unchanged — `auth()` + `buildEventAccessWhere` role scoping
+  - API key callers see all org events (org-level credential)
+  - Optional `?slug=` query param on both paths — resolves a human-readable slug to an event ID
+- **Photo field for Attendees / Registrations**: `Attendee.photo String?` added to schema; photo URL input in registration detail sheet (edit mode) and thumbnail in view mode
+- **Docker data root moved to `/mnt/data`** — 30 GB attached EBS volume; keeps the 8.7 GB root volume free. Configured via `/etc/docker/daemon.json` `data-root`.
 
 ### Changed
-- **Decoupled reviewers from organizations**: `User.organizationId` is now nullable. Reviewers are created with `organizationId: null`, making them org-independent. One reviewer can be invited to events across multiple organizations.
-- `buildEventAccessWhere()` no longer applies org filter for reviewers — scoped only by `event.settings.reviewerUserIds`.
-- Dashboard redirects reviewers to `/events` (no org-level dashboard data).
-- Header shows "Reviewer Portal" fallback for users without an organization.
-- `findOrCreateReviewerUser()` no longer enforces cross-org check — existing REVIEWER users can be re-assigned to events in any org.
-- Hardened reviewer event permissions to enforce an abstracts-only event experience.
-- Kept reviewer event visibility scoped to explicitly assigned events.
-- Updated reviewer sidebar event navigation to display only the **Abstracts** item.
-- Added middleware redirects so reviewers visiting any non-abstract event route are sent to `/events/[eventId]/abstracts`.
-- Blocked direct URL access for reviewers to non-abstract event subpages (overview, registrations, tickets, schedule, accommodation, speakers, and settings).
-- **Blocked event creation for reviewers**: Hidden "Create Event" button from events list page for REVIEWER role.
-- Middleware now redirects reviewers from `/events/new` to `/events`.
-- Events list page now uses `buildEventAccessWhere` to scope events to reviewer-assigned events only (previously showed all org events).
-- **Hidden all write-action UI for reviewers** on speakers page (Add Speaker), schedule page (Add Track, Add Session, edit/delete buttons), registrations page (Add Registration, Share Link), and registration detail sheet (Edit, Check In, Send Email, Delete, status management).
+- **`company` → `organization` renamed** across all three models (`Attendee`, `Speaker`, `Contact`), all API routes, all UI pages, CSV import/export headers, and labels — existing Prisma relation field `Contact.organization` (→ Organization) renamed to `Contact.org` to free the name
+- **`Speaker.headshot` → `Speaker.photo`** renamed in schema, all speaker API routes, and speaker UI pages
+- `GET /api/events` now falls back to API key validation when no session is present, enabling zero-manual-step n8n workflows
+
+### Migration
+- `prisma db push --accept-data-loss` applied for column renames (only test data in renamed columns)
+
+---
+
+## [2026-02-16] - Authenticated Abstract Submission (SUBMITTER Role)
+
+### Added
+- **SUBMITTER role** — org-independent restricted user, mirrors REVIEWER pattern (`organizationId: null`, abstracts-only access)
+- **Submitter account registration** at `/e/[slug]/register` (public, no auth required)
+- `POST /api/public/events/[slug]/submitter` — creates User (role=SUBMITTER) + find-or-creates Speaker record linked to the event
+- Validates `event.settings.allowAbstractSubmissions` and `abstractDeadline` before accepting registration
+- SUBMITTER-specific abstracts view: own abstracts only, submit dialog auto-selects speaker, edit button for DRAFT/SUBMITTED/REVISION_REQUESTED states
+- Review feedback shown read-only to submitters; review actions hidden
+- "Call for Abstracts" card on public event page (`/e/[slug]`) links to `/e/[slug]/register`
+- Abstract status notification emails on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with login link
+- Email templates: `abstractSubmissionConfirmation`, `abstractStatusUpdate` (status-specific gradients)
+- `managementToken` field on Abstract model
+- Public event API (`GET /api/public/events/[slug]`) now returns tracks and abstract settings
+
+### Changed
+- `denyReviewer()` guard now blocks both REVIEWER and SUBMITTER on all non-abstract write endpoints
+- Middleware redirects SUBMITTER from non-abstract routes to `/events/[eventId]/abstracts` (same as REVIEWER)
+- `buildEventAccessWhere()` adds SUBMITTER branch — scoped by `speakers.some.userId`
+- Sidebar shows only "Events" (global) and "Abstracts" (event context) for SUBMITTER
+- Header shows "Submitter Portal" fallback; dashboard redirects SUBMITTER to `/events`
+
+---
+
+## [2026-02-11] - Org-Independent Reviewers
+
+### Added
+- **Reviewers module**: Per-event reviewer management page at `/events/[eventId]/reviewers`
+- Dual add mode: pick from event speakers (links `Speaker.userId`) or invite directly by email (creates standalone REVIEWER account)
+- Auto-creates REVIEWER User account with `organizationId: null` and sends invitation email
+- API routes: `GET/POST /api/events/[eventId]/reviewers`, `DELETE /api/events/[eventId]/reviewers/[reviewerId]`
+- React Query hooks: `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
+- "Reviewers" tab in sidebar navigation (hidden from reviewer/submitter roles)
+
+### Changed
+- `User.organizationId` made nullable — reviewers created with `organizationId: null`, one reviewer can review across multiple organizations
+- `buildEventAccessWhere()` removes org filter for reviewers — scoped only by `event.settings.reviewerUserIds`
+- Dashboard redirects reviewers to `/events`; header shows "Reviewer Portal" fallback
+- `findOrCreateReviewerUser()` no longer enforces cross-org uniqueness — reviewers re-assignable to any org's events
+- Reviewer sidebar shows only **Abstracts** in event context; middleware redirects reviewers from all other event routes
+- "Create Event" button hidden for REVIEWER role; middleware redirects `/events/new` → `/events`
+- Events list scoped via `buildEventAccessWhere` — reviewers see only assigned events
 
 ## [2026-02-10b] - Reviewer API Access Hardening
 

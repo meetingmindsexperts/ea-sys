@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 18, 2026 (Contact Store)
+**Last Updated:** February 18, 2026 (Schema & API cleanup, n8n / API key support)
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -283,13 +283,59 @@ This document outlines the current development status of the Event Administratio
 - [x] Stats cards: Total Reviewers, Active Accounts
 - [x] Add Reviewer dialog with tabbed UI: "From Speakers" picker + "By Email" form
 
+### Schema & API Cleanup (February 18, 2026)
+
+#### `company` → `organization` rename
+- [x] Renamed `Attendee.company` → `Attendee.organization` across schema, all API routes, and all UI pages
+- [x] Renamed `Speaker.company` → `Speaker.organization` across schema, all API routes, and all UI pages
+- [x] Renamed `Contact.company` → `Contact.organization` across schema, all API routes, and all UI pages
+  - The existing Prisma relation field `Contact.organization` (→ Organization model) was renamed to `Contact.org` to free the name
+- [x] Updated all UI labels ("Company" → "Organization") across registrations, speakers, contacts, public registration form, import dialogs, CSV import/export headers, and the contact CSV template
+- [x] Migration applied with `prisma db push --accept-data-loss` (only test data in renamed columns)
+
+#### `headshot` → `photo` rename for Speakers
+- [x] Renamed `Speaker.headshot` → `Speaker.photo` in Prisma schema
+- [x] Updated all speaker API routes (`Zod` schema, destructuring, `db.speaker` calls)
+- [x] Updated speaker UI pages (detail page, new speaker form)
+
+#### New `photo` field for Attendees / Registrations
+- [x] Added `photo String?` to `Attendee` model in Prisma schema
+- [x] Registration detail sheet (slide-out): photo URL input in edit mode, photo thumbnail in view mode
+- [x] API: `photo` added to `updateRegistrationSchema` Zod definition and `db.attendee.update` in `PUT /api/events/[eventId]/registrations/[id]`
+- [x] `Registration.attendee.photo` exposed in GET response (already included via `include: { attendee: true }`)
+
+#### CSV template download (Contacts page)
+- [x] "CSV Template" button added to Contacts toolbar (before "Import CSV")
+- [x] Client-side Blob download — no API route needed
+- [x] Template includes all 8 columns: `firstName, lastName, email, organization, jobTitle, phone, tags, notes`
+- [x] One example row illustrating `tags` format (comma-separated, double-quoted)
+
+#### API key auth for `GET /api/events` (n8n / external integrations)
+- [x] `GET /api/events` now accepts both session auth and `x-api-key` / `Authorization: Bearer` header
+- [x] Session callers (all roles including REVIEWER/SUBMITTER) path unchanged — `auth()` → `buildEventAccessWhere` role scoping
+- [x] API key callers: validated via `validateApiKey` from `@/lib/api-key`; see all org events (org-level credential)
+- [x] Optional `?slug=` query param added to both branches — allows resolving a human-readable slug to an event ID
+- [x] Enables zero-manual-step n8n workflows: API key → `GET /api/events` to discover IDs → `GET /api/events/{id}/speakers` etc.
+- [x] REVIEWER/SUBMITTER regression avoided: `getOrgContext()` was not used here (it returns null for null-organizationId users); `auth()` handles those roles directly
+
+**n8n workflow (before):**
+1. Create API key in Settings
+2. **Manual step:** open dashboard, navigate to event, copy UUID from URL bar, hardcode into every n8n node
+
+**n8n workflow (after):**
+1. Create API key in Settings
+2. n8n node 1: `GET /api/events` with `x-api-key` header → JSON array with `id`, `name`, `slug`, dates
+3. n8n node 2: `GET /api/events/{id}/speakers` with same header → speakers data
+
+---
+
 ### Contact Store (February 18, 2026)
 Org-wide contact repository holding up to 100k contacts, with CSV import/export, tagging, event history, and one-click import into event speakers or registrations.
 
 | Feature | API | UI | Status |
 |---------|-----|-----|--------|
 | Contact list with pagination (50/page) | ✅ | ✅ | Complete |
-| Server-side search (name/email/company) | ✅ | ✅ | Complete |
+| Server-side search (name/email/organization) | ✅ | ✅ | Complete |
 | Tag filtering & colored tag pills | ✅ | ✅ | Complete |
 | Add/Edit contact (slide-out Sheet) | ✅ | ✅ | Complete |
 | Delete contact | ✅ | ✅ | Complete |
@@ -349,6 +395,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - [x] GitHub Actions workflow (`.github/workflows/deploy.yml`) — triggers on push to `main`, SSHes into EC2, `git fetch/reset --hard`, docker compose build + up, image prune
 - [x] systemd service (`ea-sys.service`) — Docker container auto-starts on EC2 reboot
 - [x] Elastic IP associated to EC2 instance for stable DNS
+- [x] Docker data root moved to `/mnt/data` (30 GB attached EBS volume) — keeps root volume free
 
 **Infrastructure:**
 - Platform: AWS EC2 t3.large (2 vCPU, 8 GB RAM) — `me-central-1` region
@@ -359,6 +406,23 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - SSL: Let's Encrypt via certbot + GoDaddy DNS plugin (auto-renews)
 - Deploy: GitHub Actions → SSH → git reset → docker compose build + restart
 
+**Disk Layout:**
+| Mount | Device | Size | Notes |
+|-------|--------|------|-------|
+| `/` | `/dev/root` | 8.7 GB | OS + app code only (~57% used) |
+| `/mnt/data` | `/dev/nvme1n1` | 30 GB | Docker data root (images, volumes, build cache) |
+| `/boot` | `/dev/nvme0n1p16` | 881 MB | Boot partition |
+
+Docker data root configured in `/etc/docker/daemon.json`:
+```json
+{ "data-root": "/mnt/data/docker" }
+```
+
+**Disk Maintenance:**
+- `docker image prune -f` runs automatically after each deploy (removes dangling images)
+- All Docker storage (images, volumes, build cache) lives on `/mnt/data` — root volume stays clean
+- Run `docker system prune -af` on `/mnt/data` if the data volume fills up
+
 **New Files:**
 - `Dockerfile` — multi-stage Docker build
 - `docker-compose.prod.yml` — production compose with template blocks for future apps
@@ -366,10 +430,6 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - `deploy/setup.sh` — one-time EC2 server setup script
 - `.github/workflows/deploy.yml` — GitHub Actions CI/CD pipeline
 - `.dockerignore` — excludes node_modules, .env, .next, logs
-
-**Disk Maintenance:**
-- `docker image prune -f` runs automatically after each deploy
-- Run `docker system prune -af` on EC2 manually if disk fills up
 
 ---
 
@@ -801,7 +861,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 
 ### Security
 - [ ] Add CSRF protection
-- [ ] Implement API key authentication for external access
+- [x] Implement API key authentication for external access (`GET /api/events`, `/speakers`, `/registrations` support `x-api-key` header)
 - [ ] Add input sanitization
 - [ ] Security audit for OWASP top 10
 - [ ] Add rate limiting per user/IP
@@ -942,8 +1002,8 @@ src/
 
 **Concept:** Client-side merge of `useSpeakers` + `useRegistrations` hooks into a single table with a **Role** column:
 
-| Name | Email | Role | Status | Company |
-|------|-------|------|--------|---------|
+| Name | Email | Role | Status | Organization |
+|------|-------|------|--------|--------------|
 | Jane Smith | jane@example.com | Speaker + Attendee | CONFIRMED / CONFIRMED | Acme |
 | John Doe | john@acme.com | Speaker | INVITED | Acme |
 | Alice Wu | alice@corp.com | Attendee | CHECKED_IN | Corp |
