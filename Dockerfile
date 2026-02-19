@@ -42,10 +42,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
 
-# Add nextjs user to docker group (GID 999 is common for docker group)
-# This allows the nextjs user to execute docker commands
-RUN groupadd -g 999 docker || true && usermod -aG docker nextjs
-
 # Standalone output + static assets
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
