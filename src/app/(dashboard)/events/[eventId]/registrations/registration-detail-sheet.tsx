@@ -76,6 +76,8 @@ export function RegistrationDetailSheet({
     photo: null as string | null,
     city: "",
     country: "",
+    specialty: "",
+    tags: [] as string[],
     dietaryReqs: "",
     notes: "",
   });
@@ -182,6 +184,8 @@ export function RegistrationDetailSheet({
         photo: selectedRegistration.attendee.photo || null,
         city: selectedRegistration.attendee.city || "",
         country: selectedRegistration.attendee.country || "",
+        specialty: selectedRegistration.attendee.specialty || "",
+        tags: selectedRegistration.attendee.tags || [],
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
       });
@@ -204,6 +208,8 @@ export function RegistrationDetailSheet({
             photo: editData.photo || undefined,
             city: editData.city || undefined,
             country: editData.country || undefined,
+            specialty: editData.specialty || undefined,
+            tags: editData.tags,
             dietaryReqs: editData.dietaryReqs || undefined,
           },
         },
@@ -393,6 +399,28 @@ export function RegistrationDetailSheet({
                       />
                     </div>
                     <div className="space-y-2">
+                      <Label htmlFor="edit-specialty">Specialty</Label>
+                      <Input
+                        id="edit-specialty"
+                        value={editData.specialty}
+                        onChange={(e) => setEditData({ ...editData, specialty: e.target.value })}
+                        placeholder="e.g., Cardiology, Neurology"
+                      />
+                      <p className="text-xs text-muted-foreground">Categorize attendee by specialty</p>
+                    </div>
+                    {!isReviewer && (
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-tags">Tags</Label>
+                        <Input
+                          id="edit-tags"
+                          value={editData.tags.join(", ")}
+                          onChange={(e) => setEditData({ ...editData, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t) })}
+                          placeholder="e.g., VIP, Speaker, Sponsor"
+                        />
+                        <p className="text-xs text-muted-foreground">Add tags separated by commas</p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
                       <Label htmlFor="edit-notes">Notes</Label>
                       <Input
                         id="edit-notes"
@@ -451,6 +479,30 @@ export function RegistrationDetailSheet({
                       <div className="flex items-center gap-3">
                         <Utensils className="h-4 w-4 text-muted-foreground" />
                         <span>{selectedRegistration.attendee.dietaryReqs}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.specialty && (
+                      <div className="flex items-center gap-3">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="text-xs text-muted-foreground">Specialty</div>
+                          <div>{selectedRegistration.attendee.specialty}</div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.tags && selectedRegistration.attendee.tags.length > 0 && (
+                      <div className="flex items-start gap-3">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground mt-1" />
+                        <div>
+                          <div className="text-xs text-muted-foreground mb-1">Tags</div>
+                          <div className="flex flex-wrap gap-1">
+                            {selectedRegistration.attendee.tags.map((tag, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

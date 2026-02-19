@@ -9,6 +9,8 @@ export interface Attendee {
   photo: string | null;
   city: string | null;
   country: string | null;
+  specialty: string | null;
+  tags: string[];
   dietaryReqs: string | null;
   customFields?: Record<string, unknown>;
 }

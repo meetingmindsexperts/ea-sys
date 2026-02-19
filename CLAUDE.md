@@ -70,9 +70,13 @@ src/
 - `src/lib/auth-guards.ts` - `denyReviewer()` guard for API route protection (blocks REVIEWER + SUBMITTER)
 - `src/lib/event-access.ts` - `buildEventAccessWhere()` for role-scoped event queries
 - `src/lib/email.ts` - Email templates and sending
+- `src/lib/countries.ts` - ISO 3166-1 country list (249 countries)
 - `src/hooks/use-api.ts` - React Query hooks for data fetching
 - `src/components/providers.tsx` - App providers (QueryClient, SessionProvider)
 - `src/components/layout/sidebar.tsx` - Sidebar with role-based navigation
+- `src/components/ui/photo-upload.tsx` - Reusable photo upload component with preview
+- `src/components/ui/country-select.tsx` - Searchable country dropdown component
+- `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
 - `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
 - `src/app/globals.css` - Global styles and CSS variables
 
@@ -80,15 +84,16 @@ src/
 
 - **Organization** - Organization entity (currently single-org mode)
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER)
-- **Event** - Events with status tracking
+- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields for classification
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
-- **Attendee** - Attendee information
-- **Speaker** - Event speakers
+- **Attendee** - Attendee information; includes `photo`, `city`, and `country` fields
+- **Speaker** - Event speakers; includes `photo`, `city`, and `country` fields
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
 - **Abstract** - Paper submissions (with `managementToken` for public token-based access)
 - **Hotel/RoomType/Accommodation** - Lodging management
+- **Contact** - Contact store for organization; includes `photo`, `city`, and `country` fields
 - **AuditLog** - Action logging
 
 ## API Patterns
@@ -311,6 +316,9 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Photo upload system** - File upload functionality for attendee/speaker/contact photos with validation (max 500KB, JPEG/PNG/WebP formats); `PhotoUpload` component with preview and progress indicator; stored in `/public/uploads/photos/YYYY/MM/` with UUID-based filenames; replaces URL-based photo fields across all forms
+- **City and country fields** - Added to Attendee, Speaker, and Contact models; `CountrySelect` component with searchable dropdown (ISO 3166-1 standard, 249 countries); integrated into registration, speaker, and contact forms with display in list views and detail sheets
+- **Event classification fields** - Added `eventType` (enum: CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields to Event model; integrated into event creation and settings forms for better event categorization
 - **Authenticated abstract submission (SUBMITTER role)** - Speakers create an account at `/e/[slug]/register`, then log in to submit/edit abstracts via dashboard; SUBMITTER role mirrors REVIEWER pattern (org-independent, abstracts-only access, scoped by `Speaker.userId`)
 - **Submitter registration** - Public form at `/e/[slug]/register` creates User (role=SUBMITTER) + Speaker record linked to event; redirects to login on success
 - **Abstract status notification emails** - Automatic email to speaker on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with status-specific messaging, reviewer notes, and login link

@@ -44,6 +44,8 @@ const initialFormData = {
   photo: null as string | null,
   city: "",
   country: "",
+  specialty: "",
+  tags: [] as string[],
   dietaryReqs: "",
   notes: "",
 };

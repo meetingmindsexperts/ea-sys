@@ -33,6 +33,7 @@ model User {
   firstName      String
   lastName       String
   role           UserRole  @default(ORGANIZER)
+  specialty      String?
   emailVerified  DateTime?
   image          String?
   createdAt      DateTime  @default(now())
@@ -182,6 +183,8 @@ model Attendee {
   photo        String?
   city         String?
   country      String?
+  specialty    String?
+  tags         String[] @default([])
   dietaryReqs  String?
   customFields Json     @default("{}")
   createdAt    DateTime @default(now())
@@ -270,6 +273,7 @@ model Speaker {
   photo        String?
   city         String?
   country      String?
+  tags         String[]      @default([])
   socialLinks Json          @default("{}")
   status      SpeakerStatus @default(INVITED)
   createdAt   DateTime      @default(now())
@@ -299,6 +303,7 @@ model Abstract {
   title           String
   content         String         @db.Text
   trackId         String?
+  specialty       String?
   status          AbstractStatus @default(SUBMITTED)
   reviewNotes     String?        @db.Text
   reviewScore     Int?

@@ -17,6 +17,7 @@ const createSpeakerSchema = z.object({
   photo: z.string().url().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
+  tags: z.array(z.string()).optional(),
   socialLinks: z.object({
     twitter: z.string().optional(),
     linkedin: z.string().optional(),
@@ -123,6 +124,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       jobTitle,
       website,
       photo,
+      city,
+      country,
+      tags,
       socialLinks,
       status,
     } = validated.data;
@@ -166,6 +170,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         jobTitle: jobTitle || null,
         website: website || null,
         photo: photo || null,
+        city: city || null,
+        country: country || null,
+        tags: tags || [],
         socialLinks: socialLinks || {},
         status,
       },

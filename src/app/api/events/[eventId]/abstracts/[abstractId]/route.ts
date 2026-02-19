@@ -10,6 +10,7 @@ const updateAbstractSchema = z.object({
   title: z.string().min(1).optional(),
   content: z.string().min(1).optional(),
   trackId: z.string().nullable().optional(),
+  specialty: z.string().optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).optional(),
   reviewNotes: z.string().optional(),
   reviewScore: z.number().min(0).max(100).nullable().optional(),
@@ -120,7 +121,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (existingAbstract.speaker?.userId !== session.user.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined || data.specialty !== undefined) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
@@ -173,6 +174,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.title && { title: data.title }),
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
+        ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.status && { status: data.status }),
         ...(data.reviewNotes !== undefined && { reviewNotes: data.reviewNotes || null }),
         ...(data.reviewScore !== undefined && { reviewScore: data.reviewScore }),

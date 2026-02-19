@@ -259,6 +259,50 @@ This document outlines the current development status of the Event Administratio
 - Gradient End: `oklch(0.82 0.1 220)` (Light Blue)
 
 
+### Photo Upload System & Person Entity Enhancements (February 19, 2026)
+- [x] File upload infrastructure for photos (max 500KB, JPEG/PNG/WebP validation)
+- [x] Upload API endpoint at `/api/upload/photo` with server-side validation and UUID-based naming
+- [x] Local storage in `/public/uploads/photos/YYYY/MM/` (EC2-compatible, upgrade path to cloud storage)
+- [x] `PhotoUpload` component with preview, progress indicator, file validation, and helper text
+- [x] `CountrySelect` component with searchable dropdown (ISO 3166-1, 249 countries)
+- [x] Added `city` and `country` fields to Attendee, Speaker, and Contact models
+- [x] Added `photo` field to Contact model (was previously URL-only for Attendee/Speaker)
+- [x] Updated 5 forms: registration create/edit, speaker create/edit, contacts
+- [x] Updated 6 API routes with Zod schemas for photo/city/country validation
+- [x] CSV export includes city and country columns
+- [x] All detail views display city, country, and photo with preview
+
+**New Files:**
+- `src/app/api/upload/photo/route.ts` — File upload endpoint with validation
+- `src/components/ui/photo-upload.tsx` — Reusable photo upload component
+- `src/components/ui/country-select.tsx` — Searchable country dropdown
+- `src/lib/countries.ts` — ISO 3166-1 country list (249 countries)
+
+**Modified Files:**
+- `prisma/schema.prisma` — Added city/country to Attendee, Speaker, Contact; photo to Contact
+- `src/app/(dashboard)/events/[eventId]/registrations/add-registration-dialog.tsx` — Photo upload, city, country
+- `src/app/(dashboard)/events/[eventId]/registrations/registration-detail-sheet.tsx` — Photo preview + edit
+- `src/app/(dashboard)/events/[eventId]/registrations/types.ts` — Updated Attendee interface
+- `src/app/(dashboard)/events/[eventId]/registrations/page.tsx` — CSV export with city/country
+- `src/app/(dashboard)/events/[eventId]/speakers/new/page.tsx` — Photo upload, city, country
+- `src/app/(dashboard)/events/[eventId]/speakers/[speakerId]/page.tsx` — Added photo edit (was missing)
+- `src/app/(dashboard)/contacts/page.tsx` — Photo upload, city, country in contact form
+- API routes: registrations, speakers, contacts (Zod schemas updated)
+
+### Event Classification Fields (February 19, 2026)
+- [x] Added `eventType` enum to Event model (CONFERENCE, WEBINAR, HYBRID)
+- [x] Added `tag` and `specialty` fields to Event model for categorization
+- [x] Updated event creation form with 3-column grid for type/tag/specialty
+- [x] Updated event settings page with new fields
+- [x] Updated API routes (`/api/events`, `/api/events/[eventId]`) with Zod validation
+
+**Modified Files:**
+- `prisma/schema.prisma` — EventType enum + eventType/tag/specialty on Event model
+- `src/app/(dashboard)/events/new/page.tsx` — Event type dropdown + tag/specialty inputs
+- `src/app/(dashboard)/events/[eventId]/settings/page.tsx` — Event type/tag/specialty in settings
+- `src/app/api/events/route.ts` — createEventSchema with new fields
+- `src/app/api/events/[eventId]/route.ts` — updateEventSchema with new fields
+
 ### Server & Database Optimization (February 10, 2026)
 - [x] Speakers page: parallelized `params`/`auth()`/event/speakers queries with `Promise.all`
 - [x] Event detail page: parallelized `params`/`auth()`; switched to Prisma `select` for minimal data transfer
