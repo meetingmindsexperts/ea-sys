@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -33,6 +34,7 @@ import {
   Download,
   RefreshCw,
   Share2,
+  Plus,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
@@ -43,7 +45,6 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
-import { AddRegistrationDialog } from "./add-registration-dialog";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 
 export default function RegistrationsPage() {
@@ -202,10 +203,12 @@ export default function RegistrationsPage() {
           {!isReviewer && (
             <>
               <ImportContactsButton eventId={eventId} mode="registration" />
-              <AddRegistrationDialog
-                eventId={eventId}
-                ticketTypes={ticketTypes as TicketType[]}
-              />
+              <Button asChild>
+                <Link href={`/events/${eventId}/registrations/new`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Registration
+                </Link>
+              </Button>
             </>
           )}
         </div>

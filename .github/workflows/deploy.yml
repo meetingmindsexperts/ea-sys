@@ -33,18 +33,19 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
+            echo "==> Cleaning Docker storage BEFORE build to prevent disk space errors"
+            # Aggressive cleanup: Remove ALL unused Docker data including build cache
+            docker system prune -af --volumes
+
             echo "==> Building Docker image"
-            # The build process is what eats the most space on /mnt/data
             docker compose -f docker-compose.prod.yml build ea-sys
 
             echo "==> Restarting container (zero-downtime swap)"
             docker compose -f docker-compose.prod.yml up -d --no-deps ea-sys
 
-            echo "==> Deep cleaning storage"
-            # 1. Remove dangling images (what you had before)
-            # 2. Remove unused build cache (crucial for Next.js builds)
-            # 3. Remove stopped containers from failed previous runs
-            docker system prune -f
+            echo "==> Cleaning up after deployment"
+            # Remove dangling images only (preserve layers for faster rebuilds)
+            docker image prune -f
 
             echo "==> Deploy complete"
             docker compose -f docker-compose.prod.yml ps
