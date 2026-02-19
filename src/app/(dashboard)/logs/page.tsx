@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,7 +53,7 @@ export default function LogsPage() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       const params = new URLSearchParams({
         level: levelFilter,
@@ -78,11 +78,11 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [levelFilter, timeRange]);
 
   useEffect(() => {
     fetchLogs();
-  }, [levelFilter, timeRange]);
+  }, [fetchLogs]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -92,7 +92,7 @@ export default function LogsPage() {
     }, 5000); // Refresh every 5 seconds
 
     return () => clearInterval(interval);
-  }, [autoRefresh, levelFilter, timeRange]);
+  }, [autoRefresh, fetchLogs]);
 
   useEffect(() => {
     // Filter logs by search term

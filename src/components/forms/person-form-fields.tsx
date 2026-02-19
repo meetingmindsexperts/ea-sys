@@ -44,7 +44,7 @@ export function PersonFormFields({
   emailDisabled = false,
   isReviewer = false,
 }: PersonFormFieldsProps) {
-  const updateField = (field: keyof PersonFormData, value: any) => {
+  const updateField = (field: keyof PersonFormData, value: PersonFormData[keyof PersonFormData]) => {
     onChange({ ...data, [field]: value });
   };
 
