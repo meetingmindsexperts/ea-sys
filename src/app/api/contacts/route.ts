@@ -12,6 +12,9 @@ const createContactSchema = z.object({
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
+  photo: z.string().url().optional().or(z.literal("")),
+  city: z.string().optional(),
+  country: z.string().optional(),
   tags: z.array(z.string()).optional().default([]),
   notes: z.string().optional(),
 });

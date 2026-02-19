@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CountrySelect } from "@/components/ui/country-select";
 import { Plus } from "lucide-react";
 import { queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +41,9 @@ const initialFormData = {
   organization: "",
   jobTitle: "",
   phone: "",
+  photo: null as string | null,
+  city: "",
+  country: "",
   dietaryReqs: "",
   notes: "",
 };
@@ -63,6 +68,9 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
             organization: data.organization || undefined,
             jobTitle: data.jobTitle || undefined,
             phone: data.phone || undefined,
+            photo: data.photo || undefined,
+            city: data.city || undefined,
+            country: data.country || undefined,
             dietaryReqs: data.dietaryReqs || undefined,
           },
           notes: data.notes || undefined,
@@ -209,6 +217,32 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
                   onChange={(e) => setFormData({ ...formData, dietaryReqs: e.target.value })}
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="country">Country</Label>
+                <CountrySelect
+                  value={formData.country}
+                  onChange={(country) => setFormData({ ...formData, country })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Photo</Label>
+              <PhotoUpload
+                value={formData.photo}
+                onChange={(photo) => setFormData({ ...formData, photo })}
+              />
             </div>
 
             <div className="space-y-2">

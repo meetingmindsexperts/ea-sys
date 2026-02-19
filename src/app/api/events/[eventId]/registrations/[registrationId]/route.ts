@@ -16,6 +16,8 @@ const updateRegistrationSchema = z.object({
     jobTitle: z.string().optional(),
     phone: z.string().optional(),
     photo: z.string().url().optional().or(z.literal("")),
+    city: z.string().optional(),
+    country: z.string().optional(),
     dietaryReqs: z.string().optional(),
     customFields: z.record(z.string(), z.any()).optional(),
   }).optional(),

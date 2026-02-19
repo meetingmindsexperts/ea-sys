@@ -15,6 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CountrySelect } from "@/components/ui/country-select";
 import { ArrowLeft, Mic, Save } from "lucide-react";
 
 export default function NewSpeakerPage() {
@@ -31,7 +33,9 @@ export default function NewSpeakerPage() {
     organization: "",
     jobTitle: "",
     website: "",
-    photo: "",
+    photo: null as string | null,
+    city: "",
+    country: "",
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -167,29 +171,43 @@ export default function NewSpeakerPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="website">Website</Label>
+              <Input
+                id="website"
+                type="url"
+                value={formData.website}
+                onChange={(e) =>
+                  setFormData({ ...formData, website: e.target.value })
+                }
+                placeholder="https://..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Photo</Label>
+              <PhotoUpload
+                value={formData.photo}
+                onChange={(photo) => setFormData({ ...formData, photo })}
+              />
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="website">Website</Label>
+                <Label htmlFor="city">City</Label>
                 <Input
-                  id="website"
-                  type="url"
-                  value={formData.website}
+                  id="city"
+                  value={formData.city}
                   onChange={(e) =>
-                    setFormData({ ...formData, website: e.target.value })
+                    setFormData({ ...formData, city: e.target.value })
                   }
-                  placeholder="https://..."
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="photo">Photo URL</Label>
-                <Input
-                  id="photo"
-                  type="url"
-                  value={formData.photo}
-                  onChange={(e) =>
-                    setFormData({ ...formData, photo: e.target.value })
-                  }
-                  placeholder="https://..."
+                <Label htmlFor="country">Country</Label>
+                <CountrySelect
+                  value={formData.country}
+                  onChange={(country) => setFormData({ ...formData, country })}
                 />
               </div>
             </div>

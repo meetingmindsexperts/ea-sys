@@ -42,6 +42,8 @@ import {
   Loader2,
   ChevronDown,
 } from "lucide-react";
+import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CountrySelect } from "@/components/ui/country-select";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
@@ -62,6 +64,8 @@ interface Speaker {
   jobTitle: string | null;
   website: string | null;
   photo: string | null;
+  city: string | null;
+  country: string | null;
   status: keyof typeof statusColors;
   socialLinks: {
     twitter?: string;
@@ -102,7 +106,9 @@ export default function SpeakerDetailPage() {
     organization: "",
     jobTitle: "",
     website: "",
-    photo: "",
+    photo: null as string | null,
+    city: "",
+    country: "",
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -131,7 +137,9 @@ export default function SpeakerDetailPage() {
           organization: data.organization || "",
           jobTitle: data.jobTitle || "",
           website: data.website || "",
-          photo: data.photo || "",
+          photo: data.photo || null,
+          city: data.city || "",
+          country: data.country || "",
           status: data.status,
           socialLinks: {
             twitter: data.socialLinks?.twitter || "",
@@ -447,6 +455,44 @@ export default function SpeakerDetailPage() {
                       }
                       rows={4}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="website">Website</Label>
+                    <Input
+                      id="website"
+                      type="url"
+                      value={formData.website}
+                      onChange={(e) =>
+                        setFormData({ ...formData, website: e.target.value })
+                      }
+                      placeholder="https://..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Photo</Label>
+                    <PhotoUpload
+                      value={formData.photo}
+                      onChange={(photo) => setFormData({ ...formData, photo })}
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="city">City</Label>
+                      <Input
+                        id="city"
+                        value={formData.city}
+                        onChange={(e) =>
+                          setFormData({ ...formData, city: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="country">Country</Label>
+                      <CountrySelect
+                        value={formData.country}
+                        onChange={(country) => setFormData({ ...formData, country })}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>

@@ -5,6 +5,8 @@ import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } fro
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CountrySelect } from "@/components/ui/country-select";
 
 import {
   Sheet,
@@ -35,6 +37,9 @@ interface Contact {
   organization?: string;
   jobTitle?: string;
   phone?: string;
+  photo?: string;
+  city?: string;
+  country?: string;
   tags?: string[];
   notes?: string;
   createdAt: string;
@@ -64,6 +69,9 @@ const emptyForm = {
   organization: "",
   jobTitle: "",
   phone: "",
+  photo: null as string | null,
+  city: "",
+  country: "",
   tags: "",
   notes: "",
 };
@@ -117,6 +125,9 @@ export default function ContactsPage() {
       organization: contact.organization || "",
       jobTitle: contact.jobTitle || "",
       phone: contact.phone || "",
+      photo: contact.photo || null,
+      city: contact.city || "",
+      country: contact.country || "",
       tags: contact.tags?.join(", ") || "",
       notes: contact.notes || "",
     });
@@ -132,6 +143,9 @@ export default function ContactsPage() {
       organization: form.organization.trim() || undefined,
       jobTitle: form.jobTitle.trim() || undefined,
       phone: form.phone.trim() || undefined,
+      photo: form.photo || undefined,
+      city: form.city.trim() || undefined,
+      country: form.country.trim() || undefined,
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       notes: form.notes.trim() || undefined,
     };
@@ -411,6 +425,26 @@ export default function ContactsPage() {
             <div className="space-y-1.5">
               <Label>Phone</Label>
               <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Photo</Label>
+              <PhotoUpload
+                value={form.photo}
+                onChange={(photo) => setForm((f) => ({ ...f, photo }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>City</Label>
+                <Input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Country</Label>
+                <CountrySelect
+                  value={form.country}
+                  onChange={(country) => setForm((f) => ({ ...f, country }))}
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>Tags <span className="text-muted-foreground text-xs">(comma-separated)</span></Label>

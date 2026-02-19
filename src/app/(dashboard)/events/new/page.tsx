@@ -46,6 +46,9 @@ import { GCC_COUNTRIES } from "@/constants/countries";
 const eventSchema = z.object({
   name: z.string().min(2, "Event name must be at least 2 characters"),
   description: z.string().optional(),
+  eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+  tag: z.string().optional(),
+  specialty: z.string().optional(),
   startDate: z.date({ message: "Start date is required" }),
   endDate: z.date({ message: "End date is required" }),
   venue: z.string().optional(),
@@ -68,6 +71,9 @@ export default function NewEventPage() {
     defaultValues: {
       name: "",
       description: "",
+      eventType: undefined,
+      tag: "",
+      specialty: "",
       venue: "",
       address: "",
       city: "",
@@ -151,6 +157,62 @@ export default function NewEventPage() {
                   </FormItem>
                 )}
               />
+
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="eventType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Event Type</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="CONFERENCE">Conference</SelectItem>
+                          <SelectItem value="WEBINAR">Webinar</SelectItem>
+                          <SelectItem value="HYBRID">Hybrid</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="tag"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tag</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., Medical, Tech" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="specialty"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Specialty</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., Cardiology, AI" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField

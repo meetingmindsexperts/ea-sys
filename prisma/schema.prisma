@@ -104,6 +104,9 @@ model Event {
   address        String?
   city           String?
   country        String?
+  eventType      EventType?
+  tag            String?
+  specialty      String?
   status         EventStatus @default(DRAFT)
   settings       Json        @default("{}")
   bannerImage    String?
@@ -134,6 +137,12 @@ enum EventStatus {
   LIVE
   COMPLETED
   CANCELLED
+}
+
+enum EventType {
+  CONFERENCE
+  WEBINAR
+  HYBRID
 }
 
 // ==================== REGISTRATION & TICKETING ====================
@@ -171,6 +180,8 @@ model Attendee {
   jobTitle     String?
   phone        String?
   photo        String?
+  city         String?
+  country      String?
   dietaryReqs  String?
   customFields Json     @default("{}")
   createdAt    DateTime @default(now())
@@ -257,6 +268,8 @@ model Speaker {
   jobTitle     String?
   website      String?
   photo        String?
+  city         String?
+  country      String?
   socialLinks Json          @default("{}")
   status      SpeakerStatus @default(INVITED)
   createdAt   DateTime      @default(now())
@@ -466,6 +479,9 @@ model Contact {
   organization   String?
   jobTitle       String?
   phone          String?
+  photo          String?
+  city           String?
+  country        String?
   tags           String[]     @default([])
   notes          String?      @db.Text
   createdAt      DateTime     @default(now())

@@ -10,6 +10,9 @@ import { validateApiKey } from "@/lib/api-key";
 const createEventSchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
+  eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+  tag: z.string().optional(),
+  specialty: z.string().optional(),
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
   venue: z.string().optional(),

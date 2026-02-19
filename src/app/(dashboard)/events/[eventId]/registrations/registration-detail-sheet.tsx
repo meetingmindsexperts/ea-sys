@@ -20,6 +20,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { PhotoUpload } from "@/components/ui/photo-upload";
+import { CountrySelect } from "@/components/ui/country-select";
 import {
   Mail,
   Phone,
@@ -37,6 +39,7 @@ import {
   Pencil,
   Save,
   X,
+  MapPin,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { queryKeys } from "@/hooks/use-api";
@@ -70,7 +73,9 @@ export function RegistrationDetailSheet({
     phone: "",
     organization: "",
     jobTitle: "",
-    photo: "",
+    photo: null as string | null,
+    city: "",
+    country: "",
     dietaryReqs: "",
     notes: "",
   });
@@ -174,7 +179,9 @@ export function RegistrationDetailSheet({
         phone: selectedRegistration.attendee.phone || "",
         organization: selectedRegistration.attendee.organization || "",
         jobTitle: selectedRegistration.attendee.jobTitle || "",
-        photo: selectedRegistration.attendee.photo || "",
+        photo: selectedRegistration.attendee.photo || null,
+        city: selectedRegistration.attendee.city || "",
+        country: selectedRegistration.attendee.country || "",
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
       });
@@ -195,6 +202,8 @@ export function RegistrationDetailSheet({
             organization: editData.organization || undefined,
             jobTitle: editData.jobTitle || undefined,
             photo: editData.photo || undefined,
+            city: editData.city || undefined,
+            country: editData.country || undefined,
             dietaryReqs: editData.dietaryReqs || undefined,
           },
         },
@@ -352,13 +361,28 @@ export function RegistrationDetailSheet({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="edit-photo">Photo URL</Label>
-                      <Input
-                        id="edit-photo"
-                        placeholder="https://…"
+                      <Label>Photo</Label>
+                      <PhotoUpload
                         value={editData.photo}
-                        onChange={(e) => setEditData({ ...editData, photo: e.target.value })}
+                        onChange={(photo) => setEditData({ ...editData, photo })}
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-city">City</Label>
+                        <Input
+                          id="edit-city"
+                          value={editData.city}
+                          onChange={(e) => setEditData({ ...editData, city: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-country">Country</Label>
+                        <CountrySelect
+                          value={editData.country}
+                          onChange={(country) => setEditData({ ...editData, country })}
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
@@ -411,6 +435,16 @@ export function RegistrationDetailSheet({
                       <div className="flex items-center gap-3">
                         <Briefcase className="h-4 w-4 text-muted-foreground" />
                         <span>{selectedRegistration.attendee.jobTitle}</span>
+                      </div>
+                    )}
+                    {(selectedRegistration.attendee.city || selectedRegistration.attendee.country) && (
+                      <div className="flex items-center gap-3">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <span>
+                          {[selectedRegistration.attendee.city, selectedRegistration.attendee.country]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </span>
                       </div>
                     )}
                     {selectedRegistration.attendee.dietaryReqs && (

@@ -47,6 +47,9 @@ interface Event {
   name: string;
   slug: string;
   description: string | null;
+  eventType: string | null;
+  tag: string | null;
+  specialty: string | null;
   startDate: string;
   endDate: string;
   timezone: string;
@@ -105,6 +108,9 @@ export default function EventSettingsPage() {
     name: "",
     slug: "",
     description: "",
+    eventType: "",
+    tag: "",
+    specialty: "",
     startDate: "",
     endDate: "",
     timezone: "UTC",
@@ -149,6 +155,9 @@ export default function EventSettingsPage() {
           name: data.name,
           slug: data.slug,
           description: data.description || "",
+          eventType: data.eventType || "",
+          tag: data.tag || "",
+          specialty: data.specialty || "",
           startDate: new Date(data.startDate).toISOString().slice(0, 16),
           endDate: new Date(data.endDate).toISOString().slice(0, 16),
           timezone: data.timezone,
@@ -391,6 +400,49 @@ export default function EventSettingsPage() {
                   }
                   rows={4}
                 />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="eventType">Event Type</Label>
+                  <Select
+                    value={generalFormData.eventType}
+                    onValueChange={(value) =>
+                      setGeneralFormData({ ...generalFormData, eventType: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CONFERENCE">Conference</SelectItem>
+                      <SelectItem value="WEBINAR">Webinar</SelectItem>
+                      <SelectItem value="HYBRID">Hybrid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="tag">Tag</Label>
+                  <Input
+                    id="tag"
+                    placeholder="e.g., Medical, Tech"
+                    value={generalFormData.tag}
+                    onChange={(e) =>
+                      setGeneralFormData({ ...generalFormData, tag: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="specialty">Specialty</Label>
+                  <Input
+                    id="specialty"
+                    placeholder="e.g., Cardiology, AI"
+                    value={generalFormData.specialty}
+                    onChange={(e) =>
+                      setGeneralFormData({ ...generalFormData, specialty: e.target.value })
+                    }
+                  />
+                </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">

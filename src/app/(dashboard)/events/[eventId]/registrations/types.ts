@@ -7,6 +7,8 @@ export interface Attendee {
   jobTitle: string | null;
   phone: string | null;
   photo: string | null;
+  city: string | null;
+  country: string | null;
   dietaryReqs: string | null;
   customFields?: Record<string, unknown>;
 }
