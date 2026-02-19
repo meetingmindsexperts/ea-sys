@@ -385,17 +385,7 @@ export default function LogsPage() {
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="
-            fixed bottom-8 right-8 z-20
-            bg-cyan-500 hover:bg-cyan-400
-            text-black font-mono text-sm
-            px-4 py-2 rounded-lg
-            shadow-lg shadow-cyan-500/50
-            flex items-center gap-2
-            transition-all duration-300
-            hover:shadow-cyan-400/60 hover:scale-105
-            animate-bounce-subtle
-          "
+          className="fixed bottom-8 right-8 z-20 bg-cyan-500 hover:bg-cyan-400 text-black font-mono text-sm px-4 py-2 rounded-lg shadow-lg shadow-cyan-500/50 flex items-center gap-2 transition-all duration-300 hover:shadow-cyan-400/60 hover:scale-105 animate-bounce-subtle"
         >
           <ArrowDown className="w-4 h-4" />
           New Logs
