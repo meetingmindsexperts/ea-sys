@@ -10,6 +10,44 @@ _Nothing pending._
 
 ---
 
+## [2026-02-19] - Web Log Viewer, Registration Page Redesign, Docker Infrastructure Improvements
+
+### Added
+- **Web-based log viewer** at `/logs` (SUPER_ADMIN only):
+  - Real-time Docker container logs with beautiful retro-futuristic terminal UI
+  - Filter by log level (All, Errors, Warnings, Info)
+  - Time range selector (Last 10 min, 1 hour, 6 hours, 24 hours, All)
+  - Search/filter by text with real-time highlighting
+  - Auto-refresh toggle for live log monitoring
+  - Download logs as CSV functionality
+  - Scroll to bottom button for new log entries
+  - Accessible via Settings → System Logs (SUPER_ADMIN only)
+
+### Changed
+- **Registration creation UX** — Converted from modal dialog to dedicated full-page form at `/events/[eventId]/registrations/new`
+  - Follows same pattern as speaker creation page
+  - Provides more space for form fields and better mobile experience
+  - Maintains all functionality: PersonFormFields, ticket type selection, notes
+
+### Infrastructure
+- **Docker deployment optimization**:
+  - Moved Docker data root from 8GB root volume to 30GB `/mnt/data` volume
+  - Installed docker-ce-cli in container for log access via mounted socket
+  - Fixed disk space issues by cleaning up old containerd data
+  - Added aggressive cleanup before builds in GitHub Actions workflow
+  - Configured Docker socket permissions for container access
+- **GitHub Actions improvements**:
+  - Added `docker system prune -af --volumes` before builds to prevent disk space errors
+  - Optimized cleanup process to preserve useful layers
+
+### Fixed
+- Docker build failures due to disk space constraints
+- Containerd data consuming 4.1GB on root filesystem
+- Docker socket permission issues for web log viewer
+- Package conflicts during docker-ce-cli installation
+
+---
+
 ## [2026-02-18] - Schema Cleanup, Contact Store, n8n API Key Support, EC2 Storage
 
 ### Added
@@ -208,3 +246,4 @@ _Nothing pending._
 - File-based logging with Pino
 - Log files at `logs/app.log` and `logs/error.log`
 - Configurable log levels via `LOG_LEVEL` environment variable
+- 
