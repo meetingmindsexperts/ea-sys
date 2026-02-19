@@ -33,6 +33,13 @@ yarn-error.log*
 # logs
 /logs
 
+# pm2
+.pm2
+pids
+*.pid
+*.seed
+*.pid.lock
+
 # env files (can opt-in for committing if needed)
 .env*
 
