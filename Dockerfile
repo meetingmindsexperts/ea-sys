@@ -27,11 +27,13 @@ WORKDIR /app
 
 # Install openssl and Docker CLI for logs functionality
 RUN apt-get update -y && \
-    apt-get install -y openssl curl && \
-    # Install Docker CLI
-    curl -fsSL https://get.docker.com -o get-docker.sh && \
-    sh get-docker.sh && \
-    rm get-docker.sh && \
+    apt-get install -y openssl curl ca-certificates && \
+    # Install Docker CLI ONLY (not the full engine)
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update -y && \
+    apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
