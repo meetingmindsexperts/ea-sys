@@ -17,6 +17,8 @@ services:
     volumes:
       # Mount uploads directory for persistent photo storage
       - ./public/uploads:/app/public/uploads
+      # Mount Docker socket to allow container to execute docker commands
+      - /var/run/docker.sock:/var/run/docker.sock
     logging:
       driver: "json-file"
       options:

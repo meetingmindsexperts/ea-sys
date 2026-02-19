@@ -25,13 +25,24 @@ RUN npm run build
 FROM node:22-slim AS runner
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Install openssl and Docker CLI for logs functionality
+RUN apt-get update -y && \
+    apt-get install -y openssl curl && \
+    # Install Docker CLI
+    curl -fsSL https://get.docker.com -o get-docker.sh && \
+    sh get-docker.sh && \
+    rm get-docker.sh && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
+
+# Add nextjs user to docker group (GID 999 is common for docker group)
+# This allows the nextjs user to execute docker commands
+RUN groupadd -g 999 docker || true && usermod -aG docker nextjs
 
 # Standalone output + static assets
 COPY --from=builder /app/.next/standalone ./
