@@ -809,7 +809,7 @@ function ApiKeysCard() {
 
       {/* Create key dialog */}
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) { setNewKey(null); } setDialogOpen(o); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
           </DialogHeader>

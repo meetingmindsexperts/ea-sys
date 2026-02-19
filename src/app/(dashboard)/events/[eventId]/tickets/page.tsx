@@ -175,7 +175,7 @@ export default function TicketsPage() {
               Add Registration Type
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>
                 {editingTicket ? "Edit Registration Type" : "Create Registration Type"}

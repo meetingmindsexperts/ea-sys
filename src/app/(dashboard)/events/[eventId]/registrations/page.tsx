@@ -84,6 +84,8 @@ export default function RegistrationsPage() {
       "Phone",
       "City",
       "Country",
+      "Specialty",
+      "Tags",
       "Registration Type",
       "Status",
       "Payment Status",
@@ -100,6 +102,8 @@ export default function RegistrationsPage() {
       r.attendee.phone || "",
       r.attendee.city || "",
       r.attendee.country || "",
+      r.attendee.specialty || "",
+      r.attendee.tags.join(", "),
       r.ticketType.name,
       r.status,
       r.paymentStatus,
@@ -353,6 +357,8 @@ export default function RegistrationsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Attendee</TableHead>
+                  <TableHead>Specialty</TableHead>
+                  <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
@@ -375,6 +381,24 @@ export default function RegistrationsPage() {
                           {registration.attendee.email}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {registration.attendee.specialty || "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {registration.attendee.tags && registration.attendee.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {registration.attendee.tags.map((tag, index) => (
+                            <Badge key={index} variant="secondary" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{registration.ticketType.name}</Badge>

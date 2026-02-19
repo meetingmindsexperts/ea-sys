@@ -333,7 +333,7 @@ export default function AccommodationPage() {
               Add Hotel
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>
                 {editingHotel ? "Edit Hotel" : "Add Hotel"}
@@ -511,7 +511,7 @@ export default function AccommodationPage() {
           if (!open) resetRoomForm();
         }}
       >
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Add Room Type</DialogTitle>
           </DialogHeader>

@@ -66,6 +66,7 @@ interface Speaker {
   photo: string | null;
   city: string | null;
   country: string | null;
+  tags: string[];
   status: keyof typeof statusColors;
   socialLinks: {
     twitter?: string;
@@ -109,6 +110,7 @@ export default function SpeakerDetailPage() {
     photo: null as string | null,
     city: "",
     country: "",
+    tags: [] as string[],
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -140,6 +142,7 @@ export default function SpeakerDetailPage() {
           photo: data.photo || null,
           city: data.city || "",
           country: data.country || "",
+          tags: data.tags || [],
           status: data.status,
           socialLinks: {
             twitter: data.socialLinks?.twitter || "",
@@ -495,6 +498,23 @@ export default function SpeakerDetailPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="tags">Tags</Label>
+                    <Input
+                      id="tags"
+                      value={formData.tags.join(", ")}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          tags: e.target.value.split(",").map(t => t.trim()).filter(t => t)
+                        })
+                      }
+                      placeholder="e.g., Keynote, Panelist, VIP"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Add tags separated by commas
+                    </p>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>
                     <Select
                       value={formData.status}
@@ -540,6 +560,16 @@ export default function SpeakerDetailPage() {
                     <div>
                       <h4 className="font-medium mb-1">Job Title</h4>
                       <p className="text-muted-foreground">{speaker.jobTitle}</p>
+                    </div>
+                  )}
+                  {speaker.tags && speaker.tags.length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-1">Tags</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {speaker.tags.map((tag, index) => (
+                          <Badge key={index} variant="secondary">{tag}</Badge>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -672,7 +702,7 @@ export default function SpeakerDetailPage() {
 
       {/* Email Dialog */}
       <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle>
               {emailType === "invitation" && "Send Speaker Invitation"}

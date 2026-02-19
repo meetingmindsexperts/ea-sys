@@ -323,7 +323,7 @@ export default function AbstractsPage() {
               {isSubmitter ? "Submit Abstract" : "Add Abstract"}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Submit Abstract</DialogTitle>
             </DialogHeader>
@@ -504,7 +504,7 @@ export default function AbstractsPage() {
             if (!open) setSelectedAbstract(null);
           }}
         >
-          <DialogContent className="sm:max-w-[600px]">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Review Abstract</DialogTitle>
             </DialogHeader>
@@ -599,7 +599,7 @@ export default function AbstractsPage() {
             if (!open) setSelectedAbstract(null);
           }}
         >
-          <DialogContent className="sm:max-w-[600px]">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Edit Abstract</DialogTitle>
             </DialogHeader>

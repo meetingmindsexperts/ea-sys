@@ -784,7 +784,7 @@ export default function SchedulePage() {
             if (!open) resetSessionForm();
           }}
         >
-          <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingSession ? "Edit Session" : "Create Session"}

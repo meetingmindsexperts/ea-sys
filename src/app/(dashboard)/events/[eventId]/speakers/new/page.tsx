@@ -36,6 +36,7 @@ export default function NewSpeakerPage() {
     photo: null as string | null,
     city: "",
     country: "",
+    tags: [] as string[],
     status: "INVITED",
     socialLinks: {
       twitter: "",
@@ -230,6 +231,19 @@ export default function NewSpeakerPage() {
                   <SelectItem value="CANCELLED">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="tags">Tags</Label>
+              <Input
+                id="tags"
+                value={formData.tags.join(", ")}
+                onChange={(e) =>
+                  setFormData({ ...formData, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t) })
+                }
+                placeholder="e.g., Keynote, Panelist, VIP"
+              />
+              <p className="text-xs text-muted-foreground">Add tags separated by commas</p>
             </div>
 
             <div className="border-t pt-4">

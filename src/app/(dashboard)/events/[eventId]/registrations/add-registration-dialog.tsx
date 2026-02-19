@@ -20,8 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { PhotoUpload } from "@/components/ui/photo-upload";
-import { CountrySelect } from "@/components/ui/country-select";
+import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { Plus } from "lucide-react";
 import { queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -33,20 +32,24 @@ interface AddRegistrationDialogProps {
   ticketTypes: TicketType[];
 }
 
-const initialFormData = {
-  ticketTypeId: "",
+const initialPersonData: PersonFormData = {
   email: "",
   firstName: "",
   lastName: "",
   organization: "",
   jobTitle: "",
   phone: "",
-  photo: null as string | null,
+  photo: null,
   city: "",
   country: "",
   specialty: "",
-  tags: [] as string[],
+  tags: [],
   dietaryReqs: "",
+};
+
+const initialFormData = {
+  ticketTypeId: "",
+  personData: initialPersonData,
   notes: "",
 };
 
@@ -64,16 +67,18 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
         body: JSON.stringify({
           ticketTypeId: data.ticketTypeId,
           attendee: {
-            email: data.email,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            organization: data.organization || undefined,
-            jobTitle: data.jobTitle || undefined,
-            phone: data.phone || undefined,
-            photo: data.photo || undefined,
-            city: data.city || undefined,
-            country: data.country || undefined,
-            dietaryReqs: data.dietaryReqs || undefined,
+            email: data.personData.email,
+            firstName: data.personData.firstName,
+            lastName: data.personData.lastName,
+            organization: data.personData.organization || undefined,
+            jobTitle: data.personData.jobTitle || undefined,
+            phone: data.personData.phone || undefined,
+            photo: data.personData.photo || undefined,
+            city: data.personData.city || undefined,
+            country: data.personData.country || undefined,
+            specialty: data.personData.specialty || undefined,
+            tags: data.personData.tags && data.personData.tags.length > 0 ? data.personData.tags : undefined,
+            dietaryReqs: data.personData.dietaryReqs || undefined,
           },
           notes: data.notes || undefined,
         }),
@@ -111,7 +116,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
           Add Registration
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Add New Registration</DialogTitle>
           <DialogDescription>
@@ -151,101 +156,11 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name *</Label>
-                <Input
-                  id="firstName"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name *</Label>
-                <Input
-                  id="lastName"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="organization">Organization</Label>
-                <Input
-                  id="organization"
-                  value={formData.organization}
-                  onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="jobTitle">Job Title</Label>
-                <Input
-                  id="jobTitle"
-                  value={formData.jobTitle}
-                  onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dietaryReqs">Dietary Requirements</Label>
-                <Input
-                  id="dietaryReqs"
-                  value={formData.dietaryReqs}
-                  onChange={(e) => setFormData({ ...formData, dietaryReqs: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="country">Country</Label>
-                <CountrySelect
-                  value={formData.country}
-                  onChange={(country) => setFormData({ ...formData, country })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Photo</Label>
-              <PhotoUpload
-                value={formData.photo}
-                onChange={(photo) => setFormData({ ...formData, photo })}
-              />
-            </div>
+            <PersonFormFields
+              data={formData.personData}
+              onChange={(personData) => setFormData({ ...formData, personData })}
+              showDietaryReqs={true}
+            />
 
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>

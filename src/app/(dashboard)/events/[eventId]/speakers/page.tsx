@@ -178,6 +178,16 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
                         </p>
                       )}
 
+                      {speaker.tags && speaker.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {speaker.tags.map((tag, index) => (
+                            <Badge key={index} variant="secondary" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="flex gap-4 text-sm">
                         <div>
                           <span className="font-semibold">{speaker._count.sessions}</span>
