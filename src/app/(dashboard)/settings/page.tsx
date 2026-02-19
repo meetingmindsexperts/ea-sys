@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ import {
   Key,
   Copy,
   Check,
+  Terminal,
+  ExternalLink,
 } from "lucide-react";
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "@/hooks/use-api";
 import {
@@ -134,6 +137,7 @@ export default function SettingsPage() {
   });
 
   const isAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "SUPER_ADMIN";
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
 
   useEffect(() => {
     fetchOrganization();
@@ -675,6 +679,38 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* System Logs - SUPER_ADMIN only */}
+      {isSuperAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5" />
+              System Logs
+            </CardTitle>
+            <CardDescription>
+              Monitor and debug application logs in real-time
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Docker Container Logs</p>
+                <p className="text-xs text-muted-foreground">
+                  View real-time logs, filter by level, search, and export logs
+                </p>
+              </div>
+              <Button asChild variant="outline">
+                <Link href="/logs" className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4" />
+                  Open Logs
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* API Keys */}
       {isAdmin && <ApiKeysCard />}
