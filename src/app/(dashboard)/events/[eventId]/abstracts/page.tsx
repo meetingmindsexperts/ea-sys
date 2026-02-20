@@ -35,9 +35,12 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  Copy,
+  Check,
+  Link2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { useAbstracts, useSpeakers, useTracks, queryKeys } from "@/hooks/use-api";
+import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -83,10 +86,13 @@ export default function AbstractsPage() {
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
 
+  const [copied, setCopied] = useState(false);
+
   // React Query hooks - data is cached and shared across navigations
   const { data: abstractsData = [], isLoading: loading, isFetching } = useAbstracts(eventId);
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
+  const { data: event } = useEvent(eventId);
 
   const abstracts = abstractsData as Abstract[];
   const speakers = speakersData as Speaker[];
@@ -510,6 +516,48 @@ export default function AbstractsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Abstract Submission URL (organizers/admins only) */}
+      {!isSubmitter && event?.slug && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-primary" />
+              Abstract Submission URL
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Share this link with speakers so they can create an account and submit their abstracts.
+              Speakers register with their profile details, then log in to submit and manage their work.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono truncate select-all">
+                {typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/register
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  const url = `${window.location.origin}/e/${event.slug}/register`;
+                  navigator.clipboard.writeText(url).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  });
+                }}
+              >
+                {copied ? (
+                  <><Check className="h-4 w-4 mr-1 text-green-600" /> Copied</>
+                ) : (
+                  <><Copy className="h-4 w-4 mr-1" /> Copy</>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Review Dialog (admin only) */}
       {isAdmin && (

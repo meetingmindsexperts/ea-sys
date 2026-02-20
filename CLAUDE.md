@@ -88,7 +88,7 @@ src/
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
 - **Attendee** - Attendee information; includes `photo`, `city`, and `country` fields
-- **Speaker** - Event speakers; includes `photo`, `city`, and `country` fields
+- **Speaker** - Event speakers; includes `photo`, `city`, `country`, and `specialty` fields
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
 - **Abstract** - Paper submissions (with `managementToken` for public token-based access)
@@ -320,7 +320,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **City and country fields** - Added to Attendee, Speaker, and Contact models; `CountrySelect` component with searchable dropdown (ISO 3166-1 standard, 249 countries); integrated into registration, speaker, and contact forms with display in list views and detail sheets
 - **Event classification fields** - Added `eventType` (enum: CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields to Event model; integrated into event creation and settings forms for better event categorization
 - **Authenticated abstract submission (SUBMITTER role)** - Speakers create an account at `/e/[slug]/register`, then log in to submit/edit abstracts via dashboard; SUBMITTER role mirrors REVIEWER pattern (org-independent, abstracts-only access, scoped by `Speaker.userId`)
-- **Submitter registration** - Public form at `/e/[slug]/register` creates User (role=SUBMITTER) + Speaker record linked to event; redirects to login on success
+- **Submitter registration** - Public form at `/e/[slug]/register` creates User (role=SUBMITTER) + Speaker record linked to event (including specialty field); redirects to login on success; `/e/[slug]` server-redirects to `/e/[slug]/register`
+- **Abstract submission URL widget** - Abstracts page shows a copyable URL card (visible to organizers/admins only) with the public submission link (`/e/[slug]/register`) and a short description to share with speakers
 - **Abstract status notification emails** - Automatic email to speaker on status change (UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED) with status-specific messaging, reviewer notes, and login link
 - **Org-independent reviewers** - Reviewers decoupled from organizations (`User.organizationId = null`); one reviewer can review across multiple orgs; scoped only by `event.settings.reviewerUserIds`
 - **Reviewers module** - Per-event reviewer management page with dual add mode (from speakers or by email); auto-invitation; API routes for add/remove; React Query hooks
