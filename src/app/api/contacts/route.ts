@@ -12,7 +12,7 @@ const createContactSchema = z.object({
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
-  photo: z.string().url().optional().or(z.literal("")),
+  photo: z.string().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
   tags: z.array(z.string()).optional().default([]),
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, firstName, lastName, organization, jobTitle, phone, tags, notes } = validated.data;
+    const { email, firstName, lastName, organization, jobTitle, phone, photo, city, country, tags, notes } = validated.data;
 
     const existing = await db.contact.findUnique({
       where: { organizationId_email: { organizationId: session.user.organizationId!, email } },
@@ -128,6 +128,9 @@ export async function POST(req: Request) {
         organization,
         jobTitle,
         phone,
+        photo: photo || null,
+        city,
+        country,
         tags,
         notes,
       },

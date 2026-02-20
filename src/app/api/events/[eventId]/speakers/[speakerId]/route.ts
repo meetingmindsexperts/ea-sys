@@ -13,7 +13,7 @@ const updateSpeakerSchema = z.object({
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   website: z.string().url().optional().or(z.literal("")),
-  photo: z.string().url().optional().or(z.literal("")),
+  photo: z.string().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
   specialty: z.string().optional(),
