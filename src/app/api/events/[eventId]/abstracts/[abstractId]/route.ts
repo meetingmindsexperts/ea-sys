@@ -121,7 +121,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (existingAbstract.speaker?.userId !== session.user.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      if (data.reviewNotes !== undefined || data.reviewScore !== undefined || data.specialty !== undefined) {
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];

@@ -42,6 +42,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 
 interface Track {
   id: string;
@@ -61,6 +62,7 @@ interface Abstract {
   id: string;
   title: string;
   content: string;
+  specialty: string | null;
   status: string;
   reviewNotes: string | null;
   reviewScore: number | null;
@@ -103,12 +105,14 @@ export default function AbstractsPage() {
     speakerId: "",
     title: "",
     content: "",
+    specialty: "",
     trackId: "",
     status: "SUBMITTED",
   });
   const [editData, setEditData] = useState({
     title: "",
     content: "",
+    specialty: "",
     trackId: "",
   });
   const [reviewData, setReviewData] = useState({
@@ -152,6 +156,7 @@ export default function AbstractsPage() {
         body: JSON.stringify({
           title: data.title,
           content: data.content,
+          specialty: data.specialty || undefined,
           trackId: data.trackId || undefined,
         }),
       });
@@ -236,6 +241,7 @@ export default function AbstractsPage() {
     setEditData({
       title: abstract.title,
       content: abstract.content,
+      specialty: abstract.specialty || "",
       trackId: abstract.track?.id || "",
     });
     setIsEditDialogOpen(true);
@@ -256,6 +262,7 @@ export default function AbstractsPage() {
       speakerId: isSubmitter && mySpeaker ? mySpeaker.id : "",
       title: "",
       content: "",
+      specialty: "",
       trackId: "",
       status: "SUBMITTED",
     });
@@ -371,6 +378,15 @@ export default function AbstractsPage() {
                   }
                   rows={6}
                   required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Specialty</Label>
+                <SpecialtySelect
+                  value={formData.specialty}
+                  onChange={(specialty) =>
+                    setFormData({ ...formData, specialty })
+                  }
                 />
               </div>
               <div className={isSubmitter ? "" : "grid grid-cols-2 gap-4"}>
@@ -626,6 +642,15 @@ export default function AbstractsPage() {
                     }
                     rows={6}
                     required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Specialty</Label>
+                  <SpecialtySelect
+                    value={editData.specialty}
+                    onChange={(specialty) =>
+                      setEditData({ ...editData, specialty })
+                    }
                   />
                 </div>
                 <div className="space-y-2">

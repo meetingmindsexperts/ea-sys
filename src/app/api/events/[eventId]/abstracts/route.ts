@@ -12,6 +12,7 @@ const createAbstractSchema = z.object({
   speakerId: z.string().min(1),
   title: z.string().min(1),
   content: z.string().min(1),
+  specialty: z.string().optional(),
   trackId: z.string().optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
 });
@@ -107,7 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId, title, content, trackId, status } = validated.data;
+    const { speakerId, title, content, specialty, trackId, status } = validated.data;
 
     // SUBMITTER can only submit for their own speaker record
     const speakerWhere = session.user.role === "SUBMITTER"
@@ -153,6 +154,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         speakerId,
         title,
         content,
+        specialty: specialty || null,
         trackId: trackId || null,
         status,
         submittedAt: status === "SUBMITTED" ? new Date() : undefined,
