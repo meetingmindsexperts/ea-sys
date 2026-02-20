@@ -40,8 +40,9 @@ jobs:
             echo "==> Building Docker image"
             docker compose -f docker-compose.prod.yml build ea-sys
 
-            echo "==> Restarting container (zero-downtime swap)"
-            docker compose -f docker-compose.prod.yml up -d --no-deps ea-sys
+            echo "==> Restarting container"
+            docker compose -f docker-compose.prod.yml down --remove-orphans
+            docker compose -f docker-compose.prod.yml up -d
 
             echo "==> Cleaning up after deployment"
             # Remove dangling images only (preserve layers for faster rebuilds)
