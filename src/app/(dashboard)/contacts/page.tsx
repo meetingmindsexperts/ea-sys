@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TagInput } from "@/components/ui/tag-input";
 
 import {
   Sheet,
@@ -72,7 +73,7 @@ const emptyForm = {
   photo: null as string | null,
   city: "",
   country: "",
-  tags: "",
+  tags: [] as string[],
   notes: "",
 };
 
@@ -128,7 +129,7 @@ export default function ContactsPage() {
       photo: contact.photo || null,
       city: contact.city || "",
       country: contact.country || "",
-      tags: contact.tags?.join(", ") || "",
+      tags: contact.tags || [],
       notes: contact.notes || "",
     });
     setSheetOpen(true);
@@ -146,7 +147,7 @@ export default function ContactsPage() {
       photo: form.photo || undefined,
       city: form.city.trim() || undefined,
       country: form.country.trim() || undefined,
-      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+      tags: form.tags,
       notes: form.notes.trim() || undefined,
     };
 
@@ -447,8 +448,12 @@ export default function ContactsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Tags <span className="text-muted-foreground text-xs">(comma-separated)</span></Label>
-              <Input placeholder="VIP, Speaker, Media" value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} />
+              <Label>Tags</Label>
+              <TagInput
+                value={form.tags}
+                onChange={(tags) => setForm((f) => ({ ...f, tags }))}
+                placeholder="Type a tag and press Enter or comma"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>

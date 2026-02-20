@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TagInput } from "@/components/ui/tag-input";
 import {
   Select,
   SelectContent,
@@ -408,14 +409,12 @@ export function RegistrationDetailSheet({
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">
-                        <Label htmlFor="edit-tags">Tags</Label>
-                        <Input
-                          id="edit-tags"
-                          value={editData.tags.join(", ")}
-                          onChange={(e) => setEditData({ ...editData, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t) })}
-                          placeholder="e.g., VIP, Speaker, Sponsor"
+                        <Label>Tags</Label>
+                        <TagInput
+                          value={editData.tags}
+                          onChange={(tags) => setEditData({ ...editData, tags })}
+                          placeholder="Type a tag and press Enter or comma"
                         />
-                        <p className="text-xs text-muted-foreground">Add tags separated by commas</p>
                       </div>
                     )}
                     <div className="space-y-2">

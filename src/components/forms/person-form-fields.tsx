@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TagInput } from "@/components/ui/tag-input";
 
 export interface PersonFormData {
   email?: string;
@@ -214,25 +215,13 @@ export function PersonFormFields({
       {/* Tags */}
       {!isReviewer && data.tags !== undefined && (
         <div className="space-y-2">
-          <Label htmlFor="tags">Tags</Label>
-          <Input
-            id="tags"
-            value={data.tags.join(", ")}
-            onChange={(e) =>
-              updateField(
-                "tags",
-                e.target.value
-                  .split(",")
-                  .map((t) => t.trim())
-                  .filter((t) => t)
-              )
-            }
-            placeholder="e.g., VIP, Speaker, Keynote"
+          <Label>Tags</Label>
+          <TagInput
+            value={data.tags}
+            onChange={(tags) => updateField("tags", tags)}
+            placeholder="Type a tag and press Enter or comma"
             disabled={disabled}
           />
-          <p className="text-xs text-muted-foreground">
-            Add tags separated by commas
-          </p>
         </div>
       )}
     </div>
