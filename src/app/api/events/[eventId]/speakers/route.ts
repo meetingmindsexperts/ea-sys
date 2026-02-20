@@ -17,6 +17,7 @@ const createSpeakerSchema = z.object({
   photo: z.string().url().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
+  specialty: z.string().optional(),
   tags: z.array(z.string()).optional(),
   socialLinks: z.object({
     twitter: z.string().optional(),
@@ -126,6 +127,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       photo,
       city,
       country,
+      specialty,
       tags,
       socialLinks,
       status,
@@ -172,6 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         photo: photo || null,
         city: city || null,
         country: country || null,
+        specialty: specialty || null,
         tags: tags || [],
         socialLinks: socialLinks || {},
         status,

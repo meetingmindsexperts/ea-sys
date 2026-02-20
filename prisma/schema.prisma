@@ -273,6 +273,7 @@ model Speaker {
   photo        String?
   city         String?
   country      String?
+  specialty    String?
   tags         String[]      @default([])
   socialLinks Json          @default("{}")
   status      SpeakerStatus @default(INVITED)

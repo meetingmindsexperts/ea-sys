@@ -14,6 +14,7 @@ const registerSchema = z.object({
   phone: z.string().optional(),
   city: z.string().optional(),
   country: z.string().optional(),
+  specialty: z.string().optional(),
 });
 
 interface RouteParams {
@@ -125,6 +126,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             ...(data.jobTitle && { jobTitle: data.jobTitle }),
             ...(data.city && { city: data.city }),
             ...(data.country && { country: data.country }),
+            ...(data.specialty && { specialty: data.specialty }),
           },
         });
       } else {
@@ -139,6 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             jobTitle: data.jobTitle || null,
             city: data.city || null,
             country: data.country || null,
+            specialty: data.specialty || null,
             status: "CONFIRMED",
           },
         });

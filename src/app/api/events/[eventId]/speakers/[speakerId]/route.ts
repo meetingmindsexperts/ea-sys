@@ -16,6 +16,7 @@ const updateSpeakerSchema = z.object({
   photo: z.string().url().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
+  specialty: z.string().optional(),
   tags: z.array(z.string()).optional(),
   socialLinks: z.object({
     twitter: z.string().optional(),
@@ -169,6 +170,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.photo !== undefined && { photo: data.photo || null }),
         ...(data.city !== undefined && { city: data.city || null }),
         ...(data.country !== undefined && { country: data.country || null }),
+        ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.socialLinks && { socialLinks: data.socialLinks }),
         ...(data.status && { status: data.status }),

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { toast } from "sonner";
 
 interface Event {
@@ -69,6 +70,7 @@ const registerSchema = z
     phone: z.string().optional(),
     city: z.string().optional(),
     country: z.string().optional(),
+    specialty: z.string().optional(),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
   })
@@ -100,6 +102,7 @@ export default function SubmitAbstractPage() {
       phone: "",
       city: "",
       country: "",
+      specialty: "",
       password: "",
       confirmPassword: "",
     },
@@ -153,6 +156,7 @@ export default function SubmitAbstractPage() {
           phone: data.phone || undefined,
           city: data.city || undefined,
           country: data.country || undefined,
+          specialty: data.specialty || undefined,
         }),
       });
 
@@ -389,6 +393,21 @@ export default function SubmitAbstractPage() {
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="specialty"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Specialty</FormLabel>
+                      <SpecialtySelect
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <div className="border-t pt-4 space-y-4">
                   <p className="text-sm text-muted-foreground">
