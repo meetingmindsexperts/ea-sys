@@ -201,40 +201,40 @@ export function PersonFormFields({
         </div>
       )}
 
-      {/* Categorization Fields */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Specialty */}
+      <div className="space-y-2">
+        <Label htmlFor="specialty">Specialty</Label>
+        <SpecialtySelect
+          value={data.specialty || ""}
+          onChange={(specialty) => updateField("specialty", specialty)}
+          disabled={disabled}
+        />
+      </div>
+
+      {/* Tags */}
+      {!isReviewer && data.tags !== undefined && (
         <div className="space-y-2">
-          <Label htmlFor="specialty">Specialty</Label>
-          <SpecialtySelect
-            value={data.specialty || ""}
-            onChange={(specialty) => updateField("specialty", specialty)}
+          <Label htmlFor="tags">Tags</Label>
+          <Input
+            id="tags"
+            value={data.tags.join(", ")}
+            onChange={(e) =>
+              updateField(
+                "tags",
+                e.target.value
+                  .split(",")
+                  .map((t) => t.trim())
+                  .filter((t) => t)
+              )
+            }
+            placeholder="e.g., VIP, Speaker, Keynote"
             disabled={disabled}
           />
+          <p className="text-xs text-muted-foreground">
+            Add tags separated by commas
+          </p>
         </div>
-        {!isReviewer && data.tags !== undefined && (
-          <div className="space-y-2">
-            <Label htmlFor="tags">Tags</Label>
-            <Input
-              id="tags"
-              value={data.tags.join(", ")}
-              onChange={(e) =>
-                updateField(
-                  "tags",
-                  e.target.value
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter((t) => t)
-                )
-              }
-              placeholder="e.g., VIP, Speaker, Keynote"
-              disabled={disabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Add tags separated by commas
-            </p>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
