@@ -76,6 +76,7 @@ src/
 - `src/components/layout/sidebar.tsx` - Sidebar with role-based navigation
 - `src/components/ui/photo-upload.tsx` - Reusable photo upload component with preview
 - `src/components/ui/country-select.tsx` - Searchable country dropdown component
+- `src/components/ui/tag-input.tsx` - Multi-tag chip input (Enter/comma to add, × to remove)
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
 - `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
 - `src/app/globals.css` - Global styles and CSS variables
@@ -316,7 +317,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
-- **Photo upload system** - File upload functionality for attendee/speaker/contact photos with validation (max 500KB, JPEG/PNG/WebP formats); `PhotoUpload` component with preview and progress indicator; stored in `/public/uploads/photos/YYYY/MM/` with UUID-based filenames; replaces URL-based photo fields across all forms
+- **Tag input component** - `TagInput` chip-based multi-tag input replacing comma-string inputs; Enter or comma adds a tag, × removes individual chips, Backspace on empty removes last tag; used in registration forms, registration detail edit panel, and contacts form; contacts form state changed from string to string[]
+- **Photo upload system** - File upload functionality for attendee/speaker/contact photos with validation (max 500KB, JPEG/PNG/WebP formats); `PhotoUpload` component with preview and progress indicator; stored in `/public/uploads/photos/YYYY/MM/` with UUID-based filenames; replaces URL-based photo fields across all forms; **note:** photo Zod schemas use `z.string().optional()` (not `.url()`) since upload returns relative paths like `/uploads/photos/...`
 - **City and country fields** - Added to Attendee, Speaker, and Contact models; `CountrySelect` component with searchable dropdown (ISO 3166-1 standard, 249 countries); integrated into registration, speaker, and contact forms with display in list views and detail sheets
 - **Event classification fields** - Added `eventType` (enum: CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields to Event model; integrated into event creation and settings forms for better event categorization
 - **Authenticated abstract submission (SUBMITTER role)** - Speakers create an account at `/e/[slug]/register`, then log in to submit/edit abstracts via dashboard; SUBMITTER role mirrors REVIEWER pattern (org-independent, abstracts-only access, scoped by `Speaker.userId`)
