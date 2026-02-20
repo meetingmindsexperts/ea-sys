@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 
 export interface PersonFormData {
   email?: string;
@@ -204,16 +205,11 @@ export function PersonFormFields({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="specialty">Specialty</Label>
-          <Input
-            id="specialty"
+          <SpecialtySelect
             value={data.specialty || ""}
-            onChange={(e) => updateField("specialty", e.target.value)}
-            placeholder="e.g., Cardiology, Neurology"
+            onChange={(specialty) => updateField("specialty", specialty)}
             disabled={disabled}
           />
-          <p className="text-xs text-muted-foreground">
-            Categorize by specialty or field
-          </p>
         </div>
         {!isReviewer && data.tags !== undefined && (
           <div className="space-y-2">

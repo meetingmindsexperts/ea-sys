@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { toast } from "sonner";
 
 interface TicketType {
@@ -521,9 +522,10 @@ export default function PublicEventPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Specialty (Optional)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g. Cardiology, Software Engineering" {...field} />
-                            </FormControl>
+                            <SpecialtySelect
+                              value={field.value ?? ""}
+                              onChange={field.onChange}
+                            />
                             <FormMessage />
                           </FormItem>
                         )}

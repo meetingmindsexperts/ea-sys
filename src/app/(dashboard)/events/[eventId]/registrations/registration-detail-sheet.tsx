@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import {
   Select,
   SelectContent,
@@ -400,13 +401,10 @@ export function RegistrationDetailSheet({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="edit-specialty">Specialty</Label>
-                      <Input
-                        id="edit-specialty"
+                      <SpecialtySelect
                         value={editData.specialty}
-                        onChange={(e) => setEditData({ ...editData, specialty: e.target.value })}
-                        placeholder="e.g., Cardiology, Neurology"
+                        onChange={(specialty) => setEditData({ ...editData, specialty })}
                       />
-                      <p className="text-xs text-muted-foreground">Categorize attendee by specialty</p>
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">

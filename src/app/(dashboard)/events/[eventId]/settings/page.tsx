@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import {
   Select,
   SelectContent,
@@ -434,12 +435,10 @@ export default function EventSettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="specialty">Specialty</Label>
-                  <Input
-                    id="specialty"
-                    placeholder="e.g., Cardiology, AI"
+                  <SpecialtySelect
                     value={generalFormData.specialty}
-                    onChange={(e) =>
-                      setGeneralFormData({ ...generalFormData, specialty: e.target.value })
+                    onChange={(specialty) =>
+                      setGeneralFormData({ ...generalFormData, specialty })
                     }
                   />
                 </div>
