@@ -14,6 +14,9 @@ const registrationSchema = z.object({
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  specialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
 });
 
@@ -48,7 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, firstName, lastName, organization, jobTitle, phone, dietaryReqs } =
+    const { ticketTypeId, firstName, lastName, organization, jobTitle, phone, city, country, specialty, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -136,6 +139,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           organization: organization || null,
           jobTitle: jobTitle || null,
           phone: phone || null,
+          city: city || null,
+          country: country || null,
+          specialty: specialty || null,
           dietaryReqs: dietaryReqs || null,
         },
       });

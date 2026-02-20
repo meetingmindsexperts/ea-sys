@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CountrySelect } from "@/components/ui/country-select";
 import { toast } from "sonner";
 
 interface TicketType {
@@ -91,6 +92,10 @@ const registrationSchema = z.object({
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  specialty: z.string().optional(),
+  dietaryReqs: z.string().optional(),
 });
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
@@ -115,6 +120,10 @@ export default function PublicEventPage() {
       organization: "",
       jobTitle: "",
       phone: "",
+      city: "",
+      country: "",
+      specialty: "",
+      dietaryReqs: "",
     },
   });
 
@@ -336,7 +345,7 @@ export default function PublicEventPage() {
                         Submit your abstract for review
                       </p>
                     </div>
-                    <Link href={`/e/${slug}/register`}>
+                    <Link href={`/e/${slug}/submitAbstract`}>
                       <Button variant="outline" size="sm">
                         Submit Abstract
                       </Button>
@@ -470,6 +479,64 @@ export default function PublicEventPage() {
                             <FormLabel>Phone (Optional)</FormLabel>
                             <FormControl>
                               <Input placeholder="+1 234 567 8900" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>City (Optional)</FormLabel>
+                              <FormControl>
+                                <Input placeholder="New York" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="country"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Country (Optional)</FormLabel>
+                              <CountrySelect
+                                value={field.value ?? ""}
+                                onChange={field.onChange}
+                              />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="specialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Specialty (Optional)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Cardiology, Software Engineering" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="dietaryReqs"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Dietary Requirements (Optional)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Vegetarian, Halal, Gluten-free" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

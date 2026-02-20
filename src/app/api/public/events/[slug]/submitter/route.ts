@@ -10,6 +10,10 @@ const registerSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   organization: z.string().optional(),
+  jobTitle: z.string().optional(),
+  phone: z.string().optional(),
+  city: z.string().optional(),
+  country: z.string().optional(),
 });
 
 interface RouteParams {
@@ -118,6 +122,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             firstName: data.firstName,
             lastName: data.lastName,
             ...(data.organization && { organization: data.organization }),
+            ...(data.jobTitle && { jobTitle: data.jobTitle }),
+            ...(data.city && { city: data.city }),
+            ...(data.country && { country: data.country }),
           },
         });
       } else {
@@ -129,6 +136,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             firstName: data.firstName,
             lastName: data.lastName,
             organization: data.organization || null,
+            jobTitle: data.jobTitle || null,
+            city: data.city || null,
+            country: data.country || null,
             status: "CONFIRMED",
           },
         });
