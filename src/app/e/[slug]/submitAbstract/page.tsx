@@ -15,15 +15,17 @@ import {
   Loader2,
   CheckCircle2,
   FileText,
+  Lock,
+  User,
+  Building2,
+  Phone,
+  Globe,
+  Stethoscope,
+  ChevronRight,
+  AlertCircle,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -36,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface Event {
   id: string;
@@ -177,87 +180,152 @@ export default function SubmitAbstractPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="h-12 w-12 rounded-full border-2 border-primary/20" />
+            <Loader2 className="h-12 w-12 animate-spin text-primary absolute inset-0" />
+          </div>
+          <p className="text-slate-400 text-sm tracking-wide">Loading…</p>
+        </div>
       </div>
     );
   }
 
   if (error || !event) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">{error || "Event not found"}</p>
-            {event && (
-              <Link href={`/e/${slug}`}>
-                <Button variant="outline" className="mt-4">
-                  Back to Event
-                </Button>
-              </Link>
-            )}
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center">
+            <AlertCircle className="h-7 w-7 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">
+            {error || "Event not found"}
+          </h2>
+          <p className="text-slate-500 text-sm mb-6">
+            Please check the link or contact the event organizer.
+          </p>
+          {event && (
+            <Link href={`/e/${slug}`}>
+              <Button variant="outline" size="sm" className="gap-2">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to Event
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12 text-center space-y-4">
-            <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
-            <h2 className="text-xl font-semibold">Account Created!</h2>
-            <p className="text-muted-foreground">
-              Your account has been created successfully. Please log in to submit
-              your abstract for <strong>{event.name}</strong>.
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-dot-pattern opacity-5" />
+        <div className="relative bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
+          <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-emerald-50 flex items-center justify-center">
+            <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">
+            Account Created!
+          </h2>
+          <p className="text-slate-500 text-sm leading-relaxed mb-2">
+            Your speaker account has been created. Log in to submit your abstract for
+          </p>
+          <p className="font-semibold text-slate-800 mb-6">{event.name}</p>
+
+          <div className="bg-slate-50 rounded-xl p-4 text-left mb-6 border border-slate-100">
+            <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2">
+              Next Steps
             </p>
-            <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}>
-              <Button className="btn-gradient mt-4">Log In to Continue</Button>
-            </Link>
-          </CardContent>
-        </Card>
+            <ol className="space-y-2">
+              {["Log in with your email and password", "Find this event in your dashboard", "Submit your abstract for review"].map(
+                (step, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
+                    <span className="shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold mt-0.5">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                )
+              )}
+            </ol>
+          </div>
+
+          <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}>
+            <Button className="btn-gradient w-full h-11 font-semibold rounded-xl gap-2">
+              Log In to Continue
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
+  const locationParts = [event.venue, event.city, event.country].filter(Boolean);
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Banner Image */}
-      {event.bannerImage && (
-        <div className="w-full">
-          <Image
-            src={event.bannerImage}
-            alt={event.name}
-            width={1200}
-            height={400}
-            className="w-full h-48 md:h-64 object-cover"
-            unoptimized
-          />
-        </div>
-      )}
+    <div className="min-h-screen flex flex-col bg-slate-50">
+      {/* Hero */}
+      <div className="relative bg-slate-900 overflow-hidden">
+        {event.bannerImage && (
+          <>
+            <Image
+              src={event.bannerImage}
+              alt={event.name}
+              width={1400}
+              height={500}
+              className="w-full h-52 sm:h-64 object-cover opacity-40"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900" />
+          </>
+        )}
+        {!event.bannerImage && (
+          <div className="absolute inset-0 opacity-5 bg-dot-pattern" />
+        )}
 
-      {/* Header */}
-      <div className="bg-gradient-primary text-white">
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <p className="text-sm opacity-80 mb-2">{event.organization.name}</p>
-          <h1 className="text-3xl font-bold mb-4">{event.name}</h1>
+        <div
+          className={cn(
+            "relative max-w-3xl mx-auto px-4 sm:px-6",
+            event.bannerImage ? "py-8 -mt-8" : "py-12"
+          )}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-xs font-medium tracking-widest uppercase text-primary/80">
+              {event.organization.name}
+            </span>
+          </div>
 
-          <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              <span>{format(new Date(event.startDate), "EEEE, MMMM d, yyyy")}</span>
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2 leading-tight">
+            {event.name}
+          </h1>
+          <p className="text-primary/80 text-sm font-medium mb-6">
+            Abstract Submission Portal
+          </p>
+
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+              <Calendar className="h-3.5 w-3.5 text-primary" />
+              <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
+            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+              <Clock className="h-3.5 w-3.5 text-primary" />
               <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
-            {event.venue && (
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4" />
+            {locationParts.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+                <MapPin className="h-3.5 w-3.5 text-primary" />
+                <span>{locationParts.join(", ")}</span>
+              </div>
+            )}
+            {event.abstractSettings?.abstractDeadline && (
+              <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/30 rounded-full px-3 py-1.5 text-sm text-amber-200">
+                <FileText className="h-3.5 w-3.5" />
                 <span>
-                  {[event.venue, event.city, event.country].filter(Boolean).join(", ")}
+                  Deadline:{" "}
+                  {format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}
                 </span>
               </div>
             )}
@@ -265,29 +333,62 @@ export default function SubmitAbstractPage() {
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-8 flex-1 w-full">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Abstract Submission
-            </CardTitle>
-            <CardDescription>
-              Create an account to submit your abstract for <strong>{event.name}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      {/* Step indicator */}
+      <div className="bg-white border-b border-slate-100">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center">
+                <span className="text-xs font-bold text-white">1</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-900">Create Account</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-slate-300" />
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-6 rounded-full border-2 border-slate-200 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-400">2</span>
+              </div>
+              <span className="text-sm text-slate-400">Submit Abstract</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Form */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 flex-1 w-full">
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Create Your Speaker Account
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              You&apos;ll use this account to submit and manage your abstracts
+            </p>
+          </div>
+
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              {/* Profile section */}
+              <div className="p-6 space-y-4">
+                <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
+                  Profile Information
+                </p>
+
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name="firstName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>First Name *</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600">
+                          First Name <span className="text-red-400">*</span>
+                        </FormLabel>
                         <FormControl>
-                          <Input placeholder="John" {...field} />
+                          <Input
+                            placeholder="John"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -298,9 +399,15 @@ export default function SubmitAbstractPage() {
                     name="lastName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Last Name *</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600">
+                          Last Name <span className="text-red-400">*</span>
+                        </FormLabel>
                         <FormControl>
-                          <Input placeholder="Doe" {...field} />
+                          <Input
+                            placeholder="Doe"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -313,51 +420,16 @@ export default function SubmitAbstractPage() {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email *</FormLabel>
+                      <FormLabel className="text-xs font-medium text-slate-600">
+                        Email Address <span className="text-red-400">*</span>
+                      </FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="john@example.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="organization"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Organization / Institution</FormLabel>
-                      <FormControl>
-                        <Input placeholder="University of..." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="jobTitle"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Job Title / Position</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Professor, Researcher, Doctor..." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone</FormLabel>
-                      <FormControl>
-                        <Input placeholder="+1 234 567 8900" {...field} />
+                        <Input
+                          type="email"
+                          placeholder="john@university.edu"
+                          className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -367,12 +439,102 @@ export default function SubmitAbstractPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
+                    name="organization"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />
+                          Institution
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="University of..."
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="jobTitle"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          Position
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Professor, Researcher..."
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          Phone
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="+1 234 567 8900"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="specialty"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <Stethoscope className="h-3 w-3" />
+                          Specialty
+                        </FormLabel>
+                        <SpecialtySelect
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
                     name="city"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>City</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          City
+                        </FormLabel>
                         <FormControl>
-                          <Input placeholder="New York" {...field} />
+                          <Input
+                            placeholder="New York"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -383,7 +545,10 @@ export default function SubmitAbstractPage() {
                     name="country"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Country</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                          <Globe className="h-3 w-3" />
+                          Country
+                        </FormLabel>
                         <CountrySelect
                           value={field.value ?? ""}
                           onChange={field.onChange}
@@ -393,34 +558,36 @@ export default function SubmitAbstractPage() {
                     )}
                   />
                 </div>
+              </div>
 
-                <FormField
-                  control={form.control}
-                  name="specialty"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Specialty</FormLabel>
-                      <SpecialtySelect
-                        value={field.value ?? ""}
-                        onChange={field.onChange}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="border-t pt-4 space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Create a password to access your account and manage your submissions.
+              {/* Password section */}
+              <div className="px-6 py-5 bg-slate-50 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Lock className="h-4 w-4 text-slate-400" />
+                  <p className="text-xs font-semibold tracking-widest uppercase text-slate-400">
+                    Account Security
                   </p>
+                </div>
+                <p className="text-xs text-slate-500 -mt-2">
+                  Create a password to access your account and manage your submissions.
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Password *</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600">
+                          Password <span className="text-red-400">*</span>
+                        </FormLabel>
                         <FormControl>
-                          <Input type="password" placeholder="••••••••" {...field} />
+                          <Input
+                            type="password"
+                            placeholder="Min. 6 characters"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30 bg-white"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -431,36 +598,57 @@ export default function SubmitAbstractPage() {
                     name="confirmPassword"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Confirm Password *</FormLabel>
+                        <FormLabel className="text-xs font-medium text-slate-600">
+                          Confirm Password <span className="text-red-400">*</span>
+                        </FormLabel>
                         <FormControl>
-                          <Input type="password" placeholder="••••••••" {...field} />
+                          <Input
+                            type="password"
+                            placeholder="Repeat password"
+                            className="rounded-lg border-slate-200 focus-visible:ring-primary/30 bg-white"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
+              </div>
 
-                <Button type="submit" className="w-full btn-gradient" disabled={submitting}>
-                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {submitting ? "Creating Account..." : "Create Account & Continue"}
-                </Button>
-              </form>
-            </Form>
-
-            <div className="mt-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                Already have an account?{" "}
-                <Link
-                  href={`/login?callbackUrl=${encodeURIComponent("/events")}`}
-                  className="text-primary hover:underline"
+              {/* Submit */}
+              <div className="px-6 py-5 border-t border-slate-100 space-y-3">
+                <Button
+                  type="submit"
+                  className="w-full btn-gradient h-11 font-semibold text-sm rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                  disabled={submitting}
                 >
-                  Log in
-                </Link>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Account…
+                    </>
+                  ) : (
+                    <>
+                      Create Account &amp; Continue
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+
+                <p className="text-center text-xs text-slate-400">
+                  Already have an account?{" "}
+                  <Link
+                    href={`/login?callbackUrl=${encodeURIComponent("/events")}`}
+                    className="text-primary hover:underline font-medium"
+                  >
+                    Log in
+                  </Link>
+                </p>
+              </div>
+            </form>
+          </Form>
+        </div>
       </div>
     </div>
   );

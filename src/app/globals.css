@@ -244,6 +244,12 @@
     transform: translateY(-1px);
   }
 
+  /* Subtle dot grid pattern for hero sections without a banner image */
+  .bg-dot-pattern {
+    background-image: radial-gradient(circle at 1px 1px, white 1px, transparent 0);
+    background-size: 40px 40px;
+  }
+
   /* Card with gradient border */
   .card-gradient-border {
     position: relative;

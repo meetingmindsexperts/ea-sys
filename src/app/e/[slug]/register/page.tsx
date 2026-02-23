@@ -12,19 +12,18 @@ import {
   Calendar,
   MapPin,
   Clock,
-  ClipboardList,
   Loader2,
-  CheckCircle2,
   FileText,
+  ChevronRight,
+  User,
+  Building2,
+  Phone,
+  Globe,
+  Utensils,
+  Stethoscope,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -34,16 +33,10 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface TicketType {
   id: string;
@@ -143,7 +136,6 @@ export default function PublicEventRegisterPage() {
         const data = await res.json();
         setEvent(data);
 
-        // Set default ticket if only one available
         const availableTickets = data.ticketTypes.filter(
           (t: TicketType) => t.canPurchase
         );
@@ -180,7 +172,6 @@ export default function PublicEventRegisterPage() {
         return;
       }
 
-      // Redirect to confirmation page
       router.push(
         `/e/${slug}/confirmation?id=${result.registration.id}&name=${encodeURIComponent(data.firstName)}`
       );
@@ -192,366 +183,516 @@ export default function PublicEventRegisterPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="h-12 w-12 rounded-full border-2 border-primary/20" />
+            <Loader2 className="h-12 w-12 animate-spin text-primary absolute inset-0" />
+          </div>
+          <p className="text-slate-400 text-sm tracking-wide">Loading event…</p>
+        </div>
       </div>
     );
   }
 
   if (error || !event) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">{error || "Event not found"}</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
+            <AlertCircle className="h-7 w-7 text-red-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">
+            {error || "Event not found"}
+          </h2>
+          <p className="text-slate-500 text-sm">
+            Please check the link and try again.
+          </p>
+        </div>
       </div>
     );
   }
 
   const availableTickets = event.ticketTypes.filter((t) => t.canPurchase);
-  const selectedTicket = event.ticketTypes.find(
-    (t) => t.id === form.watch("ticketTypeId")
-  );
+  const selectedTicketId = form.watch("ticketTypeId");
+  const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
+
+  const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Banner Image */}
-      {event.bannerImage && (
-        <div className="w-full">
-          <Image
-            src={event.bannerImage}
-            alt={event.name}
-            width={1200}
-            height={400}
-            className="w-full h-48 md:h-64 object-cover"
-            unoptimized
-          />
-        </div>
-      )}
+    <div className="min-h-screen flex flex-col bg-slate-50">
+      {/* Hero Section */}
+      <div className="relative bg-slate-900 overflow-hidden">
+        {event.bannerImage && (
+          <>
+            <Image
+              src={event.bannerImage}
+              alt={event.name}
+              width={1400}
+              height={500}
+              className="w-full h-52 sm:h-72 object-cover opacity-40"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900" />
+          </>
+        )}
 
-      {/* Header */}
-      <div className="bg-gradient-primary text-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <p className="text-sm opacity-80 mb-2">{event.organization.name}</p>
-          <h1 className="text-3xl font-bold mb-4">{event.name}</h1>
+        {/* Decorative pattern */}
+        {!event.bannerImage && (
+          <div className="absolute inset-0 opacity-5 bg-dot-pattern" />
+        )}
 
-          <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              <span>
-                {format(new Date(event.startDate), "EEEE, MMMM d, yyyy")}
-              </span>
+        <div
+          className={cn(
+            "relative max-w-6xl mx-auto px-4 sm:px-6",
+            event.bannerImage ? "py-8 -mt-8" : "py-12"
+          )}
+        >
+          {/* Org name */}
+          <div className="flex items-center gap-2 mb-4">
+            {event.organization.logo ? (
+              <Image
+                src={event.organization.logo}
+                alt={event.organization.name}
+                width={24}
+                height={24}
+                className="rounded"
+                unoptimized
+              />
+            ) : null}
+            <span className="text-xs font-medium tracking-widest uppercase text-primary/80">
+              {event.organization.name}
+            </span>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-6 leading-tight max-w-3xl">
+            {event.name}
+          </h1>
+
+          {/* Meta chips */}
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+              <Calendar className="h-3.5 w-3.5 text-primary" />
+              <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
+            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+              <Clock className="h-3.5 w-3.5 text-primary" />
               <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
-            {event.venue && (
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4" />
-                <span>
-                  {[event.venue, event.city, event.country]
-                    .filter(Boolean)
-                    .join(", ")}
-                </span>
+            {locationParts.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+                <MapPin className="h-3.5 w-3.5 text-primary" />
+                <span>{locationParts.join(", ")}</span>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8 flex-1">
-        <div className="grid md:grid-cols-5 gap-8">
-          {/* Event Details & Tickets */}
-          <div className="md:col-span-2 space-y-6">
+      {/* Body */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex-1 w-full">
+        <div className="grid md:grid-cols-5 gap-8 items-start">
+          {/* Left: Info sidebar */}
+          <div className="md:col-span-2 space-y-5">
             {event.description && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>About This Event</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground whitespace-pre-wrap">
-                    {event.description}
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
+                  About This Event
+                </h3>
+                <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">
+                  {event.description}
+                </p>
+              </div>
             )}
 
-            {/* Registration Types */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5" />
-                  Registration Types
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {event.ticketTypes.map((regType) => (
-                  <div
-                    key={regType.id}
-                    className={`p-4 border rounded-lg ${
-                      regType.canPurchase
-                        ? "border-gray-200"
-                        : "border-gray-100 bg-gray-50 opacity-60"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">{regType.name}</h4>
-                        {regType.description && (
-                          <p className="text-sm text-muted-foreground">
-                            {regType.description}
-                          </p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold">
-                          {Number(regType.price) === 0
-                            ? "Free"
-                            : `${regType.currency} ${regType.price}`}
-                        </p>
-                        {regType.soldOut && (
-                          <span className="text-xs text-red-500">Unavailable</span>
-                        )}
-                        {!regType.salesStarted && (
-                          <span className="text-xs text-amber-500">
-                            Not Yet Available
-                          </span>
-                        )}
-                        {regType.salesEnded && (
-                          <span className="text-xs text-red-500">
-                            No Longer Available
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            {/* Submit Abstract Link */}
+            {/* Abstract submission CTA */}
             {event.abstractSettings?.allowAbstractSubmissions && (
-              <Card>
-                <CardContent className="py-6">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-full bg-primary/10 p-2">
+              <Link href={`/e/${slug}/submitAbstract`} className="block group">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                       <FileText className="h-5 w-5 text-primary" />
                     </div>
-                    <div className="flex-1">
-                      <h4 className="font-medium">Call for Abstracts</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Submit your abstract for review
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 text-sm">
+                        Call for Abstracts
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {event.abstractSettings.abstractDeadline
+                          ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
+                          : "Submit your abstract for review"}
                       </p>
                     </div>
-                    <Link href={`/e/${slug}/submitAbstract`}>
-                      <Button variant="outline" size="sm">
-                        Submit Abstract
-                      </Button>
-                    </Link>
+                    <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors shrink-0" />
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </Link>
+            )}
+
+            {/* All ticket types overview */}
+            {event.ticketTypes.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-4">
+                  Registration Types
+                </h3>
+                <div className="space-y-3">
+                  {event.ticketTypes.map((rt) => (
+                    <div
+                      key={rt.id}
+                      className={cn(
+                        "flex justify-between items-center text-sm",
+                        !rt.canPurchase && "opacity-40"
+                      )}
+                    >
+                      <span className="text-slate-700 font-medium">
+                        {rt.name}
+                      </span>
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          rt.canPurchase ? "text-primary" : "text-slate-400"
+                        )}
+                      >
+                        {rt.soldOut || rt.salesEnded
+                          ? "Closed"
+                          : !rt.salesStarted
+                          ? "Soon"
+                          : Number(rt.price) === 0
+                          ? "Free"
+                          : `${rt.currency} ${rt.price}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Registration Form */}
+          {/* Right: Registration Form */}
           <div className="md:col-span-3">
-            <Card className="sticky top-4">
-              <CardHeader>
-                <CardTitle>Register</CardTitle>
-                <CardDescription>
-                  Fill in your details to register for this event
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-100">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Register for This Event
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Complete the form below to secure your spot
+                </p>
+              </div>
+
+              <div className="p-6">
                 {availableTickets.length === 0 ? (
-                  <div className="text-center py-8">
-                    <CheckCircle2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">
+                  <div className="text-center py-12">
+                    <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
+                      <AlertCircle className="h-7 w-7 text-slate-400" />
+                    </div>
+                    <p className="font-medium text-slate-700">
                       Registration is currently closed
+                    </p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Check back later or contact the organizer.
                     </p>
                   </div>
                 ) : (
                   <Form {...form}>
                     <form
                       onSubmit={form.handleSubmit(onSubmit)}
-                      className="space-y-4"
+                      className="space-y-6"
                     >
-                      <FormField
-                        control={form.control}
-                        name="ticketTypeId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Registration Type</FormLabel>
-                            <Select
-                              onValueChange={field.onChange}
-                              value={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select a registration type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {availableTickets.map((regType) => (
-                                  <SelectItem key={regType.id} value={regType.id}>
-                                    {regType.name} -{" "}
-                                    {Number(regType.price) === 0
-                                      ? "Free"
-                                      : `${regType.currency} ${regType.price}`}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid grid-cols-2 gap-3">
+                      {/* Section: Registration Type */}
+                      <div>
+                        <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
+                          Registration Type
+                        </p>
                         <FormField
                           control={form.control}
-                          name="firstName"
+                          name="ticketTypeId"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>First Name</FormLabel>
-                              <FormControl>
-                                <Input placeholder="John" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="lastName"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Last Name</FormLabel>
-                              <FormControl>
-                                <Input placeholder="Doe" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name="email"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Email</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="email"
-                                placeholder="john@example.com"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="organization"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Organization (Optional)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Acme Inc." {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Phone (Optional)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="+1 234 567 8900" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField
-                          control={form.control}
-                          name="city"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>City (Optional)</FormLabel>
-                              <FormControl>
-                                <Input placeholder="New York" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="country"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Country (Optional)</FormLabel>
-                              <CountrySelect
-                                value={field.value ?? ""}
-                                onChange={field.onChange}
-                              />
-                              <FormMessage />
+                              <div className="grid gap-3">
+                                {availableTickets.map((rt) => {
+                                  const isSelected = field.value === rt.id;
+                                  return (
+                                    <button
+                                      key={rt.id}
+                                      type="button"
+                                      onClick={() => field.onChange(rt.id)}
+                                      className={cn(
+                                        "w-full text-left rounded-xl border-2 p-4 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                        isSelected
+                                          ? "border-primary bg-primary/5 shadow-sm"
+                                          : "border-slate-200 hover:border-primary/50 hover:bg-slate-50"
+                                      )}
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="flex-1 min-w-0">
+                                          <p className="font-semibold text-slate-900 text-sm">
+                                            {rt.name}
+                                          </p>
+                                          {rt.description && (
+                                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                              {rt.description}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-3 shrink-0">
+                                          <span
+                                            className={cn(
+                                              "text-sm font-bold",
+                                              isSelected
+                                                ? "text-primary"
+                                                : "text-slate-700"
+                                            )}
+                                          >
+                                            {Number(rt.price) === 0
+                                              ? "Free"
+                                              : `${rt.currency} ${rt.price}`}
+                                          </span>
+                                          <div
+                                            className={cn(
+                                              "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all",
+                                              isSelected
+                                                ? "border-primary bg-primary"
+                                                : "border-slate-300"
+                                            )}
+                                          >
+                                            {isSelected && (
+                                              <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <FormMessage className="mt-2" />
                             </FormItem>
                           )}
                         />
                       </div>
 
-                      <FormField
-                        control={form.control}
-                        name="specialty"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Specialty (Optional)</FormLabel>
-                            <SpecialtySelect
-                              value={field.value ?? ""}
-                              onChange={field.onChange}
+                      {/* Section: Personal Information */}
+                      <div>
+                        <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
+                          Personal Information
+                        </p>
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField
+                              control={form.control}
+                              name="firstName"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600">
+                                    First Name <span className="text-red-400">*</span>
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="John"
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                            <FormField
+                              control={form.control}
+                              name="lastName"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600">
+                                    Last Name <span className="text-red-400">*</span>
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="Doe"
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
 
-                      <FormField
-                        control={form.control}
-                        name="dietaryReqs"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Dietary Requirements (Optional)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g. Vegetarian, Halal, Gluten-free" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                          <FormField
+                            control={form.control}
+                            name="email"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600">
+                                  Email Address <span className="text-red-400">*</span>
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="email"
+                                    placeholder="john@example.com"
+                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField
+                              control={form.control}
+                              name="organization"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <Building2 className="h-3 w-3" />
+                                    Organization
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="Acme Inc."
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="jobTitle"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <User className="h-3 w-3" />
+                                    Job Title
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="Physician"
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <FormField
+                            control={form.control}
+                            name="phone"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Phone className="h-3 w-3" />
+                                  Phone
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="+1 234 567 8900"
+                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField
+                              control={form.control}
+                              name="city"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <MapPin className="h-3 w-3" />
+                                    City
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="New York"
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="country"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <Globe className="h-3 w-3" />
+                                    Country
+                                  </FormLabel>
+                                  <CountrySelect
+                                    value={field.value ?? ""}
+                                    onChange={field.onChange}
+                                  />
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <FormField
+                            control={form.control}
+                            name="specialty"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Stethoscope className="h-3 w-3" />
+                                  Specialty
+                                </FormLabel>
+                                <SpecialtySelect
+                                  value={field.value ?? ""}
+                                  onChange={field.onChange}
+                                />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="dietaryReqs"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Utensils className="h-3 w-3" />
+                                  Dietary Requirements
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="e.g. Vegetarian, Halal, Gluten-free"
+                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Summary & Submit */}
                       {selectedTicket && (
-                        <div className="pt-4 border-t">
-                          <div className="flex justify-between text-sm mb-2">
-                            <span className="text-muted-foreground">
+                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-slate-600">
                               {selectedTicket.name}
                             </span>
-                            <span>
+                            <span className="font-bold text-slate-900">
                               {Number(selectedTicket.price) === 0
                                 ? "Free"
                                 : `${selectedTicket.currency} ${selectedTicket.price}`}
@@ -562,19 +703,30 @@ export default function PublicEventRegisterPage() {
 
                       <Button
                         type="submit"
-                        className="w-full btn-gradient"
+                        className="w-full btn-gradient h-11 font-semibold text-sm rounded-xl shadow-sm hover:shadow-md transition-shadow"
                         disabled={submitting}
                       >
-                        {submitting && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {submitting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Registering…
+                          </>
+                        ) : (
+                          <>
+                            Complete Registration
+                            <ChevronRight className="ml-1 h-4 w-4" />
+                          </>
                         )}
-                        {submitting ? "Registering..." : "Complete Registration"}
                       </Button>
+
+                      <p className="text-center text-xs text-slate-400">
+                        By registering, you agree to the event terms and conditions.
+                      </p>
                     </form>
                   </Form>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
       </div>
