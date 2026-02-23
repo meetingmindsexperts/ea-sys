@@ -15,7 +15,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Styling:** TailwindCSS + Shadcn/ui components
 - **State Management:** TanStack Query (React Query) for client-side caching
 - **Email:** Brevo (formerly Sendinblue)
-- **Deployment:** Vercel (primary) + AWS EC2 t3.large via Docker (events.meetingmindsgroup.com)
+- **Deployment:** AWS EC2 t3.large via Docker (events.meetingmindsgroup.com) — primary production; Vercel also connected but photo uploads are not supported there (no writable filesystem in serverless)
 
 ## Project Structure
 
@@ -37,13 +37,19 @@ src/
 │   │   │       └── settings/
 │   │   └── settings/        # Organization settings
 │   ├── e/                   # Public event pages (no auth)
-│   │   └── [slug]/          # Event registration page
+│   │   └── [slug]/          # Redirects to /e/[slug]/register
+│   │       ├── register/    # Submitter registration form (public)
+│   │       ├── submitAbstract/ # Abstract submission form (public, post-login)
 │   │       └── confirmation/
+│   ├── uploads/             # Static file serving for uploaded photos
+│   │   └── [...path]/       # Catch-all: streams files from public/uploads/
 │   └── api/                 # API routes
 │       ├── auth/            # Auth endpoints
 │       ├── events/          # Event CRUD (protected)
 │       │   └── [eventId]/   # Event-specific endpoints
 │       ├── organization/    # Organization endpoints
+│       ├── upload/          # File upload endpoints
+│       │   └── photo/       # Photo upload (POST, auth required)
 │       └── public/          # Public API (no auth required)
 │           └── events/[slug]/ # Public event details & registration
 ├── components/
@@ -77,7 +83,10 @@ src/
 - `src/components/ui/photo-upload.tsx` - Reusable photo upload component with preview
 - `src/components/ui/country-select.tsx` - Searchable country dropdown component
 - `src/components/ui/tag-input.tsx` - Multi-tag chip input (Enter/comma to add, × to remove)
+- `src/components/ui/specialty-select.tsx` - Specialty field dropdown
+- `src/components/forms/person-form-fields.tsx` - Shared form fields for attendees/speakers/contacts
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
+- `src/app/uploads/[...path]/route.ts` - Static file handler for uploaded photos (streams from public/uploads/)
 - `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
 - `src/app/globals.css` - Global styles and CSS variables
 
@@ -89,10 +98,10 @@ src/
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
 - **Attendee** - Attendee information; includes `photo`, `city`, and `country` fields
-- **Speaker** - Event speakers; includes `photo`, `city`, `country`, and `specialty` fields
+- **Speaker** - Event speakers; includes `photo`, `city`, `country`, and `specialty` fields; `specialty` is set during submitter registration and editable from dashboard
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
-- **Abstract** - Paper submissions (with `managementToken` for public token-based access)
+- **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
 - **Hotel/RoomType/Accommodation** - Lodging management
 - **Contact** - Contact store for organization; includes `photo`, `city`, and `country` fields
 - **AuditLog** - Action logging
@@ -277,7 +286,8 @@ The project uses several optimizations to reduce module load times:
 
 **Middleware** (`src/middleware.ts`):
 - Matcher scoped to only dashboard routes (`/events/*`, `/dashboard/*`, `/settings/*`)
-- Public routes (`/e/*`), API routes, auth pages, and static assets skip middleware entirely
+- Redirects REVIEWER and SUBMITTER from non-abstract event routes to `/events/[eventId]/abstracts`
+- Public routes (`/e/*`), API routes (`/api/*`), auth pages, `/uploads/*`, and static assets skip middleware entirely
 
 **Header Component** (`src/components/layout/header.tsx`):
 - Uses React Query hooks (`useEvents`, `useEvent`) instead of manual `useEffect` fetching
@@ -317,6 +327,9 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Uploaded photo serving** - Next.js `output: "standalone"` does not serve `public/` directory files automatically; added `src/app/uploads/[...path]/route.ts` catch-all handler that reads from `public/uploads/` and streams files with correct `Content-Type` and long-lived `Cache-Control` headers; includes path-traversal protection
+- **Docker deploy fix** - Replaced `docker compose up -d --no-deps` with `docker compose down --remove-orphans && docker compose up -d` in `.github/workflows/deploy.yml` to prevent container naming conflicts from prior failed deployments
+- **Specialty field on Abstract** - Added `specialty` to abstract create/edit Zod schemas, DB writes, and UI (SpecialtySelect in submit and edit dialogs); SUBMITTER role can set specialty on own abstracts
 - **Tag input component** - `TagInput` chip-based multi-tag input replacing comma-string inputs; Enter or comma adds a tag, × removes individual chips, Backspace on empty removes last tag; used in registration forms, registration detail edit panel, and contacts form; contacts form state changed from string to string[]
 - **Photo upload system** - File upload functionality for attendee/speaker/contact photos with validation (max 500KB, JPEG/PNG/WebP formats); `PhotoUpload` component with preview and progress indicator; stored in `/public/uploads/photos/YYYY/MM/` with UUID-based filenames; replaces URL-based photo fields across all forms; **note:** photo Zod schemas use `z.string().optional()` (not `.url()`) since upload returns relative paths like `/uploads/photos/...`
 - **City and country fields** - Added to Attendee, Speaker, and Contact models; `CountrySelect` component with searchable dropdown (ISO 3166-1 standard, 249 countries); integrated into registration, speaker, and contact forms with display in list views and detail sheets

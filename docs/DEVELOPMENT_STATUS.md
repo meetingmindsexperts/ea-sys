@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 18, 2026 (Schema & API cleanup, n8n / API key support)
+**Last Updated:** February 23, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -431,6 +431,45 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 
 ---
 
+### Fixes & Enhancements (February 23, 2026)
+
+#### Specialty field on Abstract
+- [x] Added `specialty` field to `Abstract` model (Prisma schema)
+- [x] Added to create/edit Zod schemas and `db.abstract.create/update` in API routes
+- [x] `SpecialtySelect` added to Submit Abstract dialog and Edit Abstract dialog on abstracts page
+- [x] SUBMITTER role can set specialty on own abstracts (not restricted as a review field)
+
+#### Speaker `specialty` field
+- [x] Added `specialty String?` to `Speaker` model in Prisma schema
+- [x] Updated submitter registration API (`POST /api/public/events/[slug]/submitter`) to accept and store specialty
+- [x] Updated speakers POST/PUT API routes to accept `specialty`
+- [x] Added `SpecialtySelect` to the public abstract submitter form (`/e/[slug]/submitAbstract`)
+
+#### TagInput chip component
+- [x] Created `src/components/ui/tag-input.tsx` — badge chips with × to remove, Enter/comma to add, Backspace on empty removes last tag; no duplicates
+- [x] Replaced comma-string `<Input>` tag fields in `PersonFormFields`, `RegistrationDetailSheet`, and the contacts form
+- [x] Contacts form state changed from `tags: string` to `tags: string[]`
+
+#### Photo upload fixes
+- [x] Fixed photo not saving: removed `z.string().url()` from 5 API route Zod schemas — upload returns relative paths (`/uploads/photos/...`) which `.url()` rejects
+- [x] Fixed contacts POST not persisting `photo`, `city`, `country` (were validated but missing from `db.contact.create`)
+- [x] Added `src/app/uploads/[...path]/route.ts` — Next.js standalone mode does not serve `public/` directory automatically; this catch-all handler streams uploaded files with correct `Content-Type` and `Cache-Control: immutable` headers; includes path-traversal protection
+
+#### Public URL restructure
+- [x] `/e/[slug]` is now a server-side redirect to `/e/[slug]/register`
+- [x] Full submitter registration form moved to `/e/[slug]/register`
+- [x] Abstract submission URL widget added to abstracts page (organizer/admin only) — copyable link with description
+
+#### Docker deployment fix
+- [x] Fixed container naming conflict in GitHub Actions deploy workflow
+- [x] Replaced `docker compose up -d --no-deps ea-sys` with `docker compose down --remove-orphans && docker compose up -d`
+- [x] Prior failed deployments left hash-prefixed orphan containers that caused "already in use" errors on next deploy
+
+#### PersonFormFields shared component
+- [x] Created `src/components/forms/person-form-fields.tsx` — reusable fields block (name, email, org, job title, photo, city/country, specialty, tags, bio, website, dietary) used across registrations, speakers, and contacts forms
+
+---
+
 ### EC2 Production Deployment (February 18, 2026)
 - [x] Docker multi-stage build (builder + runner stages, `node:22-slim`)
 - [x] `docker-compose.prod.yml` — production compose file with `ea-sys` service on port 3000
@@ -811,23 +850,17 @@ Docker data root configured in `/etc/docker/daemon.json`:
 3. Abstract status notification
 4. Check-in confirmation email
 
-### Phase 7: Public Registration Portal (NOT STARTED)
+### Phase 7: Public Registration Portal (PARTIALLY COMPLETE)
 
-| Feature | Priority | Estimated Effort |
-|---------|----------|------------------|
-| Public Event Landing Page | High | Medium |
-| Ticket Selection UI | High | Medium |
-| Registration Form | High | Medium |
-| Payment Checkout Flow | High | High |
-| Registration Confirmation Page | High | Low |
-| Email Verification | Medium | Medium |
-| Attendee Profile Portal | Low | Medium |
-
-**Required Tasks:**
-1. Create public event routes `/e/[eventSlug]`
-2. Build responsive registration form
-3. Integrate payment flow
-4. Implement reCAPTCHA or similar protection
+| Feature | Priority | Status |
+|---------|----------|--------|
+| Public Event Landing Page | High | ✅ Complete (`/e/[slug]/register`) |
+| Attendee Registration Form | High | ✅ Complete (ticket selection, personal details) |
+| Submitter Registration Form | High | ✅ Complete (`/e/[slug]/register` — creates SUBMITTER account) |
+| Registration Confirmation Page | High | ✅ Complete (`/e/[slug]/confirmation`) |
+| Payment Checkout Flow | High | ❌ Not Started (requires Stripe) |
+| Email Verification | Medium | ❌ Not Started |
+| Attendee Profile Portal | Low | ❌ Not Started |
 
 ### Phase 8: Reporting & Analytics (NOT STARTED)
 
@@ -911,10 +944,11 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [ ] Add rate limiting per user/IP
 
 ### DevOps
-- [x] Vercel deployment configured
+- [x] Vercel deployment configured (note: photo uploads not supported on Vercel)
 - [x] Create deployment documentation
 - [x] CI/CD pipeline via GitHub Actions (auto-deploy to EC2 on push to `main`)
 - [x] EC2 production deployment (Docker + nginx + SSL)
+- [x] Fixed Docker container naming conflict in deploy workflow (`down --remove-orphans` before `up -d`)
 - [ ] Configure staging environment
 - [ ] Set up database backups
 - [ ] Configure monitoring (error tracking)
