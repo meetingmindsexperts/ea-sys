@@ -7,6 +7,17 @@
 
 set -euo pipefail
 
+SCRIPT_START=$(date +%s)
+PHASE_START=$SCRIPT_START
+phase_done() {
+  local label="$1"
+  local now
+  now=$(date +%s)
+  local took=$((now - PHASE_START))
+  printf '⏱ %s took %ss\n' "$label" "$took"
+  PHASE_START=$now
+}
+
 DEPLOY_DIR="/home/ubuntu/ea-sys"
 SLOT_FILE="/home/ubuntu/.active-slot"
 NGINX_UPSTREAM="/etc/nginx/conf.d/ea-sys-upstream.conf"
@@ -25,18 +36,26 @@ else
   INACTIVE_PORT=3000
 fi
 
+ACTIVE_PORT=3000
+if [ "$ACTIVE" = "green" ]; then
+  ACTIVE_PORT=3001
+fi
+
 echo "==> Active: $ACTIVE | Deploying to: $INACTIVE (port $INACTIVE_PORT)"
 
 # ── Remove only dangling images (preserve build cache for fast rebuilds) ───────
 docker image prune -f
+phase_done "Image prune"
 
 # ── Build inactive slot with BuildKit ─────────────────────────────────────────
 echo "==> Building ea-sys-$INACTIVE..."
 DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
+phase_done "Build ea-sys-$INACTIVE"
 
 # ── Start inactive slot (active slot still serving traffic) ───────────────────
 echo "==> Starting ea-sys-$INACTIVE..."
 $COMPOSE up -d "ea-sys-$INACTIVE"
+phase_done "Start ea-sys-$INACTIVE"
 
 # ── Health check ──────────────────────────────────────────────────────────────
 echo "==> Waiting for health check on :$INACTIVE_PORT..."
@@ -51,11 +70,21 @@ until curl -sf "http://localhost:$INACTIVE_PORT/api/health" > /dev/null 2>&1; do
   sleep 2
 done
 echo "✓ Health check passed"
+phase_done "Health check"
 
 # ── Switch nginx upstream (graceful reload — zero dropped requests) ────────────
 echo "==> Switching nginx upstream to port $INACTIVE_PORT..."
 echo "server 127.0.0.1:$INACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
-sudo nginx -s reload
+if sudo nginx -t; then
+  sudo nginx -s reload
+else
+  echo "✗ nginx config test failed. Rolling back upstream and stopping ea-sys-$INACTIVE."
+  echo "server 127.0.0.1:$ACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+  sudo nginx -t && sudo nginx -s reload || true
+  $COMPOSE stop "ea-sys-$INACTIVE" || true
+  exit 1
+fi
+phase_done "Nginx switch + reload"
 
 # ── Persist active slot ───────────────────────────────────────────────────────
 echo "$INACTIVE" > "$SLOT_FILE"
@@ -63,12 +92,15 @@ echo "$INACTIVE" > "$SLOT_FILE"
 # ── Stop old slot ─────────────────────────────────────────────────────────────
 echo "==> Stopping old ea-sys-$ACTIVE..."
 $COMPOSE stop "ea-sys-$ACTIVE"
+phase_done "Stop old slot"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "✓ Blue-green deploy complete"
 echo "  Active slot : $INACTIVE (port $INACTIVE_PORT)"
 echo "  Idle slot   : $ACTIVE (stopped)"
+TOTAL_TAKE=$(( $(date +%s) - SCRIPT_START ))
+echo "  Total deploy time: ${TOTAL_TAKE}s"
 echo ""
 $COMPOSE ps
 echo ""
