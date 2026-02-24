@@ -28,12 +28,21 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=optional
 
-      - name: Verify lightningcss native binding
-        run: node -e "require('lightningcss'); console.log('lightningcss native binding loaded')"
-
+      - name: Verify lightningcss binding
+        run: |
+          node -e "
+          try {
+            require('lightningcss');
+            console.log('✅ lightningcss native binding loaded successfully');
+          } catch (e) {
+            console.error('❌ lightningcss binding failed to load');
+            console.error(e.message);
+            process.exit(1);
+          }
+          "
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: npm run type-check
 
       - name: Lint
         run: npm run lint
