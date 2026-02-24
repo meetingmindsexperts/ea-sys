@@ -26,7 +26,9 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --include=optional
+        run: |
+          npm ci
+          npm install @lightningcss/linux-x64-gnu # Explicitly pull the missing binary
 
       - name: Verify lightningcss binding
         run: |
