@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -30,6 +30,7 @@ jobs:
 
       - name: Verify lightningcss native binding
         run: node -e "require('lightningcss'); console.log('lightningcss native binding loaded')"
+
 
       - name: Type check
         run: npx tsc --noEmit
