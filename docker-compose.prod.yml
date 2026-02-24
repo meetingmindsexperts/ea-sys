@@ -1,9 +1,9 @@
 services:
-  ea-sys:
+  ea-sys-blue:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ea-sys
+    container_name: ea-sys-blue
     restart: unless-stopped
     env_file:
       - .env
@@ -15,9 +15,33 @@ services:
     networks:
       - web
     volumes:
-      # Mount uploads directory for persistent photo storage
+      # Shared uploads directory — both slots mount the same path
       - ./public/uploads:/app/public/uploads
-      # Mount Docker socket to allow container to execute docker commands
+      - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "{{.Name}}/{{.ID}}"
+
+  ea-sys-green:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ea-sys-green
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    ports:
+      - "3001:3000"
+    networks:
+      - web
+    volumes:
+      - ./public/uploads:/app/public/uploads
       - /var/run/docker.sock:/var/run/docker.sock
     logging:
       driver: "json-file"
@@ -36,20 +60,7 @@ services:
   #   env_file:
   #     - ../other-next-app/.env
   #   ports:
-  #     - "3001:3000"
-  #   networks:
-  #     - web
-  #
-  # python-api:
-  #   build:
-  #     context: ../python-api
-  #     dockerfile: Dockerfile
-  #   container_name: python-api
-  #   restart: unless-stopped
-  #   env_file:
-  #     - ../python-api/.env
-  #   ports:
-  #     - "8000:8000"
+  #     - "3002:3000"
   #   networks:
   #     - web
 

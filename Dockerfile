@@ -1,16 +1,22 @@
+# syntax=docker/dockerfile:1
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:22-slim AS builder
 WORKDIR /app
 
 # Prisma + lightningcss both need openssl on Debian slim
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# BuildKit cache: apt packages persist between builds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && apt-get install -y openssl
 
 # Install dependencies first (cached layer — only re-runs when package.json changes)
 # Delete lockfile so npm resolves platform-specific native binaries fresh for
 # Linux (the lockfile was generated on macOS and records darwin binaries only).
+# BuildKit cache: npm download cache persists between builds (~30s → ~5s)
 COPY package.json ./
 COPY prisma ./prisma/
-RUN npm install
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
 
 # Copy source and build
 COPY . .
@@ -26,9 +32,11 @@ FROM node:22-slim AS runner
 WORKDIR /app
 
 # Install openssl and Docker CLI for logs functionality
-RUN apt-get update -y && \
+# BuildKit cache: apt packages persist between builds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && \
     apt-get install -y openssl curl ca-certificates && \
-    # Install Docker CLI ONLY (not the full engine)
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
     chmod a+r /etc/apt/keyrings/docker.asc && \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \

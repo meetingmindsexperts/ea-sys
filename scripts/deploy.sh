@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Blue-green deploy script for ea-sys
+# Builds the inactive slot, health-checks it, switches nginx, then stops the old slot.
+# Zero downtime: nginx reload is graceful (in-flight requests finish on old slot).
+#
+# One-time server setup required before first run — see deploy/SERVER_SETUP.md
+
+set -euo pipefail
+
+DEPLOY_DIR="/home/ubuntu/ea-sys"
+SLOT_FILE="/home/ubuntu/.active-slot"
+NGINX_UPSTREAM="/etc/nginx/conf.d/ea-sys-upstream.conf"
+HEALTH_RETRIES=30   # 30 × 2s = 60 seconds max wait
+COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.prod.yml"
+
+cd "$DEPLOY_DIR"
+
+# ── Determine slots ────────────────────────────────────────────────────────────
+ACTIVE=$(cat "$SLOT_FILE" 2>/dev/null || echo "blue")
+if [ "$ACTIVE" = "blue" ]; then
+  INACTIVE="green"
+  INACTIVE_PORT=3001
+else
+  INACTIVE="blue"
+  INACTIVE_PORT=3000
+fi
+
+echo "==> Active: $ACTIVE | Deploying to: $INACTIVE (port $INACTIVE_PORT)"
+
+# ── Remove only dangling images (preserve build cache for fast rebuilds) ───────
+docker image prune -f
+
+# ── Build inactive slot with BuildKit ─────────────────────────────────────────
+echo "==> Building ea-sys-$INACTIVE..."
+DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
+
+# ── Start inactive slot (active slot still serving traffic) ───────────────────
+echo "==> Starting ea-sys-$INACTIVE..."
+$COMPOSE up -d "ea-sys-$INACTIVE"
+
+# ── Health check ──────────────────────────────────────────────────────────────
+echo "==> Waiting for health check on :$INACTIVE_PORT..."
+ATTEMPTS=0
+until curl -sf "http://localhost:$INACTIVE_PORT/api/health" > /dev/null 2>&1; do
+  ATTEMPTS=$((ATTEMPTS + 1))
+  if [ "$ATTEMPTS" -ge "$HEALTH_RETRIES" ]; then
+    echo "✗ Health check failed after $((HEALTH_RETRIES * 2))s. Rolling back."
+    $COMPOSE stop "ea-sys-$INACTIVE" || true
+    exit 1
+  fi
+  sleep 2
+done
+echo "✓ Health check passed"
+
+# ── Switch nginx upstream (graceful reload — zero dropped requests) ────────────
+echo "==> Switching nginx upstream to port $INACTIVE_PORT..."
+echo "server 127.0.0.1:$INACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+sudo nginx -s reload
+
+# ── Persist active slot ───────────────────────────────────────────────────────
+echo "$INACTIVE" > "$SLOT_FILE"
+
+# ── Stop old slot ─────────────────────────────────────────────────────────────
+echo "==> Stopping old ea-sys-$ACTIVE..."
+$COMPOSE stop "ea-sys-$ACTIVE"
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo "✓ Blue-green deploy complete"
+echo "  Active slot : $INACTIVE (port $INACTIVE_PORT)"
+echo "  Idle slot   : $ACTIVE (stopped)"
+echo ""
+$COMPOSE ps
+echo ""
+echo "==> Recent logs (ea-sys-$INACTIVE):"
+$COMPOSE logs --tail=30 "ea-sys-$INACTIVE"
