@@ -55,16 +55,20 @@ phase_done "Build ea-sys-$INACTIVE"
 # ── Run DB migrations using the builder stage (has full node_modules) ─────────
 # The builder stage is already cached by BuildKit — tagging it is near-instant.
 # docker run --env-file does NOT strip quotes from values (unlike dotenv), so we
-# extract and unquote the URL explicitly. DIRECT_URL bypasses the connection
-# pooler, which is required for schema migrations.
+# extract and unquote both URLs explicitly.
+# - DIRECT_URL bypasses the connection pooler (required for schema migrations)
+# - Both DATABASE_URL and DIRECT_URL must be set; schema.prisma references both
 echo "==> Running database migrations..."
-MIGRATION_DB_URL=$(grep -E "^DIRECT_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DIRECT_URL=//; s/^["'"'"']//; s/["'"'"']$//')
-if [ -z "$MIGRATION_DB_URL" ]; then
-  MIGRATION_DB_URL=$(grep -E "^DATABASE_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DATABASE_URL=//; s/^["'"'"']//; s/["'"'"']$//')
+MIGRATION_DIRECT_URL=$(grep -E "^DIRECT_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DIRECT_URL=//; s/^["'"'"']//; s/["'"'"']$//')
+MIGRATION_DATABASE_URL=$(grep -E "^DATABASE_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DATABASE_URL=//; s/^["'"'"']//; s/["'"'"']$//')
+# Fall back to DATABASE_URL if DIRECT_URL is not set
+if [ -z "$MIGRATION_DIRECT_URL" ]; then
+  MIGRATION_DIRECT_URL="$MIGRATION_DATABASE_URL"
 fi
 DOCKER_BUILDKIT=1 docker build --target builder -t ea-sys-migrator "$DEPLOY_DIR"
 if ! docker run --rm \
-    -e "DATABASE_URL=$MIGRATION_DB_URL" \
+    -e "DATABASE_URL=$MIGRATION_DIRECT_URL" \
+    -e "DIRECT_URL=$MIGRATION_DIRECT_URL" \
     ea-sys-migrator npx prisma migrate deploy; then
   echo "✗ Migration failed. Aborting deploy."
   docker rmi ea-sys-migrator || true

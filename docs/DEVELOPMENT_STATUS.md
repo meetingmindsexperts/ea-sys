@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 23, 2026
+**Last Updated:** February 24, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -431,6 +431,54 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 
 ---
 
+### Sentry Error Monitoring & CI/CD Hardening (February 24, 2026)
+
+#### Sentry integration
+- [x] Installed `@sentry/nextjs@10` via Sentry wizard
+- [x] `sentry.client.config.ts` — session replay (10% sample, 100% on error), enabled only when `NEXT_PUBLIC_SENTRY_DSN` is set
+- [x] `sentry.server.config.ts` / `sentry.edge.config.ts` — server and edge runtime error capture
+- [x] `src/instrumentation.ts` — `register()` loads server/edge configs; `onRequestError` captures server-side route errors (Next.js 15+ hook)
+- [x] `src/app/global-error.tsx` — root React error boundary, calls `Sentry.captureException` for client-side crashes
+- [x] `next.config.ts` wrapped with `withSentryConfig`; `org`/`project`/`authToken` read from env vars
+- [x] Sentry source map upload wired into GitHub Actions Build step via `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT` secrets
+
+**New Files:**
+- `sentry.client.config.ts`
+- `sentry.server.config.ts`
+- `sentry.edge.config.ts`
+- `src/app/global-error.tsx`
+
+**Required GitHub Secrets:**
+- `SENTRY_AUTH_TOKEN` — Internal Integration token (Sentry → Developer Settings → Internal Integrations)
+- `SENTRY_ORG` — Sentry org slug
+- `SENTRY_PROJECT` — Sentry project slug
+
+#### Blue-green zero-downtime deploy
+- [x] `scripts/deploy.sh` — builds inactive slot, health-checks it, switches nginx upstream, stops old slot
+- [x] Database migrations run via builder-stage Docker container before traffic switches (full `node_modules` available; `DIRECT_URL` used to bypass connection pooler)
+- [x] `docker run --env-file` quote-stripping fixed — values extracted and unquoted via `sed` before passing as `-e "DATABASE_URL=..."`)
+- [x] All rollback paths (migration failure, health check, nginx config) now `stop` + `rm -f` the failed container
+- [x] Migrator image (`ea-sys-migrator`) tagged from cached builder stage (~1s), removed after migrations complete
+
+#### GitHub Actions CI/CD improvements
+- [x] Removed broken `npm install @lightningcss/linux-x64-gnu` workaround (wrong scoped package name; no longer needed after lockfile fix)
+- [x] Removed redundant lightningcss binding verification step
+- [x] SSH `command_timeout` increased from `15m` → `25m` (Docker build + health check on t3.large was tight)
+- [x] Sentry source maps uploaded during Build step in CI
+
+#### npm lockfile stability
+- [x] Root cause: `npm install` on macOS only resolves platform-specific optional binaries for the current OS; Linux binaries were absent from `package-lock.json`, causing `npm ci` to fail on GitHub Actions (Linux) with `Invalid Version`
+- [x] Fixed by pinning Linux binaries in `optionalDependencies`:
+  - `lightningcss-linux-x64-gnu: 1.30.2` (TailwindCSS CSS engine)
+  - `@tailwindcss/oxide-linux-x64-gnu: 4.1.18` (TailwindCSS v4 native compiler)
+- [x] Lockfile regenerated; all 760 packages have valid version fields
+
+#### Dockerfile improvements
+- [x] Builder stage: `COPY package.json package-lock.json` + `npm ci` replaces `npm install` without lockfile — deterministic builds, faster due to lockfile cache layer
+- [x] Runner stage: removed incomplete `node_modules/prisma` copy (missing `effect` transitive dep); migrations now run from the builder stage instead
+
+---
+
 ### Fixes & Enhancements (February 23, 2026)
 
 #### Specialty field on Abstract
@@ -475,7 +523,8 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - [x] `docker-compose.prod.yml` — production compose file with `ea-sys` service on port 3000
 - [x] nginx reverse proxy with HTTP→HTTPS redirect, gzip, security headers, long-cache for `/_next/static/`
 - [x] SSL via Let's Encrypt — automated renewal with `certbot-dns-godaddy` plugin (no manual renewal needed)
-- [x] GitHub Actions workflow (`.github/workflows/deploy.yml`) — triggers on push to `main`, SSHes into EC2, `git fetch/reset --hard`, docker compose build + up, image prune
+- [x] GitHub Actions workflow (`.github/workflows/deploy.yml`) — triggers on push to `main`; runs tsc + lint + build (with Sentry source map upload), SSHes into EC2, runs `scripts/deploy.sh`
+- [x] Blue-green deploy (`scripts/deploy.sh`) — builds inactive slot, runs DB migrations via builder-stage container, health-checks on `/api/health`, switches nginx upstream, stops old slot; zero downtime
 - [x] systemd service (`ea-sys.service`) — Docker container auto-starts on EC2 reboot
 - [x] Elastic IP associated to EC2 instance for stable DNS
 - [x] Docker data root moved to `/mnt/data` (30 GB attached EBS volume) — keeps root volume free
@@ -949,10 +998,13 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [x] CI/CD pipeline via GitHub Actions (auto-deploy to EC2 on push to `main`)
 - [x] EC2 production deployment (Docker + nginx + SSL)
 - [x] Fixed Docker container naming conflict in deploy workflow (`down --remove-orphans` before `up -d`)
+- [x] Blue-green zero-downtime deploy (`scripts/deploy.sh`) — health-checked slot swap, nginx upstream reload, automated DB migrations
+- [x] Error monitoring via Sentry (`@sentry/nextjs`) — client crashes, server route errors, source maps uploaded in CI
+- [x] Fixed `npm ci` failures on Linux (pinned `lightningcss-linux-x64-gnu` + `@tailwindcss/oxide-linux-x64-gnu` in `optionalDependencies`)
+- [x] Dockerfile hardened: `npm ci` with lockfile for deterministic builds
 - [ ] Configure staging environment
 - [ ] Set up database backups
-- [ ] Configure monitoring (error tracking)
-- [ ] Add performance monitoring
+- [ ] Add performance monitoring (APM)
 
 ---
 
