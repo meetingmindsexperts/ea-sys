@@ -244,6 +244,29 @@
     transform: translateY(-1px);
   }
 
+  /* ── Print styles for public schedule page ── */
+  @media print {
+    @page {
+      margin: 1.5cm;
+      size: A4 portrait;
+    }
+
+    body {
+      font-size: 11pt;
+      color: #0f172a;
+      background: white;
+    }
+
+    .print-day-group {
+      break-inside: avoid;
+    }
+
+    * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+
   /* Subtle dot grid pattern for hero sections without a banner image */
   .bg-dot-pattern {
     background-image: radial-gradient(circle at 1px 1px, white 1px, transparent 0);

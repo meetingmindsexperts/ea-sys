@@ -305,6 +305,22 @@ export default function PublicEventRegisterPage() {
               </div>
             )}
 
+            {/* Schedule link */}
+            <Link href={`/e/${slug}/schedule`} className="block group">
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
+                <div className="flex items-center gap-4">
+                  <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                    <Calendar className="h-5 w-5 text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 text-sm">View Programme</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Full agenda &amp; schedule</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors shrink-0" />
+                </div>
+              </div>
+            </Link>
+
             {/* Abstract submission CTA */}
             {event.abstractSettings?.allowAbstractSubmissions && (
               <Link href={`/e/${slug}/submitAbstract`} className="block group">

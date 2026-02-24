@@ -1,0 +1,84 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+
+interface RouteParams {
+  params: Promise<{ slug: string }>;
+}
+
+export async function GET(_req: Request, { params }: RouteParams) {
+  try {
+    const { slug } = await params;
+
+    const event = await db.event.findFirst({
+      where: {
+        OR: [{ slug }, { id: slug }],
+        status: { in: ["PUBLISHED", "LIVE"] },
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        startDate: true,
+        endDate: true,
+        organization: { select: { name: true, logo: true } },
+        tracks: {
+          select: { id: true, name: true, color: true },
+          orderBy: { sortOrder: "asc" },
+        },
+        eventSessions: {
+          where: {
+            status: { in: ["SCHEDULED", "LIVE", "COMPLETED"] },
+          },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            startTime: true,
+            endTime: true,
+            location: true,
+            capacity: true,
+            status: true,
+            track: { select: { id: true, name: true, color: true } },
+            speakers: {
+              select: {
+                speaker: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    jobTitle: true,
+                    organization: true,
+                    photo: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { startTime: "asc" },
+        },
+      },
+    });
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    const response = NextResponse.json({
+      id: event.id,
+      name: event.name,
+      slug: event.slug,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      organization: event.organization,
+      tracks: event.tracks,
+      sessions: event.eventSessions,
+    });
+
+    response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return response;
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Error fetching public schedule" });
+    return NextResponse.json({ error: "Failed to fetch schedule" }, { status: 500 });
+  }
+}
