@@ -9,14 +9,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -y && apt-get install -y openssl
 
-# Install dependencies first (cached layer — only re-runs when package.json changes)
-# Delete lockfile so npm resolves platform-specific native binaries fresh for
-# Linux (the lockfile was generated on macOS and records darwin binaries only).
+# Install dependencies first (cached layer — only re-runs when lockfile changes)
 # BuildKit cache: npm download cache persists between builds (~30s → ~5s)
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 RUN --mount=type=cache,target=/root/.npm \
-    npm install
+    npm ci
 
 # Copy source and build
 COPY . .
@@ -56,8 +54,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 # Prisma client (needed at runtime for DB queries)
+# prisma CLI is also included so deploy.sh can run migrations via docker compose run
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/prisma ./prisma
 
 USER nextjs

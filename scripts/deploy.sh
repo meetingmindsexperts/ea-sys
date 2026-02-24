@@ -52,6 +52,16 @@ echo "==> Building ea-sys-$INACTIVE..."
 DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
 phase_done "Build ea-sys-$INACTIVE"
 
+# ── Run DB migrations (before traffic switches, active slot still serving) ────
+echo "==> Running database migrations..."
+if ! $COMPOSE run --rm --no-deps "ea-sys-$INACTIVE" \
+    node node_modules/prisma/build/index.js migrate deploy; then
+  echo "✗ Migration failed. Aborting deploy."
+  $COMPOSE rm -f "ea-sys-$INACTIVE" || true
+  exit 1
+fi
+phase_done "Database migrations"
+
 # ── Start inactive slot (active slot still serving traffic) ───────────────────
 echo "==> Starting ea-sys-$INACTIVE..."
 $COMPOSE up -d "ea-sys-$INACTIVE"
@@ -65,6 +75,7 @@ until curl -sf "http://localhost:$INACTIVE_PORT/api/health" > /dev/null 2>&1; do
   if [ "$ATTEMPTS" -ge "$HEALTH_RETRIES" ]; then
     echo "✗ Health check failed after $((HEALTH_RETRIES * 2))s. Rolling back."
     $COMPOSE stop "ea-sys-$INACTIVE" || true
+    $COMPOSE rm -f "ea-sys-$INACTIVE" || true
     exit 1
   fi
   sleep 2
@@ -82,6 +93,7 @@ else
   echo "server 127.0.0.1:$ACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
   sudo nginx -t && sudo nginx -s reload || true
   $COMPOSE stop "ea-sys-$INACTIVE" || true
+  $COMPOSE rm -f "ea-sys-$INACTIVE" || true
   exit 1
 fi
 phase_done "Nginx switch + reload"

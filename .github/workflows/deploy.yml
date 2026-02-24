@@ -26,22 +26,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          npm ci
-          npm install @lightningcss/linux-x64-gnu # Explicitly pull the missing binary
-
-      - name: Verify lightningcss binding
-        run: |
-          node -e "
-          try {
-            require('lightningcss');
-            console.log('✅ lightningcss native binding loaded successfully');
-          } catch (e) {
-            console.error('❌ lightningcss binding failed to load');
-            console.error(e.message);
-            process.exit(1);
-          }
-          "
+        run: npm ci
 
       - name: Type check
         run: npm run type-check
@@ -50,6 +35,10 @@ jobs:
         run: npm run lint
 
       - name: Build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: npm run build
 
       - name: Deploy via SSH
@@ -60,7 +49,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script_stop: true
-          command_timeout: 15m
+          command_timeout: 25m
           script: |
             set -e
             cd /home/ubuntu/ea-sys

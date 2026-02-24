@@ -32,7 +32,11 @@
       "Bash(find:*)",
       "Bash(xargs sed -i:*)",
       "Bash(npx tsx:*)",
-      "WebFetch(domain:www.meetingmindsgroup.com)"
+      "WebFetch(domain:www.meetingmindsgroup.com)",
+      "Bash(npm ls:*)",
+      "Bash(node -e:*)",
+      "Bash(node --input-type=module:*)",
+      "Bash(npm ci:*)"
     ]
   }
 }
