@@ -54,10 +54,18 @@ phase_done "Build ea-sys-$INACTIVE"
 
 # ── Run DB migrations using the builder stage (has full node_modules) ─────────
 # The builder stage is already cached by BuildKit — tagging it is near-instant.
+# docker run --env-file does NOT strip quotes from values (unlike dotenv), so we
+# extract and unquote the URL explicitly. DIRECT_URL bypasses the connection
+# pooler, which is required for schema migrations.
 echo "==> Running database migrations..."
+MIGRATION_DB_URL=$(grep -E "^DIRECT_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DIRECT_URL=//; s/^["'"'"']//; s/["'"'"']$//')
+if [ -z "$MIGRATION_DB_URL" ]; then
+  MIGRATION_DB_URL=$(grep -E "^DATABASE_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DATABASE_URL=//; s/^["'"'"']//; s/["'"'"']$//')
+fi
 DOCKER_BUILDKIT=1 docker build --target builder -t ea-sys-migrator "$DEPLOY_DIR"
-if ! docker run --rm --env-file "$DEPLOY_DIR/.env" ea-sys-migrator \
-    npx prisma migrate deploy; then
+if ! docker run --rm \
+    -e "DATABASE_URL=$MIGRATION_DB_URL" \
+    ea-sys-migrator npx prisma migrate deploy; then
   echo "✗ Migration failed. Aborting deploy."
   docker rmi ea-sys-migrator || true
   exit 1
