@@ -25,6 +25,11 @@ else
   INACTIVE_PORT=3000
 fi
 
+ACTIVE_PORT=3000
+if [ "$ACTIVE" = "green" ]; then
+  ACTIVE_PORT=3001
+fi
+
 echo "==> Active: $ACTIVE | Deploying to: $INACTIVE (port $INACTIVE_PORT)"
 
 # ── Remove only dangling images (preserve build cache for fast rebuilds) ───────
@@ -55,7 +60,15 @@ echo "✓ Health check passed"
 # ── Switch nginx upstream (graceful reload — zero dropped requests) ────────────
 echo "==> Switching nginx upstream to port $INACTIVE_PORT..."
 echo "server 127.0.0.1:$INACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
-sudo nginx -s reload
+if sudo nginx -t; then
+  sudo nginx -s reload
+else
+  echo "✗ nginx config test failed. Rolling back upstream and stopping ea-sys-$INACTIVE."
+  echo "server 127.0.0.1:$ACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+  sudo nginx -t && sudo nginx -s reload || true
+  $COMPOSE stop "ea-sys-$INACTIVE" || true
+  exit 1
+fi
 
 # ── Persist active slot ───────────────────────────────────────────────────────
 echo "$INACTIVE" > "$SLOT_FILE"
