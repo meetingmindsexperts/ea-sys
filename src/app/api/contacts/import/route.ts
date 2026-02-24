@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/security";
 
 // Parse a single CSV line handling quoted fields
 function parseCSVLine(line: string): string[] {
@@ -40,6 +41,19 @@ export async function POST(req: Request) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    const importRateLimit = checkRateLimit({
+      key: `contacts-import:org:${session.user.organizationId}`,
+      limit: 10,
+      windowMs: 60 * 60 * 1000,
+    });
+
+    if (!importRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Import limit reached. Maximum 10 imports per hour." },
+        { status: 429, headers: { "Retry-After": String(importRateLimit.retryAfterSeconds) } }
+      );
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

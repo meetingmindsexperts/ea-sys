@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -9,6 +10,20 @@ interface RouteParams {
 // Get public event details (supports both slug and event ID)
 export async function GET(req: Request, { params }: RouteParams) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `public-event:ip:${clientIp}`,
+      limit: 120,
+      windowMs: 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const { slug } = await params;
 
     // Support both slug and event ID lookup

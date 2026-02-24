@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -23,6 +24,20 @@ interface RouteParams {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
+    const clientIp = getClientIp(req);
+    const ipRateLimit = checkRateLimit({
+      key: `submitter-register:ip:${clientIp}`,
+      limit: 20,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const { slug } = await params;
 
     // Look up event
@@ -75,6 +90,19 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
     const emailLower = data.email.toLowerCase();
+
+    const emailRateLimit = checkRateLimit({
+      key: `submitter-register:email:${emailLower}`,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!emailRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(emailRateLimit.retryAfterSeconds) } }
+      );
+    }
 
     // Check if email is already taken
     const existingUser = await db.user.findUnique({

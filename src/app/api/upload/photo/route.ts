@@ -5,6 +5,7 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/security";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 500 * 1024; // 500KB in bytes
@@ -19,6 +20,19 @@ export async function POST(req: Request) {
     if (!session?.user) {
       apiLogger.warn({ msg: "Unauthorized photo upload attempt" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const uploadRateLimit = checkRateLimit({
+      key: `photo-upload:user:${session.user.id}`,
+      limit: 20,
+      windowMs: 60 * 60 * 1000,
+    });
+
+    if (!uploadRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Upload limit reached. Maximum 20 photos per hour." },
+        { status: 429, headers: { "Retry-After": String(uploadRateLimit.retryAfterSeconds) } }
+      );
     }
 
     // Log environment info
