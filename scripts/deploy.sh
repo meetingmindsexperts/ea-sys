@@ -52,14 +52,17 @@ echo "==> Building ea-sys-$INACTIVE..."
 DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
 phase_done "Build ea-sys-$INACTIVE"
 
-# ── Run DB migrations (before traffic switches, active slot still serving) ────
+# ── Run DB migrations using the builder stage (has full node_modules) ─────────
+# The builder stage is already cached by BuildKit — tagging it is near-instant.
 echo "==> Running database migrations..."
-if ! $COMPOSE run --rm --no-deps "ea-sys-$INACTIVE" \
-    node node_modules/prisma/build/index.js migrate deploy; then
+DOCKER_BUILDKIT=1 docker build --target builder -t ea-sys-migrator "$DEPLOY_DIR"
+if ! docker run --rm --env-file "$DEPLOY_DIR/.env" ea-sys-migrator \
+    npx prisma migrate deploy; then
   echo "✗ Migration failed. Aborting deploy."
-  $COMPOSE rm -f "ea-sys-$INACTIVE" || true
+  docker rmi ea-sys-migrator || true
   exit 1
 fi
+docker rmi ea-sys-migrator || true
 phase_done "Database migrations"
 
 # ── Start inactive slot (active slot still serving traffic) ───────────────────
