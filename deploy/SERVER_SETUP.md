@@ -7,6 +7,7 @@ Run these commands **once** on the EC2 server before the first blue-green deploy
 ```bash
 sudo tee /etc/sudoers.d/ea-sys-deploy << 'EOF'
 ubuntu ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/conf.d/ea-sys-upstream.conf
+ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
 ubuntu ALL=(ALL) NOPASSWD: /usr/sbin/nginx -s reload
 EOF
 sudo chmod 440 /etc/sudoers.d/ea-sys-deploy
@@ -14,8 +15,13 @@ sudo chmod 440 /etc/sudoers.d/ea-sys-deploy
 
 ## 2. Create initial nginx upstream config (blue = port 3000)
 
+The conf.d file must contain a **complete upstream block** so nginx can include it
+at the http level without errors. A bare `server ...;` line is only valid inside
+an `upstream {}` context.
+
 ```bash
-echo "server 127.0.0.1:3000;" | sudo tee /etc/nginx/conf.d/ea-sys-upstream.conf
+printf 'upstream ea_sys_app {\n    server 127.0.0.1:3000;\n    keepalive 32;\n}\n' \
+  | sudo tee /etc/nginx/conf.d/ea-sys-upstream.conf
 ```
 
 ## 3. Update nginx site config

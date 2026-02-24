@@ -99,13 +99,18 @@ echo "✓ Health check passed"
 phase_done "Health check"
 
 # ── Switch nginx upstream (graceful reload — zero dropped requests) ────────────
+# Write a complete upstream block so the conf.d file is valid at the nginx http
+# level (conf.d/*.conf is auto-included there by the default nginx.conf).
+# A bare "server 127.0.0.1:PORT;" is only valid inside an upstream{} context.
 echo "==> Switching nginx upstream to port $INACTIVE_PORT..."
-echo "server 127.0.0.1:$INACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
+  "$INACTIVE_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
 if sudo nginx -t; then
   sudo nginx -s reload
 else
   echo "✗ nginx config test failed. Rolling back upstream and stopping ea-sys-$INACTIVE."
-  echo "server 127.0.0.1:$ACTIVE_PORT;" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+  printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
+    "$ACTIVE_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
   sudo nginx -t && sudo nginx -s reload || true
   $COMPOSE stop "ea-sys-$INACTIVE" || true
   $COMPOSE rm -f "ea-sys-$INACTIVE" || true
