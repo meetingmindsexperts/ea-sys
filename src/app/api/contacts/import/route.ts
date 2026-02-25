@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { getOrgContext } from "@/lib/api-auth";
 
 // Parse a single CSV line handling quoted fields
 function parseCSVLine(line: string): string[] {
@@ -33,17 +32,18 @@ function parseCSVLine(line: string): string[] {
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
+    const ctx = await getOrgContext(req);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
-    if (denied) return denied;
+    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const importRateLimit = checkRateLimit({
-      key: `contacts-import:org:${session.user.organizationId}`,
+      key: `contacts-import:org:${ctx.organizationId}`,
       limit: 10,
       windowMs: 60 * 60 * 1000,
     });
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
         : [];
 
       contacts.push({
-        organizationId: session.user.organizationId!,
+        organizationId: ctx.organizationId,
         email,
         firstName,
         lastName,
@@ -145,7 +145,7 @@ export async function POST(req: Request) {
 
     // Get count before to calculate created vs skipped
     const countBefore = await db.contact.count({
-      where: { organizationId: session.user.organizationId! },
+      where: { organizationId: ctx.organizationId },
     });
 
     await db.contact.createMany({
@@ -154,7 +154,7 @@ export async function POST(req: Request) {
     });
 
     const countAfter = await db.contact.count({
-      where: { organizationId: session.user.organizationId! },
+      where: { organizationId: ctx.organizationId },
     });
 
     const created = countAfter - countBefore;

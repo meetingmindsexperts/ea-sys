@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { getOrgContext } from "@/lib/api-auth";
 
 const createContactSchema = z.object({
   email: z.string().email(),
@@ -22,9 +21,9 @@ const createContactSchema = z.object({
 
 export async function GET(req: Request) {
   try {
-    const session = await auth();
+    const ctx = await getOrgContext(req);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -38,7 +37,7 @@ export async function GET(req: Request) {
     const tags = tagsParam ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean) : [];
 
     const where = {
-      organizationId: session.user.organizationId!,
+      organizationId: ctx.organizationId,
       ...(search && {
         OR: [
           { firstName: { contains: search, mode: "insensitive" as const } },
@@ -90,14 +89,15 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const [session, body] = await Promise.all([auth(), req.json()]);
+    const [ctx, body] = await Promise.all([getOrgContext(req), req.json()]);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
-    if (denied) return denied;
+    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const validated = createContactSchema.safeParse(body);
     if (!validated.success) {
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
     const { email, firstName, lastName, organization, jobTitle, specialty, phone, photo, city, country, tags, notes } = validated.data;
 
     const existing = await db.contact.findUnique({
-      where: { organizationId_email: { organizationId: session.user.organizationId!, email } },
+      where: { organizationId_email: { organizationId: ctx.organizationId, email } },
       select: { id: true },
     });
 
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
 
     const contact = await db.contact.create({
       data: {
-        organizationId: session.user.organizationId!,
+        organizationId: ctx.organizationId,
         email,
         firstName,
         lastName,

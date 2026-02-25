@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { getOrgContext } from "@/lib/api-auth";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
@@ -24,14 +23,14 @@ const updateContactSchema = z.object({
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const [{ contactId }, session] = await Promise.all([params, auth()]);
+    const [{ contactId }, ctx] = await Promise.all([params, getOrgContext(req)]);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const contact = await db.contact.findFirst({
-      where: { id: contactId, organizationId: session.user.organizationId! },
+      where: { id: contactId, organizationId: ctx.organizationId },
     });
 
     if (!contact) {
@@ -43,7 +42,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.speaker.findMany({
         where: {
           email: contact.email,
-          event: { organizationId: session.user.organizationId! },
+          event: { organizationId: ctx.organizationId },
         },
         select: {
           id: true,
@@ -56,7 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.registration.findMany({
         where: {
           attendee: { email: contact.email },
-          event: { organizationId: session.user.organizationId! },
+          event: { organizationId: ctx.organizationId },
         },
         select: {
           id: true,
@@ -99,14 +98,15 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const [{ contactId }, session, body] = await Promise.all([params, auth(), req.json()]);
+    const [{ contactId }, ctx, body] = await Promise.all([params, getOrgContext(req), req.json()]);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
-    if (denied) return denied;
+    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const validated = updateContactSchema.safeParse(body);
     if (!validated.success) {
@@ -117,7 +117,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const contact = await db.contact.findFirst({
-      where: { id: contactId, organizationId: session.user.organizationId! },
+      where: { id: contactId, organizationId: ctx.organizationId },
       select: { id: true },
     });
 
@@ -129,7 +129,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (validated.data.email) {
       const existing = await db.contact.findFirst({
         where: {
-          organizationId: session.user.organizationId!,
+          organizationId: ctx.organizationId,
           email: validated.data.email,
           id: { not: contactId },
         },
@@ -157,17 +157,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const [{ contactId }, session] = await Promise.all([params, auth()]);
+    const [{ contactId }, ctx] = await Promise.all([params, getOrgContext(req)]);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
-    if (denied) return denied;
+    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const contact = await db.contact.findFirst({
-      where: { id: contactId, organizationId: session.user.organizationId! },
+      where: { id: contactId, organizationId: ctx.organizationId },
       select: { id: true },
     });
 

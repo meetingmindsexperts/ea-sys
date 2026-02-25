@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { getOrgContext } from "@/lib/api-auth";
 
 const bulkTagsSchema = z.object({
   contactIds: z.array(z.string()).min(1),
@@ -16,14 +15,15 @@ const bulkTagsSchema = z.object({
 
 export async function PATCH(req: Request) {
   try {
-    const [session, body] = await Promise.all([auth(), req.json()]);
+    const [ctx, body] = await Promise.all([getOrgContext(req), req.json()]);
 
-    if (!session?.user) {
+    if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
-    if (denied) return denied;
+    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const validated = bulkTagsSchema.safeParse(body);
     if (!validated.success) {
@@ -39,7 +39,7 @@ export async function PATCH(req: Request) {
     const contacts = await db.contact.findMany({
       where: {
         id: { in: contactIds },
-        organizationId: session.user.organizationId!,
+        organizationId: ctx.organizationId,
       },
       select: { id: true, tags: true },
     });

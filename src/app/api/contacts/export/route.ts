@@ -1,6 +1,6 @@
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { getOrgContext } from "@/lib/api-auth";
 
 function escapeCSV(value: string | null | undefined): string {
   const str = value ?? "";
@@ -10,16 +10,16 @@ function escapeCSV(value: string | null | undefined): string {
   return str;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const session = await auth();
+    const ctx = await getOrgContext(req);
 
-    if (!session?.user) {
+    if (!ctx) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
 
     const contacts = await db.contact.findMany({
-      where: { organizationId: session.user.organizationId! },
+      where: { organizationId: ctx.organizationId },
       orderBy: { createdAt: "desc" },
       select: {
         firstName: true,
