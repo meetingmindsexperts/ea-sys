@@ -15,54 +15,58 @@ export function formatCurrency(
   }).format(amount);
 }
 
+// Asia/Dubai (GST) = UTC+4, no DST. UTC-based helpers below.
+// Shifting by +4h then using UTC accessors gives consistent output
+// on both server and client (no locale-dependent Intl variance).
+const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+function toDubai(date: Date | string): Date {
+  return new Date(new Date(date).getTime() + DUBAI_OFFSET_MS);
+}
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** e.g. "Jan 25, 2026" (Asia/Dubai) */
 export function formatDate(date: Date | string): string {
-  const d = new Date(date);
-  // Use UTC methods to ensure consistent output between server and client
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  const d = toDubai(date);
+  return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
+/** e.g. "Jan 25, 2026, 2:30 PM GST" (Asia/Dubai) */
 export function formatDateTime(date: Date | string): string {
-  const d = new Date(date);
-  // Use UTC methods to ensure consistent output between server and client
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const d = toDubai(date);
   const hours = d.getUTCHours();
   const minutes = d.getUTCMinutes();
   const ampm = hours >= 12 ? "PM" : "AM";
   const hour12 = hours % 12 || 12;
   const minuteStr = minutes.toString().padStart(2, "0");
-  return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${hour12}:${minuteStr} ${ampm}`;
+  return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${hour12}:${minuteStr} ${ampm} GST`;
 }
 
+/** e.g. "Jan 25, 2026 - Jan 27, 2026" */
 export function formatDateRange(start: Date | string, end: Date | string): string {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-
-  const startStr = formatDate(startDate);
-  const endStr = formatDate(endDate);
-
-  if (startStr === endStr) {
-    return startStr;
-  }
-
-  return `${startStr} - ${endStr}`;
+  const startStr = formatDate(start);
+  const endStr = formatDate(end);
+  return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
 }
 
+/** e.g. "Saturday, January 25, 2026" (Asia/Dubai) */
 export function formatDateLong(date: Date | string): string {
-  const d = new Date(date);
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  return `${days[d.getUTCDay()]}, ${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  const d = toDubai(date);
+  return `${DAYS_LONG[d.getUTCDay()]}, ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
+/** e.g. "2:30 PM GST" (Asia/Dubai) */
 export function formatTime(date: Date | string): string {
-  const d = new Date(date);
+  const d = toDubai(date);
   const hours = d.getUTCHours();
   const minutes = d.getUTCMinutes();
   const ampm = hours >= 12 ? "PM" : "AM";
   const hour12 = hours % 12 || 12;
   const minuteStr = minutes.toString().padStart(2, "0");
-  return `${hour12}:${minuteStr} ${ampm}`;
+  return `${hour12}:${minuteStr} ${ampm} GST`;
 }
 
 export function slugify(text: string): string {

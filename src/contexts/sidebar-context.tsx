@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 interface SidebarContextType {
   isCollapsed: boolean;
@@ -11,13 +11,14 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
+  // Start with false on both server and client to avoid hydration mismatch.
+  // Sync the persisted preference from localStorage after mount (client only).
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
     const stored = localStorage.getItem("sidebar-collapsed");
-    return stored === "true";
-  });
+    if (stored === "true") setIsCollapsed(true);
+  }, []);
 
   const toggleSidebar = () => {
     const newValue = !isCollapsed;

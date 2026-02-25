@@ -606,7 +606,7 @@ export default function SchedulePage() {
             <Link2 className="h-4 w-4 text-primary shrink-0" />
             <span className="text-xs text-muted-foreground font-medium shrink-0">Public schedule:</span>
             <code className="flex-1 text-xs font-mono truncate select-all">
-              {typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/schedule
+              {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/schedule
             </code>
             <Button
               type="button"

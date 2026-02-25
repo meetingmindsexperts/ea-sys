@@ -545,7 +545,7 @@ export default function AbstractsPage() {
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono truncate select-all">
-                {typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/register
+                {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/register
               </code>
               <Button
                 type="button"
