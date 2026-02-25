@@ -27,19 +27,21 @@ export async function GET() {
         email: true,
         organization: true,
         jobTitle: true,
+        specialty: true,
         phone: true,
         tags: true,
         notes: true,
       },
     });
 
-    const headers = ["firstName", "lastName", "email", "organization", "jobTitle", "phone", "tags", "notes"];
+    const headers = ["firstName", "lastName", "email", "organization", "jobTitle", "specialty", "phone", "tags", "notes"];
     const rows = contacts.map((c) => [
       escapeCSV(c.firstName),
       escapeCSV(c.lastName),
       escapeCSV(c.email),
       escapeCSV(c.organization),
       escapeCSV(c.jobTitle),
+      escapeCSV(c.specialty),
       escapeCSV(c.phone),
       escapeCSV(c.tags.join(",")),
       escapeCSV(c.notes),

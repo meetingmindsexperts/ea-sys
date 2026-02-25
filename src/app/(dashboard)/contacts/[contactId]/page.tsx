@@ -3,8 +3,9 @@ import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { ArrowLeft, Building2, Mail, Phone, Briefcase, Calendar, Mic, Users } from "lucide-react";
+import { ArrowLeft, Building2, Mail, Phone, Briefcase, Calendar, Mic, Users, Stethoscope, Pencil } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 const TAG_COLORS = [
   "bg-blue-100 text-blue-800",
@@ -88,13 +89,20 @@ export default async function ContactDetailPage({
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/contacts" className="text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <h1 className="text-2xl font-bold">
-          {contact.firstName} {contact.lastName}
-        </h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/contacts" className="text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <h1 className="text-2xl font-bold">
+            {contact.firstName} {contact.lastName}
+          </h1>
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/contacts/${contactId}/edit`}>
+            <Pencil className="h-4 w-4 mr-1" /> Edit
+          </Link>
+        </Button>
       </div>
 
       {/* Contact info card */}
@@ -121,6 +129,12 @@ export default async function ContactDetailPage({
             <div className="flex items-center gap-2 text-sm">
               <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
               <span>{contact.jobTitle}</span>
+            </div>
+          )}
+          {contact.specialty && (
+            <div className="flex items-center gap-2 text-sm">
+              <Stethoscope className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span>{contact.specialty}</span>
             </div>
           )}
           <div className="flex items-center gap-2 text-sm">

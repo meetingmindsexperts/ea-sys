@@ -77,6 +77,7 @@ export async function POST(req: Request) {
       email: headers.indexOf("email"),
       organization: headers.indexOf("organization"),
       jobTitle: headers.indexOf("jobtitle"),
+      specialty: headers.indexOf("specialty"),
       phone: headers.indexOf("phone"),
       tags: headers.indexOf("tags"),
       notes: headers.indexOf("notes"),
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
       lastName: string;
       organization?: string;
       jobTitle?: string;
+      specialty?: string;
       phone?: string;
       tags: string[];
       notes?: string;
@@ -130,6 +132,7 @@ export async function POST(req: Request) {
         lastName,
         organization: idx.organization >= 0 ? fields[idx.organization]?.trim() || undefined : undefined,
         jobTitle: idx.jobTitle >= 0 ? fields[idx.jobTitle]?.trim() || undefined : undefined,
+        specialty: idx.specialty >= 0 ? fields[idx.specialty]?.trim() || undefined : undefined,
         phone: idx.phone >= 0 ? fields[idx.phone]?.trim() || undefined : undefined,
         tags,
         notes: idx.notes >= 0 ? fields[idx.notes]?.trim() || undefined : undefined,

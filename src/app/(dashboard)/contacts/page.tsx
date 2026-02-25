@@ -3,27 +3,16 @@
 import { useState, useCallback, useRef, useMemo } from "react";
 import {
   useContacts,
-  useCreateContact,
-  useUpdateContact,
   useDeleteContact,
   useContactTags,
   useUpdateContactTags,
   useBulkTagContacts,
 } from "@/hooks/use-api";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PhotoUpload } from "@/components/ui/photo-upload";
-import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
-
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -65,12 +54,9 @@ interface Contact {
   email: string;
   organization?: string;
   jobTitle?: string;
+  specialty?: string;
   phone?: string;
-  photo?: string;
-  city?: string;
-  country?: string;
   tags?: string[];
-  notes?: string;
   createdAt: string;
 }
 
@@ -91,20 +77,6 @@ function getTagColor(tag: string): string {
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
 }
 
-const emptyForm = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  organization: "",
-  jobTitle: "",
-  phone: "",
-  photo: null as string | null,
-  city: "",
-  country: "",
-  tags: [] as string[],
-  notes: "",
-};
-
 type TagMode = "add" | "remove" | "replace";
 
 export default function ContactsPage() {
@@ -112,11 +84,6 @@ export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
-
-  // Add/Edit sheet
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingContact, setEditingContact] = useState<Contact | null>(null);
-  const [form, setForm] = useState(emptyForm);
 
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -127,10 +94,11 @@ export default function ContactsPage() {
   // Tag dialog (bulk or single)
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [tagDialogMode, setTagDialogMode] = useState<TagMode>("add");
-  const [tagDialogContactId, setTagDialogContactId] = useState<string | null>(null); // null = bulk
+  const [tagDialogContactId, setTagDialogContactId] = useState<string | null>(null);
   const [tagDialogValue, setTagDialogValue] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filters: Record<string, string> = { page: String(page), limit: String(LIMIT) };
   if (search) filters.search = search;
@@ -138,8 +106,6 @@ export default function ContactsPage() {
 
   const { data, isLoading, isFetching } = useContacts(filters);
   const { data: tagsData } = useContactTags();
-  const createContact = useCreateContact();
-  const updateContact = useUpdateContact(editingContact?.id || "");
   const updateContactTags = useUpdateContactTags();
   const bulkTagContacts = useBulkTagContacts();
   const deleteContact = useDeleteContact();
@@ -152,8 +118,6 @@ export default function ContactsPage() {
   const totalPages: number = data?.totalPages ?? 1;
   const allTags: string[] = tagsData?.tags ?? [];
 
-  // Debounced search
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
@@ -172,36 +136,10 @@ export default function ContactsPage() {
     setPage(1);
   };
 
-  const openAdd = useCallback(() => {
-    setEditingContact(null);
-    setForm(emptyForm);
-    setSheetOpen(true);
-  }, []);
-
-  const openEdit = useCallback((contact: Contact) => {
-    setEditingContact(contact);
-    setForm({
-      firstName: contact.firstName,
-      lastName: contact.lastName,
-      email: contact.email,
-      organization: contact.organization || "",
-      jobTitle: contact.jobTitle || "",
-      phone: contact.phone || "",
-      photo: contact.photo || null,
-      city: contact.city || "",
-      country: contact.country || "",
-      tags: contact.tags || [],
-      notes: contact.notes || "",
-    });
-    setSheetOpen(true);
-  }, []);
-
-  // Open tag dialog for a single contact or bulk (contactId=null)
   const openTagDialog = useCallback(
     (contactId: string | null, defaultMode: TagMode) => {
       setTagDialogContactId(contactId);
       setTagDialogMode(defaultMode);
-      // Pre-fill with current tags only for replace mode on single contact
       if (contactId && defaultMode === "replace") {
         const contact = contacts.find((c) => c.id === contactId);
         setTagDialogValue(contact?.tags ?? []);
@@ -213,36 +151,6 @@ export default function ContactsPage() {
     [contacts]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      firstName: form.firstName.trim(),
-      lastName: form.lastName.trim(),
-      email: form.email.trim().toLowerCase(),
-      organization: form.organization.trim() || undefined,
-      jobTitle: form.jobTitle.trim() || undefined,
-      phone: form.phone.trim() || undefined,
-      photo: form.photo || undefined,
-      city: form.city.trim() || undefined,
-      country: form.country.trim() || undefined,
-      tags: form.tags,
-      notes: form.notes.trim() || undefined,
-    };
-
-    try {
-      if (editingContact) {
-        await updateContact.mutateAsync(payload);
-        toast.success("Contact updated");
-      } else {
-        await createContact.mutateAsync(payload);
-        toast.success("Contact added");
-      }
-      setSheetOpen(false);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to save contact");
-    }
-  };
-
   const handleTagDialogSubmit = async () => {
     if (tagDialogValue.length === 0 && tagDialogMode !== "replace") {
       toast.error("Enter at least one tag");
@@ -250,7 +158,6 @@ export default function ContactsPage() {
     }
     try {
       if (tagDialogContactId) {
-        // Single contact — compute new tags client-side then PUT
         const contact = contacts.find((c) => c.id === tagDialogContactId);
         const currentTags = contact?.tags ?? [];
         let newTags: string[];
@@ -265,7 +172,6 @@ export default function ContactsPage() {
         await updateContactTags.mutateAsync({ contactId: tagDialogContactId, tags: newTags });
         toast.success("Tags updated");
       } else {
-        // Bulk
         await bulkTagContacts.mutateAsync({
           contactIds: [...selectedIds],
           tags: tagDialogValue,
@@ -303,10 +209,14 @@ export default function ContactsPage() {
     const toastId = toast.loading("Importing contacts…");
     try {
       const res = await fetch("/api/contacts/import", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Import failed");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Import failed");
       toast.dismiss(toastId);
-      toast.success(`Imported ${data.created} contacts${data.skipped > 0 ? `, ${data.skipped} skipped (duplicates)` : ""}${data.errors?.length > 0 ? `, ${data.errors.length} errors` : ""}`);
+      toast.success(
+        `Imported ${json.created} contacts` +
+        (json.skipped > 0 ? `, ${json.skipped} skipped (duplicates)` : "") +
+        (json.errors?.length > 0 ? `, ${json.errors.length} errors` : "")
+      );
       setPage(1);
     } catch (err: unknown) {
       toast.dismiss(toastId);
@@ -320,8 +230,8 @@ export default function ContactsPage() {
 
   const handleDownloadTemplate = () => {
     const csv = [
-      "firstName,lastName,email,organization,jobTitle,phone,tags,notes",
-      'John,Smith,john@example.com,Acme Corp,CEO,+1-555-0123,"VIP, Speaker",Met at conference 2025',
+      "firstName,lastName,email,organization,jobTitle,specialty,phone,tags,notes",
+      'John,Smith,john@example.com,Acme Corp,CEO,Cardiology,+1-555-0123,"VIP, Speaker",Met at conference 2025',
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -358,7 +268,7 @@ export default function ContactsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Contacts</h1>
           <p className="text-muted-foreground text-sm">Org-wide contact repository</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
           <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
             <FileDown className="h-4 w-4 mr-1" /> CSV Template
@@ -369,8 +279,10 @@ export default function ContactsPage() {
           <Button variant="outline" size="sm" onClick={handleExportCSV}>
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
-          <Button size="sm" className="btn-gradient" onClick={openAdd}>
-            <UserPlus className="h-4 w-4 mr-1" /> Add Contact
+          <Button size="sm" className="btn-gradient" asChild>
+            <Link href="/contacts/new">
+              <UserPlus className="h-4 w-4 mr-1" /> Add Contact
+            </Link>
           </Button>
         </div>
       </div>
@@ -473,21 +385,22 @@ export default function ContactsPage() {
               <th className="text-left px-3 py-3 font-medium">Name</th>
               <th className="text-left px-3 py-3 font-medium">Email</th>
               <th className="text-left px-3 py-3 font-medium hidden md:table-cell">Organization</th>
+              <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Specialty</th>
               <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Tags</th>
-              <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">Added</th>
+              <th className="text-left px-3 py-3 font-medium hidden xl:table-cell">Added</th>
               <th className="w-28 px-3 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y">
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
+                <td colSpan={8} className="text-center py-12 text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             ) : contacts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-muted-foreground">
+                <td colSpan={8} className="text-center py-12 text-muted-foreground">
                   {search || tagFilter.size > 0
                     ? "No contacts match your search."
                     : "No contacts yet. Import a CSV or add one manually."}
@@ -505,11 +418,19 @@ export default function ContactsPage() {
                     />
                   </td>
                   <td className="px-3 py-3 font-medium">
-                    {contact.firstName} {contact.lastName}
+                    <Link
+                      href={`/contacts/${contact.id}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {contact.firstName} {contact.lastName}
+                    </Link>
                   </td>
                   <td className="px-3 py-3 text-muted-foreground">{contact.email}</td>
                   <td className="px-3 py-3 text-muted-foreground hidden md:table-cell">
                     {contact.organization || "—"}
+                  </td>
+                  <td className="px-3 py-3 text-muted-foreground text-xs hidden lg:table-cell">
+                    {contact.specialty || "—"}
                   </td>
                   <td className="px-3 py-3 hidden lg:table-cell">
                     <div className="flex flex-wrap gap-1">
@@ -523,7 +444,7 @@ export default function ContactsPage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-muted-foreground text-xs hidden lg:table-cell">
+                  <td className="px-3 py-3 text-muted-foreground text-xs hidden xl:table-cell">
                     {formatDate(contact.createdAt)}
                   </td>
                   <td className="px-3 py-3">
@@ -537,8 +458,10 @@ export default function ContactsPage() {
                       >
                         <Tag className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(contact)}>
-                        <Pencil className="h-3.5 w-3.5" />
+                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                        <Link href={`/contacts/${contact.id}/edit`} title="Edit contact">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Link>
                       </Button>
                       <Button
                         variant="ghost"
@@ -574,90 +497,6 @@ export default function ContactsPage() {
           </div>
         </div>
       )}
-
-      {/* Add/Edit Sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-full overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>{editingContact ? "Edit Contact" : "Add Contact"}</SheetTitle>
-            <SheetDescription>
-              {editingContact ? "Update contact details." : "Add a new contact to your org repository."}
-            </SheetDescription>
-          </SheetHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>First Name *</Label>
-                <Input value={form.firstName} onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))} required />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Last Name *</Label>
-                <Input value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} required />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Email *</Label>
-              <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Organization</Label>
-              <Input value={form.organization} onChange={(e) => setForm((f) => ({ ...f, organization: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Job Title</Label>
-              <Input value={form.jobTitle} onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Photo</Label>
-              <PhotoUpload
-                value={form.photo}
-                onChange={(photo) => setForm((f) => ({ ...f, photo }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>City</Label>
-                <Input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Country</Label>
-                <CountrySelect
-                  value={form.country}
-                  onChange={(country) => setForm((f) => ({ ...f, country }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Tags</Label>
-              <TagInput
-                value={form.tags}
-                onChange={(tags) => setForm((f) => ({ ...f, tags }))}
-                placeholder="Type a tag and press Enter or comma"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <textarea
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setSheetOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1 btn-gradient" disabled={createContact.isPending || updateContact.isPending}>
-                {editingContact ? "Save Changes" : "Add Contact"}
-              </Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
 
       {/* Tag Assignment Dialog */}
       <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
@@ -717,7 +556,6 @@ export default function ContactsPage() {
               );
             })()}
 
-            {/* Mode description */}
             <p className="text-xs text-muted-foreground">
               {tagDialogMode === "add" && "These tags will be added. Existing tags are kept."}
               {tagDialogMode === "remove" && "These tags will be removed. Other tags remain."}
@@ -749,7 +587,6 @@ export default function ContactsPage() {
               </div>
             )}
 
-            {/* Tag input for new tags */}
             <div className="space-y-1.5">
               <Label>
                 {tagDialogMode === "add" ? "Tags to add" : tagDialogMode === "remove" ? "Tags to remove" : "New tags"}
@@ -788,7 +625,10 @@ export default function ContactsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

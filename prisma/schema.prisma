@@ -484,6 +484,7 @@ model Contact {
   lastName       String
   organization   String?
   jobTitle       String?
+  specialty      String?
   phone          String?
   photo          String?
   city           String?
