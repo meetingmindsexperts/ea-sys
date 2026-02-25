@@ -267,6 +267,44 @@ export function useDeleteContact() {
   });
 }
 
+export function useContactTags() {
+  return useQuery({
+    queryKey: [...queryKeys.contacts, "tags"],
+    queryFn: () => fetchApi<{ tags: string[] }>("/api/contacts/tags"),
+  });
+}
+
+export function useUpdateContactTags() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ contactId, tags }: { contactId: string; tags: string[] }) =>
+      fetchApi(`/api/contacts/${contactId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+    },
+  });
+}
+
+export function useBulkTagContacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { contactIds: string[]; tags: string[]; mode: "add" | "remove" | "replace" }) =>
+      fetchApi("/api/contacts/bulk-tags", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.contacts, "tags"] });
+    },
+  });
+}
+
 export function useImportContactsToSpeakers(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

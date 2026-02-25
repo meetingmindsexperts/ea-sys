@@ -48,6 +48,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Link2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
@@ -167,6 +170,8 @@ export default function SchedulePage() {
   const isReviewer =
     authSession?.user?.role === "REVIEWER" ||
     authSession?.user?.role === "SUBMITTER";
+
+  const [copied, setCopied] = useState(false);
 
   const { data: event } = useEvent(eventId);
   const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
@@ -575,6 +580,36 @@ export default function SchedulePage() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── Public schedule URL ──────────────────────────────────────────── */}
+        {!isReviewer && event?.slug && (
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border bg-muted/40">
+            <Link2 className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-xs text-muted-foreground font-medium shrink-0">Public schedule:</span>
+            <code className="flex-1 text-xs font-mono truncate select-all">
+              {typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/schedule
+            </code>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 h-7 px-2.5"
+              onClick={() => {
+                const url = `${window.location.origin}/e/${event.slug}/schedule`;
+                navigator.clipboard.writeText(url).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                });
+              }}
+            >
+              {copied ? (
+                <><Check className="h-3.5 w-3.5 mr-1 text-green-600" /> Copied</>
+              ) : (
+                <><Copy className="h-3.5 w-3.5 mr-1" /> Copy</>
+              )}
+            </Button>
           </div>
         )}
 
