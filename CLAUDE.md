@@ -208,6 +208,8 @@ npx tsc --noEmit     # Type check
 
 ## Code Conventions
 
+0. **After every code change:** Run `npm run lint` and `npx tsc --noEmit`. Fix ALL errors and warnings before considering a task complete. Do not skip this step.
+
 1. **API Routes:** Use Promise.all for parallel queries, validate with Zod
 2. **Error Handling:** Use try/catch with apiLogger for errors
 3. **Auth:** All dashboard routes require authentication via `auth()`

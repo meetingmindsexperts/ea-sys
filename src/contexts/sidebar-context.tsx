@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useSyncExternalStore, ReactNode } from "react";
 
 interface SidebarContextType {
   isCollapsed: boolean;
@@ -10,26 +10,30 @@ interface SidebarContextType {
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
+function subscribe(callback: () => void) {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+function getSnapshot(): boolean {
+  return localStorage.getItem("sidebar-collapsed") === "true";
+}
+
+function getServerSnapshot(): boolean {
+  return false;
+}
+
+function writeSidebar(value: boolean) {
+  localStorage.setItem("sidebar-collapsed", String(value));
+  // Notify same-tab subscribers (storage event only fires cross-tab natively)
+  window.dispatchEvent(new Event("storage"));
+}
+
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  // Start with false on both server and client to avoid hydration mismatch.
-  // Sync the persisted preference from localStorage after mount (client only).
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const isCollapsed = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("sidebar-collapsed");
-    if (stored === "true") setIsCollapsed(true);
-  }, []);
-
-  const toggleSidebar = () => {
-    const newValue = !isCollapsed;
-    setIsCollapsed(newValue);
-    localStorage.setItem("sidebar-collapsed", String(newValue));
-  };
-
-  const handleSetIsCollapsed = (collapsed: boolean) => {
-    setIsCollapsed(collapsed);
-    localStorage.setItem("sidebar-collapsed", String(collapsed));
-  };
+  const toggleSidebar = () => writeSidebar(!isCollapsed);
+  const handleSetIsCollapsed = (collapsed: boolean) => writeSidebar(collapsed);
 
   return (
     <SidebarContext.Provider
