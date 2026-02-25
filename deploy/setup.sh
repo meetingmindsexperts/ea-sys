@@ -2,13 +2,13 @@
 # deploy/setup.sh
 # One-time EC2 server setup script.
 # Run as ubuntu user on a fresh Ubuntu 22.04 LTS instance.
-# Usage: bash deploy/setup.sh YOUR_DOMAIN EMAIL
-# Example: bash deploy/setup.sh events.meetingmindsgroup.com admin@meetingmindsgroup.com
+# Usage: bash deploy/setup.sh EMAIL
+# Example: bash deploy/setup.sh admin@meetingmindsgroup.com
 
 set -euo pipefail
 
-DOMAIN="${1:-YOUR_DOMAIN}"
-EMAIL="${2:-admin@meetingmindsgroup.com}"
+DOMAIN="events.meetingmindsgroup.com"
+EMAIL="${1:-admin@meetingmindsgroup.com}"
 APP_DIR="/home/ubuntu/ea-sys"
 
 echo "==> [1/7] Updating system packages"
@@ -48,7 +48,6 @@ sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"
 
 echo "==> [6/7] Applying production nginx config (SSL + proxy)"
 sudo cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/ea-sys
-sudo sed -i "s/YOUR_DOMAIN/$DOMAIN/g" /etc/nginx/sites-available/ea-sys
 sudo nginx -t
 sudo systemctl reload nginx
 
