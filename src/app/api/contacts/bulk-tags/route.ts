@@ -3,10 +3,11 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { normalizeTag } from "@/lib/utils";
 
 const bulkTagsSchema = z.object({
   contactIds: z.array(z.string()).min(1),
-  tags: z.array(z.string()),
+  tags: z.array(z.string().transform(normalizeTag)),
   // add: union new tags with existing (deduped)
   // remove: filter out specified tags from existing
   // replace: overwrite existing tags entirely

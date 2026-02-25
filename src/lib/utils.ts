@@ -76,3 +76,13 @@ export function slugify(text: string): string {
 export function generateQRCode(): string {
   return `QR-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 }
+
+/** Normalize a tag to Title Case and collapse whitespace. */
+export function normalizeTag(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}

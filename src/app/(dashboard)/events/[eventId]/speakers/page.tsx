@@ -1,56 +1,48 @@
-import { notFound } from "next/navigation";
+"use client";
+
+import { useParams } from "next/navigation";
 import Link from "next/link";
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { buildEventAccessWhere } from "@/lib/event-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mic, Plus, Mail, MapPin } from "lucide-react";
+import { Mic, Plus, Mail, MapPin, RefreshCw } from "lucide-react";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
+import { useSpeakers, useEvent } from "@/hooks/use-api";
+import { useSession } from "next-auth/react";
+import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   INVITED: "bg-yellow-100 text-yellow-800",
   CONFIRMED: "bg-green-100 text-green-800",
   DECLINED: "bg-red-100 text-red-800",
   CANCELLED: "bg-gray-100 text-gray-800",
 };
 
-interface SpeakersPageProps {
-  params: Promise<{ eventId: string }>;
+interface Speaker {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  organization: string | null;
+  jobTitle: string | null;
+  bio: string | null;
+  tags: string[];
+  status: string;
+  _count: { sessions: number; abstracts: number };
 }
 
-export default async function SpeakersPage({ params }: SpeakersPageProps) {
-  const [{ eventId }, session] = await Promise.all([params, auth()]);
+export default function SpeakersPage() {
+  const params = useParams();
+  const eventId = params.eventId as string;
+  const { data: userSession } = useSession();
+  const isReviewer = userSession?.user?.role === "REVIEWER";
 
-  if (!session?.user) {
-    notFound();
-  }
+  const { data: event } = useEvent(eventId);
+  const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
+  const speakers = speakersData as Speaker[];
 
-  const [event, speakers] = await Promise.all([
-    db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true },
-    }),
-    db.speaker.findMany({
-      where: { eventId },
-      include: {
-        _count: {
-          select: {
-            sessions: true,
-            abstracts: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
-
-  if (!event) {
-    notFound();
-  }
-
-  const isReviewer = session.user.role === "REVIEWER";
+  const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   const stats = {
     total: speakers.length,
@@ -58,6 +50,14 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
     invited: speakers.filter((s) => s.status === "INVITED").length,
     declined: speakers.filter((s) => s.status === "DECLINED").length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        {showDelayedLoader ? <ReloadingSpinner /> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -67,22 +67,36 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Mic className="h-8 w-8" />
             Speakers
+            {isFetching && !loading && (
+              <span className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            )}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Manage speakers for {event.name}
+            Manage speakers{event?.name ? ` for ${event.name}` : ""}
           </p>
         </div>
-        {!isReviewer && (
-          <div className="flex gap-2">
-            <ImportContactsButton eventId={eventId} mode="speaker" />
-            <Button asChild>
-              <Link href={`/events/${eventId}/speakers/new`}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Speaker
-              </Link>
-            </Button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          {!isReviewer && (
+            <>
+              <ImportContactsButton eventId={eventId} mode="speaker" />
+              <Button asChild>
+                <Link href={`/events/${eventId}/speakers/new`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Speaker
+                </Link>
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -151,7 +165,7 @@ export default async function SpeakersPage({ params }: SpeakersPageProps) {
                         <h3 className="text-lg font-semibold">
                           {speaker.firstName} {speaker.lastName}
                         </h3>
-                        <Badge className={statusColors[speaker.status]} variant="outline">
+                        <Badge className={statusColors[speaker.status] ?? "bg-gray-100 text-gray-800"} variant="outline">
                           {speaker.status}
                         </Badge>
                       </div>

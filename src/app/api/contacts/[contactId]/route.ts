@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { normalizeTag } from "@/lib/utils";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
@@ -17,7 +18,7 @@ const updateContactSchema = z.object({
   photo: z.string().optional().or(z.literal("")).nullable(),
   city: z.string().optional().nullable(),
   country: z.string().optional().nullable(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string().transform(normalizeTag)).optional(),
   notes: z.string().optional().nullable(),
 });
 

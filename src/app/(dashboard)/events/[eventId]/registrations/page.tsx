@@ -56,9 +56,15 @@ export default function RegistrationsPage() {
   // React Query hooks
   const registrationsQuery = useRegistrations(eventId);
   const registrations = (registrationsQuery.data ?? []) as Registration[];
-  const { isLoading: loading, isFetching } = registrationsQuery;
-  const { data: ticketTypes = [] } = useTickets(eventId);
+  const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
+  const ticketsQuery = useTickets(eventId);
+  const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
+
+  const handleRefresh = () => {
+    refetchRegistrations();
+    ticketsQuery.refetch();
+  };
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -178,6 +184,15 @@ export default function RegistrationsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isFetching}
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
           {!isReviewer && (
             <Button
               variant="outline"

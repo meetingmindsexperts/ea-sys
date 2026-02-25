@@ -44,6 +44,7 @@ import {
   Users,
   Tag,
   X,
+  RefreshCw,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
@@ -104,8 +105,8 @@ export default function ContactsPage() {
   if (search) filters.search = search;
   if (tagFilter.size > 0) filters.tags = [...tagFilter].join(",");
 
-  const { data, isLoading, isFetching } = useContacts(filters);
-  const { data: tagsData } = useContactTags();
+  const { data, isLoading, isFetching, refetch: refetchContacts } = useContacts(filters);
+  const { data: tagsData, refetch: refetchTags } = useContactTags();
   const updateContactTags = useUpdateContactTags();
   const bulkTagContacts = useBulkTagContacts();
   const deleteContact = useDeleteContact();
@@ -258,6 +259,11 @@ export default function ContactsPage() {
     }
   };
 
+  const handleRefresh = useCallback(() => {
+    refetchContacts();
+    refetchTags();
+  }, [refetchContacts, refetchTags]);
+
   const isBusy = updateContactTags.isPending || bulkTagContacts.isPending;
 
   return (
@@ -270,6 +276,9 @@ export default function ContactsPage() {
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isFetching} title="Refresh contacts">
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
           <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
             <FileDown className="h-4 w-4 mr-1" /> CSV Template
           </Button>

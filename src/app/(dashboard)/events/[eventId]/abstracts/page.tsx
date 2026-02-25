@@ -38,6 +38,7 @@ import {
   Copy,
   Check,
   Link2,
+  RefreshCw,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
@@ -89,7 +90,7 @@ export default function AbstractsPage() {
   const [copied, setCopied] = useState(false);
 
   // React Query hooks - data is cached and shared across navigations
-  const { data: abstractsData = [], isLoading: loading, isFetching } = useAbstracts(eventId);
+  const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId);
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
   const { data: event } = useEvent(eventId);
@@ -329,6 +330,16 @@ export default function AbstractsPage() {
               : "Manage abstract submissions and reviews"}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => refetchAbstracts()}
+            disabled={isFetching}
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -459,6 +470,7 @@ export default function AbstractsPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Stats */}

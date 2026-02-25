@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 
 const updateSpeakerSchema = z.object({
@@ -17,7 +18,7 @@ const updateSpeakerSchema = z.object({
   city: z.string().optional(),
   country: z.string().optional(),
   specialty: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string().transform(normalizeTag)).optional(),
   socialLinks: z.object({
     twitter: z.string().optional(),
     linkedin: z.string().optional(),

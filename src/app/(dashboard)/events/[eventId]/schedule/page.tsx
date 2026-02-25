@@ -51,6 +51,7 @@ import {
   Link2,
   Copy,
   Check,
+  RefreshCw,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
@@ -174,9 +175,14 @@ export default function SchedulePage() {
   const [copied, setCopied] = useState(false);
 
   const { data: event } = useEvent(eventId);
-  const { data: sessions = [], isLoading: loading, isFetching } = useSessions(eventId);
-  const { data: tracks = [] } = useTracks(eventId);
+  const { data: sessions = [], isLoading: loading, isFetching, refetch: refetchSessions } = useSessions(eventId);
+  const { data: tracks = [], refetch: refetchTracks } = useTracks(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
+
+  const handleRefresh = () => {
+    refetchSessions();
+    refetchTracks();
+  };
 
   // Event date boundaries (YYYY-MM-DD)
   const minDate = event?.startDate ? toLocalDateStr(new Date(event.startDate)) : "";
@@ -499,18 +505,29 @@ export default function SchedulePage() {
             </p>
           </div>
 
-          {!isReviewer && (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={openAddTrack}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                Add Track
-              </Button>
-              <Button size="sm" onClick={openAddSession}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                Add Session
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isFetching}
+              title="Refresh data"
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            </Button>
+            {!isReviewer && (
+              <>
+                <Button variant="outline" size="sm" onClick={openAddTrack}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add Track
+                </Button>
+                <Button size="sm" onClick={openAddSession}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add Session
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ── Stats ────────────────────────────────────────────────────────── */}

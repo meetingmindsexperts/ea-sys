@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { normalizeTag } from "@/lib/utils";
 
 const createContactSchema = z.object({
   email: z.string().email(),
@@ -15,7 +16,7 @@ const createContactSchema = z.object({
   photo: z.string().optional().or(z.literal("")),
   city: z.string().optional(),
   country: z.string().optional(),
-  tags: z.array(z.string()).optional().default([]),
+  tags: z.array(z.string().transform(normalizeTag)).optional().default([]),
   notes: z.string().optional(),
 });
 

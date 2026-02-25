@@ -3,6 +3,7 @@
 import { useState, KeyboardEvent, useRef } from "react";
 import { X } from "lucide-react";
 import { Badge } from "./badge";
+import { normalizeTag } from "@/lib/utils";
 
 interface TagInputProps {
   value: string[];
@@ -21,8 +22,8 @@ export function TagInput({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addTag = (raw: string) => {
-    const tag = raw.trim();
-    if (tag && !value.includes(tag)) {
+    const tag = normalizeTag(raw);
+    if (tag && !value.some((t) => normalizeTag(t) === tag)) {
       onChange([...value, tag]);
     }
     setInput("");
