@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import {
   useContacts,
   useCreateContact,
@@ -144,7 +144,10 @@ export default function ContactsPage() {
   const bulkTagContacts = useBulkTagContacts();
   const deleteContact = useDeleteContact();
 
-  const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
+  const contacts: Contact[] = useMemo(
+    () => (data?.contacts ?? []) as Contact[],
+    [data?.contacts]
+  );
   const total: number = data?.total ?? 0;
   const totalPages: number = data?.totalPages ?? 1;
   const allTags: string[] = tagsData?.tags ?? [];

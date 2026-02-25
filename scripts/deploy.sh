@@ -77,9 +77,22 @@ fi
 docker rmi ea-sys-migrator || true
 phase_done "Database migrations"
 
+# ── Ensure target port is free before starting inactive slot ──────────────────
+# Guards against orphan containers (e.g. old single-slot 'ea-sys' that held
+# the port before the blue-green migration) causing "port already allocated".
+echo "==> Ensuring port $INACTIVE_PORT is free..."
+PORT_HOLDER=$(docker ps -q --filter "publish=$INACTIVE_PORT" 2>/dev/null || true)
+if [ -n "$PORT_HOLDER" ]; then
+  echo "  Port $INACTIVE_PORT is held by container(s): $PORT_HOLDER — stopping..."
+  docker stop $PORT_HOLDER || true
+  docker rm -f $PORT_HOLDER || true
+  echo "  Orphan container(s) removed."
+fi
+
 # ── Start inactive slot (active slot still serving traffic) ───────────────────
+# --remove-orphans also cleans up compose-project-labelled orphan containers.
 echo "==> Starting ea-sys-$INACTIVE..."
-$COMPOSE up -d "ea-sys-$INACTIVE"
+$COMPOSE up -d --remove-orphans "ea-sys-$INACTIVE"
 phase_done "Start ea-sys-$INACTIVE"
 
 # ── Health check ──────────────────────────────────────────────────────────────
