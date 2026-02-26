@@ -4,12 +4,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateTicketTypeSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional(),
   price: z.number().min(0).optional(),
-  currency: z.string().optional(),
+  currency: z.string().max(10).optional(),
   quantity: z.number().min(1).optional(),
   maxPerOrder: z.number().min(1).optional(),
   salesStart: z.string().datetime().nullable().optional(),
@@ -153,6 +154,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingTicketType,
           after: ticketType,
+          ip: getClientIp(req),
         },
       },
     });
@@ -226,7 +228,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "TicketType",
         entityId: ticketId,
-        changes: { deleted: ticketType },
+        changes: { deleted: ticketType, ip: getClientIp(req) },
       },
     });
 

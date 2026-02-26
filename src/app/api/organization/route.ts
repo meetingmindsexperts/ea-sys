@@ -3,14 +3,15 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { getClientIp } from "@/lib/security";
 
 const updateOrganizationSchema = z.object({
-  name: z.string().min(1).optional(),
-  logo: z.string().url().nullable().optional(),
+  name: z.string().min(1).max(255).optional(),
+  logo: z.string().url().max(500).nullable().optional(),
   settings: z.object({
-    timezone: z.string().optional(),
-    dateFormat: z.string().optional(),
-    currency: z.string().optional(),
+    timezone: z.string().max(100).optional(),
+    dateFormat: z.string().max(50).optional(),
+    currency: z.string().max(10).optional(),
     emailNotifications: z.boolean().optional(),
   }).optional(),
 });
@@ -114,7 +115,7 @@ export async function PUT(req: Request) {
         action: "UPDATE",
         entityType: "Organization",
         entityId: organization.id,
-        changes: validated.data,
+        changes: { ...validated.data, ip: getClientIp(req) },
       },
     });
 

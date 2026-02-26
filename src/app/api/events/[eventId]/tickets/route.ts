@@ -4,12 +4,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const createTicketTypeSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
   price: z.number().min(0),
-  currency: z.string().default("USD"),
+  currency: z.string().max(10).default("USD"),
   quantity: z.number().min(1),
   maxPerOrder: z.number().min(1).default(10),
   salesStart: z.string().datetime().optional(),
@@ -143,7 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "TicketType",
         entityId: ticketType.id,
-        changes: JSON.parse(JSON.stringify({ ticketType })),
+        changes: { ...JSON.parse(JSON.stringify({ ticketType })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

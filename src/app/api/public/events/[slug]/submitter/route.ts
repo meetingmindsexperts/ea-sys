@@ -6,16 +6,16 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const registerSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  phone: z.string().optional(),
-  city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  email: z.string().email("Valid email is required").max(255),
+  password: z.string().min(6, "Password must be at least 6 characters").max(128),
+  organization: z.string().max(255).optional(),
+  jobTitle: z.string().max(255).optional(),
+  phone: z.string().max(50).optional(),
+  city: z.string().max(255).optional(),
+  country: z.string().max(255).optional(),
+  specialty: z.string().max(255).optional(),
 });
 
 interface RouteParams {

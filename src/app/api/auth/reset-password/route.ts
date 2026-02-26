@@ -2,15 +2,15 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { dbLogger } from "@/lib/logger";
+import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
 const resetPasswordSchema = z
   .object({
-    token: z.string().min(1),
-    email: z.string().email(),
-    password: z.string().min(6, "Password must be at least 6 characters"),
-    confirmPassword: z.string().min(6),
+    token: z.string().min(1).max(256),
+    email: z.string().email().max(255),
+    password: z.string().min(6, "Password must be at least 6 characters").max(128),
+    confirmPassword: z.string().min(6).max(128),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
           action: "PASSWORD_RESET",
           entityType: "User",
           entityId: user.id,
-          changes: { email },
+          changes: { email, ip: getClientIp(req) },
         },
       });
     });
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
       message: "Password reset successful. You can now sign in.",
     });
   } catch (error) {
-    dbLogger.error({ err: error, msg: "Error resetting password" });
+    apiLogger.error({ err: error, msg: "Error resetting password" });
     return NextResponse.json(
       { error: "Failed to reset password" },
       { status: 500 }
@@ -185,7 +185,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ valid: true });
   } catch (error) {
-    dbLogger.error({ err: error, msg: "Error validating reset token" });
+    apiLogger.error({ err: error, msg: "Error validating reset token" });
     return NextResponse.json(
       { error: "Failed to validate reset link" },
       { status: 500 }

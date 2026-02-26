@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 export async function GET() {
   const start = Date.now();
@@ -23,11 +24,12 @@ export async function GET() {
       }
     );
   } catch (error) {
+    apiLogger.warn({ err: error, msg: "Health check failed: database unreachable" });
     return NextResponse.json(
       {
         status: "unhealthy",
         database: "disconnected",
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: "Database connection failed",
         responseTimeMs: Date.now() - start,
         timestamp: new Date().toISOString(),
       },

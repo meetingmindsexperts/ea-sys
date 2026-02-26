@@ -4,15 +4,16 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateHotelSchema = z.object({
-  name: z.string().min(1).optional(),
-  address: z.string().optional(),
-  description: z.string().optional(),
-  contactEmail: z.string().email().optional().or(z.literal("")),
-  contactPhone: z.string().optional(),
+  name: z.string().min(1).max(255).optional(),
+  address: z.string().max(500).optional(),
+  description: z.string().max(2000).optional(),
+  contactEmail: z.string().email().max(255).optional().or(z.literal("")),
+  contactPhone: z.string().max(50).optional(),
   stars: z.number().min(1).max(5).nullable().optional(),
-  images: z.array(z.string().url()).optional(),
+  images: z.array(z.string().url().max(500)).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -150,6 +151,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingHotel,
           after: hotel,
+          ip: getClientIp(req),
         },
       },
     });
@@ -228,7 +230,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Hotel",
         entityId: hotelId,
-        changes: { deleted: hotel },
+        changes: { deleted: hotel, ip: getClientIp(req) },
       },
     });
 

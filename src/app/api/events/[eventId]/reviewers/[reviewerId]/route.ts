@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 interface RouteParams {
   params: Promise<{ eventId: string; reviewerId: string }>;
@@ -57,7 +58,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "EventReviewer",
         entityId: reviewerId,
-        changes: { removedUserId: reviewerId },
+        changes: { removedUserId: reviewerId, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

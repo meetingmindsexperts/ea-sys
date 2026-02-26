@@ -5,23 +5,24 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
   paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "REFUNDED", "FAILED"]).optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(2000).optional(),
   attendee: z.object({
-    firstName: z.string().min(1).optional(),
-    lastName: z.string().min(1).optional(),
-    organization: z.string().optional(),
-    jobTitle: z.string().optional(),
-    phone: z.string().optional(),
-    photo: z.string().optional().or(z.literal("")),
-    city: z.string().optional(),
-    country: z.string().optional(),
-    specialty: z.string().optional(),
-    tags: z.array(z.string().transform(normalizeTag)).optional(),
-    dietaryReqs: z.string().optional(),
+    firstName: z.string().min(1).max(100).optional(),
+    lastName: z.string().min(1).max(100).optional(),
+    organization: z.string().max(255).optional(),
+    jobTitle: z.string().max(255).optional(),
+    phone: z.string().max(50).optional(),
+    photo: z.string().max(500).optional().or(z.literal("")),
+    city: z.string().max(255).optional(),
+    country: z.string().max(255).optional(),
+    specialty: z.string().max(255).optional(),
+    tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
+    dietaryReqs: z.string().max(2000).optional(),
     customFields: z.record(z.string(), z.any()).optional(),
   }).optional(),
 });
@@ -202,6 +203,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingRegistration,
           after: registration,
+          ip: getClientIp(req),
         },
       },
     });
@@ -270,7 +272,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Registration",
         entityId: registrationId,
-        changes: { deleted: registration },
+        changes: { deleted: registration, ip: getClientIp(req) },
       },
     });
 

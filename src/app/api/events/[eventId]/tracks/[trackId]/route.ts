@@ -4,10 +4,11 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateTrackSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   sortOrder: z.number().optional(),
 });
@@ -172,6 +173,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingTrack,
           after: track,
+          ip: getClientIp(req),
         },
       },
     });
@@ -241,7 +243,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Track",
         entityId: trackId,
-        changes: { deleted: track },
+        changes: { deleted: track, ip: getClientIp(req) },
       },
     });
 

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateAccommodationSchema = z.object({
   roomTypeId: z.string().optional(),
@@ -243,6 +244,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingAccommodation,
           after: accommodation,
+          ip: getClientIp(req),
         },
       },
     });
@@ -311,7 +313,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Accommodation",
         entityId: accommodationId,
-        changes: { deleted: accommodation },
+        changes: { deleted: accommodation, ip: getClientIp(req) },
       },
     });
 

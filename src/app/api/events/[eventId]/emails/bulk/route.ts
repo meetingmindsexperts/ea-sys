@@ -6,18 +6,18 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const bulkEmailSchema = z.object({
   recipientType: z.enum(["speakers", "registrations"]),
-  recipientIds: z.array(z.string()).optional(), // If empty, send to all
+  recipientIds: z.array(z.string().max(100)).optional(), // If empty, send to all
   emailType: z.enum(["invitation", "agreement", "confirmation", "reminder", "custom"]),
-  customSubject: z.string().optional(),
-  customMessage: z.string().optional(),
+  customSubject: z.string().max(500).optional(),
+  customMessage: z.string().max(10000).optional(),
   filters: z
     .object({
-      status: z.string().optional(),
-      ticketTypeId: z.string().optional(),
+      status: z.string().max(50).optional(),
+      ticketTypeId: z.string().max(100).optional(),
     })
     .optional(),
 });
@@ -248,11 +248,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         return { recipient, result };
       } catch (error) {
+        apiLogger.error({ err: error, msg: "Failed to send email to recipient", email: recipient.email });
         return {
           recipient,
           result: {
             success: false,
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: "Failed to send email",
           },
         };
       }
@@ -290,6 +291,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           successCount,
           failureCount,
           customSubject,
+          ip: getClientIp(req),
         },
       },
     });

@@ -5,18 +5,19 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { getClientIp } from "@/lib/security";
 
 const createSessionSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  trackId: z.string().optional(),
-  abstractId: z.string().optional(),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  trackId: z.string().max(100).optional(),
+  abstractId: z.string().max(100).optional(),
   startTime: z.string().datetime(),
   endTime: z.string().datetime(),
-  location: z.string().optional(),
+  location: z.string().max(255).optional(),
   capacity: z.number().min(1).optional(),
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).default("SCHEDULED"),
-  speakerIds: z.array(z.string()).optional(),
+  speakerIds: z.array(z.string().max(100)).optional(),
 });
 
 interface RouteParams {
@@ -232,7 +233,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "EventSession",
         entityId: eventSession.id,
-        changes: JSON.parse(JSON.stringify({ session: eventSession })),
+        changes: { ...JSON.parse(JSON.stringify({ session: eventSession })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

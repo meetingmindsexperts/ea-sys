@@ -114,7 +114,7 @@ export async function POST(req: Request) {
           action: "ACCEPT_INVITATION",
           entityType: "User",
           entityId: user.id,
-          changes: { email },
+          changes: { email, ip: getClientIp(req) },
         },
       });
     });

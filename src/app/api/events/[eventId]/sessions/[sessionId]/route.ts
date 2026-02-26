@@ -4,18 +4,19 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateSessionSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  trackId: z.string().nullable().optional(),
-  abstractId: z.string().nullable().optional(),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional(),
+  trackId: z.string().max(100).nullable().optional(),
+  abstractId: z.string().max(100).nullable().optional(),
   startTime: z.string().datetime().optional(),
   endTime: z.string().datetime().optional(),
-  location: z.string().optional(),
+  location: z.string().max(255).optional(),
   capacity: z.number().min(1).nullable().optional(),
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
-  speakerIds: z.array(z.string()).optional(),
+  speakerIds: z.array(z.string().max(100)).optional(),
 });
 
 interface RouteParams {
@@ -223,6 +224,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingSession,
           after: eventSession,
+          ip: getClientIp(req),
         },
       },
     });
@@ -283,7 +285,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "EventSession",
         entityId: sessionId,
-        changes: { deleted: eventSession },
+        changes: { deleted: eventSession, ip: getClientIp(req) },
       },
     });
 

@@ -8,18 +8,18 @@ import { normalizeTag } from "@/lib/utils";
 type RouteParams = { params: Promise<{ contactId: string }> };
 
 const updateContactSchema = z.object({
-  email: z.string().email().optional(),
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
-  organization: z.string().optional().nullable(),
-  jobTitle: z.string().optional().nullable(),
-  specialty: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  photo: z.string().optional().or(z.literal("")).nullable(),
-  city: z.string().optional().nullable(),
-  country: z.string().optional().nullable(),
-  tags: z.array(z.string().transform(normalizeTag)).optional(),
-  notes: z.string().optional().nullable(),
+  email: z.string().email().max(255).optional(),
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
+  organization: z.string().max(255).optional().nullable(),
+  jobTitle: z.string().max(255).optional().nullable(),
+  specialty: z.string().max(255).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  photo: z.string().max(500).optional().or(z.literal("")).nullable(),
+  city: z.string().max(255).optional().nullable(),
+  country: z.string().max(255).optional().nullable(),
+  tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
+  notes: z.string().max(2000).optional().nullable(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {

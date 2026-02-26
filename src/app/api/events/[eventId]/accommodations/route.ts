@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const accommodationStatusSchema = z.nativeEnum(AccommodationStatus);
 
@@ -244,7 +245,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "Accommodation",
         entityId: accommodation.id,
-        changes: JSON.parse(JSON.stringify({ accommodation })),
+        changes: { ...JSON.parse(JSON.stringify({ accommodation })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

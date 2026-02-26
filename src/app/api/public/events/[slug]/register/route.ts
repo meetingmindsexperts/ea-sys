@@ -7,17 +7,17 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const registrationSchema = z.object({
-  ticketTypeId: z.string().min(1),
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  phone: z.string().optional(),
-  city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
-  dietaryReqs: z.string().optional(),
+  ticketTypeId: z.string().min(1).max(100),
+  firstName: z.string().min(1, "First name is required").max(100),
+  lastName: z.string().min(1, "Last name is required").max(100),
+  email: z.string().email("Valid email is required").max(255),
+  organization: z.string().max(255).optional(),
+  jobTitle: z.string().max(255).optional(),
+  phone: z.string().max(50).optional(),
+  city: z.string().max(255).optional(),
+  country: z.string().max(255).optional(),
+  specialty: z.string().max(255).optional(),
+  dietaryReqs: z.string().max(2000).optional(),
 });
 
 interface RouteParams {

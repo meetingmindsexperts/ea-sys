@@ -2,12 +2,12 @@ import crypto from "crypto";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { dbLogger } from "@/lib/logger";
+import { apiLogger } from "@/lib/logger";
 import { emailTemplates, sendEmail } from "@/lib/email";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email("Please provide a valid email address"),
+  email: z.string().email("Please provide a valid email address").max(255),
 });
 
 function getPasswordResetIdentifier(email: string) {
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
           action: "FORGOT_PASSWORD_REQUESTED",
           entityType: "User",
           entityId: user.id,
-          changes: { email },
+          changes: { email, ip: getClientIp(req) },
         },
       });
     });
@@ -127,14 +127,14 @@ export async function POST(req: Request) {
         });
 
         if (!emailResult.success) {
-          dbLogger.warn({
+          apiLogger.warn({
             msg: "Failed to send password reset email",
             email,
             error: emailResult.error,
           });
         }
       } catch (sendError) {
-        dbLogger.warn({
+        apiLogger.warn({
           msg: "Password reset email dispatch error",
           email,
           error: sendError instanceof Error ? sendError.message : "Unknown error",
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
       message: "If an account exists, a password reset link has been sent.",
     });
   } catch (error) {
-    dbLogger.error({ err: error, msg: "Error requesting password reset" });
+    apiLogger.error({ err: error, msg: "Error requesting password reset" });
     return NextResponse.json(
       { error: "Failed to request password reset" },
       { status: 500 }

@@ -4,6 +4,7 @@ import { readFile, stat } from "fs/promises";
 import { join } from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { apiLogger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
 
@@ -215,7 +216,8 @@ export async function GET(req: Request) {
         const result = await readDockerLogs(since, tailNum);
         logs = result.logs;
         source = result.source;
-      } catch {
+      } catch (dockerError) {
+        apiLogger.warn({ err: dockerError, msg: "Docker logs unavailable" });
         return NextResponse.json({
           error:
             "Docker not available. Try source=file or use SSH on EC2.",
@@ -259,7 +261,7 @@ export async function GET(req: Request) {
       level,
     });
   } catch (error) {
-    console.error("Error fetching logs:", error);
+    apiLogger.error({ err: error, msg: "Failed to fetch logs" });
 
     return NextResponse.json(
       {

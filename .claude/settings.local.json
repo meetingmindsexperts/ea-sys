@@ -36,7 +36,8 @@
       "Bash(npm ls:*)",
       "Bash(node -e:*)",
       "Bash(node --input-type=module:*)",
-      "Bash(npm ci:*)"
+      "Bash(npm ci:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

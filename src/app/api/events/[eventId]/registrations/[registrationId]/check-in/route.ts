@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -83,6 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: {
           checkedInAt: updatedRegistration.checkedInAt,
           attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
+          ip: getClientIp(req),
         },
       },
     });
@@ -185,6 +187,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           checkedInAt: updatedRegistration.checkedInAt,
           attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
           qrCode,
+          ip: getClientIp(req),
         },
       },
     });

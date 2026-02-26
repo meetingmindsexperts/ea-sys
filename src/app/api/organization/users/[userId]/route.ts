@@ -3,10 +3,11 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { getClientIp } from "@/lib/security";
 
 const updateUserSchema = z.object({
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
   role: z.enum(["ADMIN", "ORGANIZER", "REVIEWER"]).optional(),
 });
 
@@ -113,7 +114,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "User",
         entityId: userId,
-        changes: validated.data,
+        changes: { ...validated.data, ip: getClientIp(req) },
       },
     });
 
@@ -168,7 +169,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "User",
         entityId: userId,
-        changes: { email: user.email },
+        changes: { email: user.email, ip: getClientIp(req) },
       },
     });
 

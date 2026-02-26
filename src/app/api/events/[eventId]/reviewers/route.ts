@@ -7,11 +7,11 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, emailTemplates } from "@/lib/email";
-import { hashVerificationToken } from "@/lib/security";
+import { getClientIp, hashVerificationToken } from "@/lib/security";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("speaker"), speakerId: z.string().min(1) }),
-  z.object({ type: z.literal("direct"), email: z.string().email(), firstName: z.string().min(1), lastName: z.string().min(1) }),
+  z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal("direct"), email: z.string().email().max(255), firstName: z.string().min(1).max(100), lastName: z.string().min(1).max(100) }),
 ]);
 
 interface RouteParams {
@@ -230,7 +230,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "EventReviewer",
         entityId: userId,
-        changes: { type: validated.data.type, email: reviewerEmail, invitationSent },
+        changes: { type: validated.data.type, email: reviewerEmail, invitationSent, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
