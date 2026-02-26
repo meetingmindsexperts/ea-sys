@@ -166,13 +166,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (ticketType.soldCount >= ticketType.quantity) {
-      return NextResponse.json(
-        { error: "Tickets sold out" },
-        { status: 400 }
-      );
-    }
-
     // Check if sales period is valid
     const now = new Date();
     if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
@@ -188,66 +181,74 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Use existing attendee or create new one
-    let attendeeRecord = existingAttendee;
-
-    if (!attendeeRecord) {
-      attendeeRecord = await db.attendee.create({
-        data: {
-          email: attendee.email,
-          firstName: attendee.firstName,
-          lastName: attendee.lastName,
-          organization: attendee.organization || null,
-          jobTitle: attendee.jobTitle || null,
-          phone: attendee.phone || null,
-          photo: attendee.photo || null,
-          city: attendee.city || null,
-          country: attendee.country || null,
-          specialty: attendee.specialty || null,
-          tags: attendee.tags || [],
-          dietaryReqs: attendee.dietaryReqs || null,
-          customFields: attendee.customFields || {},
-        },
-      });
-    }
-
-    // Check if attendee already registered for this event
-    const existingRegistration = await db.registration.findFirst({
-      where: {
-        eventId,
-        attendeeId: attendeeRecord.id,
-        status: { notIn: ["CANCELLED"] },
-      },
-    });
-
-    if (existingRegistration) {
+    // Early check (non-authoritative — the real check is inside the transaction)
+    if (ticketType.soldCount >= ticketType.quantity) {
       return NextResponse.json(
-        { error: "Attendee already registered for this event" },
+        { error: "Tickets sold out" },
         { status: 400 }
       );
     }
 
-    // Create registration
-    const registration = await db.registration.create({
-      data: {
-        eventId,
-        ticketTypeId,
-        attendeeId: attendeeRecord.id,
-        status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
-        paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
-        qrCode: generateQRCode(),
-        notes: notes || null,
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-      },
-    });
+    // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
+    const registration = await db.$transaction(async (tx) => {
+      // Use existing attendee or create new one
+      let attendeeRecord = existingAttendee;
+      if (!attendeeRecord) {
+        attendeeRecord = await tx.attendee.create({
+          data: {
+            email: attendee.email,
+            firstName: attendee.firstName,
+            lastName: attendee.lastName,
+            organization: attendee.organization || null,
+            jobTitle: attendee.jobTitle || null,
+            phone: attendee.phone || null,
+            photo: attendee.photo || null,
+            city: attendee.city || null,
+            country: attendee.country || null,
+            specialty: attendee.specialty || null,
+            tags: attendee.tags || [],
+            dietaryReqs: attendee.dietaryReqs || null,
+            customFields: attendee.customFields || {},
+          },
+        });
+      }
 
-    // Update ticket sold count
-    await db.ticketType.update({
-      where: { id: ticketTypeId },
-      data: { soldCount: { increment: 1 } },
+      // Check if attendee already registered for this event
+      const existingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId,
+          attendeeId: attendeeRecord.id,
+          status: { notIn: ["CANCELLED"] },
+        },
+      });
+      if (existingRegistration) {
+        throw new Error("ALREADY_REGISTERED");
+      }
+
+      // Atomically increment soldCount only if tickets are still available
+      const updated = await tx.ticketType.updateMany({
+        where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
+        data: { soldCount: { increment: 1 } },
+      });
+      if (updated.count === 0) {
+        throw new Error("SOLD_OUT");
+      }
+
+      // Create registration
+      const reg = await tx.registration.create({
+        data: {
+          eventId,
+          ticketTypeId,
+          attendeeId: attendeeRecord.id,
+          status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
+          paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
+          qrCode: generateQRCode(),
+          notes: notes || null,
+        },
+        include: { attendee: true, ticketType: true },
+      });
+
+      return reg;
     });
 
     // Log the action (non-blocking for better response time)
@@ -264,6 +265,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(registration, { status: 201 });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "ALREADY_REGISTERED") {
+        return NextResponse.json(
+          { error: "Attendee already registered for this event" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "SOLD_OUT") {
+        return NextResponse.json(
+          { error: "Tickets sold out" },
+          { status: 400 }
+        );
+      }
+    }
     apiLogger.error({ err: error, msg: "Error creating registration" });
     return NextResponse.json(
       { error: "Failed to create registration" },

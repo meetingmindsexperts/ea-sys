@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { readFile, stat } from "fs/promises";
-import { join } from "path";
+import { readFile, stat, realpath } from "fs/promises";
+import { join, resolve } from "path";
 
 const CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -16,17 +16,24 @@ interface RouteParams {
 export async function GET(_req: Request, { params }: RouteParams) {
   const { path } = await params;
 
-  // Reject path traversal attempts
-  if (path.some((segment) => segment.includes(".."))) {
+  // Reject path traversal attempts (null bytes, ..)
+  if (path.some((segment) => segment.includes("..") || segment.includes("\0"))) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
   // Only serve from /uploads/ — no other subdirectory of public
-  const filePath = join(process.cwd(), "public", "uploads", ...path);
+  const uploadsRoot = resolve(process.cwd(), "public", "uploads");
+  const filePath = join(uploadsRoot, ...path);
 
   try {
-    await stat(filePath);
-    const file = await readFile(filePath);
+    // Resolve symlinks and verify the real path is within uploads directory
+    const resolvedPath = await realpath(filePath);
+    if (!resolvedPath.startsWith(uploadsRoot)) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+
+    await stat(resolvedPath);
+    const file = await readFile(resolvedPath);
     const ext = (path[path.length - 1].split(".").pop() ?? "jpg").toLowerCase();
     const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
@@ -34,6 +41,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'none'; script-src 'none'",
+        "X-Frame-Options": "DENY",
       },
     });
   } catch {

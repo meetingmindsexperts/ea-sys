@@ -10,6 +10,33 @@ import { checkRateLimit } from "@/lib/security";
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 500 * 1024; // 500KB in bytes
 
+// Magic byte signatures for allowed image types
+const MAGIC_BYTES: Record<string, { bytes: number[]; offset: number }[]> = {
+  "image/jpeg": [{ bytes: [0xFF, 0xD8, 0xFF], offset: 0 }],
+  "image/png": [{ bytes: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], offset: 0 }],
+  "image/webp": [
+    { bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 }, // "RIFF"
+    { bytes: [0x57, 0x45, 0x42, 0x50], offset: 8 }, // "WEBP"
+  ],
+};
+
+// Map validated MIME type to file extension (never trust client-provided extension)
+const MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+function detectMimeType(buffer: Buffer): string | null {
+  for (const [mime, signatures] of Object.entries(MAGIC_BYTES)) {
+    const allMatch = signatures.every(({ bytes, offset }) =>
+      bytes.every((byte, i) => buffer[offset + i] === byte)
+    );
+    if (allMatch) return mime;
+  }
+  return null;
+}
+
 // Check if running on Vercel
 const isVercel = process.env.VERCEL === "1";
 
@@ -104,11 +131,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // Generate unique filename
-    const fileExtension = file.name.split(".").pop() || "jpg";
-    const sanitizedExtension = fileExtension.toLowerCase().replace(/[^a-z0-9]/g, "");
+    // Read file buffer and validate magic bytes
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    const detectedMime = detectMimeType(buffer);
+    if (!detectedMime || !ALLOWED_TYPES.includes(detectedMime)) {
+      apiLogger.warn({
+        msg: "File content does not match an allowed image type",
+        claimedType: file.type,
+        detectedMime,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "File content is not a valid JPEG, PNG, or WebP image" },
+        { status: 400 }
+      );
+    }
+
+    // Derive extension from validated content type, never from client filename
+    const fileExtension = MIME_TO_EXT[detectedMime];
     const uniqueId = randomUUID();
-    const filename = `${uniqueId}.${sanitizedExtension}`;
+    const filename = `${uniqueId}.${fileExtension}`;
 
     // Create directory structure: /public/uploads/photos/YYYY/MM/
     const now = new Date();
@@ -140,8 +184,6 @@ export async function POST(req: Request) {
 
     // Save file
     const filepath = join(uploadDir, filename);
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
 
     apiLogger.info({
       msg: "Writing file to disk",
@@ -185,10 +227,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      {
-        error: "Failed to upload photo",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
+      { error: "Failed to upload photo" },
       { status: 500 }
     );
   }

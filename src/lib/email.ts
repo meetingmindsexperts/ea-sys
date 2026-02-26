@@ -5,6 +5,30 @@ import {
 } from "@getbrevo/brevo";
 import { apiLogger } from "./logger";
 
+/**
+ * Escape HTML special characters to prevent injection in email templates.
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Escape all string values in a params object for safe HTML interpolation. */
+function esc<T extends Record<string, unknown>>(params: T): { [K in keyof T]: T[K] } {
+  const result = { ...params };
+  for (const key of Object.keys(result)) {
+    const val = result[key as keyof T];
+    if (typeof val === "string") {
+      (result as Record<string, unknown>)[key] = escapeHtml(val);
+    }
+  }
+  return result;
+}
+
 // Lazy-initialize Brevo API client to avoid module-level overhead
 let apiInstance: TransactionalEmailsApi | null = null;
 
@@ -99,7 +123,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
 
 // Email template generators
 export const emailTemplates = {
-  speakerAgreement: (params: {
+  speakerAgreement: (rawParams: {
     speakerName: string;
     eventName: string;
     eventDate: string;
@@ -108,8 +132,8 @@ export const emailTemplates = {
     agreementLink?: string;
     organizerName: string;
     organizerEmail: string;
-  }) => ({
-    subject: `Speaker Agreement - ${params.eventName}`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `Speaker Agreement - ${rawParams.eventName}`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -184,29 +208,29 @@ export const emailTemplates = {
 </html>
     `,
     textContent: `
-Speaker Agreement - ${params.eventName}
+Speaker Agreement - ${rawParams.eventName}
 
-Dear ${params.speakerName},
+Dear ${rawParams.speakerName},
 
-Thank you for agreeing to speak at ${params.eventName}. We are excited to have you as part of our event!
+Thank you for agreeing to speak at ${rawParams.eventName}. We are excited to have you as part of our event!
 
 Event Details:
-- Event: ${params.eventName}
-- Date: ${params.eventDate}
-- Venue: ${params.eventVenue}
-${params.sessionDetails ? `- Session: ${params.sessionDetails}` : ""}
+- Event: ${rawParams.eventName}
+- Date: ${rawParams.eventDate}
+- Venue: ${rawParams.eventVenue}
+${rawParams.sessionDetails ? `- Session: ${rawParams.sessionDetails}` : ""}
 
 Please review and acknowledge the speaker agreement terms.
 
-${params.agreementLink ? `View & Sign Agreement: ${params.agreementLink}` : ""}
+${rawParams.agreementLink ? `View & Sign Agreement: ${rawParams.agreementLink}` : ""}
 
 Best regards,
-${params.organizerName}
-${params.organizerEmail}
+${rawParams.organizerName}
+${rawParams.organizerEmail}
     `,
-  }),
+  }); },
 
-  speakerInvitation: (params: {
+  speakerInvitation: (rawParams: {
     speakerName: string;
     eventName: string;
     eventDate: string;
@@ -215,8 +239,8 @@ ${params.organizerEmail}
     confirmationLink?: string;
     organizerName: string;
     organizerEmail: string;
-  }) => ({
-    subject: `Speaker Invitation - ${params.eventName}`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `Speaker Invitation - ${rawParams.eventName}`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -278,30 +302,30 @@ ${params.organizerEmail}
 </html>
     `,
     textContent: `
-Speaker Invitation - ${params.eventName}
+Speaker Invitation - ${rawParams.eventName}
 
-Dear ${params.speakerName},
+Dear ${rawParams.speakerName},
 
-We would be honored to have you as a speaker at ${params.eventName}!
+We would be honored to have you as a speaker at ${rawParams.eventName}!
 
-${params.personalMessage ? `Message: ${params.personalMessage}` : ""}
+${rawParams.personalMessage ? `Message: ${rawParams.personalMessage}` : ""}
 
 Event Details:
-- Event: ${params.eventName}
-- Date: ${params.eventDate}
-- Venue: ${params.eventVenue}
+- Event: ${rawParams.eventName}
+- Date: ${rawParams.eventDate}
+- Venue: ${rawParams.eventVenue}
 
-${params.confirmationLink ? `Confirm Your Participation: ${params.confirmationLink}` : ""}
+${rawParams.confirmationLink ? `Confirm Your Participation: ${rawParams.confirmationLink}` : ""}
 
 Please let us know if you're interested in speaking at our event.
 
 Best regards,
-${params.organizerName}
-${params.organizerEmail}
+${rawParams.organizerName}
+${rawParams.organizerEmail}
     `,
-  }),
+  }); },
 
-  registrationConfirmation: (params: {
+  registrationConfirmation: (rawParams: {
     attendeeName: string;
     eventName: string;
     eventDate: string;
@@ -310,8 +334,8 @@ ${params.organizerEmail}
     registrationId: string;
     qrCodeUrl?: string;
     additionalInfo?: string;
-  }) => ({
-    subject: `Registration Confirmed - ${params.eventName}`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `Registration Confirmed - ${rawParams.eventName}`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -378,36 +402,36 @@ ${params.organizerEmail}
 </html>
     `,
     textContent: `
-Registration Confirmed - ${params.eventName}
+Registration Confirmed - ${rawParams.eventName}
 
-Dear ${params.attendeeName},
+Dear ${rawParams.attendeeName},
 
-Your registration for ${params.eventName} has been confirmed. We look forward to seeing you!
+Your registration for ${rawParams.eventName} has been confirmed. We look forward to seeing you!
 
 Registration Details:
-- Confirmation #: ${params.registrationId}
-- Event: ${params.eventName}
-- Date: ${params.eventDate}
-- Venue: ${params.eventVenue}
-- Ticket Type: ${params.ticketType}
+- Confirmation #: ${rawParams.registrationId}
+- Event: ${rawParams.eventName}
+- Date: ${rawParams.eventDate}
+- Venue: ${rawParams.eventVenue}
+- Ticket Type: ${rawParams.ticketType}
 
-${params.additionalInfo ? `Important: ${params.additionalInfo}` : ""}
+${rawParams.additionalInfo ? `Important: ${rawParams.additionalInfo}` : ""}
 
 If you have any questions, please don't hesitate to contact us.
 
 See you at the event!
     `,
-  }),
+  }); },
 
-  eventReminder: (params: {
+  eventReminder: (rawParams: {
     recipientName: string;
     eventName: string;
     eventDate: string;
     eventVenue: string;
     eventAddress?: string;
     daysUntilEvent: number;
-  }) => ({
-    subject: `Reminder: ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `in ${params.daysUntilEvent} days`}!`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `Reminder: ${rawParams.eventName} is ${rawParams.daysUntilEvent === 1 ? "tomorrow" : `in ${rawParams.daysUntilEvent} days`}!`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -459,24 +483,24 @@ See you at the event!
 </html>
     `,
     textContent: `
-Reminder: ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `in ${params.daysUntilEvent} days`}!
+Reminder: ${rawParams.eventName} is ${rawParams.daysUntilEvent === 1 ? "tomorrow" : `in ${rawParams.daysUntilEvent} days`}!
 
-Dear ${params.recipientName},
+Dear ${rawParams.recipientName},
 
-This is a friendly reminder that ${params.eventName} is ${params.daysUntilEvent === 1 ? "tomorrow" : `coming up in ${params.daysUntilEvent} days`}!
+This is a friendly reminder that ${rawParams.eventName} is ${rawParams.daysUntilEvent === 1 ? "tomorrow" : `coming up in ${rawParams.daysUntilEvent} days`}!
 
 Event Details:
-- Date: ${params.eventDate}
-- Venue: ${params.eventVenue}
-${params.eventAddress ? `- Address: ${params.eventAddress}` : ""}
+- Date: ${rawParams.eventDate}
+- Venue: ${rawParams.eventVenue}
+${rawParams.eventAddress ? `- Address: ${rawParams.eventAddress}` : ""}
 
 Don't forget to bring your registration confirmation or QR code for check-in.
 
 We look forward to seeing you!
     `,
-  }),
+  }); },
 
-  userInvitation: (params: {
+  userInvitation: (rawParams: {
     recipientName: string;
     recipientEmail: string;
     organizationName: string;
@@ -484,8 +508,8 @@ We look forward to seeing you!
     role: string;
     setupLink: string;
     expiresIn?: string;
-  }) => ({
-    subject: `You've been invited to join ${params.organizationName}`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `You've been invited to join ${rawParams.organizationName}`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -539,30 +563,30 @@ We look forward to seeing you!
 </html>
     `,
     textContent: `
-You've been invited to join ${params.organizationName}
+You've been invited to join ${rawParams.organizationName}
 
-Hi ${params.recipientName},
+Hi ${rawParams.recipientName},
 
-${params.inviterName} has invited you to join ${params.organizationName} on MMGroup EventsHub as a ${params.role}.
+${rawParams.inviterName} has invited you to join ${rawParams.organizationName} on MMGroup EventsHub as a ${rawParams.role}.
 
 Invitation Details:
-- Organization: ${params.organizationName}
-- Your Role: ${params.role}
-- Your Email: ${params.recipientEmail}
+- Organization: ${rawParams.organizationName}
+- Your Role: ${rawParams.role}
+- Your Email: ${rawParams.recipientEmail}
 
-Accept Invitation & Set Password: ${params.setupLink}
+Accept Invitation & Set Password: ${rawParams.setupLink}
 
-${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.` : ""}
+${rawParams.expiresIn ? `Note: This invitation will expire in ${rawParams.expiresIn}.` : ""}
 
 If you didn't expect this invitation, you can safely ignore this email.
     `,
-  }),
+  }); },
 
-  passwordReset: (params: {
+  passwordReset: (rawParams: {
     recipientName: string;
     resetLink: string;
     expiresIn?: string;
-  }) => ({
+  }) => { const params = esc(rawParams); return ({
     subject: "Reset your EventsHub password",
     htmlContent: `
 <!DOCTYPE html>
@@ -601,26 +625,26 @@ If you didn't expect this invitation, you can safely ignore this email.
     textContent: `
 Reset your EventsHub password
 
-Hi ${params.recipientName},
+Hi ${rawParams.recipientName},
 
 Use the link below to set a new password for your MMGroup EventsHub account:
 
-${params.resetLink}
+${rawParams.resetLink}
 
-${params.expiresIn ? `Note: This reset link will expire in ${params.expiresIn}.` : ""}
+${rawParams.expiresIn ? `Note: This reset link will expire in ${rawParams.expiresIn}.` : ""}
 
 If you did not request a password reset, you can safely ignore this email.
     `,
-  }),
+  }); },
 
-  abstractSubmissionConfirmation: (params: {
+  abstractSubmissionConfirmation: (rawParams: {
     recipientName: string;
     recipientEmail: string;
     eventName: string;
     abstractTitle: string;
     managementLink: string;
-  }) => ({
-    subject: `Abstract Submitted - ${params.eventName}`,
+  }) => { const params = esc(rawParams); return ({
+    subject: `Abstract Submitted - ${rawParams.eventName}`,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -670,24 +694,24 @@ If you did not request a password reset, you can safely ignore this email.
 </html>
     `,
     textContent: `
-Abstract Submitted - ${params.eventName}
+Abstract Submitted - ${rawParams.eventName}
 
-Dear ${params.recipientName},
+Dear ${rawParams.recipientName},
 
-Your abstract has been successfully submitted for ${params.eventName}.
+Your abstract has been successfully submitted for ${rawParams.eventName}.
 
 Submission Details:
-- Title: ${params.abstractTitle}
+- Title: ${rawParams.abstractTitle}
 - Status: Submitted
 
 You can view the status of your abstract, make edits, and see reviewer feedback at:
-${params.managementLink}
+${rawParams.managementLink}
 
 Important: Save this email! The link above is your personal access link to manage your submission.
     `,
-  }),
+  }); },
 
-  abstractStatusUpdate: (params: {
+  abstractStatusUpdate: (rawParams: {
     recipientName: string;
     recipientEmail: string;
     eventName: string;
@@ -697,6 +721,7 @@ Important: Save this email! The link above is your personal access link to manag
     reviewScore?: number;
     managementLink: string;
   }) => {
+    const params = esc(rawParams);
     const statusMessages: Record<string, { heading: string; body: string; gradient: string }> = {
       UNDER_REVIEW: {
         heading: "Abstract Under Review",
@@ -786,32 +811,32 @@ Important: Save this email! The link above is your personal access link to manag
 </html>
       `,
       textContent: `
-${status.heading} - ${params.eventName}
+${status.heading} - ${rawParams.eventName}
 
-Dear ${params.recipientName},
+Dear ${rawParams.recipientName},
 
 ${status.body}
 
 Abstract Details:
-- Title: ${params.abstractTitle}
-- Status: ${params.newStatus.replace(/_/g, " ")}
-${params.reviewScore !== undefined ? `- Score: ${params.reviewScore}/10` : ""}
-${params.reviewNotes ? `\nReviewer Notes:\n${params.reviewNotes}` : ""}
+- Title: ${rawParams.abstractTitle}
+- Status: ${rawParams.newStatus.replace(/_/g, " ")}
+${rawParams.reviewScore !== undefined ? `- Score: ${rawParams.reviewScore}/10` : ""}
+${rawParams.reviewNotes ? `\nReviewer Notes:\n${rawParams.reviewNotes}` : ""}
 
-View Your Abstract: ${params.managementLink}
+View Your Abstract: ${rawParams.managementLink}
       `,
     };
   },
 
-  customNotification: (params: {
+  customNotification: (rawParams: {
     recipientName: string;
     subject: string;
     message: string;
     eventName?: string;
     ctaText?: string;
     ctaLink?: string;
-  }) => ({
-    subject: params.subject,
+  }) => { const params = esc(rawParams); return ({
+    subject: rawParams.subject,
     htmlContent: `
 <!DOCTYPE html>
 <html>
@@ -845,15 +870,15 @@ View Your Abstract: ${params.managementLink}
 </html>
     `,
     textContent: `
-${params.subject}
+${rawParams.subject}
 
-Dear ${params.recipientName},
+Dear ${rawParams.recipientName},
 
-${params.message}
+${rawParams.message}
 
-${params.ctaText && params.ctaLink ? `${params.ctaText}: ${params.ctaLink}` : ""}
+${rawParams.ctaText && rawParams.ctaLink ? `${rawParams.ctaText}: ${rawParams.ctaLink}` : ""}
     `,
-  }),
+  }); },
 };
 
 // Helper function to send registration confirmation
