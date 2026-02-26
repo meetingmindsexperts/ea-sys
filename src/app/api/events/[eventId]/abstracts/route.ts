@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AbstractStatus } from "@prisma/client";
@@ -158,6 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         specialty: specialty || null,
         trackId: trackId || null,
         status,
+        managementToken: crypto.randomBytes(32).toString("hex"),
         submittedAt: status === "SUBMITTED" ? new Date() : undefined,
       },
       include: {

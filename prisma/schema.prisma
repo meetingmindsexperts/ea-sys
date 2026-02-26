@@ -267,6 +267,7 @@ model Speaker {
   bio          String?       @db.Text
   organization String?
   jobTitle     String?
+  phone        String?
   website      String?
   photo        String?
   city         String?
