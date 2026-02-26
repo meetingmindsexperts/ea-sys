@@ -127,24 +127,33 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
     const result = await db.$transaction(async (tx) => {
-      // Find or create attendee
-      let attendee = await tx.attendee.findFirst({ where: { email } });
-      if (!attendee) {
-        attendee = await tx.attendee.create({
-          data: {
-            email,
-            firstName,
-            lastName,
-            organization: organization || null,
-            jobTitle: jobTitle || null,
-            phone: phone || null,
-            city: city || null,
-            country: country || null,
-            specialty: specialty || null,
-            dietaryReqs: dietaryReqs || null,
-          },
-        });
-      }
+      // Upsert attendee -- unique constraint on email prevents duplicates under concurrency
+      const attendee = await tx.attendee.upsert({
+        where: { email },
+        update: {
+          firstName,
+          lastName,
+          organization: organization || null,
+          jobTitle: jobTitle || null,
+          phone: phone || null,
+          city: city || null,
+          country: country || null,
+          specialty: specialty || null,
+          dietaryReqs: dietaryReqs || null,
+        },
+        create: {
+          email,
+          firstName,
+          lastName,
+          organization: organization || null,
+          jobTitle: jobTitle || null,
+          phone: phone || null,
+          city: city || null,
+          country: country || null,
+          specialty: specialty || null,
+          dietaryReqs: dietaryReqs || null,
+        },
+      });
 
       // Check if already registered
       const existingRegistration = await tx.registration.findFirst({

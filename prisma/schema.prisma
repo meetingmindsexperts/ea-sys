@@ -174,7 +174,7 @@ model TicketType {
 
 model Attendee {
   id           String   @id @default(cuid())
-  email        String
+  email        String   @unique
   firstName    String
   lastName     String
   organization String?
@@ -191,8 +191,6 @@ model Attendee {
   updatedAt    DateTime @updatedAt
 
   registrations Registration[]
-
-  @@index([email])
 }
 
 model Registration {

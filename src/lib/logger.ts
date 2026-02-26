@@ -1,6 +1,8 @@
-import pino from "pino";
+import pino, { multistream } from "pino";
+import { join } from "path";
 
 const isDevelopment = process.env.NODE_ENV === "development";
+const isVercel = !!process.env.VERCEL;
 
 const loggerConfig: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || (isDevelopment ? "debug" : "info"),
@@ -45,10 +47,11 @@ const loggerConfig: pino.LoggerOptions = {
 };
 
 // Development: pretty-print to console via pino-pretty (uses worker thread, fine in dev)
-// Production:  plain pino — writes JSON directly to stdout, no worker threads,
-//              no pino-abstract-transport dependency, works correctly on Vercel.
-export const logger = isDevelopment
-  ? pino({
+// Production on Vercel: plain pino → stdout only (no writable filesystem in serverless)
+// Production on EC2/Docker: pino.multistream → stdout + logs/app.log + logs/error.log
+function initLogger(): pino.Logger {
+  if (isDevelopment) {
+    return pino({
       ...loggerConfig,
       transport: {
         target: "pino-pretty",
@@ -59,8 +62,26 @@ export const logger = isDevelopment
           singleLine: false,
         },
       },
-    })
-  : pino(loggerConfig);
+    });
+  }
+
+  if (isVercel) {
+    return pino(loggerConfig);
+  }
+
+  // EC2/Docker: write to stdout + file logs
+  const logsDir = join(process.cwd(), "logs");
+  return pino(
+    loggerConfig,
+    multistream([
+      { stream: process.stdout },
+      { stream: pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false }) },
+      { level: "error", stream: pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false }) },
+    ])
+  );
+}
+
+export const logger = initLogger();
 
 export const createLogger = (module: string) => logger.child({ module });
 
