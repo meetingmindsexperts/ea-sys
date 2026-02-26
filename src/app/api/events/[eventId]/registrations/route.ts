@@ -135,8 +135,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { ticketTypeId, attendee, notes } = validated.data;
 
-    // Parallelize event, ticket type, and existing attendee lookup
-    const [event, ticketType, existingAttendee] = await Promise.all([
+    // Parallelize event and ticket type lookup
+    const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: {
           id: eventId,
@@ -150,9 +150,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId,
           isActive: true,
         },
-      }),
-      db.attendee.findFirst({
-        where: { email: attendee.email },
       }),
     ]);
 
@@ -192,27 +189,39 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
     const registration = await db.$transaction(async (tx) => {
-      // Use existing attendee or create new one
-      let attendeeRecord = existingAttendee;
-      if (!attendeeRecord) {
-        attendeeRecord = await tx.attendee.create({
-          data: {
-            email: attendee.email,
-            firstName: attendee.firstName,
-            lastName: attendee.lastName,
-            organization: attendee.organization || null,
-            jobTitle: attendee.jobTitle || null,
-            phone: attendee.phone || null,
-            photo: attendee.photo || null,
-            city: attendee.city || null,
-            country: attendee.country || null,
-            specialty: attendee.specialty || null,
-            tags: attendee.tags || [],
-            dietaryReqs: attendee.dietaryReqs || null,
-            customFields: attendee.customFields || {},
-          },
-        });
-      }
+      // Upsert attendee -- unique constraint on email prevents duplicates under concurrency
+      const attendeeRecord = await tx.attendee.upsert({
+        where: { email: attendee.email },
+        update: {
+          firstName: attendee.firstName,
+          lastName: attendee.lastName,
+          organization: attendee.organization || null,
+          jobTitle: attendee.jobTitle || null,
+          phone: attendee.phone || null,
+          photo: attendee.photo || null,
+          city: attendee.city || null,
+          country: attendee.country || null,
+          specialty: attendee.specialty || null,
+          tags: attendee.tags || [],
+          dietaryReqs: attendee.dietaryReqs || null,
+          customFields: attendee.customFields || {},
+        },
+        create: {
+          email: attendee.email,
+          firstName: attendee.firstName,
+          lastName: attendee.lastName,
+          organization: attendee.organization || null,
+          jobTitle: attendee.jobTitle || null,
+          phone: attendee.phone || null,
+          photo: attendee.photo || null,
+          city: attendee.city || null,
+          country: attendee.country || null,
+          specialty: attendee.specialty || null,
+          tags: attendee.tags || [],
+          dietaryReqs: attendee.dietaryReqs || null,
+          customFields: attendee.customFields || {},
+        },
+      });
 
       // Check if attendee already registered for this event
       const existingRegistration = await tx.registration.findFirst({

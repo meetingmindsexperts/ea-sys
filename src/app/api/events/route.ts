@@ -96,7 +96,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, description, startDate, endDate, venue, address, city, country } =
+    const { name, description, eventType, tag, specialty, startDate, endDate, venue, address, city, country } =
       validated.data;
 
     // Create event slug
@@ -124,6 +124,9 @@ export async function POST(req: Request) {
         address: address || null,
         city: city || null,
         country: country || null,
+        eventType: eventType || null,
+        tag: tag || null,
+        specialty: specialty || null,
       },
     });
 

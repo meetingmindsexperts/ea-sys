@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -117,30 +117,30 @@ export async function POST(req: Request) {
       expiresIn: "1 hour",
     });
 
-    after(async () => {
-      try {
-        const emailResult = await sendEmail({
-          to: [{ email: user.email, name: `${user.firstName} ${user.lastName}` }],
-          subject: emailTemplate.subject,
-          htmlContent: emailTemplate.htmlContent,
-          textContent: emailTemplate.textContent,
-        });
+    // Send email synchronously to ensure delivery before responding.
+    // We still return the same "success" message regardless to prevent account enumeration.
+    try {
+      const emailResult = await sendEmail({
+        to: [{ email: user.email, name: `${user.firstName} ${user.lastName}` }],
+        subject: emailTemplate.subject,
+        htmlContent: emailTemplate.htmlContent,
+        textContent: emailTemplate.textContent,
+      });
 
-        if (!emailResult.success) {
-          apiLogger.warn({
-            msg: "Failed to send password reset email",
-            email,
-            error: emailResult.error,
-          });
-        }
-      } catch (sendError) {
+      if (!emailResult.success) {
         apiLogger.warn({
-          msg: "Password reset email dispatch error",
+          msg: "Failed to send password reset email",
           email,
-          error: sendError instanceof Error ? sendError.message : "Unknown error",
+          error: emailResult.error,
         });
       }
-    });
+    } catch (sendError) {
+      apiLogger.warn({
+        msg: "Password reset email dispatch error",
+        email,
+        error: sendError instanceof Error ? sendError.message : "Unknown error",
+      });
+    }
 
     return NextResponse.json({
       success: true,
