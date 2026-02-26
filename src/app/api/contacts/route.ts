@@ -4,14 +4,17 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { normalizeTag } from "@/lib/utils";
+import { titleEnum } from "@/lib/schemas";
 
 const createContactSchema = z.object({
+  title: titleEnum.optional(),
   email: z.string().email().max(255),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   organization: z.string().max(255).optional(),
   jobTitle: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  registrationType: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
   photo: z.string().max(500).optional().or(z.literal("")),
   city: z.string().max(255).optional(),
@@ -60,6 +63,7 @@ export async function GET(req: Request) {
         take: limit,
         select: {
           id: true,
+          title: true,
           email: true,
           firstName: true,
           lastName: true,
@@ -108,7 +112,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, firstName, lastName, organization, jobTitle, specialty, phone, photo, city, country, tags, notes } = validated.data;
+    const { title, email, firstName, lastName, organization, jobTitle, specialty, registrationType, phone, photo, city, country, tags, notes } = validated.data;
 
     const existing = await db.contact.findUnique({
       where: { organizationId_email: { organizationId: ctx.organizationId, email } },
@@ -125,12 +129,14 @@ export async function POST(req: Request) {
     const contact = await db.contact.create({
       data: {
         organizationId: ctx.organizationId,
+        title: title || null,
         email,
         firstName,
         lastName,
         organization,
         jobTitle,
         specialty,
+        registrationType,
         phone,
         photo: photo || null,
         city,

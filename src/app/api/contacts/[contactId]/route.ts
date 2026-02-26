@@ -4,16 +4,19 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { normalizeTag } from "@/lib/utils";
+import { titleEnum } from "@/lib/schemas";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
 const updateContactSchema = z.object({
+  title: titleEnum.optional().nullable(),
   email: z.string().email().max(255).optional(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   organization: z.string().max(255).optional().nullable(),
   jobTitle: z.string().max(255).optional().nullable(),
   specialty: z.string().max(255).optional().nullable(),
+  registrationType: z.string().max(255).optional().nullable(),
   phone: z.string().max(50).optional().nullable(),
   photo: z.string().max(500).optional().or(z.literal("")).nullable(),
   city: z.string().max(255).optional().nullable(),

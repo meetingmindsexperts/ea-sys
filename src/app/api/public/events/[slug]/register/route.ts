@@ -5,9 +5,11 @@ import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
+  title: titleEnum.optional(),
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   email: z.string().email("Valid email is required").max(255),
@@ -17,6 +19,7 @@ const registrationSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  registrationType: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
 });
 
@@ -51,7 +54,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, firstName, lastName, organization, jobTitle, phone, city, country, specialty, dietaryReqs } =
+    const { ticketTypeId, title, firstName, lastName, organization, jobTitle, phone, city, country, specialty, registrationType, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -131,6 +134,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const attendee = await tx.attendee.upsert({
         where: { email },
         update: {
+          title: title || null,
           firstName,
           lastName,
           organization: organization || null,
@@ -139,9 +143,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: city || null,
           country: country || null,
           specialty: specialty || null,
+          registrationType: registrationType || null,
           dietaryReqs: dietaryReqs || null,
         },
         create: {
+          title: title || null,
           email,
           firstName,
           lastName,
@@ -151,6 +157,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: city || null,
           country: country || null,
           specialty: specialty || null,
+          registrationType: registrationType || null,
           dietaryReqs: dietaryReqs || null,
         },
       });

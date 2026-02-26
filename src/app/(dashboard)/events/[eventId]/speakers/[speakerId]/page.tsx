@@ -44,8 +44,11 @@ import {
 } from "lucide-react";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TitleSelect } from "@/components/ui/title-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { formatPersonName } from "@/lib/utils";
 
 const statusColors = {
   INVITED: "bg-yellow-100 text-yellow-800",
@@ -56,6 +59,7 @@ const statusColors = {
 
 interface Speaker {
   id: string;
+  title: string | null;
   email: string;
   firstName: string;
   lastName: string;
@@ -66,6 +70,7 @@ interface Speaker {
   photo: string | null;
   city: string | null;
   country: string | null;
+  registrationType: string | null;
   tags: string[];
   status: keyof typeof statusColors;
   socialLinks: {
@@ -100,6 +105,7 @@ export default function SpeakerDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
+    title: "",
     email: "",
     firstName: "",
     lastName: "",
@@ -110,6 +116,7 @@ export default function SpeakerDetailPage() {
     photo: null as string | null,
     city: "",
     country: "",
+    registrationType: "",
     tags: [] as string[],
     status: "INVITED",
     socialLinks: {
@@ -132,6 +139,7 @@ export default function SpeakerDetailPage() {
         const data = await res.json();
         setSpeaker(data);
         setFormData({
+          title: data.title || "",
           email: data.email,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -142,6 +150,7 @@ export default function SpeakerDetailPage() {
           photo: data.photo || null,
           city: data.city || "",
           country: data.country || "",
+          registrationType: data.registrationType || "",
           tags: data.tags || [],
           status: data.status,
           socialLinks: {
@@ -287,7 +296,7 @@ export default function SpeakerDetailPage() {
             </Link>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Mic className="h-8 w-8" />
-              {speaker.firstName} {speaker.lastName}
+              {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
             </h1>
             <Badge className={statusColors[speaker.status]} variant="outline">
               {speaker.status}
@@ -393,7 +402,16 @@ export default function SpeakerDetailPage() {
             <CardContent>
               {isEditing ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 grid-cols-[100px_1fr_1fr]">
+                    <div className="space-y-2">
+                      <Label htmlFor="title">Title</Label>
+                      <TitleSelect
+                        value={formData.title}
+                        onChange={(title) =>
+                          setFormData({ ...formData, title })
+                        }
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
                       <Input
@@ -496,6 +514,16 @@ export default function SpeakerDetailPage() {
                         onChange={(country) => setFormData({ ...formData, country })}
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="registrationType">Registration Type</Label>
+                    <RegistrationTypeSelect
+                      value={formData.registrationType}
+                      onChange={(registrationType) =>
+                        setFormData({ ...formData, registrationType })
+                      }
+                      eventId={eventId}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tags">Tags</Label>
@@ -643,7 +671,7 @@ export default function SpeakerDetailPage() {
               <CardContent className="pt-6">
                 <Image
                   src={speaker.photo}
-                  alt={`${speaker.firstName} ${speaker.lastName}`}
+                  alt={formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                   width={400}
                   height={400}
                   className="w-full rounded-lg"
@@ -713,7 +741,7 @@ export default function SpeakerDetailPage() {
           <div className="space-y-4 py-4">
             <div className="bg-muted p-3 rounded-lg">
               <p className="text-sm">
-                <strong>To:</strong> {speaker.firstName} {speaker.lastName} ({speaker.email})
+                <strong>To:</strong> {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)} ({speaker.email})
               </p>
             </div>
 

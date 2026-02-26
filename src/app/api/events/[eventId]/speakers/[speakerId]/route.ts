@@ -6,8 +6,10 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const updateSpeakerSchema = z.object({
+  title: titleEnum.optional().nullable(),
   email: z.string().email().max(255).optional(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
@@ -20,6 +22,7 @@ const updateSpeakerSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  registrationType: z.string().max(255).optional(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   socialLinks: z.object({
     twitter: z.string().max(500).optional(),
@@ -163,6 +166,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const speaker = await db.speaker.update({
       where: { id: speakerId },
       data: {
+        ...(data.title !== undefined && { title: data.title || null }),
         ...(data.email && { email: data.email }),
         ...(data.firstName && { firstName: data.firstName }),
         ...(data.lastName && { lastName: data.lastName }),
@@ -175,6 +179,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.city !== undefined && { city: data.city || null }),
         ...(data.country !== undefined && { country: data.country || null }),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
+        ...(data.registrationType !== undefined && { registrationType: data.registrationType || null }),
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.socialLinks && { socialLinks: data.socialLinks }),
         ...(data.status && { status: data.status }),

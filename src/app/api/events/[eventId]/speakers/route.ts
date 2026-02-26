@@ -7,8 +7,10 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const createSpeakerSchema = z.object({
+  title: titleEnum.optional(),
   email: z.string().email().max(255),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
@@ -21,6 +23,7 @@ const createSpeakerSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  registrationType: z.string().max(255).optional(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   socialLinks: z.object({
     twitter: z.string().max(500).optional(),
@@ -120,6 +123,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const {
+      title,
       email,
       firstName,
       lastName,
@@ -132,6 +136,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       city,
       country,
       specialty,
+      registrationType,
       tags,
       socialLinks,
       status,
@@ -168,6 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const speaker = await db.speaker.create({
       data: {
         eventId,
+        title: title || null,
         email,
         firstName,
         lastName,
@@ -180,6 +186,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         city: city || null,
         country: country || null,
         specialty: specialty || null,
+        registrationType: registrationType || null,
         tags: tags || [],
         socialLinks: socialLinks || {},
         status,

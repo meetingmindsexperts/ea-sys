@@ -46,10 +46,11 @@ import {
   X,
   RefreshCw,
 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPersonName } from "@/lib/utils";
 
 interface Contact {
   id: string;
+  title?: string | null;
   firstName: string;
   lastName: string;
   email: string;
@@ -546,7 +547,7 @@ export default function ContactsPage() {
                               href={`/contacts/${contact.id}`}
                               className="font-medium text-gray-900 hover:text-[#00aade] transition-colors truncate block leading-snug"
                             >
-                              {contact.firstName} {contact.lastName}
+                              {formatPersonName(contact.title, contact.firstName, contact.lastName)}
                             </Link>
                             <span className="text-xs text-gray-400 truncate block">{contact.email}</span>
                           </div>

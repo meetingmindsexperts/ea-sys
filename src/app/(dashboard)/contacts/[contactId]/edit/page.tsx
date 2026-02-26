@@ -12,6 +12,8 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
+import { formatPersonName } from "@/lib/utils";
 import { toast } from "sonner";
 
 function SectionCard({
@@ -63,12 +65,14 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
   const updateContact = useUpdateContact(contactId);
 
   const [form, setForm] = useState({
+    title: contact.title ?? "",
     firstName: contact.firstName ?? "",
     lastName: contact.lastName ?? "",
     email: contact.email ?? "",
     organization: contact.organization ?? "",
     jobTitle: contact.jobTitle ?? "",
     specialty: contact.specialty ?? "",
+    registrationType: contact.registrationType ?? "",
     phone: contact.phone ?? "",
     photo: (contact.photo ?? null) as string | null,
     city: contact.city ?? "",
@@ -81,12 +85,14 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
     e.preventDefault();
     try {
       await updateContact.mutateAsync({
+        title: form.title || null,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim().toLowerCase(),
         organization: form.organization.trim() || null,
         jobTitle: form.jobTitle.trim() || null,
         specialty: form.specialty || null,
+        registrationType: form.registrationType || null,
         phone: form.phone.trim() || null,
         photo: form.photo || null,
         city: form.city.trim() || null,
@@ -118,7 +124,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
               <Link href="/contacts" className="hover:text-gray-600 transition-colors">Contacts</Link>
               <span className="mx-1.5 text-gray-300">/</span>
               <Link href={`/contacts/${contactId}`} className="hover:text-gray-600 transition-colors">
-                {contact.firstName} {contact.lastName}
+                {formatPersonName(contact.title, contact.firstName, contact.lastName)}
               </Link>
               <span className="mx-1.5 text-gray-300">/</span>
               Edit
@@ -140,7 +146,13 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                 />
               </div>
               <div className="flex-1 min-w-0 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                  <FormField label="Title">
+                    <TitleSelect
+                      value={form.title}
+                      onChange={(title) => setForm((f) => ({ ...f, title }))}
+                    />
+                  </FormField>
                   <FormField label="First Name" required>
                     <Input
                       value={form.firstName}
@@ -193,6 +205,14 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                   <SpecialtySelect
                     value={form.specialty}
                     onChange={(specialty) => setForm((f) => ({ ...f, specialty }))}
+                  />
+                </FormField>
+                <FormField label="Registration Type">
+                  <Input
+                    value={form.registrationType}
+                    onChange={(e) => setForm((f) => ({ ...f, registrationType: e.target.value }))}
+                    className={inputCls}
+                    placeholder="Registration type"
                   />
                 </FormField>
               </div>

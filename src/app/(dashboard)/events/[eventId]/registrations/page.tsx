@@ -36,7 +36,7 @@ import {
   Share2,
   Plus,
 } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPersonName } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -83,6 +83,7 @@ export default function RegistrationsPage() {
 
   const exportToCSV = () => {
     const headers = [
+      "Title",
       "First Name",
       "Last Name",
       "Email",
@@ -92,8 +93,9 @@ export default function RegistrationsPage() {
       "City",
       "Country",
       "Specialty",
-      "Tags",
       "Registration Type",
+      "Tags",
+      "Ticket Type",
       "Status",
       "Payment Status",
       "Registered Date",
@@ -101,6 +103,7 @@ export default function RegistrationsPage() {
     ];
 
     const rows = filteredRegistrations.map((r) => [
+      r.attendee.title || "",
       r.attendee.firstName,
       r.attendee.lastName,
       r.attendee.email,
@@ -110,6 +113,7 @@ export default function RegistrationsPage() {
       r.attendee.city || "",
       r.attendee.country || "",
       r.attendee.specialty || "",
+      r.attendee.registrationType || "",
       r.attendee.tags.join(", "),
       r.ticketType.name,
       r.status,
@@ -393,7 +397,7 @@ export default function RegistrationsPage() {
                     <TableCell>
                       <div>
                         <div className="font-medium">
-                          {registration.attendee.firstName} {registration.attendee.lastName}
+                          {formatPersonName(registration.attendee.title, registration.attendee.firstName, registration.attendee.lastName)}
                         </div>
                         <div className="text-sm text-muted-foreground">
                           {registration.attendee.email}

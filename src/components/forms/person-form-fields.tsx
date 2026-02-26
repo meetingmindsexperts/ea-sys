@@ -7,8 +7,11 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TagInput } from "@/components/ui/tag-input";
+import { TitleSelect } from "@/components/ui/title-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 
 export interface PersonFormData {
+  title?: string | null;
   email?: string;
   firstName: string;
   lastName: string;
@@ -19,6 +22,7 @@ export interface PersonFormData {
   city?: string;
   country?: string;
   specialty?: string;
+  registrationType?: string;
   tags?: string[];
   bio?: string;
   dietaryReqs?: string;
@@ -34,6 +38,7 @@ interface PersonFormFieldsProps {
   showWebsite?: boolean;
   emailDisabled?: boolean;
   isReviewer?: boolean; // For hiding tags field from reviewers
+  eventId?: string; // For populating registration type dropdown
 }
 
 export function PersonFormFields({
@@ -45,6 +50,7 @@ export function PersonFormFields({
   showWebsite = false,
   emailDisabled = false,
   isReviewer = false,
+  eventId,
 }: PersonFormFieldsProps) {
   const updateField = (field: keyof PersonFormData, value: PersonFormData[keyof PersonFormData]) => {
     onChange({ ...data, [field]: value });
@@ -52,8 +58,16 @@ export function PersonFormFields({
 
   return (
     <div className="space-y-4">
-      {/* Basic Information */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Title + Name */}
+      <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="title">Title</Label>
+          <TitleSelect
+            value={data.title}
+            onChange={(title) => updateField("title", title)}
+            disabled={disabled}
+          />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="firstName">First Name *</Label>
           <Input
@@ -202,14 +216,25 @@ export function PersonFormFields({
         </div>
       )}
 
-      {/* Specialty */}
-      <div className="space-y-2">
-        <Label htmlFor="specialty">Specialty</Label>
-        <SpecialtySelect
-          value={data.specialty || ""}
-          onChange={(specialty) => updateField("specialty", specialty)}
-          disabled={disabled}
-        />
+      {/* Specialty & Registration Type */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="specialty">Specialty</Label>
+          <SpecialtySelect
+            value={data.specialty || ""}
+            onChange={(specialty) => updateField("specialty", specialty)}
+            disabled={disabled}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="registrationType">Registration Type</Label>
+          <RegistrationTypeSelect
+            value={data.registrationType || ""}
+            onChange={(registrationType) => updateField("registrationType", registrationType)}
+            disabled={disabled}
+            eventId={eventId}
+          />
+        </div>
       </div>
 
       {/* Tags */}

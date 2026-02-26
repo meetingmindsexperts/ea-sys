@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redirect, notFound } from "next/navigation";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPersonName } from "@/lib/utils";
 import {
   ArrowLeft,
   Building2,
@@ -215,7 +215,7 @@ export default async function ContactDetailPage({
               </Link>
               <span className="text-gray-300">/</span>
               <span className="text-gray-700 font-medium">
-                {contact.firstName} {contact.lastName}
+                {formatPersonName(contact.title, contact.firstName, contact.lastName)}
               </span>
             </nav>
           </div>
@@ -237,7 +237,7 @@ export default async function ContactDetailPage({
               {contact.photo ? (
                 <Image
                   src={contact.photo}
-                  alt={`${contact.firstName} ${contact.lastName}`}
+                  alt={formatPersonName(contact.title, contact.firstName, contact.lastName)}
                   width={64}
                   height={64}
                   className="w-16 h-16 rounded-full object-cover ring-2 ring-gray-100 shrink-0"
@@ -251,7 +251,7 @@ export default async function ContactDetailPage({
               )}
               <div className="flex-1 min-w-0 pt-0.5">
                 <h1 className="text-xl font-semibold text-gray-900 leading-tight">
-                  {contact.firstName} {contact.lastName}
+                  {formatPersonName(contact.title, contact.firstName, contact.lastName)}
                 </h1>
                 {(contact.jobTitle || contact.organization) && (
                   <p className="text-sm text-gray-500 mt-0.5">

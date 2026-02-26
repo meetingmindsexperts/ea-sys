@@ -22,26 +22,30 @@ export async function GET(req: Request) {
       where: { organizationId: ctx.organizationId },
       orderBy: { createdAt: "desc" },
       select: {
+        title: true,
         firstName: true,
         lastName: true,
         email: true,
         organization: true,
         jobTitle: true,
         specialty: true,
+        registrationType: true,
         phone: true,
         tags: true,
         notes: true,
       },
     });
 
-    const headers = ["firstName", "lastName", "email", "organization", "jobTitle", "specialty", "phone", "tags", "notes"];
+    const headers = ["title", "firstName", "lastName", "email", "organization", "jobTitle", "specialty", "registrationType", "phone", "tags", "notes"];
     const rows = contacts.map((c) => [
+      escapeCSV(c.title),
       escapeCSV(c.firstName),
       escapeCSV(c.lastName),
       escapeCSV(c.email),
       escapeCSV(c.organization),
       escapeCSV(c.jobTitle),
       escapeCSV(c.specialty),
+      escapeCSV(c.registrationType),
       escapeCSV(c.phone),
       escapeCSV(c.tags.join(",")),
       escapeCSV(c.notes),

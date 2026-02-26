@@ -84,6 +84,9 @@ src/
 - `src/components/ui/country-select.tsx` - Searchable country dropdown component
 - `src/components/ui/tag-input.tsx` - Multi-tag chip input (Enter/comma to add, × to remove)
 - `src/components/ui/specialty-select.tsx` - Specialty field dropdown
+- `src/components/ui/title-select.tsx` - Title enum dropdown (Mr, Ms, Mrs, Dr, Prof, Other)
+- `src/components/ui/registration-type-select.tsx` - Registration type dropdown (fetches from TicketType or falls back to text input)
+- `src/lib/schemas.ts` - Shared Zod schemas (titleEnum) used across API routes
 - `src/components/forms/person-form-fields.tsx` - Shared form fields for attendees/speakers/contacts
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
 - `src/app/uploads/[...path]/route.ts` - Static file handler for uploaded photos (streams from public/uploads/)
@@ -97,13 +100,13 @@ src/
 - **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields for classification
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
-- **Attendee** - Attendee information; includes `photo`, `city`, and `country` fields
-- **Speaker** - Event speakers; includes `photo`, `city`, `country`, and `specialty` fields; `specialty` is set during submitter registration and editable from dashboard
+- **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
+- **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
 - **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
 - **Hotel/RoomType/Accommodation** - Lodging management
-- **Contact** - Contact store for organization; includes `photo`, `city`, and `country` fields
+- **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `country`, and `registrationType` fields
 - **AuditLog** - Action logging
 
 ## API Patterns
@@ -329,6 +332,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Title and Registration Type fields** - Added `Title` enum (MR, MS, MRS, DR, PROF, OTHER) and `registrationType String?` to Attendee, Speaker, and Contact models; `TitleSelect` dropdown component; `RegistrationTypeSelect` component (fetches TicketType names with event context, falls back to text input); shared `titleEnum` Zod schema in `src/lib/schemas.ts`; `formatPersonName()` and `getTitleLabel()` helpers in utils; updated all 9+ API routes, all person forms, and all display views to show title prefix with names; CSV export includes title and registrationType columns
+- **Sentry client instrumentation** - Replaced root-level `sentry.client.config.ts` with `src/instrumentation-client.ts` (Next.js 15+ convention); hardcoded DSN with replay integration (10% session sample, 100% on error)
 - **Uploaded photo serving** - Next.js `output: "standalone"` does not serve `public/` directory files automatically; added `src/app/uploads/[...path]/route.ts` catch-all handler that reads from `public/uploads/` and streams files with correct `Content-Type` and long-lived `Cache-Control` headers; includes path-traversal protection
 - **Docker deploy fix** - Replaced `docker compose up -d --no-deps` with `docker compose down --remove-orphans && docker compose up -d` in `.github/workflows/deploy.yml` to prevent container naming conflicts from prior failed deployments
 - **Specialty field on Abstract** - Added `specialty` to abstract create/edit Zod schemas, DB writes, and UI (SpecialtySelect in submit and edit dialogs); SUBMITTER role can set specialty on own abstracts

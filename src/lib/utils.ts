@@ -69,6 +69,31 @@ export function formatTime(date: Date | string): string {
   return `${hour12}:${minuteStr} ${ampm} GST`;
 }
 
+const TITLE_LABELS: Record<string, string> = {
+  MR: "Mr.",
+  MS: "Ms.",
+  MRS: "Mrs.",
+  DR: "Dr.",
+  PROF: "Prof.",
+  OTHER: "",
+};
+
+/** Format a person's name with optional title prefix, e.g. "Dr. John Smith" */
+export function formatPersonName(
+  title: string | null | undefined,
+  firstName: string,
+  lastName: string
+): string {
+  const prefix = title && TITLE_LABELS[title] ? `${TITLE_LABELS[title]} ` : "";
+  return `${prefix}${firstName} ${lastName}`.trim();
+}
+
+/** Get the display label for a title enum value, e.g. "DR" → "Dr." */
+export function getTitleLabel(title: string | null | undefined): string {
+  if (!title) return "";
+  return TITLE_LABELS[title] || "";
+}
+
 export function slugify(text: string): string {
   return text
     .toLowerCase()

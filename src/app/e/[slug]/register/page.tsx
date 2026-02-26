@@ -36,6 +36,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +82,7 @@ interface Event {
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a registration type"),
+  title: z.string().optional(),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
@@ -90,6 +92,7 @@ const registrationSchema = z.object({
   city: z.string().optional(),
   country: z.string().optional(),
   specialty: z.string().optional(),
+  registrationType: z.string().optional(),
   dietaryReqs: z.string().optional(),
 });
 
@@ -109,6 +112,7 @@ export default function PublicEventRegisterPage() {
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       ticketTypeId: "",
+      title: "",
       firstName: "",
       lastName: "",
       email: "",
@@ -118,6 +122,7 @@ export default function PublicEventRegisterPage() {
       city: "",
       country: "",
       specialty: "",
+      registrationType: "",
       dietaryReqs: "",
     },
   });
@@ -495,7 +500,23 @@ export default function PublicEventRegisterPage() {
                           Personal Information
                         </p>
                         <div className="space-y-4">
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                            <FormField
+                              control={form.control}
+                              name="title"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600">
+                                    Title
+                                  </FormLabel>
+                                  <TitleSelect
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                  />
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
                             <FormField
                               control={form.control}
                               name="firstName"
@@ -661,23 +682,45 @@ export default function PublicEventRegisterPage() {
                             />
                           </div>
 
-                          <FormField
-                            control={form.control}
-                            name="specialty"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Stethoscope className="h-3 w-3" />
-                                  Specialty
-                                </FormLabel>
-                                <SpecialtySelect
-                                  value={field.value ?? ""}
-                                  onChange={field.onChange}
-                                />
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField
+                              control={form.control}
+                              name="specialty"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <Stethoscope className="h-3 w-3" />
+                                    Specialty
+                                  </FormLabel>
+                                  <SpecialtySelect
+                                    value={field.value ?? ""}
+                                    onChange={field.onChange}
+                                  />
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="registrationType"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                    <FileText className="h-3 w-3" />
+                                    Registration Type
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder="e.g. Delegate, Speaker, Student"
+                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
 
                           <FormField
                             control={form.control}

@@ -4,8 +4,10 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const registerSchema = z.object({
+  title: titleEnum.optional(),
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   email: z.string().email("Valid email is required").max(255),
@@ -16,6 +18,7 @@ const registerSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  registrationType: z.string().max(255).optional(),
 });
 
 interface RouteParams {
@@ -148,6 +151,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           where: { id: existingSpeaker.id },
           data: {
             userId: user.id,
+            ...(data.title && { title: data.title }),
             firstName: data.firstName,
             lastName: data.lastName,
             ...(data.organization && { organization: data.organization }),
@@ -156,6 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             ...(data.city && { city: data.city }),
             ...(data.country && { country: data.country }),
             ...(data.specialty && { specialty: data.specialty }),
+            ...(data.registrationType && { registrationType: data.registrationType }),
           },
         });
       } else {
@@ -163,6 +168,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           data: {
             eventId: event.id,
             userId: user.id,
+            title: data.title || null,
             email: emailLower,
             firstName: data.firstName,
             lastName: data.lastName,
@@ -172,6 +178,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             city: data.city || null,
             country: data.country || null,
             specialty: data.specialty || null,
+            registrationType: data.registrationType || null,
             status: "CONFIRMED",
           },
         });
