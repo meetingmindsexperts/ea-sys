@@ -69,16 +69,21 @@ function initLogger(): pino.Logger {
     return pino(loggerConfig);
   }
 
-  // EC2/Docker: write to stdout + file logs
+  // EC2/Docker: write to stdout + file logs (fall back to stdout-only if files not writable)
   const logsDir = join(process.cwd(), "logs");
-  return pino(
-    loggerConfig,
-    multistream([
-      { stream: process.stdout },
-      { stream: pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false }) },
-      { level: "error", stream: pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false }) },
-    ])
-  );
+  try {
+    return pino(
+      loggerConfig,
+      multistream([
+        { stream: process.stdout },
+        { stream: pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false }) },
+        { level: "error", stream: pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false }) },
+      ])
+    );
+  } catch {
+    // File logging not available (e.g. permission denied) — stdout only
+    return pino(loggerConfig);
+  }
 }
 
 export const logger = initLogger();
