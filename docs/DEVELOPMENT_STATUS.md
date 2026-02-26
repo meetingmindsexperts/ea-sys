@@ -452,7 +452,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - [x] CSV export (registrations + contacts) includes registrationType column
 
 #### Sentry client-side instrumentation
-- [x] Created `src/instrumentation-client.ts` with hardcoded DSN and replay integration
+- [x] Created `src/instrumentation-client.ts` with DSN from `NEXT_PUBLIC_SENTRY_DSN` env var and replay integration
 - [x] Deleted old `sentry.client.config.ts` (prevents duplicate `Sentry.init()`)
 - [x] Replay: 10% session sample rate, 100% on error
 
@@ -480,7 +480,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 
 #### Sentry integration
 - [x] Installed `@sentry/nextjs@10` via Sentry wizard
-- [x] `src/instrumentation-client.ts` — session replay (10% sample, 100% on error) with hardcoded DSN (replaced old root-level `sentry.client.config.ts`)
+- [x] `src/instrumentation-client.ts` — session replay (10% sample, 100% on error) with DSN from `NEXT_PUBLIC_SENTRY_DSN` env var (replaced old root-level `sentry.client.config.ts`)
 - [x] `sentry.server.config.ts` / `sentry.edge.config.ts` — server and edge runtime error capture
 - [x] `src/instrumentation.ts` — `register()` loads server/edge configs; `onRequestError` captures server-side route errors (Next.js 15+ hook)
 - [x] `src/app/global-error.tsx` — root React error boundary, calls `Sentry.captureException` for client-side crashes
