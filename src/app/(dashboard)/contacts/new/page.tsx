@@ -12,15 +12,18 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
 import { toast } from "sonner";
 
 const emptyForm = {
+  title: "",
   firstName: "",
   lastName: "",
   email: "",
   organization: "",
   jobTitle: "",
   specialty: "",
+  registrationType: "",
   phone: "",
   photo: null as string | null,
   city: "",
@@ -81,12 +84,14 @@ export default function NewContactPage() {
     e.preventDefault();
     try {
       await createContact.mutateAsync({
+        title: form.title || undefined,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim().toLowerCase(),
         organization: form.organization.trim() || undefined,
         jobTitle: form.jobTitle.trim() || undefined,
         specialty: form.specialty || undefined,
+        registrationType: form.registrationType.trim() || undefined,
         phone: form.phone.trim() || undefined,
         photo: form.photo || undefined,
         city: form.city.trim() || undefined,
@@ -136,7 +141,13 @@ export default function NewContactPage() {
                 />
               </div>
               <div className="flex-1 min-w-0 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                  <FormField label="Title">
+                    <TitleSelect
+                      value={form.title}
+                      onChange={(title) => setForm((f) => ({ ...f, title }))}
+                    />
+                  </FormField>
                   <FormField label="First Name" required>
                     <Input
                       value={form.firstName}

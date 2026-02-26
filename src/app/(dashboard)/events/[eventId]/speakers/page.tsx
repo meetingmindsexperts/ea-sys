@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Mic, Plus, Mail, MapPin, RefreshCw } from "lucide-react";
+import { formatPersonName } from "@/lib/utils";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { useSpeakers, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
@@ -21,6 +22,7 @@ const statusColors: Record<string, string> = {
 
 interface Speaker {
   id: string;
+  title: string | null;
   firstName: string;
   lastName: string;
   email: string | null;
@@ -163,7 +165,7 @@ export default function SpeakersPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">
-                          {speaker.firstName} {speaker.lastName}
+                          {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </h3>
                         <Badge className={statusColors[speaker.status] ?? "bg-gray-100 text-gray-800"} variant="outline">
                           {speaker.status}

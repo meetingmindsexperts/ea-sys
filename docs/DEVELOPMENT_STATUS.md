@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 25, 2026
+**Last Updated:** February 26, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -431,11 +431,56 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 
 ---
 
+### Title & Registration Type Fields + Sentry Client Instrumentation (February 26, 2026)
+
+#### Title field across all person models
+- [x] Added `Title` enum to Prisma schema (MR, MS, MRS, DR, PROF, OTHER)
+- [x] Added `title Title?` to Attendee, Speaker, and Contact models
+- [x] Created `TitleSelect` dropdown component (`src/components/ui/title-select.tsx`)
+- [x] Created shared `titleEnum` Zod schema (`src/lib/schemas.ts`) used across 9+ API routes
+- [x] Added `formatPersonName()` and `getTitleLabel()` helpers to `src/lib/utils.ts`
+- [x] Updated `PersonFormFields` shared component with TitleSelect in 3-column grid `[100px_1fr_1fr]`
+- [x] Updated all standalone forms (speaker edit, contact edit, registration detail sheet, public registration)
+- [x] All display views (registration table, speaker list/detail, contact list/detail, breadcrumbs) now show title prefix via `formatPersonName()`
+- [x] CSV export (registrations + contacts) includes title column
+
+#### Registration Type field across all person models
+- [x] Added `registrationType String?` to Attendee, Speaker, and Contact models
+- [x] Created `RegistrationTypeSelect` component (`src/components/ui/registration-type-select.tsx`) — fetches TicketType names when `eventId` provided, falls back to plain text input otherwise
+- [x] Updated `PersonFormFields` with `RegistrationTypeSelect` alongside specialty field
+- [x] Updated all standalone forms and API routes with Zod validation + DB writes
+- [x] CSV export (registrations + contacts) includes registrationType column
+
+#### Sentry client-side instrumentation
+- [x] Created `src/instrumentation-client.ts` with DSN from `NEXT_PUBLIC_SENTRY_DSN` env var and replay integration
+- [x] Deleted old `sentry.client.config.ts` (prevents duplicate `Sentry.init()`)
+- [x] Replay: 10% session sample rate, 100% on error
+
+**New Files:**
+- `src/instrumentation-client.ts` — Sentry client initialization (Next.js 15+ convention)
+- `src/lib/schemas.ts` — Shared Zod schemas (`titleEnum`)
+- `src/components/ui/title-select.tsx` — Title enum dropdown
+- `src/components/ui/registration-type-select.tsx` — Registration type dropdown with event context
+
+**Modified Files:**
+- `prisma/schema.prisma` — Title enum + title/registrationType on 3 models
+- `src/lib/utils.ts` — `formatPersonName()`, `getTitleLabel()`
+- `src/components/forms/person-form-fields.tsx` — Title + registrationType fields, eventId prop
+- 9 API routes — Zod schemas + DB writes for title/registrationType
+- 7 display pages — `formatPersonName()` for name rendering with title prefix
+- `src/app/api/contacts/export/route.ts` — title + registrationType in CSV export
+- `src/app/(dashboard)/events/[eventId]/registrations/page.tsx` — title + registrationType in CSV export
+
+**Deleted Files:**
+- `sentry.client.config.ts` — Replaced by `src/instrumentation-client.ts`
+
+---
+
 ### Sentry Error Monitoring & CI/CD Hardening (February 24, 2026)
 
 #### Sentry integration
 - [x] Installed `@sentry/nextjs@10` via Sentry wizard
-- [x] `sentry.client.config.ts` — session replay (10% sample, 100% on error), enabled only when `NEXT_PUBLIC_SENTRY_DSN` is set
+- [x] `src/instrumentation-client.ts` — session replay (10% sample, 100% on error) with DSN from `NEXT_PUBLIC_SENTRY_DSN` env var (replaced old root-level `sentry.client.config.ts`)
 - [x] `sentry.server.config.ts` / `sentry.edge.config.ts` — server and edge runtime error capture
 - [x] `src/instrumentation.ts` — `register()` loads server/edge configs; `onRequestError` captures server-side route errors (Next.js 15+ hook)
 - [x] `src/app/global-error.tsx` — root React error boundary, calls `Sentry.captureException` for client-side crashes
@@ -443,7 +488,7 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - [x] Sentry source map upload wired into GitHub Actions Build step via `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT` secrets
 
 **New Files:**
-- `sentry.client.config.ts`
+- `src/instrumentation-client.ts` (replaced root-level `sentry.client.config.ts`)
 - `sentry.server.config.ts`
 - `sentry.edge.config.ts`
 - `src/app/global-error.tsx`

@@ -92,6 +92,15 @@ enum UserRole {
   SUBMITTER
 }
 
+enum Title {
+  MR
+  MS
+  MRS
+  DR
+  PROF
+  OTHER
+}
+
 model Event {
   id             String      @id @default(cuid())
   organizationId String
@@ -173,22 +182,24 @@ model TicketType {
 }
 
 model Attendee {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  firstName    String
-  lastName     String
-  organization String?
-  jobTitle     String?
-  phone        String?
-  photo        String?
-  city         String?
-  country      String?
-  specialty    String?
-  tags         String[] @default([])
-  dietaryReqs  String?
-  customFields Json     @default("{}")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String   @id @default(cuid())
+  title            Title?
+  email            String   @unique
+  firstName        String
+  lastName         String
+  organization     String?
+  jobTitle         String?
+  phone            String?
+  photo            String?
+  city             String?
+  country          String?
+  specialty        String?
+  registrationType String?
+  tags             String[] @default([])
+  dietaryReqs      String?
+  customFields     Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   registrations Registration[]
 }
@@ -258,26 +269,28 @@ model Payment {
 // ==================== SPEAKER MANAGEMENT ====================
 
 model Speaker {
-  id          String        @id @default(cuid())
-  eventId     String
-  userId      String?
-  email       String
-  firstName   String
-  lastName    String
-  bio          String?       @db.Text
-  organization String?
-  jobTitle     String?
-  phone        String?
-  website      String?
-  photo        String?
-  city         String?
-  country      String?
-  specialty    String?
-  tags         String[]      @default([])
-  socialLinks Json          @default("{}")
-  status      SpeakerStatus @default(INVITED)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  eventId          String
+  userId           String?
+  title            Title?
+  email            String
+  firstName        String
+  lastName         String
+  bio              String?       @db.Text
+  organization     String?
+  jobTitle         String?
+  phone            String?
+  website          String?
+  photo            String?
+  city             String?
+  country          String?
+  specialty        String?
+  registrationType String?
+  tags             String[]      @default([])
+  socialLinks      Json          @default("{}")
+  status           SpeakerStatus @default(INVITED)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   event     Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user      User?            @relation(fields: [userId], references: [id])
@@ -475,23 +488,25 @@ enum AccommodationStatus {
 // ==================== CONTACT STORE ====================
 
 model Contact {
-  id             String       @id @default(cuid())
-  organizationId String
-  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  email          String
-  firstName      String
-  lastName       String
-  organization   String?
-  jobTitle       String?
-  specialty      String?
-  phone          String?
-  photo          String?
-  city           String?
-  country        String?
-  tags           String[]     @default([])
-  notes          String?      @db.Text
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  organizationId   String
+  org              Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title            Title?
+  email            String
+  firstName        String
+  lastName         String
+  organization     String?
+  jobTitle         String?
+  specialty        String?
+  registrationType String?
+  phone            String?
+  photo            String?
+  city             String?
+  country          String?
+  tags             String[]     @default([])
+  notes            String?      @db.Text
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@unique([organizationId, email])
   @@index([organizationId])

@@ -9,6 +9,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -16,6 +17,7 @@ const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 const createRegistrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
   attendee: z.object({
+    title: titleEnum.optional(),
     email: z.string().email().max(255),
     firstName: z.string().min(1).max(100),
     lastName: z.string().min(1).max(100),
@@ -26,6 +28,7 @@ const createRegistrationSchema = z.object({
     city: z.string().max(255).optional(),
     country: z.string().max(255).optional(),
     specialty: z.string().max(255).optional(),
+    registrationType: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
     customFields: z.record(z.string(), z.any()).optional(),
@@ -193,6 +196,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const attendeeRecord = await tx.attendee.upsert({
         where: { email: attendee.email },
         update: {
+          title: attendee.title || null,
           firstName: attendee.firstName,
           lastName: attendee.lastName,
           organization: attendee.organization || null,
@@ -202,11 +206,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: attendee.city || null,
           country: attendee.country || null,
           specialty: attendee.specialty || null,
+          registrationType: attendee.registrationType || null,
           tags: attendee.tags || [],
           dietaryReqs: attendee.dietaryReqs || null,
           customFields: attendee.customFields || {},
         },
         create: {
+          title: attendee.title || null,
           email: attendee.email,
           firstName: attendee.firstName,
           lastName: attendee.lastName,
@@ -217,6 +223,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: attendee.city || null,
           country: attendee.country || null,
           specialty: attendee.specialty || null,
+          registrationType: attendee.registrationType || null,
           tags: attendee.tags || [],
           dietaryReqs: attendee.dietaryReqs || null,
           customFields: attendee.customFields || {},

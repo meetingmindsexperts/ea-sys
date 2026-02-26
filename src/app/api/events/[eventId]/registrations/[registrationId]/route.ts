@@ -6,12 +6,14 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { titleEnum } from "@/lib/schemas";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
   paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "REFUNDED", "FAILED"]).optional(),
   notes: z.string().max(2000).optional(),
   attendee: z.object({
+    title: titleEnum.optional().nullable(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
     organization: z.string().max(255).optional(),
@@ -21,6 +23,7 @@ const updateRegistrationSchema = z.object({
     city: z.string().max(255).optional(),
     country: z.string().max(255).optional(),
     specialty: z.string().max(255).optional(),
+    registrationType: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
     customFields: z.record(z.string(), z.any()).optional(),
@@ -150,6 +153,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       await db.attendee.update({
         where: { id: existingRegistration.attendeeId },
         data: {
+          ...(attendee.title !== undefined && { title: attendee.title || null }),
           ...(attendee.firstName && { firstName: attendee.firstName }),
           ...(attendee.lastName && { lastName: attendee.lastName }),
           ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
@@ -159,6 +163,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.city !== undefined && { city: attendee.city || null }),
           ...(attendee.country !== undefined && { country: attendee.country || null }),
           ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
+          ...(attendee.registrationType !== undefined && { registrationType: attendee.registrationType || null }),
           ...(attendee.tags !== undefined && { tags: attendee.tags }),
           ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
           ...(attendee.customFields && { customFields: attendee.customFields }),

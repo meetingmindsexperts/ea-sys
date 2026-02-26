@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/select";
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TitleSelect } from "@/components/ui/title-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { ArrowLeft, Mic, Save } from "lucide-react";
 
 export default function NewSpeakerPage() {
@@ -26,6 +28,7 @@ export default function NewSpeakerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
+    title: "",
     email: "",
     firstName: "",
     lastName: "",
@@ -38,6 +41,7 @@ export default function NewSpeakerPage() {
     country: "",
     tags: [] as string[],
     status: "INVITED",
+    registrationType: "",
     socialLinks: {
       twitter: "",
       linkedin: "",
@@ -98,7 +102,14 @@ export default function NewSpeakerPage() {
               </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 grid-cols-[100px_1fr_1fr]">
+              <div className="space-y-2">
+                <Label htmlFor="title">Title</Label>
+                <TitleSelect
+                  value={formData.title}
+                  onChange={(title) => setFormData({ ...formData, title })}
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name *</Label>
                 <Input
@@ -213,24 +224,36 @@ export default function NewSpeakerPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, status: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="INVITED">Invited</SelectItem>
-                  <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                  <SelectItem value="DECLINED">Declined</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, status: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="INVITED">Invited</SelectItem>
+                    <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                    <SelectItem value="DECLINED">Declined</SelectItem>
+                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="registrationType">Registration Type</Label>
+                <RegistrationTypeSelect
+                  value={formData.registrationType}
+                  onChange={(registrationType) =>
+                    setFormData({ ...formData, registrationType })
+                  }
+                  eventId={eventId}
+                />
+              </div>
             </div>
 
             <div className="space-y-2">

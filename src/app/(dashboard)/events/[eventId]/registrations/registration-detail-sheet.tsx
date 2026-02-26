@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
 import { TagInput } from "@/components/ui/tag-input";
 import {
   Select,
@@ -43,7 +44,7 @@ import {
   X,
   MapPin,
 } from "lucide-react";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -70,6 +71,7 @@ export function RegistrationDetailSheet({
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({
+    title: "" as string,
     firstName: "",
     lastName: "",
     phone: "",
@@ -79,6 +81,7 @@ export function RegistrationDetailSheet({
     city: "",
     country: "",
     specialty: "",
+    registrationType: "",
     tags: [] as string[],
     dietaryReqs: "",
     notes: "",
@@ -178,6 +181,7 @@ export function RegistrationDetailSheet({
   const startEditing = () => {
     if (selectedRegistration) {
       setEditData({
+        title: selectedRegistration.attendee.title || "",
         firstName: selectedRegistration.attendee.firstName,
         lastName: selectedRegistration.attendee.lastName,
         phone: selectedRegistration.attendee.phone || "",
@@ -187,6 +191,7 @@ export function RegistrationDetailSheet({
         city: selectedRegistration.attendee.city || "",
         country: selectedRegistration.attendee.country || "",
         specialty: selectedRegistration.attendee.specialty || "",
+        registrationType: selectedRegistration.attendee.registrationType || "",
         tags: selectedRegistration.attendee.tags || [],
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
@@ -202,6 +207,7 @@ export function RegistrationDetailSheet({
         data: {
           notes: editData.notes || undefined,
           attendee: {
+            title: editData.title || undefined,
             firstName: editData.firstName,
             lastName: editData.lastName,
             phone: editData.phone || undefined,
@@ -211,6 +217,7 @@ export function RegistrationDetailSheet({
             city: editData.city || undefined,
             country: editData.country || undefined,
             specialty: editData.specialty || undefined,
+            registrationType: editData.registrationType || undefined,
             tags: editData.tags,
             dietaryReqs: editData.dietaryReqs || undefined,
           },
@@ -227,7 +234,7 @@ export function RegistrationDetailSheet({
           <>
             <SheetHeader className="pr-8">
               <SheetTitle className="flex items-center gap-2">
-                {selectedRegistration.attendee.firstName} {selectedRegistration.attendee.lastName}
+                {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
               </SheetTitle>
               <SheetDescription>
                 <div className="flex gap-2 mt-2">
@@ -317,7 +324,14 @@ export function RegistrationDetailSheet({
                 <h3 className="font-semibold">Attendee Information</h3>
                 {isEditing ? (
                   <div className="grid gap-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-title">Title</Label>
+                        <TitleSelect
+                          value={editData.title}
+                          onChange={(title) => setEditData({ ...editData, title })}
+                        />
+                      </div>
                       <div className="space-y-2">
                         <Label htmlFor="edit-firstName">First Name *</Label>
                         <Input
@@ -400,12 +414,22 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-specialty">Specialty</Label>
-                      <SpecialtySelect
-                        value={editData.specialty}
-                        onChange={(specialty) => setEditData({ ...editData, specialty })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-specialty">Specialty</Label>
+                        <SpecialtySelect
+                          value={editData.specialty}
+                          onChange={(specialty) => setEditData({ ...editData, specialty })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-registrationType">Registration Type</Label>
+                        <Input
+                          id="edit-registrationType"
+                          value={editData.registrationType}
+                          onChange={(e) => setEditData({ ...editData, registrationType: e.target.value })}
+                        />
+                      </div>
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">

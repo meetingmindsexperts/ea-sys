@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: { in: contactIds },
           organizationId: session.user.organizationId!,
         },
-        select: { id: true, email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true, city: true, country: true, specialty: true },
+        select: { id: true, title: true, email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true, city: true, country: true, specialty: true, registrationType: true },
       }),
       db.speaker.findMany({
         where: { eventId },
@@ -60,6 +60,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       await db.speaker.createMany({
         data: toCreate.map((c) => ({
           eventId,
+          title: c.title ?? undefined,
           email: c.email,
           firstName: c.firstName,
           lastName: c.lastName,
@@ -69,6 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: c.city ?? undefined,
           country: c.country ?? undefined,
           specialty: c.specialty ?? undefined,
+          registrationType: c.registrationType ?? undefined,
         })),
         skipDuplicates: true,
       });
