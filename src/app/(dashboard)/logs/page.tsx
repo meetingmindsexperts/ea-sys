@@ -33,7 +33,8 @@ interface LogEntry {
 interface LogResponse {
   logs: LogEntry[];
   count: number;
-  containerName: string;
+  source?: string;
+  containerName?: string;
   since: string;
   level: string;
   error?: string;
@@ -48,7 +49,8 @@ export default function LogsPage() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [timeRange, setTimeRange] = useState("1h");
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [containerName, setContainerName] = useState("ea-sys");
+  const [logSource, setLogSource] = useState("file");
+  const [sourceLabel, setSourceLabel] = useState("file (app.log)");
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +61,7 @@ export default function LogsPage() {
         level: levelFilter,
         since: timeRange,
         tail: "500",
+        source: logSource,
       });
 
       const response = await fetch(`/api/logs?${params}`);
@@ -71,14 +74,14 @@ export default function LogsPage() {
       }
 
       setLogs(data.logs);
-      setContainerName(data.containerName);
+      setSourceLabel(data.source || data.containerName || logSource);
     } catch (error) {
       toast.error("Failed to fetch logs");
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [levelFilter, timeRange]);
+  }, [levelFilter, timeRange, logSource]);
 
   useEffect(() => {
     fetchLogs();
@@ -217,8 +220,18 @@ export default function LogsPage() {
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/30">
               <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-xs text-cyan-400 font-mono">{containerName}</span>
+              <span className="text-xs text-cyan-400 font-mono">{sourceLabel}</span>
             </div>
+            <button
+              onClick={() => {
+                const next = logSource === "file" ? "docker" : "file";
+                setLogSource(next);
+                toast.success(`Switched to ${next} source`);
+              }}
+              className="px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/30 text-xs text-cyan-400 font-mono hover:bg-cyan-500/20 transition-colors"
+            >
+              {logSource === "file" ? "Switch to Docker" : "Switch to File"}
+            </button>
           </div>
 
           {/* Controls */}

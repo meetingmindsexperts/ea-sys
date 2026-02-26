@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, Mail, ArrowLeft, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 interface EventBranding {
   bannerImage: string | null;
@@ -158,7 +159,7 @@ function ConfirmationContent() {
       {branding?.footerHtml && (
         <div
           className="w-full border-t bg-white"
-          dangerouslySetInnerHTML={{ __html: branding.footerHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.footerHtml) }}
         />
       )}
     </div>

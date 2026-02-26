@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 interface Event {
   id: string;
@@ -836,7 +837,7 @@ export default function EventSettingsPage() {
                     <Label className="text-sm">Preview:</Label>
                     <div
                       className="mt-2 p-4 border rounded-lg bg-muted/50"
-                      dangerouslySetInnerHTML={{ __html: brandingSettings.footerHtml }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(brandingSettings.footerHtml) }}
                     />
                   </div>
                 )}

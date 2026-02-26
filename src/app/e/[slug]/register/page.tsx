@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { format } from "date-fns";
 import Link from "next/link";
+import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
   MapPin,
@@ -751,7 +752,7 @@ export default function PublicEventRegisterPage() {
       {event.footerHtml && (
         <div
           className="w-full border-t bg-white"
-          dangerouslySetInnerHTML={{ __html: event.footerHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
         />
       )}
     </div>

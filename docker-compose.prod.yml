@@ -17,7 +17,10 @@ services:
     volumes:
       # Shared uploads directory — both slots mount the same path
       - ./public/uploads:/app/public/uploads
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Shared log directory for file-based log reading
+      - ./logs:/app/logs
+      # Docker socket (read-only) — allows docker inspect/logs but prevents container creation
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
       options:
@@ -42,7 +45,8 @@ services:
       - web
     volumes:
       - ./public/uploads:/app/public/uploads
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
       options:
