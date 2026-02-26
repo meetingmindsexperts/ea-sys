@@ -6,24 +6,25 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
+import { getClientIp } from "@/lib/security";
 
 const createSpeakerSchema = z.object({
-  email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  bio: z.string().optional(),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  website: z.string().url().optional().or(z.literal("")),
-  photo: z.string().optional().or(z.literal("")),
-  city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
-  tags: z.array(z.string().transform(normalizeTag)).optional(),
+  email: z.string().email().max(255),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  bio: z.string().max(10000).optional(),
+  organization: z.string().max(255).optional(),
+  jobTitle: z.string().max(255).optional(),
+  website: z.string().url().max(500).optional().or(z.literal("")),
+  photo: z.string().max(500).optional().or(z.literal("")),
+  city: z.string().max(255).optional(),
+  country: z.string().max(255).optional(),
+  specialty: z.string().max(255).optional(),
+  tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   socialLinks: z.object({
-    twitter: z.string().optional(),
-    linkedin: z.string().optional(),
-    github: z.string().optional(),
+    twitter: z.string().max(500).optional(),
+    linkedin: z.string().max(500).optional(),
+    github: z.string().max(500).optional(),
   }).optional(),
   status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).default("INVITED"),
 });
@@ -198,7 +199,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "Speaker",
         entityId: speaker.id,
-        changes: JSON.parse(JSON.stringify({ speaker })),
+        changes: { ...JSON.parse(JSON.stringify({ speaker })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

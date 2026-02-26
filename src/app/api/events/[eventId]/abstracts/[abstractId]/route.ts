@@ -5,14 +5,15 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { getClientIp } from "@/lib/security";
 
 const updateAbstractSchema = z.object({
-  title: z.string().min(1).optional(),
-  content: z.string().min(1).optional(),
-  trackId: z.string().nullable().optional(),
-  specialty: z.string().optional(),
+  title: z.string().min(1).max(500).optional(),
+  content: z.string().min(1).max(50000).optional(),
+  trackId: z.string().max(100).nullable().optional(),
+  specialty: z.string().max(255).optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).optional(),
-  reviewNotes: z.string().optional(),
+  reviewNotes: z.string().max(5000).optional(),
   reviewScore: z.number().min(0).max(100).nullable().optional(),
 });
 
@@ -200,6 +201,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingAbstract,
           after: abstract,
+          ip: getClientIp(req),
         },
       },
     });
@@ -298,7 +300,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Abstract",
         entityId: abstractId,
-        changes: { deleted: abstract },
+        changes: { deleted: abstract, ip: getClientIp(req) },
       },
     });
 

@@ -18,7 +18,10 @@ export const {
   signOut,
 } = NextAuth({
   adapter: PrismaAdapter(db) as ReturnType<typeof PrismaAdapter>,
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 24 * 60 * 60, // 24 hours — forces re-authentication daily
+  },
   // Trust the host header from Vercel/proxies
   trustHost: true,
   pages: authConfig.pages,
@@ -81,7 +84,7 @@ export const {
       return true;
     },
     async jwt({ token, user, trigger }) {
-      // On sign in, fetch user data
+      // On sign in, populate token from user object
       if (user) {
         token.id = user.id;
         token.role = user.role;
@@ -89,6 +92,7 @@ export const {
         token.organizationName = user.organizationName ?? null;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
+        token.roleCheckedAt = Date.now();
       }
 
       // On explicit session update (e.g., after org settings change), refetch data
@@ -102,6 +106,27 @@ export const {
           token.firstName = dbUser.firstName;
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;
+          token.roleCheckedAt = Date.now();
+        }
+      }
+
+      // ── Periodic role re-validation (every 5 minutes) ──
+      // Prevents stale JWT tokens retaining old roles after admin changes.
+      // Lightweight query: selects only `role` by primary key.
+      const ROLE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+      const lastChecked = (token.roleCheckedAt as number) || 0;
+      if (token.id && Date.now() - lastChecked > ROLE_CHECK_INTERVAL) {
+        try {
+          const dbUser = await db.user.findUnique({
+            where: { id: token.id as string },
+            select: { role: true },
+          });
+          if (dbUser) {
+            token.role = dbUser.role;
+          }
+          token.roleCheckedAt = Date.now();
+        } catch {
+          // Silently continue with cached role on DB errors to avoid blocking auth
         }
       }
 

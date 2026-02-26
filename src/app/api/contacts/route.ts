@@ -6,18 +6,18 @@ import { getOrgContext } from "@/lib/api-auth";
 import { normalizeTag } from "@/lib/utils";
 
 const createContactSchema = z.object({
-  email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  specialty: z.string().optional(),
-  phone: z.string().optional(),
-  photo: z.string().optional().or(z.literal("")),
-  city: z.string().optional(),
-  country: z.string().optional(),
-  tags: z.array(z.string().transform(normalizeTag)).optional().default([]),
-  notes: z.string().optional(),
+  email: z.string().email().max(255),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
+  organization: z.string().max(255).optional(),
+  jobTitle: z.string().max(255).optional(),
+  specialty: z.string().max(255).optional(),
+  phone: z.string().max(50).optional(),
+  photo: z.string().max(500).optional().or(z.literal("")),
+  city: z.string().max(255).optional(),
+  country: z.string().max(255).optional(),
+  tags: z.array(z.string().max(100).transform(normalizeTag)).optional().default([]),
+  notes: z.string().max(2000).optional(),
 });
 
 export async function GET(req: Request) {

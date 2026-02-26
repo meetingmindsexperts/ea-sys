@@ -5,23 +5,24 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateEventSchema = z.object({
-  name: z.string().min(2).optional(),
-  slug: z.string().min(2).optional(),
-  description: z.string().nullable().optional(),
+  name: z.string().min(2).max(255).optional(),
+  slug: z.string().min(2).max(200).optional(),
+  description: z.string().max(2000).nullable().optional(),
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).nullable().optional(),
-  tag: z.string().nullable().optional(),
-  specialty: z.string().nullable().optional(),
+  tag: z.string().max(255).nullable().optional(),
+  specialty: z.string().max(255).nullable().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-  timezone: z.string().optional(),
-  venue: z.string().nullable().optional(),
-  address: z.string().nullable().optional(),
-  city: z.string().nullable().optional(),
-  country: z.string().nullable().optional(),
+  timezone: z.string().max(100).optional(),
+  venue: z.string().max(255).nullable().optional(),
+  address: z.string().max(500).nullable().optional(),
+  city: z.string().max(255).nullable().optional(),
+  country: z.string().max(255).nullable().optional(),
   status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
-  bannerImage: z.string().nullable().optional(),
+  bannerImage: z.string().max(500).nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -170,7 +171,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "Event",
         entityId: eventId,
-        changes: JSON.parse(JSON.stringify(validated.data)),
+        changes: { ...JSON.parse(JSON.stringify(validated.data)), ip: getClientIp(req) },
       },
     });
 
@@ -218,7 +219,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "Event",
         entityId: eventId,
-        changes: { name: existingEvent.name },
+        changes: { name: existingEvent.name, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

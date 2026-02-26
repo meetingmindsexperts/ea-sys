@@ -4,16 +4,17 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const createRoomTypeSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
   pricePerNight: z.number().min(0),
-  currency: z.string().default("USD"),
+  currency: z.string().max(10).default("USD"),
   capacity: z.number().min(1).default(2),
   totalRooms: z.number().min(1),
-  amenities: z.array(z.string()).optional(),
-  images: z.array(z.string().url()).optional(),
+  amenities: z.array(z.string().max(255)).optional(),
+  images: z.array(z.string().url().max(500)).optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -156,7 +157,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "RoomType",
         entityId: roomType.id,
-        changes: { roomType, hotelId },
+        changes: { roomType, hotelId, ip: getClientIp(req) },
       },
     });
 

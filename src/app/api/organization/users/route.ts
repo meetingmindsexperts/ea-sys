@@ -6,12 +6,12 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
-import { hashVerificationToken } from "@/lib/security";
+import { getClientIp, hashVerificationToken } from "@/lib/security";
 
 const inviteUserSchema = z.object({
-  email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  email: z.string().email().max(255),
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().min(1).max(100),
   role: z.enum(["ADMIN", "ORGANIZER", "REVIEWER"]),
 });
 
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
           action: "INVITE_USER",
           entityType: "User",
           entityId: newUser.id,
-          changes: { email, firstName, lastName, role },
+          changes: { email, firstName, lastName, role, ip: getClientIp(req) },
         },
       });
 

@@ -5,15 +5,69 @@ import authConfig from "@/lib/auth.config";
 // Use the Edge-compatible auth config (no Node.js modules like bcrypt, prisma)
 const { auth } = NextAuth(authConfig);
 
+const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+
+// ── Body size limits ──
+// Reject oversized request bodies early to prevent abuse.
+// 1MB default for JSON API routes; photo upload has its own 500KB app-level limit.
+const MAX_BODY_SIZE = 1_048_576; // 1MB
+
 export default auth((req) => {
+  const { pathname } = req.nextUrl;
+
+  // ── Request body size check for API routes ──
+  if (pathname.startsWith("/api/") && MUTATION_METHODS.has(req.method)) {
+    const contentLength = req.headers.get("content-length");
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (!Number.isNaN(size) && size > MAX_BODY_SIZE) {
+        return NextResponse.json(
+          { error: "Request body too large" },
+          { status: 413 }
+        );
+      }
+    }
+  }
+
+  // ── CSRF protection for authenticated API mutations ──
+  // Validates that the request Origin matches the Host header.
+  // Skips: auth endpoints, public endpoints, health check, and API-key requests.
+  if (
+    pathname.startsWith("/api/") &&
+    MUTATION_METHODS.has(req.method) &&
+    !pathname.startsWith("/api/auth/") &&
+    !pathname.startsWith("/api/public/") &&
+    !pathname.startsWith("/api/health")
+  ) {
+    const hasApiKey =
+      req.headers.get("x-api-key") ||
+      req.headers.get("authorization")?.startsWith("Bearer ");
+
+    if (!hasApiKey) {
+      const origin = req.headers.get("origin");
+      if (origin) {
+        const host = req.headers.get("host");
+        if (host) {
+          try {
+            const originHost = new URL(origin).host;
+            if (originHost !== host) {
+              return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            }
+          } catch {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+          }
+        }
+      }
+    }
+  }
+
+  // ── RBAC: Restricted role redirects ──
   const role = req.auth?.user?.role;
   const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
   if (!isRestricted) {
     return NextResponse.next();
   }
-
-  const { pathname } = req.nextUrl;
 
   // Block restricted roles from dashboard and settings
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/settings")) {
@@ -51,12 +105,14 @@ export default auth((req) => {
 export const config = {
   matcher: [
     /*
-     * Only run middleware on dashboard routes where reviewer
-     * access restriction applies. Skips public pages (/e/*),
-     * API routes, auth pages, and static assets.
+     * Run middleware on:
+     * 1. Dashboard routes — reviewer/submitter access restriction
+     * 2. API routes — CSRF origin validation on mutations
+     * Skips: public pages (/e/*), auth pages, and static assets.
      */
     "/events/:path*",
     "/dashboard/:path*",
     "/settings/:path*",
+    "/api/:path*",
   ],
 };

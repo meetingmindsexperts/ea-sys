@@ -12,17 +12,35 @@ type RateLimitResult = {
 };
 
 const RATE_LIMIT_STORE_KEY = "__ea_sys_rate_limit_store";
+const RATE_LIMIT_CLEANUP_KEY = "__ea_sys_rate_limit_last_cleanup";
+const CLEANUP_INTERVAL_MS = 60_000; // Run cleanup at most once per minute
+const MAX_STORE_SIZE = 10_000; // Force cleanup if store exceeds this size
 
 function getRateLimitStore(): Map<string, RateLimitEntry> {
   const globalRef = globalThis as typeof globalThis & {
     [RATE_LIMIT_STORE_KEY]?: Map<string, RateLimitEntry>;
+    [RATE_LIMIT_CLEANUP_KEY]?: number;
   };
 
   if (!globalRef[RATE_LIMIT_STORE_KEY]) {
     globalRef[RATE_LIMIT_STORE_KEY] = new Map<string, RateLimitEntry>();
   }
 
-  return globalRef[RATE_LIMIT_STORE_KEY];
+  const store = globalRef[RATE_LIMIT_STORE_KEY];
+  const now = Date.now();
+  const lastCleanup = globalRef[RATE_LIMIT_CLEANUP_KEY] ?? 0;
+
+  // Periodic cleanup: remove expired entries
+  if (now - lastCleanup > CLEANUP_INTERVAL_MS || store.size > MAX_STORE_SIZE) {
+    globalRef[RATE_LIMIT_CLEANUP_KEY] = now;
+    for (const [key, entry] of store) {
+      if (entry.resetAt <= now) {
+        store.delete(key);
+      }
+    }
+  }
+
+  return store;
 }
 
 export function getClientIp(req: Request): string {

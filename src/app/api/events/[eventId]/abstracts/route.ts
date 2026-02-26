@@ -5,15 +5,16 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { getClientIp } from "@/lib/security";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
 const createAbstractSchema = z.object({
-  speakerId: z.string().min(1),
-  title: z.string().min(1),
-  content: z.string().min(1),
-  specialty: z.string().optional(),
-  trackId: z.string().optional(),
+  speakerId: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  content: z.string().min(1).max(50000),
+  specialty: z.string().max(255).optional(),
+  trackId: z.string().max(100).optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
 });
 
@@ -173,7 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "Abstract",
         entityId: abstract.id,
-        changes: JSON.parse(JSON.stringify({ abstract })),
+        changes: { ...JSON.parse(JSON.stringify({ abstract })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

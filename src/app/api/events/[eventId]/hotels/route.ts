@@ -4,15 +4,16 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const createHotelSchema = z.object({
-  name: z.string().min(1),
-  address: z.string().optional(),
-  description: z.string().optional(),
-  contactEmail: z.string().email().optional().or(z.literal("")),
-  contactPhone: z.string().optional(),
+  name: z.string().min(1).max(255),
+  address: z.string().max(500).optional(),
+  description: z.string().max(2000).optional(),
+  contactEmail: z.string().email().max(255).optional().or(z.literal("")),
+  contactPhone: z.string().max(50).optional(),
   stars: z.number().min(1).max(5).optional(),
-  images: z.array(z.string().url()).optional(),
+  images: z.array(z.string().url().max(500)).optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -149,7 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         action: "CREATE",
         entityType: "Hotel",
         entityId: hotel.id,
-        changes: JSON.parse(JSON.stringify({ hotel })),
+        changes: { ...JSON.parse(JSON.stringify({ hotel })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 

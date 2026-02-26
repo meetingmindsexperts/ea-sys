@@ -9,17 +9,17 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 
 const createEventSchema = z.object({
-  name: z.string().min(2),
-  description: z.string().optional(),
+  name: z.string().min(2).max(255),
+  description: z.string().max(2000).optional(),
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
-  tag: z.string().optional(),
-  specialty: z.string().optional(),
+  tag: z.string().max(255).optional(),
+  specialty: z.string().max(255).optional(),
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
-  venue: z.string().optional(),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  country: z.string().optional(),
+  venue: z.string().max(255).optional(),
+  address: z.string().max(500).optional(),
+  city: z.string().max(255).optional(),
+  country: z.string().max(255).optional(),
 });
 
 export async function GET(req: Request) {

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const sendEmailSchema = z.object({
   type: z.enum(["invitation", "agreement", "custom"]),
@@ -173,6 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           emailType: type,
           recipient: speaker.email,
           subject: emailContent.subject,
+          ip: getClientIp(req),
         },
       },
     });

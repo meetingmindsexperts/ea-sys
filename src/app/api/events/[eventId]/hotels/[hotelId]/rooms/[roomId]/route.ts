@@ -4,16 +4,17 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 
 const updateRoomTypeSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional(),
   pricePerNight: z.number().min(0).optional(),
-  currency: z.string().optional(),
+  currency: z.string().max(10).optional(),
   capacity: z.number().min(1).optional(),
   totalRooms: z.number().min(1).optional(),
-  amenities: z.array(z.string()).optional(),
-  images: z.array(z.string().url()).optional(),
+  amenities: z.array(z.string().max(255)).optional(),
+  images: z.array(z.string().url().max(500)).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -162,6 +163,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingRoomType,
           after: roomType,
+          ip: getClientIp(req),
         },
       },
     });
@@ -235,7 +237,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         action: "DELETE",
         entityType: "RoomType",
         entityId: roomId,
-        changes: { deleted: roomType },
+        changes: { deleted: roomType, ip: getClientIp(req) },
       },
     });
 
