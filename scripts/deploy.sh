@@ -43,6 +43,14 @@ fi
 
 echo "==> Active: $ACTIVE | Deploying to: $INACTIVE (port $INACTIVE_PORT)"
 
+# ── Ensure bind-mounted directories exist with correct ownership ──────────────
+# Docker bind mounts override container dir ownership, so host dirs must be
+# writable by the container's "nextjs" user (uid 1001).
+echo "==> Ensuring bind-mount directories..."
+mkdir -p "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
+sudo chown -R 1001:1001 "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
+phase_done "Bind-mount dirs"
+
 # ── Remove only dangling images (preserve build cache for fast rebuilds) ───────
 docker image prune -f
 phase_done "Image prune"

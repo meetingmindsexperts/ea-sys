@@ -1,5 +1,6 @@
 import pino, { multistream } from "pino";
 import { join } from "path";
+import { accessSync, constants, mkdirSync } from "fs";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 const isVercel = !!process.env.VERCEL;
@@ -46,6 +47,20 @@ const loggerConfig: pino.LoggerOptions = {
   timestamp: pino.stdTimeFunctions.isoTime,
 };
 
+/**
+ * Check if a directory exists and is writable by the current process.
+ * Ensures the directory exists (creates it if needed) before checking write permission.
+ */
+function isDirWritable(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true });
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Development: pretty-print to console via pino-pretty (uses worker thread, fine in dev)
 // Production on Vercel: plain pino → stdout only (no writable filesystem in serverless)
 // Production on EC2/Docker: pino.multistream → stdout + logs/app.log + logs/error.log
@@ -70,20 +85,31 @@ function initLogger(): pino.Logger {
   }
 
   // EC2/Docker: write to stdout + file logs (fall back to stdout-only if files not writable)
+  // Pre-check writability synchronously to avoid uncaught async errors from sonic-boom
   const logsDir = join(process.cwd(), "logs");
-  try {
-    return pino(
-      loggerConfig,
-      multistream([
-        { stream: process.stdout },
-        { stream: pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false }) },
-        { level: "error", stream: pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false }) },
-      ])
-    );
-  } catch {
-    // File logging not available (e.g. permission denied) — stdout only
+  if (!isDirWritable(logsDir)) {
+    console.warn(`[logger] logs directory not writable (${logsDir}), falling back to stdout-only`);
     return pino(loggerConfig);
   }
+
+  const appDest = pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false });
+  const errDest = pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false });
+
+  // Attach error handlers to prevent uncaught exceptions from sonic-boom async open
+  const onStreamError = (err: Error) => {
+    console.error(`[logger] file stream error: ${err.message}`);
+  };
+  appDest.on("error", onStreamError);
+  errDest.on("error", onStreamError);
+
+  return pino(
+    loggerConfig,
+    multistream([
+      { stream: process.stdout },
+      { stream: appDest },
+      { level: "error", stream: errDest },
+    ])
+  );
 }
 
 export const logger = initLogger();
