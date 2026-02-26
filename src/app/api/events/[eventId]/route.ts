@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { denyReviewer } from "@/lib/auth-guards";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).optional(),
@@ -81,9 +82,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const denied = denyReviewer(session);
+    if (denied) return denied;
 
     // Verify event belongs to user's organization (use select for minimal data)
     const existingEvent = await db.event.findFirst({
@@ -193,9 +193,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const deniedDel = denyReviewer(session);
+    if (deniedDel) return deniedDel;
 
     // Verify event belongs to user's organization (select only needed fields)
     const existingEvent = await db.event.findFirst({

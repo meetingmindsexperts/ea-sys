@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { slugify } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 
 const createEventSchema = z.object({
@@ -82,9 +83,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role === "REVIEWER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const denied = denyReviewer(session);
+    if (denied) return denied;
 
     const body = await req.json();
     const validated = createEventSchema.safeParse(body);
