@@ -3,8 +3,9 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { CopyLinkCard } from "@/components/ui/copy-link-card";
 import {
   Calendar,
   MapPin,
@@ -15,6 +16,8 @@ import {
   Settings,
   Edit,
   ArrowRight,
+  CheckCircle2,
+  Circle,
 } from "lucide-react";
 import { formatDateRange } from "@/lib/utils";
 
@@ -33,13 +36,6 @@ const statIconStyle: Record<string, string> = {
   Hotels:        "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
 };
 
-const actionIconStyle: Record<string, string> = {
-  "Manage Registration Types": "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300",
-  "Manage Speakers":           "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300",
-  "Build Schedule":            "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
-  "Event Settings":            "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
-};
-
 interface EventPageProps {
   params: Promise<{ eventId: string }>;
 }
@@ -53,6 +49,7 @@ export default async function EventPage({ params }: EventPageProps) {
     select: {
       id: true,
       name: true,
+      slug: true,
       description: true,
       status: true,
       startDate: true,
@@ -66,12 +63,16 @@ export default async function EventPage({ params }: EventPageProps) {
           speakers: true,
           eventSessions: true,
           hotels: true,
+          ticketTypes: true,
         },
       },
     },
   });
 
   if (!event) notFound();
+
+  const isRestricted =
+    session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
 
   const sc = statusConfig[event.status] ?? statusConfig.DRAFT;
   const location = [event.venue, event.city, event.country].filter(Boolean).join(", ");
@@ -83,37 +84,100 @@ export default async function EventPage({ params }: EventPageProps) {
     { title: "Hotels",        value: event._count.hotels,        icon: Building2, href: `/events/${eventId}/accommodation` },
   ];
 
+  // ── Setup Checklist ──────────────────────────────────────────────────────
+  const checklist = [
+    {
+      label: "Create registration types",
+      done: event._count.ticketTypes > 0,
+      href: `/events/${eventId}/tickets`,
+    },
+    {
+      label: "Add speakers",
+      done: event._count.speakers > 0,
+      href: `/events/${eventId}/speakers`,
+    },
+    {
+      label: "Build your schedule",
+      done: event._count.eventSessions > 0,
+      href: `/events/${eventId}/schedule`,
+    },
+    {
+      label: "Publish your event",
+      done: event.status !== "DRAFT",
+      href: `/events/${eventId}/settings`,
+    },
+  ];
+  const completedCount = checklist.filter((c) => c.done).length;
+  const totalCount = checklist.length;
+  const progressPercent = Math.round((completedCount / totalCount) * 100);
+
+  // ── Contextual Quick Actions ─────────────────────────────────────────────
   const quickActions = [
-    { title: "Manage Registration Types", description: "Create and edit ticket types",      icon: Ticket,   href: `/events/${eventId}/tickets` },
-    { title: "Manage Speakers",           description: "Add speakers and manage abstracts", icon: Mic,      href: `/events/${eventId}/speakers` },
-    { title: "Build Schedule",            description: "Create sessions and tracks",        icon: Calendar, href: `/events/${eventId}/schedule` },
-    { title: "Event Settings",            description: "Configure event details",           icon: Settings, href: `/events/${eventId}/settings` },
+    {
+      title: event._count.ticketTypes > 0
+        ? "Manage Registration Types"
+        : "Set Up Registration Types",
+      description: event._count.ticketTypes > 0
+        ? "Edit and manage your registration types"
+        : "Create your first registration type to accept attendees",
+      icon: Ticket,
+      href: `/events/${eventId}/tickets`,
+      attention: event._count.ticketTypes === 0,
+      iconStyle: "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300",
+    },
+    {
+      title: event._count.speakers > 0
+        ? "Manage Speakers"
+        : "Add Your First Speaker",
+      description: event._count.speakers > 0
+        ? "View and manage event speakers"
+        : "Invite speakers to present at your event",
+      icon: Mic,
+      href: `/events/${eventId}/speakers`,
+      attention: event._count.speakers === 0,
+      iconStyle: "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300",
+    },
+    {
+      title: event._count.eventSessions > 0
+        ? "Manage Schedule"
+        : "Build Your Schedule",
+      description: event._count.eventSessions > 0
+        ? "Edit sessions and tracks"
+        : "Create sessions and organize your event agenda",
+      icon: Calendar,
+      href: `/events/${eventId}/schedule`,
+      attention: event._count.eventSessions === 0,
+      iconStyle: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
+    },
+    {
+      title: "Event Settings",
+      description: "Configure event details and preferences",
+      icon: Settings,
+      href: `/events/${eventId}/settings`,
+      attention: false,
+      iconStyle: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+    },
   ];
 
   return (
     <div className="space-y-6">
       {/* ── Hero Banner ─────────────────────────────────────────────────────── */}
       <div className="relative rounded-xl overflow-hidden bg-gradient-primary shadow-sm">
-        {/* Subtle radial highlight */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_0%,rgba(255,255,255,0.15),transparent_60%)]" />
         <div className="relative p-6 md:p-7">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2 flex-1 min-w-0">
-              {/* Status pill */}
               <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${sc.cls}`}>
                 {sc.label}
               </span>
-              {/* Event name */}
               <h1 className="text-2xl md:text-3xl font-bold text-white leading-tight">
                 {event.name}
               </h1>
-              {/* Description */}
               {event.description && (
                 <p className="text-white/70 text-sm max-w-2xl line-clamp-2">
                   {event.description}
                 </p>
               )}
-              {/* Date + Location */}
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 pt-1 text-sm text-white/80">
                 <span className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5 text-white/60" />
@@ -127,17 +191,19 @@ export default async function EventPage({ params }: EventPageProps) {
                 )}
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0 bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white hover:border-white/40"
-              asChild
-            >
-              <Link href={`/events/${eventId}/settings`}>
-                <Edit className="mr-2 h-4 w-4" />
-                Edit Event
-              </Link>
-            </Button>
+            {!isRestricted && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white hover:border-white/40"
+                asChild
+              >
+                <Link href={`/events/${eventId}/settings`}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit Event
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -170,6 +236,57 @@ export default async function EventPage({ params }: EventPageProps) {
         ))}
       </div>
 
+      {/* ── Setup Checklist (organizers/admins only) ────────────────────────── */}
+      {!isRestricted && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">Setup Progress</CardTitle>
+              <span className="text-xs text-muted-foreground font-medium">
+                {completedCount} of {totalCount} complete
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Progress bar */}
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            {/* Checklist items */}
+            <div className="space-y-1">
+              {checklist.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors group"
+                >
+                  {item.done ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                  ) : (
+                    <Circle className="h-5 w-5 text-muted-foreground/40 shrink-0" />
+                  )}
+                  <span
+                    className={`text-sm font-medium ${
+                      item.done
+                        ? "text-muted-foreground line-through"
+                        : "text-foreground group-hover:text-primary transition-colors"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                  {!item.done && (
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                  )}
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Quick Actions ────────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
@@ -178,10 +295,13 @@ export default async function EventPage({ params }: EventPageProps) {
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {quickActions.map((action) => (
             <Link key={action.title} href={action.href} className="group block">
-              <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full">
+              <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full relative">
+                {action.attention && (
+                  <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-amber-400" />
+                )}
                 <CardContent className="p-5">
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${actionIconStyle[action.title] ?? "bg-primary/10 text-primary"}`}
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${action.iconStyle}`}
                   >
                     <action.icon className="h-5 w-5" />
                   </div>
@@ -195,6 +315,16 @@ export default async function EventPage({ params }: EventPageProps) {
           ))}
         </div>
       </div>
+
+      {/* ── Registration Link (organizers/admins only) ──────────────────────── */}
+      {!isRestricted && event.slug && (
+        <CopyLinkCard
+          label="Public Registration Link"
+          description="Share this link with attendees so they can register for your event."
+          slug={event.slug}
+          path="register"
+        />
+      )}
     </div>
   );
 }

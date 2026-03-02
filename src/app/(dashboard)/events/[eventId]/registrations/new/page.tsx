@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
-import { ArrowLeft, UserPlus, Save } from "lucide-react";
+import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
 import { useTickets } from "@/hooks/use-api";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
@@ -92,40 +92,62 @@ export default function NewRegistrationPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-2">
+      <div>
         <Link
           href={`/events/${eventId}/registrations`}
-          className="text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Registrations
         </Link>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <UserPlus className="h-8 w-8" />
-          Add Registration
-        </h1>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 flex items-center justify-center shrink-0">
+            <UserPlus className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Add Registration</h1>
+            <p className="text-sm text-muted-foreground">
+              Manually register an attendee for this event
+            </p>
+          </div>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Registration Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-                {error}
-              </div>
-            )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
-            <div className="space-y-2">
-              <Label htmlFor="ticketType">Registration Type *</Label>
-              {(ticketTypes as TicketType[]).length === 0 ? (
-                <p className="text-sm text-muted-foreground p-3 bg-muted rounded">
-                  No registration types available. Please create a registration type first.
-                </p>
-              ) : (
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Section 1: Registration Type */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Ticket className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Registration Type</CardTitle>
+            </div>
+            <CardDescription>
+              Select a registration type for this attendee
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(ticketTypes as TicketType[]).length === 0 ? (
+              <div className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg border border-dashed">
+                No registration types available. Please{" "}
+                <Link
+                  href={`/events/${eventId}/tickets`}
+                  className="text-primary hover:underline font-medium"
+                >
+                  create a registration type
+                </Link>{" "}
+                first.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="ticketType">Type *</Label>
                 <Select
                   value={formData.ticketTypeId}
                   onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value })}
@@ -147,15 +169,34 @@ export default function NewRegistrationPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-            </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
+        {/* Section 2: Attendee Details */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Attendee Details</CardTitle>
+            <CardDescription>
+              Personal and contact information for the attendee
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <PersonFormFields
               data={formData.personData}
               onChange={(personData) => setFormData({ ...formData, personData })}
               showDietaryReqs={true}
             />
+          </CardContent>
+        </Card>
 
+        {/* Section 3: Additional Notes */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Additional Information</CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Input
@@ -164,24 +205,28 @@ export default function NewRegistrationPage() {
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 placeholder="Optional notes about this registration"
               />
+              <p className="text-xs text-muted-foreground">
+                Internal notes — not visible to the attendee
+              </p>
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push(`/events/${eventId}/registrations`)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={loading}>
-                <Save className="mr-2 h-4 w-4" />
-                {loading ? "Creating..." : "Create Registration"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3 pt-2 pb-8">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(`/events/${eventId}/registrations`)}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={loading} className="min-w-[160px]">
+            <Save className="mr-2 h-4 w-4" />
+            {loading ? "Creating..." : "Create Registration"}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

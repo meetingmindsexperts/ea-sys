@@ -49,7 +49,7 @@ const eventNavigationSections = [
     label: "Manage",
     items: [
       { name: "Registrations", href: "/registrations", icon: Users },
-      { name: "Reg. Types",    href: "/tickets",       icon: Ticket },
+      { name: "Registration Types", href: "/tickets", icon: Ticket },
       { name: "Speakers",      href: "/speakers",      icon: Mic },
       { name: "Schedule",      href: "/schedule",      icon: Clock },
       { name: "Accommodation", href: "/accommodation", icon: Building2 },

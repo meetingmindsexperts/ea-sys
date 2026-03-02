@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Users, Ticket, TrendingUp, Plus, Settings, ArrowRight } from "lucide-react";
+import { Calendar, Users, Mic, TrendingUp, Plus, Settings, ArrowRight } from "lucide-react";
 
 const eventStatusDot: Record<string, string> = {
   DRAFT:     "bg-gray-400",
@@ -29,12 +29,21 @@ export default async function DashboardPage() {
     redirect("/events");
   }
 
-  const [eventCount, registrationCount, recentEvents] = await Promise.all([
+  const [eventCount, registrationCount, speakerCount, upcomingEventCount, recentEvents] = await Promise.all([
     db.event.count({
       where: { organizationId: session.user.organizationId! },
     }),
     db.registration.count({
       where: { event: { organizationId: session.user.organizationId! } },
+    }),
+    db.speaker.count({
+      where: { event: { organizationId: session.user.organizationId! } },
+    }),
+    db.event.count({
+      where: {
+        organizationId: session.user.organizationId!,
+        status: { in: ["PUBLISHED", "LIVE"] },
+      },
     }),
     db.event.findMany({
       where: { organizationId: session.user.organizationId! },
@@ -51,10 +60,10 @@ export default async function DashboardPage() {
   ]);
 
   const stats = [
-    { title: "Total Events",        value: eventCount,        icon: Calendar,    description: "Active and completed" },
-    { title: "Total Registrations", value: registrationCount, icon: Users,       description: "Across all events" },
-    { title: "Tickets Sold",        value: registrationCount, icon: Ticket,      description: "This month" },
-    { title: "Revenue",             value: "$0",              icon: TrendingUp,  description: "This month" },
+    { title: "Total Events",        value: eventCount,          icon: Calendar,    description: "Active and completed" },
+    { title: "Total Registrations", value: registrationCount,   icon: Users,       description: "Across all events" },
+    { title: "Total Speakers",      value: speakerCount,        icon: Mic,         description: "Across all events" },
+    { title: "Upcoming Events",     value: upcomingEventCount,  icon: TrendingUp,  description: "Published or live" },
   ];
 
   return (

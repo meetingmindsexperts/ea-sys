@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +19,8 @@ import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
-import { ArrowLeft, Mic, Save } from "lucide-react";
+import { ArrowLeft, Mic, Save, User, Briefcase, MapPin, Tag, Share2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function NewSpeakerPage() {
   const params = useParams();
@@ -62,6 +63,7 @@ export default function NewSpeakerPage() {
       });
 
       if (res.ok) {
+        toast.success("Speaker added successfully");
         router.push(`/events/${eventId}/speakers`);
       } else {
         const data = await res.json();
@@ -75,33 +77,48 @@ export default function NewSpeakerPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-2">
+      <div>
         <Link
           href={`/events/${eventId}/speakers`}
-          className="text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Speakers
         </Link>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <Mic className="h-8 w-8" />
-          Add Speaker
-        </h1>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300 flex items-center justify-center shrink-0">
+            <Mic className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Add Speaker</h1>
+            <p className="text-sm text-muted-foreground">
+              Add a new speaker to your event
+            </p>
+          </div>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Speaker Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-                {error}
-              </div>
-            )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Section 1: Personal Information */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Personal Information</CardTitle>
+            </div>
+            <CardDescription>
+              Name, email, and profile photo
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
             <div className="grid gap-4 grid-cols-[100px_1fr_1fr]">
               <div className="space-y-2">
                 <Label htmlFor="title">Title</Label>
@@ -147,6 +164,28 @@ export default function NewSpeakerPage() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label>Photo</Label>
+              <PhotoUpload
+                value={formData.photo}
+                onChange={(photo) => setFormData({ ...formData, photo })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 2: Professional Details */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Professional Details</CardTitle>
+            </div>
+            <CardDescription>
+              Organization, role, and biography
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="organization">Organization</Label>
@@ -195,15 +234,18 @@ export default function NewSpeakerPage() {
                 placeholder="https://..."
               />
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="space-y-2">
-              <Label>Photo</Label>
-              <PhotoUpload
-                value={formData.photo}
-                onChange={(photo) => setFormData({ ...formData, photo })}
-              />
+        {/* Section 3: Location */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Location</CardTitle>
             </div>
-
+          </CardHeader>
+          <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="city">City</Label>
@@ -223,7 +265,21 @@ export default function NewSpeakerPage() {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
 
+        {/* Section 4: Status & Classification */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Status & Classification</CardTitle>
+            </div>
+            <CardDescription>
+              Invitation status, registration type, and tags
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
@@ -266,82 +322,94 @@ export default function NewSpeakerPage() {
                 }
                 placeholder="e.g., Keynote, Panelist, VIP"
               />
-              <p className="text-xs text-muted-foreground">Add tags separated by commas</p>
+              <p className="text-xs text-muted-foreground">Separate tags with commas</p>
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="border-t pt-4">
-              <h3 className="font-medium mb-4">Social Links</h3>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="twitter">Twitter</Label>
-                  <Input
-                    id="twitter"
-                    value={formData.socialLinks.twitter}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        socialLinks: {
-                          ...formData.socialLinks,
-                          twitter: e.target.value,
-                        },
-                      })
-                    }
-                    placeholder="@username"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="linkedin">LinkedIn</Label>
-                  <Input
-                    id="linkedin"
-                    value={formData.socialLinks.linkedin}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        socialLinks: {
-                          ...formData.socialLinks,
-                          linkedin: e.target.value,
-                        },
-                      })
-                    }
-                    placeholder="Profile URL"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="github">GitHub</Label>
-                  <Input
-                    id="github"
-                    value={formData.socialLinks.github}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        socialLinks: {
-                          ...formData.socialLinks,
-                          github: e.target.value,
-                        },
-                      })
-                    }
-                    placeholder="@username"
-                  />
-                </div>
+        {/* Section 5: Social Links */}
+        <Card>
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-primary" />
+              <CardTitle className="text-base">Social Links</CardTitle>
+            </div>
+            <CardDescription>
+              Optional social media profiles
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="twitter">Twitter</Label>
+                <Input
+                  id="twitter"
+                  value={formData.socialLinks.twitter}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      socialLinks: {
+                        ...formData.socialLinks,
+                        twitter: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="@username"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="linkedin">LinkedIn</Label>
+                <Input
+                  id="linkedin"
+                  value={formData.socialLinks.linkedin}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      socialLinks: {
+                        ...formData.socialLinks,
+                        linkedin: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Profile URL"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="github">GitHub</Label>
+                <Input
+                  id="github"
+                  value={formData.socialLinks.github}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      socialLinks: {
+                        ...formData.socialLinks,
+                        github: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="@username"
+                />
               </div>
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push(`/events/${eventId}/speakers`)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={loading}>
-                <Save className="mr-2 h-4 w-4" />
-                {loading ? "Saving..." : "Add Speaker"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3 pt-2 pb-8">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(`/events/${eventId}/speakers`)}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={loading} className="min-w-[140px]">
+            <Save className="mr-2 h-4 w-4" />
+            {loading ? "Saving..." : "Add Speaker"}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -43,6 +43,7 @@ import {
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { toast } from "sonner";
 
 interface Event {
   id: string;
@@ -221,10 +222,15 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
+        toast.success("General settings saved");
         fetchEvent();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save general settings");
       }
     } catch (error) {
       console.error("Error saving event:", error);
+      toast.error("Failed to save general settings");
     } finally {
       setSaving(false);
     }
@@ -249,10 +255,15 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
+        toast.success("Settings saved");
         fetchEvent();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save settings");
       }
     } catch (error) {
       console.error("Error saving settings:", error);
+      toast.error("Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -271,10 +282,15 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
+        toast.success("Branding settings saved");
         fetchEvent();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save branding settings");
       }
     } catch (error) {
       console.error("Error saving branding:", error);
+      toast.error("Failed to save branding settings");
     } finally {
       setSaving(false);
     }
@@ -287,10 +303,15 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
+        toast.success("Event deleted");
         router.push("/events");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete event");
       }
     } catch (error) {
       console.error("Error deleting event:", error);
+      toast.error("Failed to delete event");
     }
   };
 
@@ -389,6 +410,9 @@ export default function EventSettingsPage() {
                       setGeneralFormData({ ...generalFormData, slug: e.target.value })
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Your public registration page: /e/{generalFormData.slug || "your-event-slug"}
+                  </p>
                 </div>
               </div>
 
