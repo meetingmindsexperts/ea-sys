@@ -10,10 +10,10 @@ This document tracks features that work on EC2/Docker but break or degrade on Ve
 | Local photo storage (default) | CRITICAL | **FIXED** | Set `STORAGE_PROVIDER=supabase` on Vercel |
 | Local photo serving route | CRITICAL | **N/A on Supabase** | Supabase photos use CDN URLs directly |
 | File-based logging | CRITICAL | **Mitigated** | Logger falls back to stdout on Vercel |
-| In-memory rate limiting | MAJOR | **TODO** | Needs Redis/Vercel KV |
+| In-memory rate limiting | MAJOR | **Documented** | Works during warm invocations; Redis needed for strict limits |
 | Docker logs endpoint | MEDIUM | **Known** | Use Vercel log viewer instead |
-| Bulk email timeout risk | MEDIUM | **TODO** | Needs batching |
-| Large CSV import timeout | LOW-MEDIUM | **Known** | Limit import size |
+| Bulk email timeout risk | MEDIUM | **FIXED** | Batched into groups of 25 |
+| Large CSV import timeout | LOW-MEDIUM | **FIXED** | 5,000 row limit enforced |
 
 ---
 

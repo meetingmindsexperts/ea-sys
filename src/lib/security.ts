@@ -11,6 +11,9 @@ type RateLimitResult = {
   retryAfterSeconds: number;
 };
 
+// In-memory rate limiting: works reliably on EC2/Docker (single process).
+// On Vercel serverless, state persists within warm Lambda invocations but resets
+// on cold starts. For stricter limits on Vercel, migrate to Redis (Vercel KV / Upstash).
 const RATE_LIMIT_STORE_KEY = "__ea_sys_rate_limit_store";
 const RATE_LIMIT_CLEANUP_KEY = "__ea_sys_rate_limit_last_cleanup";
 const CLEANUP_INTERVAL_MS = 60_000; // Run cleanup at most once per minute

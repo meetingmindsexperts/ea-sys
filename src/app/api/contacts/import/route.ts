@@ -69,6 +69,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "CSV must have a header row and at least one data row" }, { status: 400 });
     }
 
+    const MAX_ROWS = 5000;
+    if (lines.length - 1 > MAX_ROWS) {
+      return NextResponse.json(
+        { error: `CSV exceeds maximum of ${MAX_ROWS} rows. Please split into smaller files.` },
+        { status: 400 }
+      );
+    }
+
     const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, ""));
 
     const idx = {

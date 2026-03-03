@@ -232,48 +232,48 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     };
 
-    // Send emails in parallel using Promise.allSettled for better performance
-    const emailPromises = recipients.map(async (recipient) => {
-      try {
-        const emailContent = generateEmailContent(recipient);
-        const result = await sendEmail({
-          to: [{ email: recipient.email, name: recipient.name }],
-          subject: emailContent.subject,
-          htmlContent: emailContent.htmlContent,
-          textContent: emailContent.textContent,
-          replyTo:
-            recipientType === "speakers" && organizerEmail
-              ? { email: organizerEmail, name: organizerName }
-              : undefined,
-        });
-        return { recipient, result };
-      } catch (error) {
-        apiLogger.error({ err: error, msg: "Failed to send email to recipient", email: recipient.email });
-        return {
-          recipient,
-          result: {
-            success: false,
-            error: "Failed to send email",
-          },
-        };
-      }
-    });
+    // Send emails in batches to avoid serverless timeout (Vercel 30s limit)
+    const BATCH_SIZE = 25;
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    const emailResults = await Promise.allSettled(emailPromises);
+      const batchResults = await Promise.allSettled(
+        batch.map(async (recipient) => {
+          try {
+            const emailContent = generateEmailContent(recipient);
+            const result = await sendEmail({
+              to: [{ email: recipient.email, name: recipient.name }],
+              subject: emailContent.subject,
+              htmlContent: emailContent.htmlContent,
+              textContent: emailContent.textContent,
+              replyTo:
+                recipientType === "speakers" && organizerEmail
+                  ? { email: organizerEmail, name: organizerName }
+                  : undefined,
+            });
+            return { recipient, result };
+          } catch (error) {
+            apiLogger.error({ err: error, msg: "Failed to send email to recipient", email: recipient.email });
+            return {
+              recipient,
+              result: { success: false, error: "Failed to send email" },
+            };
+          }
+        })
+      );
 
-    // Process results
-    for (const result of emailResults) {
-      if (result.status === "fulfilled") {
-        const { recipient, result: emailResult } = result.value;
-        if (emailResult.success) {
-          successCount++;
+      for (const result of batchResults) {
+        if (result.status === "fulfilled") {
+          const { recipient, result: emailResult } = result.value;
+          if (emailResult.success) {
+            successCount++;
+          } else {
+            failureCount++;
+            errors.push({ email: recipient.email, error: emailResult.error || "Unknown error" });
+          }
         } else {
           failureCount++;
-          errors.push({ email: recipient.email, error: emailResult.error || "Unknown error" });
         }
-      } else {
-        // Promise rejected (shouldn't happen with our try-catch, but handle it)
-        failureCount++;
       }
     }
 
