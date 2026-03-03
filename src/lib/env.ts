@@ -57,4 +57,26 @@ export function validateEnv(): void {
       `[env] Warning: Missing recommended environment variables: ${warnings.join(", ")}. Some features (email, public URLs) may not work correctly.`
     );
   }
+
+  // Validate Supabase Storage vars when provider is set to "supabase"
+  if (process.env.STORAGE_PROVIDER === "supabase") {
+    const supabaseVars = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+    const missingSupabase = supabaseVars.filter((key) => !process.env[key]);
+    if (missingSupabase.length > 0) {
+      const message = [
+        "",
+        "=".repeat(60),
+        " FATAL: STORAGE_PROVIDER=supabase but missing required variables",
+        "=".repeat(60),
+        "",
+        ...missingSupabase.map((key) => `  - ${key}`),
+        "",
+        " Set these in your .env file or deployment configuration.",
+        "=".repeat(60),
+        "",
+      ].join("\n");
+      console.error(message);
+      process.exit(1);
+    }
+  }
 }

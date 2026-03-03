@@ -57,3 +57,4 @@ next-env.d.ts
 # Uploaded files (persistent storage, not in git)
 /public/uploads/*
 !/public/uploads/.gitkeep
+docs/TECHNICAL_INTERVIEW_QA.md

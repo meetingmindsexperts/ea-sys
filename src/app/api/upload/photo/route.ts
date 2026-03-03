@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { uploadPhoto, storageProvider } from "@/lib/storage";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 500 * 1024; // 500KB in bytes
@@ -37,9 +35,6 @@ function detectMimeType(buffer: Buffer): string | null {
   return null;
 }
 
-// Check if running on Vercel
-const isVercel = process.env.VERCEL === "1";
-
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -62,38 +57,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // Log environment info
     apiLogger.info({
       msg: "Photo upload attempt",
       userId: session.user.id,
-      isVercel,
-      env: process.env.NODE_ENV,
+      storageProvider,
     });
-
-    // Check if running on Vercel (which doesn't support file uploads to /public)
-    if (isVercel) {
-      apiLogger.error({
-        msg: "Photo upload not supported on Vercel deployment",
-        userId: session.user.id,
-      });
-      return NextResponse.json(
-        {
-          error:
-            "Photo uploads are not supported on Vercel. Please use a cloud storage service (S3, Cloudinary, etc.) or deploy to EC2.",
-        },
-        { status: 501 }
-      );
-    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
     if (!file) {
       apiLogger.warn({ msg: "No file provided in upload request", userId: session.user.id });
-      return NextResponse.json(
-        { error: "No file provided" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     apiLogger.info({
@@ -106,11 +81,7 @@ export async function POST(req: Request) {
 
     // Validate file type
     if (!ALLOWED_TYPES.includes(file.type)) {
-      apiLogger.warn({
-        msg: "Invalid file type",
-        type: file.type,
-        userId: session.user.id,
-      });
+      apiLogger.warn({ msg: "Invalid file type", type: file.type, userId: session.user.id });
       return NextResponse.json(
         { error: "Only JPEG, PNG, and WebP images are allowed" },
         { status: 400 }
@@ -119,12 +90,7 @@ export async function POST(req: Request) {
 
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      apiLogger.warn({
-        msg: "File too large",
-        size: file.size,
-        maxSize: MAX_FILE_SIZE,
-        userId: session.user.id,
-      });
+      apiLogger.warn({ msg: "File too large", size: file.size, maxSize: MAX_FILE_SIZE, userId: session.user.id });
       return NextResponse.json(
         { error: "File size must be under 500KB" },
         { status: 400 }
@@ -151,69 +117,15 @@ export async function POST(req: Request) {
 
     // Derive extension from validated content type, never from client filename
     const fileExtension = MIME_TO_EXT[detectedMime];
-    const uniqueId = randomUUID();
-    const filename = `${uniqueId}.${fileExtension}`;
+    const filename = `${randomUUID()}.${fileExtension}`;
 
-    // Create directory structure: /public/uploads/photos/YYYY/MM/
-    const now = new Date();
-    const year = now.getFullYear().toString();
-    const month = (now.getMonth() + 1).toString().padStart(2, "0");
-
-    const uploadDir = join(process.cwd(), "public", "uploads", "photos", year, month);
-
-    apiLogger.info({
-      msg: "Attempting to create upload directory",
-      uploadDir,
-      userId: session.user.id,
-    });
-
-    // Create directory if it doesn't exist
-    if (!existsSync(uploadDir)) {
-      try {
-        await mkdir(uploadDir, { recursive: true });
-        apiLogger.info({ msg: "Created upload directory", uploadDir });
-      } catch (mkdirError) {
-        apiLogger.error({
-          err: mkdirError,
-          msg: "Failed to create upload directory",
-          uploadDir,
-        });
-        throw mkdirError;
-      }
-    }
-
-    // Save file
-    const filepath = join(uploadDir, filename);
-
-    apiLogger.info({
-      msg: "Writing file to disk",
-      filepath,
-      bufferSize: buffer.length,
-      userId: session.user.id,
-    });
-
-    try {
-      await writeFile(filepath, buffer);
-      apiLogger.info({
-        msg: "File written successfully",
-        filepath,
-        userId: session.user.id,
-      });
-    } catch (writeError) {
-      apiLogger.error({
-        err: writeError,
-        msg: "Failed to write file",
-        filepath,
-      });
-      throw writeError;
-    }
-
-    // Return public URL
-    const url = `/uploads/photos/${year}/${month}/${filename}`;
+    // Upload via the configured storage provider (local or supabase)
+    const url = await uploadPhoto(buffer, filename, detectedMime);
 
     apiLogger.info({
       msg: "Photo uploaded successfully",
       url,
+      storageProvider,
       userId: session.user.id,
     });
 

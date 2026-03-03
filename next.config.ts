@@ -4,6 +4,17 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  // Allow Next.js Image optimization for Supabase Storage CDN URLs
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "*.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
+
   // Optimize barrel imports for large packages - reduces bundle size significantly
   experimental: {
     optimizePackageImports: [
