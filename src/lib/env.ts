@@ -58,6 +58,20 @@ export function validateEnv(): void {
     );
   }
 
+  // Vercel-specific warnings
+  if (process.env.VERCEL) {
+    if (!process.env.DIRECT_URL) {
+      console.warn(
+        "[env] Warning: DIRECT_URL is not set. Prisma migrations require a direct (non-pooled) database connection. Set DIRECT_URL to your Supabase direct connection (port 5432)."
+      );
+    }
+    if (!process.env.STORAGE_PROVIDER || process.env.STORAGE_PROVIDER === "local") {
+      console.warn(
+        "[env] Warning: STORAGE_PROVIDER is not set or set to 'local'. Vercel has no writable filesystem — photo uploads will fail. Set STORAGE_PROVIDER=supabase for Vercel deployments."
+      );
+    }
+  }
+
   // Validate Supabase Storage vars when provider is set to "supabase"
   if (process.env.STORAGE_PROVIDER === "supabase") {
     const supabaseVars = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
