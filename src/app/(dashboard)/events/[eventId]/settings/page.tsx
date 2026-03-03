@@ -73,6 +73,7 @@ interface Event {
     abstractDeadline?: string;
     notifyOnRegistration?: boolean;
     notifyOnAbstractSubmission?: boolean;
+    programmePublished?: boolean;
   };
 }
 
@@ -132,6 +133,10 @@ export default function EventSettingsPage() {
     showRemainingTickets: true,
   });
 
+  const [programmeSettings, setProgrammeSettings] = useState({
+    programmePublished: false,
+  });
+
   const [abstractSettings, setAbstractSettings] = useState({
     allowAbstractSubmissions: true,
     abstractDeadline: "",
@@ -178,6 +183,10 @@ export default function EventSettingsPage() {
           requireApproval: settings.requireApproval ?? false,
           maxAttendees: settings.maxAttendees ?? 0,
           showRemainingTickets: settings.showRemainingTickets ?? true,
+        });
+
+        setProgrammeSettings({
+          programmePublished: settings.programmePublished ?? false,
         });
 
         setAbstractSettings({
@@ -245,6 +254,7 @@ export default function EventSettingsPage() {
         body: JSON.stringify({
           settings: {
             ...registrationSettings,
+            ...programmeSettings,
             ...abstractSettings,
             ...notificationSettings,
             abstractDeadline: abstractSettings.abstractDeadline
@@ -688,6 +698,28 @@ export default function EventSettingsPage() {
                   }
                   className="w-48"
                 />
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-medium mb-4">Programme</h3>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Publish Programme</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Make the event schedule visible on the public programme page
+                    </p>
+                  </div>
+                  <Switch
+                    checked={programmeSettings.programmePublished}
+                    onCheckedChange={(checked) =>
+                      setProgrammeSettings({
+                        ...programmeSettings,
+                        programmePublished: checked,
+                      })
+                    }
+                  />
+                </div>
               </div>
 
               <div className="border-t pt-6">

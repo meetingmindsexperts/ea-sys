@@ -12,8 +12,9 @@ import {
   Printer,
   ArrowLeft,
   Loader2,
-  AlertCircle,
   ChevronRight,
+  Clock,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -153,22 +154,33 @@ export default function PublicSchedulePage() {
   if (error || !eventData) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-amber-500" />
+        <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-lg text-center">
+          <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-slate-100 flex items-center justify-center">
+            <Clock className="h-8 w-8 text-slate-400" />
           </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">
-            {error || "Schedule unavailable"}
+          <h2 className="text-xl font-bold text-slate-900 mb-2">
+            Programme Not Live Yet
           </h2>
-          <p className="text-slate-500 text-sm mb-6">
-            The schedule may not be published yet.
+          <p className="text-slate-500 text-sm leading-relaxed mb-6 max-w-sm mx-auto">
+            The programme for this event hasn&apos;t been published yet.
+            Please check back later — it will be available here once the organizer publishes it.
           </p>
-          <Link href={`/e/${slug}`}>
-            <button type="button" className="text-sm text-primary hover:underline flex items-center gap-1 mx-auto">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back to event
-            </button>
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href={`/e/${slug}`}>
+              <button type="button" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to event
+              </button>
+            </Link>
+            <span className="hidden sm:inline text-slate-300">|</span>
+            <a
+              href="mailto:support@meetingmindsgroup.com"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Contact support
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -316,9 +328,14 @@ export default function PublicSchedulePage() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full print:px-0 print:py-4">
         {eventData.sessions.length === 0 ? (
           <div className="text-center py-20">
-            <Calendar className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500 font-medium">No sessions published yet</p>
-            <p className="text-slate-400 text-sm mt-1">Check back soon.</p>
+            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
+              <Calendar className="h-7 w-7 text-slate-400" />
+            </div>
+            <p className="text-slate-700 font-semibold text-lg">Programme Coming Soon</p>
+            <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto leading-relaxed">
+              The sessions haven&apos;t been added yet. Check back closer to the event
+              for the full programme.
+            </p>
           </div>
         ) : (
           <div className="space-y-10 print:space-y-8">

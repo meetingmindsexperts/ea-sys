@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         slug: true,
         startDate: true,
         endDate: true,
+        settings: true,
         organization: { select: { name: true, logo: true } },
         tracks: {
           select: { id: true, name: true, color: true },
@@ -77,6 +78,12 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Check if the programme has been published by the organizer
+    const settings = (event.settings ?? {}) as Record<string, unknown>;
+    if (!settings.programmePublished) {
+      return NextResponse.json({ error: "Programme not published yet" }, { status: 404 });
     }
 
     const response = NextResponse.json({
