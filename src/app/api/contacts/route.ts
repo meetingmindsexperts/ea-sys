@@ -88,7 +88,8 @@ export async function GET(req: Request) {
     return response;
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching contacts" });
-    return NextResponse.json({ error: "Failed to fetch contacts" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: "Failed to fetch contacts", detail: message }, { status: 500 });
   }
 }
 
@@ -149,6 +150,7 @@ export async function POST(req: Request) {
     return NextResponse.json(contact, { status: 201 });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating contact" });
-    return NextResponse.json({ error: "Failed to create contact" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: "Failed to create contact", detail: message }, { status: 500 });
   }
 }
