@@ -1,6 +1,6 @@
 -- Migration: sync_schema_changes
 -- Adds all schema changes applied via `prisma db push` that were never tracked
--- in migration files. All statements use IF NOT EXISTS / conditional logic
+-- in migration files. All statements use IF NOT EXISTS / EXCEPTION handling
 -- so this migration is safe on databases where changes already exist.
 
 -- ============================================
@@ -55,14 +55,8 @@ ALTER TABLE "Attendee" ADD COLUMN IF NOT EXISTS "specialty" TEXT;
 ALTER TABLE "Attendee" ADD COLUMN IF NOT EXISTS "registrationType" TEXT;
 ALTER TABLE "Attendee" ADD COLUMN IF NOT EXISTS "tags" TEXT[] DEFAULT ARRAY[]::TEXT[];
 
--- Add unique constraint on email
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'Attendee_email_key'
-  ) THEN
-    ALTER TABLE "Attendee" ADD CONSTRAINT "Attendee_email_key" UNIQUE ("email");
-  END IF;
-END $$;
+-- Add unique index on email (using CREATE INDEX IF NOT EXISTS — safe if db push already created it)
+CREATE UNIQUE INDEX IF NOT EXISTS "Attendee_email_key" ON "Attendee"("email");
 
 -- ============================================
 -- 4. Alter Speaker table
@@ -113,14 +107,8 @@ ALTER TABLE "Event" ADD COLUMN IF NOT EXISTS "footerHtml" TEXT;
 ALTER TABLE "Abstract" ADD COLUMN IF NOT EXISTS "specialty" TEXT;
 ALTER TABLE "Abstract" ADD COLUMN IF NOT EXISTS "managementToken" TEXT;
 
--- Add unique constraint on managementToken
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'Abstract_managementToken_key'
-  ) THEN
-    ALTER TABLE "Abstract" ADD CONSTRAINT "Abstract_managementToken_key" UNIQUE ("managementToken");
-  END IF;
-END $$;
+-- Add unique index on managementToken
+CREATE UNIQUE INDEX IF NOT EXISTS "Abstract_managementToken_key" ON "Abstract"("managementToken");
 
 -- ============================================
 -- 7. Add composite indexes on Registration
@@ -163,25 +151,15 @@ CREATE TABLE IF NOT EXISTS "Contact" (
 CREATE INDEX IF NOT EXISTS "Contact_organizationId_idx"
   ON "Contact"("organizationId");
 
--- Contact unique constraint
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'Contact_organizationId_email_key'
-  ) THEN
-    ALTER TABLE "Contact" ADD CONSTRAINT "Contact_organizationId_email_key"
-      UNIQUE ("organizationId", "email");
-  END IF;
-END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS "Contact_organizationId_email_key"
+  ON "Contact"("organizationId", "email");
 
 -- Contact foreign key
 DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'Contact_organizationId_fkey'
-  ) THEN
-    ALTER TABLE "Contact" ADD CONSTRAINT "Contact_organizationId_fkey"
-      FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
-      ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
+  ALTER TABLE "Contact" ADD CONSTRAINT "Contact_organizationId_fkey"
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- ============================================
@@ -202,16 +180,9 @@ CREATE TABLE IF NOT EXISTS "ApiKey" (
     CONSTRAINT "ApiKey_pkey" PRIMARY KEY ("id")
 );
 
--- ApiKey unique constraint
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'ApiKey_keyHash_key'
-  ) THEN
-    ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_keyHash_key" UNIQUE ("keyHash");
-  END IF;
-END $$;
-
 -- ApiKey indexes
+CREATE UNIQUE INDEX IF NOT EXISTS "ApiKey_keyHash_key" ON "ApiKey"("keyHash");
+
 CREATE INDEX IF NOT EXISTS "ApiKey_organizationId_idx"
   ON "ApiKey"("organizationId");
 
@@ -220,11 +191,8 @@ CREATE INDEX IF NOT EXISTS "ApiKey_isActive_idx"
 
 -- ApiKey foreign key
 DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'ApiKey_organizationId_fkey'
-  ) THEN
-    ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_organizationId_fkey"
-      FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
-      ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
+  ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_organizationId_fkey"
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
