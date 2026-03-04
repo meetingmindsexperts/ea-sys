@@ -60,6 +60,7 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { CSVImportButton } from "@/components/import/csv-import-dialog";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -517,6 +518,7 @@ export default function SchedulePage() {
             </Button>
             {!isReviewer && (
               <>
+                <CSVImportButton eventId={eventId} entityType="sessions" />
                 <Button variant="outline" size="sm" onClick={openAddTrack}>
                   <Plus className="mr-1.5 h-4 w-4" />
                   Add Track

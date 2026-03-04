@@ -3,32 +3,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getOrgContext } from "@/lib/api-auth";
-
-// Parse a single CSV line handling quoted fields
-function parseCSVLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      fields.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  fields.push(current.trim());
-  return fields;
-}
+import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 
 export async function POST(req: Request) {
   try {
@@ -63,21 +38,10 @@ export async function POST(req: Request) {
     }
 
     const text = await file.text();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim());
-
-    if (lines.length < 2) {
-      return NextResponse.json({ error: "CSV must have a header row and at least one data row" }, { status: 400 });
+    const { headers, rows, error: parseError } = parseCSV(text);
+    if (parseError) {
+      return NextResponse.json({ error: parseError }, { status: 400 });
     }
-
-    const MAX_ROWS = 5000;
-    if (lines.length - 1 > MAX_ROWS) {
-      return NextResponse.json(
-        { error: `CSV exceeds maximum of ${MAX_ROWS} rows. Please split into smaller files.` },
-        { status: 400 }
-      );
-    }
-
-    const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, ""));
 
     const idx = {
       firstName: headers.indexOf("firstname"),
@@ -112,38 +76,33 @@ export async function POST(req: Request) {
       notes?: string;
     }[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-      const fields = parseCSVLine(lines[i]);
-      const email = fields[idx.email]?.toLowerCase().trim();
-      const firstName = fields[idx.firstName]?.trim();
-      const lastName = fields[idx.lastName]?.trim();
+    for (let i = 0; i < rows.length; i++) {
+      const fields = rows[i];
+      const email = getField(fields, idx.email)?.toLowerCase();
+      const firstName = getField(fields, idx.firstName);
+      const lastName = getField(fields, idx.lastName);
 
       if (!email || !firstName || !lastName) {
-        errors.push(`Row ${i + 1}: missing required fields (firstName, lastName, email)`);
+        errors.push(`Row ${i + 2}: missing required fields (firstName, lastName, email)`);
         continue;
       }
 
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        errors.push(`Row ${i + 1}: invalid email "${email}"`);
+        errors.push(`Row ${i + 2}: invalid email "${email}"`);
         continue;
       }
-
-      const rawTags = idx.tags >= 0 ? fields[idx.tags]?.trim() : "";
-      const tags = rawTags
-        ? rawTags.split(",").map((t) => t.trim()).filter(Boolean)
-        : [];
 
       contacts.push({
         organizationId: ctx.organizationId,
         email,
         firstName,
         lastName,
-        organization: idx.organization >= 0 ? fields[idx.organization]?.trim() || undefined : undefined,
-        jobTitle: idx.jobTitle >= 0 ? fields[idx.jobTitle]?.trim() || undefined : undefined,
-        specialty: idx.specialty >= 0 ? fields[idx.specialty]?.trim() || undefined : undefined,
-        phone: idx.phone >= 0 ? fields[idx.phone]?.trim() || undefined : undefined,
-        tags,
-        notes: idx.notes >= 0 ? fields[idx.notes]?.trim() || undefined : undefined,
+        organization: getField(fields, idx.organization),
+        jobTitle: getField(fields, idx.jobTitle),
+        specialty: getField(fields, idx.specialty),
+        phone: getField(fields, idx.phone),
+        tags: parseTags(getField(fields, idx.tags)),
+        notes: getField(fields, idx.notes),
       });
     }
 

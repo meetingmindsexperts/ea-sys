@@ -121,6 +121,8 @@ model Event {
   settings       Json        @default("{}")
   bannerImage    String?
   footerHtml     String?     @db.Text
+  externalId     String?
+  externalSource String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -139,6 +141,7 @@ model Event {
   @@index([organizationId])
   @@index([status])
   @@index([startDate])
+  @@index([externalSource, externalId])
 }
 
 enum EventStatus {
@@ -198,6 +201,7 @@ model Attendee {
   tags             String[] @default([])
   dietaryReqs      String?
   customFields     Json     @default("{}")
+  externalId       String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -289,6 +293,7 @@ model Speaker {
   tags             String[]      @default([])
   socialLinks      Json          @default("{}")
   status           SpeakerStatus @default(INVITED)
+  externalId       String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -376,6 +381,7 @@ model EventSession {
   location    String?
   capacity    Int?
   status      SessionStatus @default(SCHEDULED)
+  externalId  String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

@@ -46,8 +46,18 @@ import {
   Check,
   Terminal,
   ExternalLink,
+  Cloud,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
-import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "@/hooks/use-api";
+import {
+  useApiKeys,
+  useCreateApiKey,
+  useRevokeApiKey,
+  useEventsAirConfig,
+  useSaveEventsAirCredentials,
+  useTestEventsAirConnection,
+} from "@/hooks/use-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -712,9 +722,135 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {/* EventsAir Integration */}
+      {isAdmin && <EventsAirCard />}
+
       {/* API Keys */}
       {isAdmin && <ApiKeysCard />}
     </div>
+  );
+}
+
+// ── EventsAir Integration sub-component ────────────────────────────────────────
+function EventsAirCard() {
+  const { data: config, isLoading: configLoading } = useEventsAirConfig();
+  const saveCredentials = useSaveEventsAirCredentials();
+  const testConnection = useTestEventsAirConnection();
+
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
+
+  const displayClientId = clientId ?? config?.clientId ?? "";
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayClientId.trim() || !clientSecret.trim()) {
+      toast.error("Both Client ID and Client Secret are required");
+      return;
+    }
+    try {
+      await saveCredentials.mutateAsync({ clientId: displayClientId.trim(), clientSecret: clientSecret.trim() });
+      toast.success("EventsAir credentials saved");
+      setClientSecret("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save credentials");
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setConnectionStatus("idle");
+    try {
+      const result = await testConnection.mutateAsync();
+      setConnectionStatus(result.connected ? "success" : "error");
+      if (result.connected) {
+        toast.success("Connection successful");
+      } else {
+        toast.error("Connection failed — check your credentials");
+      }
+    } catch {
+      setConnectionStatus("error");
+      toast.error("Connection test failed");
+    }
+  };
+
+  if (configLoading) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Cloud className="h-5 w-5" />
+              EventsAir Integration
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Connect to EventsAir to import events, contacts, and registrations.
+            </CardDescription>
+          </div>
+          {config?.configured && (
+            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+              Configured
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ea-client-id">Client ID</Label>
+              <Input
+                id="ea-client-id"
+                value={displayClientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="Enter your EventsAir Client ID"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ea-client-secret">Client Secret</Label>
+              <Input
+                id="ea-client-secret"
+                type="password"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder={config?.configured ? "••••••••••••" : "Enter your EventsAir Client Secret"}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button type="submit" disabled={saveCredentials.isPending}>
+              {saveCredentials.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Save className="mr-2 h-4 w-4" />
+              Save Credentials
+            </Button>
+            {config?.configured && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={testConnection.isPending}
+              >
+                {testConnection.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Test Connection
+              </Button>
+            )}
+            {connectionStatus === "success" && (
+              <span className="flex items-center gap-1 text-sm text-green-600">
+                <CheckCircle2 className="h-4 w-4" /> Connected
+              </span>
+            )}
+            {connectionStatus === "error" && (
+              <span className="flex items-center gap-1 text-sm text-red-600">
+                <XCircle className="h-4 w-4" /> Failed
+              </span>
+            )}
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

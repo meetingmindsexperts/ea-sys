@@ -55,6 +55,8 @@ export const queryKeys = {
   contacts: ["contacts"] as const,
   contact: (contactId: string) => ["contacts", contactId] as const,
   apiKeys: ["api-keys"] as const,
+  eventsAirConfig: ["eventsair", "config"] as const,
+  eventsAirEvents: ["eventsair", "events"] as const,
 };
 
 // ============ EVENTS ============
@@ -365,6 +367,104 @@ export function useRevokeApiKey() {
       fetchApi(`/api/organization/api-keys/${keyId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
+    },
+  });
+}
+
+// ============ EVENTSAIR ============
+export function useEventsAirConfig() {
+  return useQuery({
+    queryKey: queryKeys.eventsAirConfig,
+    queryFn: () => fetchApi<{ configured: boolean; clientId: string | null; configuredAt: string | null }>("/api/organization/eventsair/credentials"),
+  });
+}
+
+export function useSaveEventsAirCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { clientId: string; clientSecret: string }) =>
+      fetchApi("/api/organization/eventsair/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.eventsAirConfig });
+    },
+  });
+}
+
+export function useTestEventsAirConnection() {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ connected: boolean; error?: string }>("/api/organization/eventsair/test-connection", {
+        method: "POST",
+      }),
+  });
+}
+
+export function useEventsAirEvents() {
+  return useQuery({
+    queryKey: queryKeys.eventsAirEvents,
+    queryFn: () => fetchApi<any[]>("/api/organization/eventsair/events"),
+    enabled: false,
+  });
+}
+
+export function useImportEventsAirEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { eventsAirEventId: string }) =>
+      fetchApi<{ eventId: string; alreadyImported: boolean }>("/api/import/eventsair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.events });
+    },
+  });
+}
+
+export function useImportEventsAirContacts(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { eventsAirEventId: string; offset?: number; limit?: number }) =>
+      fetchApi<{ processed: number; created: number; skipped: number; hasMore: boolean; nextOffset: number; errors: string[] }>(
+        `/api/events/${eventId}/import/eventsair`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+    },
+  });
+}
+
+// ============ CSV IMPORTS ============
+export function useCSVImport(eventId: string, entityType: "registrations" | "speakers" | "sessions" | "abstracts") {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; errors: string[] }>(
+        `/api/events/${eventId}/import/${entityType}`,
+        { method: "POST", body: formData }
+      );
+    },
+    onSuccess: () => {
+      const keyMap: Record<string, readonly unknown[]> = {
+        registrations: queryKeys.registrations(eventId),
+        speakers: queryKeys.speakers(eventId),
+        sessions: queryKeys.sessions(eventId),
+        abstracts: queryKeys.abstracts(eventId),
+      };
+      queryClient.invalidateQueries({ queryKey: keyMap[entityType] });
     },
   });
 }

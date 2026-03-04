@@ -44,6 +44,7 @@ import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
@@ -340,6 +341,9 @@ export default function AbstractsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
+          {!isSubmitter && session?.user?.role !== "REVIEWER" && (
+            <CSVImportButton eventId={eventId} entityType="abstracts" />
+          )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>

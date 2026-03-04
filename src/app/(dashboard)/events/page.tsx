@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Calendar } from "lucide-react";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { EventListClient } from "./event-list-client";
+import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
 
 export default async function EventsPage() {
   const session = await auth();
@@ -35,12 +36,15 @@ export default async function EventsPage() {
           </p>
         </div>
         {!isRestricted && (
-          <Button asChild className="btn-gradient shadow-sm">
-            <Link href="/events/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Create Event
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <EventsAirImportButton />
+            <Button asChild className="btn-gradient shadow-sm">
+              <Link href="/events/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Event
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
 

@@ -46,6 +46,7 @@ import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
+import { CSVImportButton } from "@/components/import/csv-import-dialog";
 
 export default function RegistrationsPage() {
   const params = useParams();
@@ -221,6 +222,7 @@ export default function RegistrationsPage() {
           </Button>
           {!isReviewer && (
             <>
+              <CSVImportButton eventId={eventId} entityType="registrations" />
               <ImportContactsButton eventId={eventId} mode="registration" />
               <Button asChild>
                 <Link href={`/events/${eventId}/registrations/new`}>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Mic, Plus, Mail, MapPin, RefreshCw } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
+import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { useSpeakers, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -89,6 +90,7 @@ export default function SpeakersPage() {
           </Button>
           {!isReviewer && (
             <>
+              <CSVImportButton eventId={eventId} entityType="speakers" />
               <ImportContactsButton eventId={eventId} mode="speaker" />
               <Button asChild>
                 <Link href={`/events/${eventId}/speakers/new`}>
