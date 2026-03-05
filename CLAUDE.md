@@ -108,6 +108,7 @@ src/
 - **Hotel/RoomType/Accommodation** - Lodging management
 - **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `country`, and `registrationType` fields
 - **AuditLog** - Action logging
+- **SystemLog** - Pino log entries persisted to DB (level, module, message, timestamp); used by `/logs` viewer on Vercel
 
 ## API Patterns
 
@@ -332,6 +333,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Database-backed logging for Vercel** - `SystemLog` Prisma model stores log entries in PostgreSQL; Pino writes to a custom `Writable` stream that buffers and batch-inserts; `/api/logs` route supports `source=database` (default on Vercel); log viewer UI at `/logs` with database/file/docker source selector; comprehensive logging coverage across all API routes, middleware, auth, uploads, and server pages
+- **EventsAir import error handling** - Import dialog now shows error state UI with actual error message, Retry button, and Settings link; `listEvents()` throws on null API response; `useEventsAirEvents` hook uses `retry: false`; events API route returns actual error details in 500 response
 - **Title and Registration Type fields** - Added `Title` enum (MR, MS, MRS, DR, PROF, OTHER) and `registrationType String?` to Attendee, Speaker, and Contact models; `TitleSelect` dropdown component; `RegistrationTypeSelect` component (fetches TicketType names with event context, falls back to text input); shared `titleEnum` Zod schema in `src/lib/schemas.ts`; `formatPersonName()` and `getTitleLabel()` helpers in utils; updated all 9+ API routes, all person forms, and all display views to show title prefix with names; CSV export includes title and registrationType columns
 - **Sentry client instrumentation** - Replaced root-level `sentry.client.config.ts` with `src/instrumentation-client.ts` (Next.js 15+ convention); DSN from `NEXT_PUBLIC_SENTRY_DSN` env var with replay integration (10% session sample, 100% on error)
 - **Uploaded photo serving** - Next.js `output: "standalone"` does not serve `public/` directory files automatically; added `src/app/uploads/[...path]/route.ts` catch-all handler that reads from `public/uploads/` and streams files with correct `Content-Type` and long-lived `Cache-Control` headers; includes path-traversal protection
@@ -372,11 +375,39 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Logging
 
-Logs are written to files in the `logs/` directory:
-- `logs/app.log` - All logs (debug, info, warn, error)
-- `logs/error.log` - Errors only
+Pino-based structured JSON logging with three output modes:
 
-View logs: `tail -f logs/app.log`
+- **Development**: Pretty-print to console + JSON to `logs/app.log` and `logs/error.log`
+- **Vercel (production)**: stdout (Vercel's built-in logs) + database (`SystemLog` table) for the `/logs` web viewer
+- **EC2/Docker (production)**: stdout + `logs/app.log` + `logs/error.log`
+
+### Log Viewer (`/logs`)
+- SUPER_ADMIN-only web UI at `/logs` with retro terminal theme
+- Supports three sources: **Database** (default on Vercel), **File**, **Docker**
+- Filters: level (error/warn/info), time range (10m to all), search text
+- Auto-refresh (5s interval), export to text file
+
+### Database Logging (Vercel)
+- `SystemLog` model stores log entries in PostgreSQL (level, module, message, timestamp)
+- Pino writes to a custom `Writable` stream that buffers entries and batch-inserts every 2s or 20 entries
+- Debug-level logs are skipped to reduce DB load
+- Lazy Prisma import to avoid circular dependency (`db.ts` → `logger.ts`)
+
+### Logger Modules
+- `apiLogger` — API route logging
+- `authLogger` — Authentication events
+- `dbLogger` — Database operations
+- `eventLogger` — Event-related operations
+
+### Coverage
+- All API route catch blocks log via `apiLogger`
+- Middleware logs CSRF rejections, size limit violations, restricted role redirects
+- Auth JWT callback logs DB lookup failures
+- Server pages log DB query failures before re-throwing
+- File upload handler logs path traversal attempts and read errors
+- CSV import logs validation errors
+
+View file logs: `tail -f logs/app.log`
 
 ## Documentation
 

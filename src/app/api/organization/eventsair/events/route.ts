@@ -55,7 +55,8 @@ export async function GET() {
 
     return NextResponse.json(annotated);
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     apiLogger.error({ err: error, msg: "Error listing EventsAir events" });
-    return NextResponse.json({ error: "Failed to list EventsAir events" }, { status: 500 });
+    return NextResponse.json({ error: `Failed to list EventsAir events: ${errorMessage}` }, { status: 500 });
   }
 }

@@ -541,6 +541,18 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     String   // error, warn, info, debug
+  module    String   // api, auth, database, events, middleware
+  message   String   @db.Text
+  timestamp DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([level])
+  @@index([module])
+}
+
 // ==================== API KEYS ====================
 
 model ApiKey {

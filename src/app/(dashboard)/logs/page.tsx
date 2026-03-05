@@ -49,8 +49,8 @@ export default function LogsPage() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [timeRange, setTimeRange] = useState("1h");
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [logSource, setLogSource] = useState("file");
-  const [sourceLabel, setSourceLabel] = useState("file (app.log)");
+  const [logSource, setLogSource] = useState("database");
+  const [sourceLabel, setSourceLabel] = useState("database");
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -222,16 +222,16 @@ export default function LogsPage() {
               <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
               <span className="text-xs text-cyan-400 font-mono">{sourceLabel}</span>
             </div>
-            <button
-              onClick={() => {
-                const next = logSource === "file" ? "docker" : "file";
-                setLogSource(next);
-                toast.success(`Switched to ${next} source`);
-              }}
-              className="px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/30 text-xs text-cyan-400 font-mono hover:bg-cyan-500/20 transition-colors"
-            >
-              {logSource === "file" ? "Switch to Docker" : "Switch to File"}
-            </button>
+            <Select value={logSource} onValueChange={(val) => { setLogSource(val); toast.success(`Switched to ${val} source`); }}>
+              <SelectTrigger className="w-[140px] h-8 bg-cyan-500/10 border-cyan-500/30 text-xs text-cyan-400 font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#131a27] border-cyan-500/30">
+                <SelectItem value="database" className="text-cyan-100 font-mono text-xs">Database</SelectItem>
+                <SelectItem value="file" className="text-cyan-100 font-mono text-xs">File</SelectItem>
+                <SelectItem value="docker" className="text-cyan-100 font-mono text-xs">Docker</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Controls */}

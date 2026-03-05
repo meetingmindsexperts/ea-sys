@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { readFile, stat } from "fs/promises";
 import { join } from "path";
 import { execFile } from "child_process";
@@ -8,10 +9,12 @@ import { apiLogger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
 
+const isVercel = !!process.env.VERCEL;
+
 // Strict allowlists to prevent command injection
 const ALLOWED_SINCE = new Set(["10m", "30m", "1h", "6h", "24h", "all"]);
 const ALLOWED_LEVELS = new Set(["all", "error", "warn", "info", "debug"]);
-const ALLOWED_SOURCES = new Set(["file", "docker"]);
+const ALLOWED_SOURCES = new Set(["file", "docker", "database"]);
 const MAX_TAIL = 2000;
 
 type LogEntry = {
@@ -92,6 +95,51 @@ function parseDockerLine(line: string): LogEntry | null {
   return { timestamp: new Date().toISOString(), level: "info", message: line };
 }
 
+// ── Time range to Date offset ───────────────────────────────────────
+function sinceToDate(since: string): Date | null {
+  const now = Date.now();
+  switch (since) {
+    case "10m": return new Date(now - 10 * 60 * 1000);
+    case "30m": return new Date(now - 30 * 60 * 1000);
+    case "1h":  return new Date(now - 60 * 60 * 1000);
+    case "6h":  return new Date(now - 6 * 60 * 60 * 1000);
+    case "24h": return new Date(now - 24 * 60 * 60 * 1000);
+    default:    return null; // "all"
+  }
+}
+
+// ── Database source (works on Vercel) ───────────────────────────────
+async function readDatabaseLogs(
+  level: string,
+  since: string,
+  tailNum: number
+): Promise<{ logs: LogEntry[]; source: string }> {
+  const sinceDate = sinceToDate(since);
+
+  const where: Record<string, unknown> = {};
+  if (level !== "all") {
+    where.level = level;
+  }
+  if (sinceDate) {
+    where.timestamp = { gte: sinceDate };
+  }
+
+  const rows = await db.systemLog.findMany({
+    where,
+    orderBy: { timestamp: "desc" },
+    take: tailNum,
+    select: { level: true, message: true, timestamp: true },
+  });
+
+  const logs: LogEntry[] = rows.reverse().map((row) => ({
+    timestamp: row.timestamp.toISOString(),
+    level: row.level,
+    message: row.message,
+  }));
+
+  return { logs, source: "database" };
+}
+
 async function readLogFile(
   level: string,
   tailNum: number
@@ -167,7 +215,8 @@ export async function GET(req: Request) {
     const since = searchParams.get("since") || "1h";
     const search = searchParams.get("search") || "";
     const tailParam = searchParams.get("tail") || "500";
-    const sourceParam = searchParams.get("source") || "file";
+    // Default to "database" on Vercel (no filesystem), "file" elsewhere
+    const sourceParam = searchParams.get("source") || (isVercel ? "database" : "file");
 
     // Validate inputs against allowlists
     if (!ALLOWED_SINCE.has(since)) {
@@ -192,7 +241,7 @@ export async function GET(req: Request) {
 
     if (!ALLOWED_SOURCES.has(sourceParam)) {
       return NextResponse.json(
-        { error: "Invalid 'source' parameter. Allowed: file, docker" },
+        { error: "Invalid 'source' parameter. Allowed: file, docker, database" },
         { status: 400 }
       );
     }
@@ -210,7 +259,11 @@ export async function GET(req: Request) {
     let logs: LogEntry[];
     let source: string;
 
-    if (sourceParam === "docker") {
+    if (sourceParam === "database") {
+      const result = await readDatabaseLogs(level, since, tailNum);
+      logs = result.logs;
+      source = result.source;
+    } else if (sourceParam === "docker") {
       // Docker source — uses read-only socket
       try {
         const result = await readDockerLogs(since, tailNum);
@@ -220,27 +273,29 @@ export async function GET(req: Request) {
         apiLogger.warn({ err: dockerError, msg: "Docker logs unavailable" });
         return NextResponse.json({
           error:
-            "Docker not available. Try source=file or use SSH on EC2.",
+            "Docker not available. Try source=database or source=file.",
           logs: [],
           count: 0,
         });
       }
     } else {
-      // File source (default) — reads from logs/ directory
+      // File source — reads from logs/ directory
       const result = await readLogFile(level, tailNum);
       logs = result.logs;
       source = result.source;
     }
 
-    // Filter by level if specified (file source for error already pre-filters)
-    if (level !== "all" && sourceParam !== "file") {
-      logs = logs.filter((log) => log.level === level);
-    } else if (
-      level !== "all" &&
-      level !== "error" &&
-      sourceParam === "file"
-    ) {
-      logs = logs.filter((log) => log.level === level);
+    // Filter by level (database source already filters; file/docker need client-side filter)
+    if (sourceParam !== "database") {
+      if (level !== "all" && sourceParam !== "file") {
+        logs = logs.filter((log) => log.level === level);
+      } else if (
+        level !== "all" &&
+        level !== "error" &&
+        sourceParam === "file"
+      ) {
+        logs = logs.filter((log) => log.level === level);
+      }
     }
 
     // Filter by search term

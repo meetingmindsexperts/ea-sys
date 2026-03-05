@@ -1,4 +1,5 @@
 import pino, { multistream } from "pino";
+import { Writable } from "stream";
 import { join } from "path";
 import { accessSync, constants, mkdirSync } from "fs";
 
@@ -61,6 +62,79 @@ function isDirWritable(dir: string): boolean {
   }
 }
 
+// ── Database Log Stream (for Vercel — no writable filesystem) ─────
+// Writes log entries to SystemLog table via Prisma. Fire-and-forget
+// async writes so logging never blocks the request.
+
+function pinoLevelToString(level: number): string {
+  if (level >= 50) return "error";
+  if (level >= 40) return "warn";
+  if (level >= 30) return "info";
+  return "debug";
+}
+
+function createDbLogStream(): Writable {
+  // Lazy-import Prisma to avoid circular dependency (db.ts imports logger.ts indirectly)
+  let prisma: ReturnType<typeof getPrisma> | null = null;
+  function getPrisma() {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("@/lib/db").db;
+  }
+
+  const buffer: { level: string; module: string; message: string; timestamp: Date }[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function flush() {
+    flushTimer = null;
+    if (buffer.length === 0) return;
+    const entries = buffer.splice(0);
+    try {
+      if (!prisma) prisma = getPrisma();
+      await prisma.systemLog.createMany({
+        data: entries.map((e) => ({
+          level: e.level,
+          module: e.module,
+          message: e.message,
+          timestamp: e.timestamp,
+        })),
+      });
+    } catch {
+      // Silently fail — don't let log persistence break the app
+    }
+  }
+
+  return new Writable({
+    write(chunk: Buffer, _encoding: string, callback: () => void) {
+      const line = chunk.toString().trim();
+      if (!line) { callback(); return; }
+
+      try {
+        const entry = JSON.parse(line);
+        const level = pinoLevelToString(entry.level ?? 30);
+        // Only persist info+ (skip debug to reduce DB load)
+        if (level === "debug") { callback(); return; }
+
+        buffer.push({
+          level,
+          module: entry.module || "app",
+          message: line,
+          timestamp: entry.time ? new Date(entry.time) : new Date(),
+        });
+
+        // Batch flush every 2 seconds or when buffer hits 20 entries
+        if (buffer.length >= 20) {
+          flush();
+        } else if (!flushTimer) {
+          flushTimer = setTimeout(flush, 2000);
+        }
+      } catch {
+        // Not JSON, skip
+      }
+      callback();
+    },
+  });
+}
+
 // Development: pretty-print to console + write JSON to log files (for /logs viewer)
 // Production on Vercel: plain pino → stdout only (no writable filesystem in serverless)
 // Production on EC2/Docker: pino.multistream → stdout + logs/app.log + logs/error.log
@@ -102,7 +176,15 @@ function initLogger(): pino.Logger {
   }
 
   if (isVercel) {
-    return pino(loggerConfig);
+    // Vercel: stdout (for Vercel's built-in logs) + database (for /logs viewer)
+    const dbStream = createDbLogStream();
+    return pino(
+      loggerConfig,
+      multistream([
+        { stream: process.stdout },
+        { level: "info", stream: dbStream },
+      ])
+    );
   }
 
   // EC2/Docker: write to stdout + file logs (fall back to stdout-only if files not writable)
