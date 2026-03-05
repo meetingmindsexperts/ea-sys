@@ -207,7 +207,10 @@ export async function listEvents(creds: EventsAirCredentials): Promise<EventsAir
       }
     );
 
-    const events = data.events ?? [];
+    if (!data.events) {
+      throw new Error("EventsAir API returned no event data — check credentials or permissions");
+    }
+    const events = data.events;
     allEvents.push(...events);
 
     // If we got fewer than PAGE_SIZE, we've fetched all events

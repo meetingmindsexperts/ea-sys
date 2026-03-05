@@ -61,23 +61,44 @@ function isDirWritable(dir: string): boolean {
   }
 }
 
-// Development: pretty-print to console via pino-pretty (uses worker thread, fine in dev)
+// Development: pretty-print to console + write JSON to log files (for /logs viewer)
 // Production on Vercel: plain pino → stdout only (no writable filesystem in serverless)
 // Production on EC2/Docker: pino.multistream → stdout + logs/app.log + logs/error.log
 function initLogger(): pino.Logger {
   if (isDevelopment) {
-    return pino({
-      ...loggerConfig,
-      transport: {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          translateTime: "SYS:standard",
-          ignore: "pid,hostname,env,app",
-          singleLine: false,
-        },
-      },
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pinoPretty = require("pino-pretty");
+    const prettyStream = pinoPretty.default({
+      colorize: true,
+      translateTime: "SYS:standard",
+      ignore: "pid,hostname,env,app",
+      singleLine: false,
+      sync: true,
     });
+
+    // Also write JSON to log files so the /logs viewer works in dev
+    const logsDir = join(process.cwd(), "logs");
+    if (isDirWritable(logsDir)) {
+      const appDest = pino.destination({ dest: join(logsDir, "app.log"), mkdir: true, sync: false });
+      const errDest = pino.destination({ dest: join(logsDir, "error.log"), mkdir: true, sync: false });
+      const onStreamError = (err: Error) => {
+        console.error(`[logger] file stream error: ${err.message}`);
+      };
+      appDest.on("error", onStreamError);
+      errDest.on("error", onStreamError);
+
+      return pino(
+        loggerConfig,
+        multistream([
+          { stream: prettyStream },
+          { stream: appDest },
+          { level: "error", stream: errDest },
+        ])
+      );
+    }
+
+    // Fallback: pretty-print only (no writable logs dir)
+    return pino(loggerConfig, prettyStream);
   }
 
   if (isVercel) {

@@ -408,6 +408,7 @@ export function useEventsAirEvents() {
     queryKey: queryKeys.eventsAirEvents,
     queryFn: () => fetchApi<any[]>("/api/organization/eventsair/events"),
     enabled: false,
+    retry: false,
   });
 }
 

@@ -77,8 +77,8 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // Block restricted roles from dashboard and settings
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/settings")) {
+  // Block restricted roles from dashboard, settings, and logs
+  if (pathname.startsWith("/dashboard") || pathname.startsWith("/settings") || pathname.startsWith("/logs")) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/events";
     return NextResponse.redirect(redirectUrl);
@@ -121,6 +121,7 @@ export const config = {
     "/events/:path*",
     "/dashboard/:path*",
     "/settings/:path*",
+    "/logs/:path*",
     "/api/:path*",
   ],
 };

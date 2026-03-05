@@ -75,7 +75,7 @@ const INITIAL_PROGRESS: ImportProgress = {
 export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDialogProps) {
   const router = useRouter();
   const { data: config, isLoading: configLoading } = useEventsAirConfig();
-  const { data: events, isLoading: eventsLoading, refetch: fetchEvents } = useEventsAirEvents();
+  const { data: events, isLoading: eventsLoading, refetch: fetchEvents, isError: eventsError, error: eventsErrorDetail } = useEventsAirEvents();
   const importEvent = useImportEventsAirEvent();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -293,15 +293,36 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
           )}
 
           {/* Loading */}
-          {(configLoading || eventsLoading) && isConfigured && (
+          {(configLoading || eventsLoading) && isConfigured && !eventsError && (
             <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading events...
             </div>
           )}
 
+          {/* Error loading events */}
+          {eventsError && isConfigured && !eventsLoading && (
+            <div className="text-center py-8 space-y-3">
+              <AlertCircle className="h-8 w-8 mx-auto text-destructive" />
+              <p className="text-sm text-destructive">
+                Failed to load events from EventsAir
+              </p>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                {eventsErrorDetail instanceof Error ? eventsErrorDetail.message : "Check your EventsAir credentials in Settings."}
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <Button onClick={() => fetchEvents()} variant="outline" size="sm">
+                  Retry
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/settings">Check Settings</Link>
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Browse events */}
-          {step === "browse" && isConfigured && events && !eventsLoading && (
+          {step === "browse" && isConfigured && events && !eventsLoading && !eventsError && (
             <div className="space-y-3">
               {/* Year filter + count */}
               <div className="flex items-center justify-between gap-3">

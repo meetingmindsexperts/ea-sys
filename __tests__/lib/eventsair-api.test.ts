@@ -169,10 +169,9 @@ describe("listEvents", () => {
     expect(result).toEqual([]);
   });
 
-  it("handles null events response gracefully", async () => {
+  it("throws when API returns null events (permission/query issue)", async () => {
     globalThis.fetch = mockFetch([{ data: { events: null } }]);
-    const result = await listEvents(CREDS);
-    expect(result).toEqual([]);
+    await expect(listEvents(CREDS)).rejects.toThrow("EventsAir API returned no event data");
   });
 
   it("throws on GraphQL errors", async () => {
