@@ -27,6 +27,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
+    apiLogger.info({ msg: "Import started", importType: "event", source: "eventsair", userId: session.user.id, eventsAirEventId: validated.data.eventsAirEventId });
+
     // Check if already imported
     const existing = await db.event.findFirst({
       where: {
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
       select: { id: true },
     });
     if (existing) {
+      apiLogger.info({ msg: "Import complete", importType: "event", source: "eventsair", userId: session.user.id, eventsAirEventId: validated.data.eventsAirEventId, alreadyImported: true, eventId: existing.id });
       return NextResponse.json({
         eventId: existing.id,
         alreadyImported: true,
@@ -99,6 +102,8 @@ export async function POST(req: Request) {
         externalId: eaEvent.id,
       },
     });
+
+    apiLogger.info({ msg: "Import complete", importType: "event", source: "eventsair", userId: session.user.id, eventsAirEventId: validated.data.eventsAirEventId, alreadyImported: false, eventId: event.id });
 
     return NextResponse.json({ eventId: event.id, alreadyImported: false }, { status: 201 });
   } catch (error) {

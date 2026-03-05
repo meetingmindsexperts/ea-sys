@@ -91,6 +91,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     const existingEmails = new Set(existingSpeakers.map((s) => s.email.toLowerCase()));
 
+    apiLogger.info({ msg: "Import started", importType: "speakers", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
+
     const errors: string[] = [];
     const speakers: Prisma.SpeakerCreateManyInput[] = [];
 
@@ -145,6 +147,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (speakers.length === 0) {
       const skipped = rows.length - errors.length;
+      apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created: 0, skipped, errorCount: errors.length });
+      if (errors.length > 0) {
+        apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
+      }
       return NextResponse.json({ created: 0, skipped, errors });
     }
 
@@ -155,6 +161,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const created = result.count;
     const skipped = rows.length - created - errors.length;
+
+    apiLogger.info({ msg: "Import complete", importType: "speakers", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
+    if (errors.length > 0) {
+      apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
+    }
 
     return NextResponse.json({ created, skipped, errors });
   } catch (error) {

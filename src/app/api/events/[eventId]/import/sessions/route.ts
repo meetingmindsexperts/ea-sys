@@ -84,6 +84,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const trackByName = new Map(existingTracks.map((t) => [t.name.toLowerCase(), t.id]));
     const speakerByEmail = new Map(existingSpeakers.map((s) => [s.email.toLowerCase(), s.id]));
 
+    apiLogger.info({ msg: "Import started", importType: "sessions", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
+
     const errors: string[] = [];
     let created = 0;
     let tracksCreated = 0;
@@ -175,6 +177,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       } catch (err) {
         errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
+    }
+
+    apiLogger.info({ msg: "Import complete", importType: "sessions", source: "csv", eventId, userId: session.user.id, created, tracksCreated, errorCount: errors.length });
+    if (errors.length > 0) {
+      apiLogger.warn({ msg: "Import errors", importType: "sessions", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
     return NextResponse.json({ created, tracksCreated, errors });

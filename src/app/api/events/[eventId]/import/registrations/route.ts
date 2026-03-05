@@ -83,6 +83,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    apiLogger.info({ msg: "Import started", importType: "registrations", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
+
     const errors: string[] = [];
     let created = 0;
     let skipped = 0;
@@ -211,6 +213,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
         }
       }
+    }
+
+    apiLogger.info({ msg: "Import complete", importType: "registrations", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
+    if (errors.length > 0) {
+      apiLogger.warn({ msg: "Import errors", importType: "registrations", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
     return NextResponse.json({ created, skipped, errors });

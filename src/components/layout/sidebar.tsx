@@ -19,6 +19,7 @@ import {
   Users,
   BookUser,
   Calendar,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,11 +31,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const navigation = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
   { name: "Settings",  href: "/settings",  icon: Settings },
+  { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
 ];
 
 // Event nav split into sections for visual grouping
@@ -77,6 +79,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isReviewer  = session?.user?.role === "REVIEWER";
   const isSubmitter = session?.user?.role === "SUBMITTER";
   const isRestricted = isReviewer || isSubmitter;
@@ -88,7 +91,9 @@ export function Sidebar() {
   const restrictedNavigation = navigation.filter((item) => ["Events"].includes(item.name));
   const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
 
-  const baseNavigation = isRestricted ? restrictedNavigation : navigation;
+  const baseNavigation = isRestricted
+    ? restrictedNavigation
+    : navigation.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   // Build sections for event nav
   const visibleEventSections = isRestricted

@@ -43,6 +43,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    apiLogger.info({ msg: "Import started", importType: "contacts", source: "eventsair", eventId, userId: session.user.id });
+
     // Get org credentials
     const org = await db.organization.findUnique({
       where: { id: session.user.organizationId },
@@ -147,6 +149,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           errors.push(`Contact ${email}: ${err instanceof Error ? err.message : "unknown error"}`);
         }
       }
+    }
+
+    apiLogger.info({ msg: "Import complete", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, processed: contacts.length, created, skipped, errorCount: errors.length });
+    if (errors.length > 0) {
+      apiLogger.warn({ msg: "Import errors", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
     return NextResponse.json({
