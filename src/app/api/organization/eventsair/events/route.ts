@@ -33,8 +33,8 @@ export async function GET() {
       clientSecret,
     });
 
-    // Filter out sandbox/archived events
-    const filtered = events.filter((e) => !e.isSandbox && !e.isArchived);
+    // Sandbox/archived events are already filtered at the API level
+    const filtered = events;
 
     // Check which events are already imported
     const importedEvents = await db.event.findMany({

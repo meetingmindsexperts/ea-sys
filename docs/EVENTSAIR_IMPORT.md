@@ -29,13 +29,17 @@ Credentials are encrypted at rest using AES-256-GCM derived from the application
 
 1. Go to the **Events** page
 2. Click **Import from EventsAir**
-3. Browse the list of EventsAir events (sandbox and archived events are filtered out)
-4. Events already imported are marked with an "Imported" badge
-5. Select an event and click **Import**
-6. The import wizard runs in steps:
-   - **Step 1**: Creates the event with metadata (name, dates, venue, timezone)
-   - **Step 2**: Imports contacts as attendees and registrations (batched, 500 per request)
-   - **Step 3**: Summary of imported data
+3. **Filter by year** — use the year dropdown to narrow down the list (defaults to the most recent year). With ~750 events, this makes it easy to find what you need.
+4. Events already imported are marked with an "Imported" badge and cannot be re-selected
+5. **Select events** — use checkboxes to pick one or multiple events. Use the header checkbox to select/deselect all visible events for the filtered year.
+6. Click **Import X Events**
+7. The import wizard processes each event sequentially:
+   - **Creates the event** with metadata (name, dates, venue, timezone)
+   - **Imports contacts** as attendees and registrations (batched, 500 per request)
+   - **Progress display** shows current event name, batch number, and running totals
+8. Final summary shows total events imported, contacts created/skipped, and any errors
+
+**Bulk import** processes events one at a time (not in parallel) to respect EventsAir API rate limits (750 requests/5 minutes).
 
 ### Data Mapping (EventsAir → EA-SYS)
 

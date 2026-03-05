@@ -170,25 +170,55 @@ export async function testConnection(creds: EventsAirCredentials): Promise<boole
   }
 }
 
-/** List all events accessible with these credentials */
+/** List all events accessible with these credentials (paginated, ordered by startDate desc) */
 export async function listEvents(creds: EventsAirCredentials): Promise<EventsAirEvent[]> {
-  const data = await graphqlQuery<{ events: EventsAirEvent[] }>(
-    creds,
-    `query {
-      events {
-        id
-        name
-        alias
-        startDate
-        endDate
-        timezone
-        venue { name }
-        isSandbox
-        isArchived
+  const PAGE_SIZE = 2000; // Max allowed by EventsAir API
+  const allEvents: EventsAirEvent[] = [];
+  let offset = 0;
+
+  // Paginate through all events
+  let hasMore = true;
+  while (hasMore) {
+    const data = await graphqlQuery<{ events: EventsAirEvent[] }>(
+      creds,
+      `query($input: FindEventsInput!, $limit: PaginationLimit!, $offset: NonNegativeInt!) {
+        events(input: $input, limit: $limit, offset: $offset) {
+          id
+          name
+          alias
+          startDate
+          endDate
+          timezone
+          venue { name }
+          isSandbox
+          isArchived
+        }
+      }`,
+      {
+        input: {
+          orderBy: { field: "START_DATE", direction: "DESC" },
+          where: {
+            includeSandboxEvents: false,
+            includeArchivedEvents: false,
+          },
+        },
+        limit: PAGE_SIZE,
+        offset,
       }
-    }`
-  );
-  return data.events ?? [];
+    );
+
+    const events = data.events ?? [];
+    allEvents.push(...events);
+
+    // If we got fewer than PAGE_SIZE, we've fetched all events
+    if (events.length < PAGE_SIZE) {
+      hasMore = false;
+    } else {
+      offset += PAGE_SIZE;
+    }
+  }
+
+  return allEvents;
 }
 
 /** Fetch detailed event info for import */
