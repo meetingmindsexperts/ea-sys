@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { authLogger } from "@/lib/logger";
 import authConfig from "./auth.config";
 
 const loginSchema = z.object({
@@ -125,8 +126,8 @@ export const {
             token.role = dbUser.role;
           }
           token.roleCheckedAt = Date.now();
-        } catch {
-          // Silently continue with cached role on DB errors to avoid blocking auth
+        } catch (error) {
+          authLogger.warn({ err: error, msg: "Role re-validation DB error, continuing with cached role", userId: token.id });
         }
       }
 

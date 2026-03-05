@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     const text = await file.text();
     const { headers, rows, error: parseError } = parseCSV(text);
     if (parseError) {
+      apiLogger.warn({ msg: "Contacts CSV parse error", userId: ctx.userId, error: parseError });
       return NextResponse.json({ error: parseError }, { status: 400 });
     }
 
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
     };
 
     if (idx.firstName === -1 || idx.lastName === -1 || idx.email === -1) {
+      apiLogger.warn({ msg: "Contacts CSV missing required columns", userId: ctx.userId, headers });
       return NextResponse.json(
         { error: "CSV must have firstName, lastName, and email columns" },
         { status: 400 }

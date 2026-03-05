@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,35 +30,43 @@ export default async function DashboardPage() {
     redirect("/events");
   }
 
-  const [eventCount, registrationCount, speakerCount, upcomingEventCount, recentEvents] = await Promise.all([
-    db.event.count({
-      where: { organizationId: session.user.organizationId! },
-    }),
-    db.registration.count({
-      where: { event: { organizationId: session.user.organizationId! } },
-    }),
-    db.speaker.count({
-      where: { event: { organizationId: session.user.organizationId! } },
-    }),
-    db.event.count({
-      where: {
-        organizationId: session.user.organizationId!,
-        status: { in: ["PUBLISHED", "LIVE"] },
-      },
-    }),
-    db.event.findMany({
-      where: { organizationId: session.user.organizationId! },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        startDate: true,
-        _count: { select: { registrations: true } },
-      },
-    }),
-  ]);
+  let eventCount: number, registrationCount: number, speakerCount: number, upcomingEventCount: number;
+  let recentEvents: { id: string; name: string; status: string; startDate: Date; _count: { registrations: number } }[];
+
+  try {
+    [eventCount, registrationCount, speakerCount, upcomingEventCount, recentEvents] = await Promise.all([
+      db.event.count({
+        where: { organizationId: session.user.organizationId! },
+      }),
+      db.registration.count({
+        where: { event: { organizationId: session.user.organizationId! } },
+      }),
+      db.speaker.count({
+        where: { event: { organizationId: session.user.organizationId! } },
+      }),
+      db.event.count({
+        where: {
+          organizationId: session.user.organizationId!,
+          status: { in: ["PUBLISHED", "LIVE"] },
+        },
+      }),
+      db.event.findMany({
+        where: { organizationId: session.user.organizationId! },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          startDate: true,
+          _count: { select: { registrations: true } },
+        },
+      }),
+    ]);
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Failed to load dashboard data", userId: session.user.id });
+    throw error;
+  }
 
   const stats = [
     { title: "Total Events",        value: eventCount,          icon: Calendar,    description: "Active and completed" },

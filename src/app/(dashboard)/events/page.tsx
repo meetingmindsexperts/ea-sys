@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Plus, Calendar } from "lucide-react";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -15,13 +16,19 @@ export default async function EventsPage() {
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
 
-  const events = await db.event.findMany({
-    where: buildEventAccessWhere(session.user),
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { registrations: true, speakers: true } },
-    },
-  });
+  let events;
+  try {
+    events = await db.event.findMany({
+      where: buildEventAccessWhere(session.user),
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { registrations: true, speakers: true } },
+      },
+    });
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Failed to load events list", userId: session.user.id });
+    throw error;
+  }
 
   return (
     <div className="space-y-6">

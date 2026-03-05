@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,30 +45,36 @@ export default async function EventPage({ params }: EventPageProps) {
   const [{ eventId }, session] = await Promise.all([params, auth()]);
   if (!session?.user) notFound();
 
-  const event = await db.event.findFirst({
-    where: buildEventAccessWhere(session.user, eventId),
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      status: true,
-      startDate: true,
-      endDate: true,
-      venue: true,
-      city: true,
-      country: true,
-      _count: {
-        select: {
-          registrations: true,
-          speakers: true,
-          eventSessions: true,
-          hotels: true,
-          ticketTypes: true,
+  let event;
+  try {
+    event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        venue: true,
+        city: true,
+        country: true,
+        _count: {
+          select: {
+            registrations: true,
+            speakers: true,
+            eventSessions: true,
+            hotels: true,
+            ticketTypes: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Failed to load event detail", eventId, userId: session.user.id });
+    throw error;
+  }
 
   if (!event) notFound();
 

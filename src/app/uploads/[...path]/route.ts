@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile, stat, realpath } from "fs/promises";
 import { join, resolve } from "path";
+import { apiLogger } from "@/lib/logger";
 
 const CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -18,6 +19,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
   // Reject path traversal attempts (null bytes, ..)
   if (path.some((segment) => segment.includes("..") || segment.includes("\0"))) {
+    apiLogger.warn({ msg: "Path traversal attempt blocked", path: path.join("/") });
     return new NextResponse("Forbidden", { status: 403 });
   }
 
@@ -29,6 +31,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Resolve symlinks and verify the real path is within uploads directory
     const resolvedPath = await realpath(filePath);
     if (!resolvedPath.startsWith(uploadsRoot)) {
+      apiLogger.warn({ msg: "Symlink escape attempt blocked", path: path.join("/"), resolvedPath });
       return new NextResponse("Forbidden", { status: 403 });
     }
 
@@ -46,7 +49,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "X-Frame-Options": "DENY",
       },
     });
-  } catch {
+  } catch (error) {
+    const isNotFound = error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
+    if (!isNotFound) {
+      apiLogger.error({ err: error, msg: "Unexpected error serving upload", path: path.join("/") });
+    }
     return new NextResponse("Not found", { status: 404 });
   }
 }

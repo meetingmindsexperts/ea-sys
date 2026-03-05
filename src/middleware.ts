@@ -7,6 +7,11 @@ const { auth } = NextAuth(authConfig);
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
+// Edge runtime — can't import Pino logger. Use console with structured JSON.
+function logWarn(msg: string, data?: Record<string, unknown>) {
+  console.warn(JSON.stringify({ level: "warn", module: "middleware", msg, time: new Date().toISOString(), ...data }));
+}
+
 // ── Body size limits ──
 // Reject oversized request bodies early to prevent abuse.
 // 1MB default for JSON API routes; photo upload has its own 500KB app-level limit.
@@ -21,6 +26,7 @@ export default auth((req) => {
     if (contentLength) {
       const size = parseInt(contentLength, 10);
       if (!Number.isNaN(size) && size > MAX_BODY_SIZE) {
+        logWarn("Request body too large", { pathname, contentLength: size, maxSize: MAX_BODY_SIZE });
         return NextResponse.json(
           { error: "Request body too large" },
           { status: 413 }
@@ -51,9 +57,11 @@ export default auth((req) => {
           try {
             const originHost = new URL(origin).host;
             if (originHost !== host) {
+              logWarn("CSRF origin mismatch", { pathname, origin, host });
               return NextResponse.json({ error: "Forbidden" }, { status: 403 });
             }
           } catch {
+            logWarn("CSRF invalid origin URL", { pathname, origin });
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
           }
         }
