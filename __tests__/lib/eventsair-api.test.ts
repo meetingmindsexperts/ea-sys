@@ -115,7 +115,7 @@ describe("listEvents", () => {
 
     expect(body.variables).toEqual({
       input: {
-        orderBy: { field: "START_DATE", direction: "DESC" },
+        orderBy: { field: "START_DATE", direction: "DESCENDING" },
         where: {
           includeSandboxEvents: false,
           includeArchivedEvents: false,

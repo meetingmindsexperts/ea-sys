@@ -22,8 +22,8 @@ export interface EventsAirEvent {
   timezone?: string;
   venue?: {
     name?: string;
-    address?: string;
     city?: string;
+    state?: string;
     country?: string;
   };
   isSandbox?: boolean;
@@ -144,7 +144,15 @@ async function graphqlQuery<T>(
   if (!res.ok) {
     const text = await res.text();
     apiLogger.error({ msg: "EventsAir API error", status: res.status, body: text });
-    throw new Error(`EventsAir API error (${res.status})`);
+    // Include response body in error for debugging
+    let detail = "";
+    try {
+      const errJson = JSON.parse(text);
+      detail = errJson.errors?.[0]?.message || errJson.message || text.slice(0, 200);
+    } catch {
+      detail = text.slice(0, 200);
+    }
+    throw new Error(`EventsAir API error (${res.status}): ${detail}`);
   }
 
   const json = await res.json();
@@ -196,7 +204,7 @@ export async function listEvents(creds: EventsAirCredentials): Promise<EventsAir
       }`,
       {
         input: {
-          orderBy: { field: "START_DATE", direction: "DESC" },
+          orderBy: { field: "START_DATE", direction: "DESCENDING" },
           where: {
             includeSandboxEvents: false,
             includeArchivedEvents: false,
@@ -239,7 +247,7 @@ export async function fetchEventDetails(
         startDate
         endDate
         timezone
-        venue { name address city country }
+        venue { name city state country }
         isSandbox
         isArchived
       }
