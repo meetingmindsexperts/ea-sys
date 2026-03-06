@@ -17,6 +17,7 @@ const updateContactSchema = z.object({
   jobTitle: z.string().max(255).optional().nullable(),
   specialty: z.string().max(255).optional().nullable(),
   registrationType: z.string().max(255).optional().nullable(),
+  bio: z.string().max(5000).optional().nullable(),
   phone: z.string().max(50).optional().nullable(),
   photo: z.string().max(500).optional().or(z.literal("")).nullable(),
   city: z.string().max(255).optional().nullable(),

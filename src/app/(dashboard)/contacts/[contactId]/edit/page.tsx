@@ -73,6 +73,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
     jobTitle: contact.jobTitle ?? "",
     specialty: contact.specialty ?? "",
     registrationType: contact.registrationType ?? "",
+    bio: contact.bio ?? "",
     phone: contact.phone ?? "",
     photo: (contact.photo ?? null) as string | null,
     city: contact.city ?? "",
@@ -93,6 +94,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
         jobTitle: form.jobTitle.trim() || null,
         specialty: form.specialty || null,
         registrationType: form.registrationType || null,
+        bio: form.bio.trim() || null,
         phone: form.phone.trim() || null,
         photo: form.photo || null,
         city: form.city.trim() || null,
@@ -213,6 +215,14 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                     onChange={(e) => setForm((f) => ({ ...f, registrationType: e.target.value }))}
                     className={inputCls}
                     placeholder="Registration type"
+                  />
+                </FormField>
+                <FormField label="Bio">
+                  <textarea
+                    placeholder="Short biography"
+                    className={`${inputCls} min-h-[80px] w-full rounded-md border px-3 py-2`}
+                    value={form.bio}
+                    onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
                   />
                 </FormField>
               </div>

@@ -24,6 +24,7 @@ const emptyForm = {
   jobTitle: "",
   specialty: "",
   registrationType: "",
+  bio: "",
   phone: "",
   photo: null as string | null,
   city: "",
@@ -92,6 +93,7 @@ export default function NewContactPage() {
         jobTitle: form.jobTitle.trim() || undefined,
         specialty: form.specialty || undefined,
         registrationType: form.registrationType.trim() || undefined,
+        bio: form.bio.trim() || undefined,
         phone: form.phone.trim() || undefined,
         photo: form.photo || undefined,
         city: form.city.trim() || undefined,
@@ -200,6 +202,14 @@ export default function NewContactPage() {
                   <SpecialtySelect
                     value={form.specialty}
                     onChange={(specialty) => setForm((f) => ({ ...f, specialty }))}
+                  />
+                </FormField>
+                <FormField label="Bio">
+                  <textarea
+                    placeholder="Short biography"
+                    className={`${inputCls} min-h-[80px] w-full rounded-md border px-3 py-2`}
+                    value={form.bio}
+                    onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
                   />
                 </FormField>
               </div>

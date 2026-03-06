@@ -300,6 +300,17 @@ export default async function ContactDetailPage({
               ))}
             </div>
 
+            {contact.bio && (
+              <div className="mt-5 pt-5 border-t border-gray-100">
+                <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                  Bio
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg px-4 py-3">
+                  {contact.bio}
+                </p>
+              </div>
+            )}
+
             {contact.notes && (
               <div className="mt-5 pt-5 border-t border-gray-100">
                 <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">

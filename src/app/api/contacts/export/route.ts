@@ -30,13 +30,14 @@ export async function GET(req: Request) {
         jobTitle: true,
         specialty: true,
         registrationType: true,
+        bio: true,
         phone: true,
         tags: true,
         notes: true,
       },
     });
 
-    const headers = ["title", "firstName", "lastName", "email", "organization", "jobTitle", "specialty", "registrationType", "phone", "tags", "notes"];
+    const headers = ["title", "firstName", "lastName", "email", "organization", "jobTitle", "specialty", "registrationType", "bio", "phone", "tags", "notes"];
     const rows = contacts.map((c) => [
       escapeCSV(c.title),
       escapeCSV(c.firstName),
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
       escapeCSV(c.jobTitle),
       escapeCSV(c.specialty),
       escapeCSV(c.registrationType),
+      escapeCSV(c.bio),
       escapeCSV(c.phone),
       escapeCSV(c.tags.join(",")),
       escapeCSV(c.notes),

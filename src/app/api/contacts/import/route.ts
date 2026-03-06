@@ -51,6 +51,7 @@ export async function POST(req: Request) {
       organization: headers.indexOf("organization"),
       jobTitle: headers.indexOf("jobtitle"),
       specialty: headers.indexOf("specialty"),
+      bio: headers.indexOf("bio"),
       phone: headers.indexOf("phone"),
       tags: headers.indexOf("tags"),
       notes: headers.indexOf("notes"),
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
       organization?: string;
       jobTitle?: string;
       specialty?: string;
+      bio?: string;
       phone?: string;
       tags: string[];
       notes?: string;
@@ -102,6 +104,7 @@ export async function POST(req: Request) {
         organization: getField(fields, idx.organization),
         jobTitle: getField(fields, idx.jobTitle),
         specialty: getField(fields, idx.specialty),
+        bio: getField(fields, idx.bio),
         phone: getField(fields, idx.phone),
         tags: parseTags(getField(fields, idx.tags)),
         notes: getField(fields, idx.notes),

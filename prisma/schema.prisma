@@ -196,6 +196,7 @@ model Attendee {
   photo            String?
   city             String?
   country          String?
+  bio              String?       @db.Text
   specialty        String?
   registrationType String?
   tags             String[] @default([])
@@ -503,6 +504,7 @@ model Contact {
   lastName         String
   organization     String?
   jobTitle         String?
+  bio              String?      @db.Text
   specialty        String?
   registrationType String?
   phone            String?

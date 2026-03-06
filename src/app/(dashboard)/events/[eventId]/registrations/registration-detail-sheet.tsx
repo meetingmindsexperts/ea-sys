@@ -80,6 +80,7 @@ export function RegistrationDetailSheet({
     photo: null as string | null,
     city: "",
     country: "",
+    bio: "",
     specialty: "",
     registrationType: "",
     tags: [] as string[],
@@ -190,6 +191,7 @@ export function RegistrationDetailSheet({
         photo: selectedRegistration.attendee.photo || null,
         city: selectedRegistration.attendee.city || "",
         country: selectedRegistration.attendee.country || "",
+        bio: selectedRegistration.attendee.bio || "",
         specialty: selectedRegistration.attendee.specialty || "",
         registrationType: selectedRegistration.attendee.registrationType || "",
         tags: selectedRegistration.attendee.tags || [],
@@ -216,6 +218,7 @@ export function RegistrationDetailSheet({
             photo: editData.photo || undefined,
             city: editData.city || undefined,
             country: editData.country || undefined,
+            bio: editData.bio || undefined,
             specialty: editData.specialty || undefined,
             registrationType: editData.registrationType || undefined,
             tags: editData.tags,
@@ -407,6 +410,16 @@ export function RegistrationDetailSheet({
                       </div>
                     </div>
                     <div className="space-y-2">
+                      <Label htmlFor="edit-bio">Bio</Label>
+                      <textarea
+                        id="edit-bio"
+                        placeholder="Short biography"
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={editData.bio}
+                        onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
                       <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
                       <Input
                         id="edit-dietaryReqs"
@@ -494,6 +507,12 @@ export function RegistrationDetailSheet({
                             .filter(Boolean)
                             .join(", ")}
                         </span>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.bio && (
+                      <div className="gap-1">
+                        <div className="text-xs text-muted-foreground">Bio</div>
+                        <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
                       </div>
                     )}
                     {selectedRegistration.attendee.dietaryReqs && (

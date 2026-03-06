@@ -10,6 +10,7 @@ export interface Attendee {
   photo: string | null;
   city: string | null;
   country: string | null;
+  bio: string | null;
   specialty: string | null;
   registrationType: string | null;
   tags: string[];
