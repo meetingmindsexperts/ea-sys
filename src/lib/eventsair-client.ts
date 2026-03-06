@@ -239,7 +239,7 @@ export async function fetchEventDetails(
 ): Promise<EventsAirEvent> {
   const data = await graphqlQuery<{ event: EventsAirEvent }>(
     creds,
-    `query($eventId: String!) {
+    `query($eventId: ID!) {
       event(id: $eventId) {
         id
         name
@@ -266,11 +266,10 @@ export async function fetchEventContacts(
 ): Promise<{ contacts: EventsAirContact[]; hasMore: boolean }> {
   const data = await graphqlQuery<{ event: { contacts: EventsAirContact[] } }>(
     creds,
-    `query($eventId: String!, $offset: Int!, $limit: Int!) {
+    `query($eventId: ID!, $offset: Int!, $limit: Int!) {
       event(id: $eventId) {
         contacts(offset: $offset, limit: $limit) {
           id
-          internalNumber
           firstName
           lastName
           primaryEmail
@@ -279,9 +278,10 @@ export async function fetchEventContacts(
           website
           primaryAddress {
             city
-            country
-            phone
+            country        
           }
+          workPhone
+          
         }
       }
     }`,
