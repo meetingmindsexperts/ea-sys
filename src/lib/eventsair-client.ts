@@ -44,6 +44,11 @@ export interface EventsAirContact {
     country?: string;
     phone?: string;
   };
+  workPhone?: string;
+  biography?: string;
+  photo?: {
+    url?: string;
+  };
 }
 
 // ── Credential Encryption ──────────────────────────────────────────
@@ -266,7 +271,7 @@ export async function fetchEventContacts(
 ): Promise<{ contacts: EventsAirContact[]; hasMore: boolean }> {
   const data = await graphqlQuery<{ event: { contacts: EventsAirContact[] } }>(
     creds,
-    `query($eventId: ID!, $offset: Int!, $limit: Int!) {
+    `query($eventId: ID!, $offset: NonNegativeInt!, $limit: PaginationLimit!) {
       event(id: $eventId) {
         contacts(offset: $offset, limit: $limit) {
           id
@@ -278,10 +283,13 @@ export async function fetchEventContacts(
           website
           primaryAddress {
             city
-            country        
+            country
           }
           workPhone
-          
+          biography
+          photo {
+            url
+          }
         }
       }
     }`,
