@@ -13,6 +13,7 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { toast } from "sonner";
 
 const emptyForm = {
@@ -136,12 +137,6 @@ export default function NewContactPage() {
           {/* Identity — full width, photo left + fields right */}
           <SectionCard accentColor="bg-[#00aade]" title="Identity">
             <div className="flex gap-6 items-start">
-              <div className="shrink-0">
-                <PhotoUpload
-                  value={form.photo}
-                  onChange={(photo) => setForm((f) => ({ ...f, photo }))}
-                />
-              </div>
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
                   <FormField label="Title">
@@ -177,6 +172,12 @@ export default function NewContactPage() {
                   />
                 </FormField>
               </div>
+              <div className="shrink-0">
+                <PhotoUpload
+                  value={form.photo}
+                  onChange={(photo) => setForm((f) => ({ ...f, photo }))}
+                />
+              </div>
             </div>
           </SectionCard>
 
@@ -202,6 +203,12 @@ export default function NewContactPage() {
                   <SpecialtySelect
                     value={form.specialty}
                     onChange={(specialty) => setForm((f) => ({ ...f, specialty }))}
+                  />
+                </FormField>
+                <FormField label="Registration Type">
+                  <RegistrationTypeSelect
+                    value={form.registrationType}
+                    onChange={(registrationType) => setForm((f) => ({ ...f, registrationType }))}
                   />
                 </FormField>
                 <FormField label="Bio">

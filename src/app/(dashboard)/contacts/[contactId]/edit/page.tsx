@@ -13,6 +13,7 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { formatPersonName } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -141,12 +142,6 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
           {/* Identity — full width, photo left + fields right */}
           <SectionCard accentColor="bg-[#00aade]" title="Identity">
             <div className="flex gap-6 items-start">
-              <div className="shrink-0">
-                <PhotoUpload
-                  value={form.photo}
-                  onChange={(photo) => setForm((f) => ({ ...f, photo }))}
-                />
-              </div>
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
                   <FormField label="Title">
@@ -182,6 +177,12 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                   />
                 </FormField>
               </div>
+              <div className="shrink-0">
+                <PhotoUpload
+                  value={form.photo}
+                  onChange={(photo) => setForm((f) => ({ ...f, photo }))}
+                />
+              </div>
             </div>
           </SectionCard>
 
@@ -210,11 +211,9 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                   />
                 </FormField>
                 <FormField label="Registration Type">
-                  <Input
+                  <RegistrationTypeSelect
                     value={form.registrationType}
-                    onChange={(e) => setForm((f) => ({ ...f, registrationType: e.target.value }))}
-                    className={inputCls}
-                    placeholder="Registration type"
+                    onChange={(registrationType) => setForm((f) => ({ ...f, registrationType }))}
                   />
                 </FormField>
                 <FormField label="Bio">

@@ -57,6 +57,7 @@ export const queryKeys = {
   apiKeys: ["api-keys"] as const,
   eventsAirConfig: ["eventsair", "config"] as const,
   eventsAirEvents: ["eventsair", "events"] as const,
+  registrationTypes: ["registration-types"] as const,
 };
 
 // ============ EVENTS ============
@@ -443,6 +444,14 @@ export function useImportEventsAirContacts(eventId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
     },
+  });
+}
+
+// ============ REGISTRATION TYPES ============
+export function useRegistrationTypes() {
+  return useQuery({
+    queryKey: queryKeys.registrationTypes,
+    queryFn: () => fetchApi<string[]>("/api/registration-types"),
   });
 }
 
