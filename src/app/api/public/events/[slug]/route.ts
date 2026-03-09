@@ -13,7 +13,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const clientIp = getClientIp(req);
     const ipRateLimit = checkRateLimit({
       key: `public-event:ip:${clientIp}`,
-      limit: 120,
+      limit: 60,
       windowMs: 60 * 1000,
     });
 

@@ -28,9 +28,24 @@ interface RouteParams {
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
+
+    // Burst limiter: catch bots hammering the endpoint (3 req / 60s per IP)
+    const burstLimit = checkRateLimit({
+      key: `submitter-register:burst:${clientIp}`,
+      limit: 3,
+      windowMs: 60 * 1000,
+    });
+    if (!burstLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(burstLimit.retryAfterSeconds) } }
+      );
+    }
+
+    // Sustained limiter: 10 submissions per IP per 15 min (covers shared WiFi)
     const ipRateLimit = checkRateLimit({
       key: `submitter-register:ip:${clientIp}`,
-      limit: 20,
+      limit: 10,
       windowMs: 15 * 60 * 1000,
     });
 
