@@ -76,6 +76,20 @@ export function useEvent(eventId: string) {
   });
 }
 
+export function useCloneEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) =>
+      fetchApi<{ id: string; name: string; slug: string }>(
+        `/api/events/${eventId}/clone`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.events });
+    },
+  });
+}
+
 // ============ TICKETS ============
 export function useTickets(eventId: string) {
   return useEventListQuery<any[]>(eventId, queryKeys.tickets(eventId), "tickets");

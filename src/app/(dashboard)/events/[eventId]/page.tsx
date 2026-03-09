@@ -5,7 +5,6 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
 import {
   Calendar,
@@ -15,11 +14,11 @@ import {
   Mic,
   Building2,
   Settings,
-  Edit,
   ArrowRight,
   CheckCircle2,
   Circle,
 } from "lucide-react";
+import { EventActions } from "./event-actions";
 import { formatDateRange } from "@/lib/utils";
 
 const statusConfig: Record<string, { label: string; cls: string }> = {
@@ -199,17 +198,7 @@ export default async function EventPage({ params }: EventPageProps) {
               </div>
             </div>
             {!isRestricted && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white hover:border-white/40"
-                asChild
-              >
-                <Link href={`/events/${eventId}/settings`}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit Event
-                </Link>
-              </Button>
+              <EventActions eventId={eventId} eventName={event.name} />
             )}
           </div>
         </div>
