@@ -24,6 +24,9 @@ function createPrismaClient() {
 
   // Handle Prisma events with our logger
   client.$on("error" as never, (e: { message: string; target?: string }) => {
+    // Skip systemLog errors to avoid feedback loop: DB stream flush fails →
+    // Prisma error event → dbLogger → DB stream → flush fails → ...
+    if (e.target?.includes("systemLog")) return;
     dbLogger.error({
       msg: "Prisma error",
       error: e.message,
