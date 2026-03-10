@@ -142,7 +142,7 @@ export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirC
           body: JSON.stringify({
             eventsAirEventId: evt.id,
             offset,
-            limit: 500,
+            limit: 100,
           }),
         });
 

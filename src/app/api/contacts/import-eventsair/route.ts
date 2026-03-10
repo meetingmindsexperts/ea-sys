@@ -9,7 +9,7 @@ import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 const importSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(500).default(500),
+  limit: z.number().int().min(1).max(100).default(100),
 });
 
 /** POST: Import contacts from an EventsAir event into the org-wide Contact store */
@@ -67,20 +67,30 @@ export async function POST(req: Request) {
     let skipped = 0;
     const errors: string[] = [];
 
+    // Filter valid contacts and collect emails
+    const validContacts: { email: string; contact: (typeof contacts)[number] }[] = [];
     for (const contact of contacts) {
       if (!contact.primaryEmail) {
         skipped++;
         continue;
       }
+      validContacts.push({ email: contact.primaryEmail.toLowerCase().trim(), contact });
+    }
 
-      const email = contact.primaryEmail.toLowerCase().trim();
+    // Pre-fetch existing emails in one query to avoid N+1
+    const existingEmails = new Set(
+      (await db.contact.findMany({
+        where: {
+          organizationId,
+          email: { in: validContacts.map((v) => v.email) },
+        },
+        select: { email: true },
+      })).map((c) => c.email)
+    );
 
+    // Upsert each contact (no redundant findUnique per row)
+    for (const { email, contact } of validContacts) {
       try {
-        const existing = await db.contact.findUnique({
-          where: { organizationId_email: { organizationId, email } },
-          select: { id: true },
-        });
-
         await db.contact.upsert({
           where: { organizationId_email: { organizationId, email } },
           update: {
@@ -107,7 +117,7 @@ export async function POST(req: Request) {
           },
         });
 
-        if (existing) {
+        if (existingEmails.has(email)) {
           updated++;
         } else {
           created++;
