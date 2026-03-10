@@ -9,7 +9,7 @@ import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 const importSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(100).default(100),
+  limit: z.number().int().min(1).max(50).default(50),
 });
 
 /** POST: Import contacts from an EventsAir event into the org-wide Contact store */

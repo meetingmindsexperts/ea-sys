@@ -7,6 +7,15 @@
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/contacts/import-eventsair/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/import/eventsair/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/events/*/import/*/route.ts": {
+      "maxDuration": 60
     }
   }
 }
