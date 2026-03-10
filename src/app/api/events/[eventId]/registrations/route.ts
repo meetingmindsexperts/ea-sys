@@ -10,6 +10,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -269,6 +270,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
 
       return reg;
+    });
+
+    // Sync to org contact store (fire-and-forget)
+    syncToContact({
+      organizationId: session.user.organizationId!,
+      email: attendee.email,
+      firstName: attendee.firstName,
+      lastName: attendee.lastName,
+      title: attendee.title || null,
+      organization: attendee.organization || null,
+      jobTitle: attendee.jobTitle || null,
+      phone: attendee.phone || null,
+      photo: attendee.photo || null,
+      city: attendee.city || null,
+      country: attendee.country || null,
+      bio: attendee.bio || null,
+      specialty: attendee.specialty || null,
+      registrationType: attendee.registrationType || null,
     });
 
     // Log the action (non-blocking for better response time)

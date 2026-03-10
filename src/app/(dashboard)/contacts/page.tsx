@@ -45,7 +45,9 @@ import {
   Tag,
   X,
   RefreshCw,
+  Cloud,
 } from "lucide-react";
+import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { formatDate, formatPersonName } from "@/lib/utils";
 
 interface Contact {
@@ -110,6 +112,7 @@ export default function ContactsPage() {
   const [tagDialogContactId, setTagDialogContactId] = useState<string | null>(null);
   const [tagDialogValue, setTagDialogValue] = useState<string[]>([]);
 
+  const [eventsAirOpen, setEventsAirOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -307,6 +310,15 @@ export default function ContactsPage() {
             >
               <FileDown className="h-3.5 w-3.5 mr-1.5" />
               Template
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEventsAirOpen(true)}
+              className="h-8 text-xs border-gray-200 text-gray-600 hover:text-gray-900"
+            >
+              <Cloud className="h-3.5 w-3.5 mr-1.5" />
+              EventsAir
             </Button>
             <Button
               variant="outline"
@@ -774,6 +786,9 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* EventsAir Import */}
+      <EventsAirContactsImportDialog open={eventsAirOpen} onOpenChange={setEventsAirOpen} />
 
       {/* Delete Confirm */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>

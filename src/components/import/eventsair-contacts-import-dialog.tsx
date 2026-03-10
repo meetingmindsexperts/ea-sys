@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +18,6 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Cloud,
   Loader2,
@@ -32,7 +30,6 @@ import { toast } from "sonner";
 import {
   useEventsAirConfig,
   useEventsAirEvents,
-  useImportEventsAirEvent,
 } from "@/hooks/use-api";
 import Link from "next/link";
 
@@ -45,7 +42,7 @@ interface EventsAirEvent {
   alreadyImported: boolean;
 }
 
-interface EventsAirImportDialogProps {
+interface EventsAirContactsImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -57,8 +54,8 @@ interface ImportProgress {
   currentEvent: number;
   totalEvents: number;
   totalCreated: number;
+  totalUpdated: number;
   totalSkipped: number;
-  eventsImported: number;
   errors: string[];
 }
 
@@ -67,25 +64,22 @@ const INITIAL_PROGRESS: ImportProgress = {
   currentEvent: 0,
   totalEvents: 0,
   totalCreated: 0,
+  totalUpdated: 0,
   totalSkipped: 0,
-  eventsImported: 0,
   errors: [],
 };
 
-export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDialogProps) {
-  const router = useRouter();
+export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirContactsImportDialogProps) {
   const { data: config, isLoading: configLoading } = useEventsAirConfig();
   const { data: events, isLoading: eventsLoading, refetch: fetchEvents, isError: eventsError, error: eventsErrorDetail } = useEventsAirEvents();
-  const importEvent = useImportEventsAirEvent();
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState<string>("__latest__");
   const [step, setStep] = useState<ImportStep>("browse");
   const [progress, setProgress] = useState<ImportProgress>(INITIAL_PROGRESS);
 
   const typedEvents = useMemo(() => (events ?? []) as EventsAirEvent[], [events]);
 
-  // Extract unique years from events, sorted descending
   const years = useMemo(() => {
     const yearSet = new Set<number>();
     for (const evt of typedEvents) {
@@ -94,14 +88,12 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
     return Array.from(yearSet).sort((a, b) => b - a);
   }, [typedEvents]);
 
-  // Auto-select most recent year once events load
   useEffect(() => {
     if (years.length > 0 && yearFilter === "__latest__") {
       setYearFilter(String(years[0]));
     }
   }, [years, yearFilter]);
 
-  // Filter events by selected year
   const filteredEvents = useMemo(() => {
     if (yearFilter === "all") return typedEvents;
     const year = parseInt(yearFilter, 10);
@@ -111,156 +103,96 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
     );
   }, [typedEvents, yearFilter]);
 
-  // Available (non-imported) filtered events for select-all logic
-  const availableFiltered = useMemo(
-    () => filteredEvents.filter((e) => !e.alreadyImported),
-    [filteredEvents]
-  );
-
-  const allFilteredSelected =
-    availableFiltered.length > 0 &&
-    availableFiltered.every((e) => selectedIds.has(e.id));
-
-  // Fetch events when dialog opens and config is ready
   useEffect(() => {
     if (open && config?.configured) {
       fetchEvents();
     }
   }, [open, config?.configured, fetchEvents]);
 
-  const toggleEvent = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAllFiltered = () => {
-    if (allFilteredSelected) {
-      // Deselect all filtered
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const e of availableFiltered) next.delete(e.id);
-        return next;
-      });
-    } else {
-      // Select all filtered
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const e of availableFiltered) next.add(e.id);
-        return next;
-      });
-    }
-  };
-
   const handleImport = async () => {
-    if (selectedIds.size === 0) return;
+    if (!selectedId) return;
 
-    const eventsToImport = typedEvents.filter((e) => selectedIds.has(e.id));
+    const evt = typedEvents.find((e) => e.id === selectedId);
+    if (!evt) return;
+
     setStep("importing");
-    setProgress({ ...INITIAL_PROGRESS, totalEvents: eventsToImport.length });
+    setProgress({ ...INITIAL_PROGRESS, totalEvents: 1 });
 
     let totalCreated = 0;
+    let totalUpdated = 0;
     let totalSkipped = 0;
-    let eventsImported = 0;
     const allErrors: string[] = [];
 
-    for (let i = 0; i < eventsToImport.length; i++) {
-      const evt = eventsToImport[i];
-      setProgress((p) => ({
-        ...p,
-        currentEvent: i + 1,
-        step: `Creating event: ${evt.name}...`,
-      }));
+    let offset = 0;
+    let hasMore = true;
+    let batchNum = 0;
 
-      try {
-        // Step 1: Create event
-        const result = await importEvent.mutateAsync({ eventsAirEventId: evt.id });
-        const eventId = result.eventId;
+    try {
+      while (hasMore) {
+        batchNum++;
+        setProgress((p) => ({
+          ...p,
+          currentEvent: 1,
+          step: `Importing contacts from "${evt.name}" (batch ${batchNum})...`,
+        }));
 
-        if (result.alreadyImported) {
-          allErrors.push(`${evt.name}: already imported, skipped`);
-          continue;
+        const res = await fetch("/api/contacts/import-eventsair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventsAirEventId: evt.id,
+            offset,
+            limit: 500,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `Request failed (${res.status})` }));
+          allErrors.push(err.error || `Failed to import contacts (${res.status})`);
+          break;
         }
 
-        // Step 2: Import contacts in batches
-        let offset = 0;
-        let hasMore = true;
-        let batchNum = 0;
-
-        while (hasMore) {
-          batchNum++;
-          setProgress((p) => ({
-            ...p,
-            step: `${evt.name} — importing contacts (batch ${batchNum})...`,
-          }));
-
-          const res = await fetch(`/api/events/${eventId}/import/eventsair`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              eventsAirEventId: evt.id,
-              offset,
-              limit: 500,
-            }),
-          });
-
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({ error: `Request failed (${res.status})` }));
-            allErrors.push(`${evt.name}: ${err.error || `Failed to import contacts (${res.status})`}`);
-            break;
-          }
-
-          const data = await res.json();
-          totalCreated += data.created;
-          totalSkipped += data.skipped;
-          if (data.errors?.length) {
-            allErrors.push(...data.errors.map((e: string) => `${evt.name}: ${e}`));
-          }
-          hasMore = data.hasMore;
-          offset = data.nextOffset;
-
-          setProgress((p) => ({
-            ...p,
-            totalCreated,
-            totalSkipped,
-            errors: allErrors,
-          }));
+        const data = await res.json();
+        totalCreated += data.created;
+        totalUpdated += data.updated;
+        totalSkipped += data.skipped;
+        if (data.errors?.length) {
+          allErrors.push(...data.errors);
         }
+        hasMore = data.hasMore;
+        offset = data.nextOffset;
 
-        eventsImported++;
-        setProgress((p) => ({ ...p, eventsImported }));
-      } catch (err) {
-        allErrors.push(`${evt.name}: ${err instanceof Error ? err.message : "Import failed"}`);
+        setProgress((p) => ({
+          ...p,
+          totalCreated,
+          totalUpdated,
+          totalSkipped,
+          errors: allErrors,
+        }));
       }
+    } catch (err) {
+      allErrors.push(err instanceof Error ? err.message : "Import failed");
     }
 
     setProgress({
       step: "Complete",
-      currentEvent: eventsToImport.length,
-      totalEvents: eventsToImport.length,
+      currentEvent: 1,
+      totalEvents: 1,
       totalCreated,
+      totalUpdated,
       totalSkipped,
-      eventsImported,
       errors: allErrors,
     });
     setStep("done");
-    toast.success(`Imported ${eventsImported} event${eventsImported !== 1 ? "s" : ""} with ${totalCreated} contacts`);
+    toast.success(`Imported ${totalCreated} contacts, updated ${totalUpdated}`);
   };
 
   const handleClose = () => {
-    setSelectedIds(new Set());
+    setSelectedId(null);
     setYearFilter("__latest__");
     setStep("browse");
     setProgress(INITIAL_PROGRESS);
     onOpenChange(false);
-  };
-
-  const handleGoToEvents = () => {
-    handleClose();
-    router.push("/events");
   };
 
   const isConfigured = config?.configured;
@@ -271,10 +203,10 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Cloud className="h-5 w-5" />
-            Import from EventsAir
+            Import Contacts from EventsAir
           </DialogTitle>
           <DialogDescription>
-            Filter by year, select events, and import with all contacts and registrations.
+            Select an EventsAir event to import its contacts into your organization&apos;s contact store.
           </DialogDescription>
         </DialogHeader>
 
@@ -321,10 +253,9 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
             </div>
           )}
 
-          {/* Browse events */}
+          {/* Browse events — single-select */}
           {step === "browse" && isConfigured && events && !eventsLoading && !eventsError && (
             <div className="space-y-3">
-              {/* Year filter + count */}
               <div className="flex items-center justify-between gap-3">
                 <Select value={yearFilter} onValueChange={setYearFilter}>
                   <SelectTrigger className="w-[140px]">
@@ -341,15 +272,14 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                 </Select>
                 <div className="text-xs text-muted-foreground">
                   {filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}
-                  {selectedIds.size > 0 && (
+                  {selectedId && (
                     <span className="ml-1 font-medium text-foreground">
-                      · {selectedIds.size} selected
+                      · 1 selected
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* Events table */}
               <div className="border rounded-md overflow-auto max-h-[350px]">
                 {filteredEvents.length === 0 ? (
                   <div className="text-center py-8 text-sm text-muted-foreground">
@@ -359,13 +289,6 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 w-8">
-                          <Checkbox
-                            checked={allFilteredSelected}
-                            onCheckedChange={toggleAllFiltered}
-                            aria-label="Select all"
-                          />
-                        </th>
                         <th className="px-3 py-2 text-left font-medium">Event</th>
                         <th className="px-3 py-2 text-left font-medium">Dates</th>
                         <th className="px-3 py-2 text-left font-medium">Status</th>
@@ -376,21 +299,12 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                         <tr
                           key={evt.id}
                           className={`cursor-pointer transition-colors ${
-                            selectedIds.has(evt.id)
+                            selectedId === evt.id
                               ? "bg-primary/5"
                               : "hover:bg-muted/30"
-                          } ${evt.alreadyImported ? "opacity-60" : ""}`}
-                          onClick={() => !evt.alreadyImported && toggleEvent(evt.id)}
+                          }`}
+                          onClick={() => setSelectedId(selectedId === evt.id ? null : evt.id)}
                         >
-                          <td className="px-3 py-2">
-                            <Checkbox
-                              checked={selectedIds.has(evt.id)}
-                              disabled={evt.alreadyImported}
-                              onCheckedChange={() => toggleEvent(evt.id)}
-                              onClick={(e) => e.stopPropagation()}
-                              aria-label={`Select ${evt.name}`}
-                            />
-                          </td>
                           <td className="px-3 py-2">
                             <div className="font-medium">{evt.name}</div>
                             {evt.venue?.name && (
@@ -402,7 +316,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                           </td>
                           <td className="px-3 py-2">
                             {evt.alreadyImported ? (
-                              <Badge variant="secondary" className="text-xs">Imported</Badge>
+                              <Badge variant="secondary" className="text-xs">Event Imported</Badge>
                             ) : (
                               <Badge variant="outline" className="text-xs">Available</Badge>
                             )}
@@ -423,10 +337,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
               <div className="text-sm font-medium">{progress.step}</div>
               <div className="text-xs text-muted-foreground space-y-0.5">
                 <div>
-                  Event {progress.currentEvent} of {progress.totalEvents}
-                </div>
-                <div>
-                  {progress.totalCreated} contacts created, {progress.totalSkipped} skipped
+                  {progress.totalCreated} created, {progress.totalUpdated} updated, {progress.totalSkipped} skipped
                 </div>
               </div>
             </div>
@@ -441,10 +352,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
               </div>
               <div className="text-center text-sm text-muted-foreground space-y-1">
                 <div>
-                  <strong>{progress.eventsImported}</strong> event{progress.eventsImported !== 1 ? "s" : ""} imported
-                </div>
-                <div>
-                  <strong>{progress.totalCreated}</strong> contacts created, <strong>{progress.totalSkipped}</strong> skipped
+                  <strong>{progress.totalCreated}</strong> created, <strong>{progress.totalUpdated}</strong> updated, <strong>{progress.totalSkipped}</strong> skipped
                 </div>
               </div>
               {progress.errors.length > 0 && (
@@ -477,15 +385,10 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
             <Button
               className="btn-gradient"
               onClick={handleImport}
-              disabled={selectedIds.size === 0 || importEvent.isPending}
+              disabled={!selectedId}
             >
               <Download className="h-4 w-4 mr-2" />
-              Import {selectedIds.size > 0 ? `${selectedIds.size} Event${selectedIds.size !== 1 ? "s" : ""}` : "Events"}
-            </Button>
-          )}
-          {step === "done" && (
-            <Button className="btn-gradient" onClick={handleGoToEvents}>
-              Go to Events
+              Import Contacts
             </Button>
           )}
         </DialogFooter>

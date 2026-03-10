@@ -1,0 +1,145 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { denyReviewer } from "@/lib/auth-guards";
+import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
+
+const importSchema = z.object({
+  eventsAirEventId: z.string().min(1),
+  offset: z.number().int().min(0).default(0),
+  limit: z.number().int().min(1).max(500).default(500),
+});
+
+/** POST: Import contacts from an EventsAir event into the org-wide Contact store */
+export async function POST(req: Request) {
+  try {
+    const [session, body] = await Promise.all([auth(), req.json()]);
+
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const denied = denyReviewer(session);
+    if (denied) return denied;
+
+    const validated = importSchema.safeParse(body);
+    if (!validated.success) {
+      return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
+    }
+
+    // Get org credentials
+    const org = await db.organization.findUnique({
+      where: { id: session.user.organizationId },
+      select: { settings: true },
+    });
+    const settings = (org?.settings as Record<string, unknown>) || {};
+    const eventsAirCfg = settings.eventsAir as Record<string, unknown> | undefined;
+
+    if (!eventsAirCfg?.clientId || !eventsAirCfg?.clientSecretEncrypted) {
+      return NextResponse.json({ error: "EventsAir not configured" }, { status: 400 });
+    }
+
+    const creds = {
+      clientId: eventsAirCfg.clientId as string,
+      clientSecret: decryptSecret(eventsAirCfg.clientSecretEncrypted as string),
+    };
+
+    apiLogger.info({
+      msg: "Contact store import started",
+      source: "eventsair",
+      userId: session.user.id,
+      eventsAirEventId: validated.data.eventsAirEventId,
+      offset: validated.data.offset,
+    });
+
+    const { contacts, hasMore } = await fetchEventContacts(
+      creds,
+      validated.data.eventsAirEventId,
+      validated.data.offset,
+      validated.data.limit,
+    );
+
+    const organizationId = session.user.organizationId;
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const contact of contacts) {
+      if (!contact.primaryEmail) {
+        skipped++;
+        continue;
+      }
+
+      const email = contact.primaryEmail.toLowerCase().trim();
+
+      try {
+        const existing = await db.contact.findUnique({
+          where: { organizationId_email: { organizationId, email } },
+          select: { id: true },
+        });
+
+        await db.contact.upsert({
+          where: { organizationId_email: { organizationId, email } },
+          update: {
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            organization: contact.organizationName || null,
+            jobTitle: contact.jobTitle || null,
+            phone: contact.primaryAddress?.phone || contact.workPhone || null,
+            city: contact.primaryAddress?.city || null,
+            country: contact.primaryAddress?.country || null,
+            bio: contact.biography || null,
+          },
+          create: {
+            organizationId,
+            email,
+            firstName: contact.firstName,
+            lastName: contact.lastName,
+            organization: contact.organizationName || null,
+            jobTitle: contact.jobTitle || null,
+            phone: contact.primaryAddress?.phone || contact.workPhone || null,
+            city: contact.primaryAddress?.city || null,
+            country: contact.primaryAddress?.country || null,
+            bio: contact.biography || null,
+          },
+        });
+
+        if (existing) {
+          updated++;
+        } else {
+          created++;
+        }
+      } catch (err) {
+        errors.push(`${email}: ${err instanceof Error ? err.message : "unknown error"}`);
+      }
+    }
+
+    apiLogger.info({
+      msg: "Contact store import complete",
+      source: "eventsair",
+      userId: session.user.id,
+      processed: contacts.length,
+      created,
+      updated,
+      skipped,
+      errorCount: errors.length,
+    });
+
+    return NextResponse.json({
+      processed: contacts.length,
+      created,
+      updated,
+      skipped,
+      errors,
+      hasMore,
+      nextOffset: validated.data.offset + contacts.length,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    apiLogger.error({ err: error, msg: "Error importing EventsAir contacts to contact store" });
+    return NextResponse.json({ error: `Failed to import contacts: ${errorMessage}` }, { status: 500 });
+  }
+}

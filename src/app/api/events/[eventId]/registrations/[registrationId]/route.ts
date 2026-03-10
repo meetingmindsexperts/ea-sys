@@ -7,6 +7,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
@@ -170,6 +171,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
           ...(attendee.customFields && { customFields: attendee.customFields }),
         },
+      });
+
+      // Sync updated attendee to org contact store (fire-and-forget)
+      const a = existingRegistration.attendee;
+      syncToContact({
+        organizationId: session.user.organizationId!,
+        email: a.email,
+        firstName: attendee.firstName || a.firstName,
+        lastName: attendee.lastName || a.lastName,
+        title: attendee.title !== undefined ? (attendee.title || null) : a.title,
+        organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
+        jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
+        phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,
+        photo: attendee.photo !== undefined ? (attendee.photo || null) : a.photo,
+        city: attendee.city !== undefined ? (attendee.city || null) : a.city,
+        country: attendee.country !== undefined ? (attendee.country || null) : a.country,
+        bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
+        specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
+        registrationType: attendee.registrationType !== undefined ? (attendee.registrationType || null) : a.registrationType,
       });
     }
 

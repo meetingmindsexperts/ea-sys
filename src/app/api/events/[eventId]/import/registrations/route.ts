@@ -6,6 +6,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { generateQRCode } from "@/lib/utils";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import { syncToContact } from "@/lib/contact-sync";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF", "OTHER"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -209,6 +210,23 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
         });
         created++;
+
+        // Sync to contact store (fire-and-forget)
+        syncToContact({
+          organizationId: session.user.organizationId!,
+          email,
+          firstName,
+          lastName,
+          title: title as string | null,
+          organization: getField(fields, idx.organization) || null,
+          jobTitle: getField(fields, idx.jobTitle) || null,
+          phone: getField(fields, idx.phone) || null,
+          city: getField(fields, idx.city) || null,
+          country: getField(fields, idx.country) || null,
+          bio: getField(fields, idx.bio) || null,
+          specialty: getField(fields, idx.specialty) || null,
+          registrationType: registrationType || null,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;

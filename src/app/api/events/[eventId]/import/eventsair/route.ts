@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { generateQRCode } from "@/lib/utils";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
+import { syncToContact } from "@/lib/contact-sync";
 
 const importContactsSchema = z.object({
   eventsAirEventId: z.string().min(1),
@@ -147,6 +148,20 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
         });
         created++;
+
+        // Sync to contact store (fire-and-forget)
+        syncToContact({
+          organizationId: session.user.organizationId!,
+          email,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          organization: contact.organizationName || null,
+          jobTitle: contact.jobTitle || null,
+          phone: contact.primaryAddress?.phone || contact.workPhone || null,
+          city: contact.primaryAddress?.city || null,
+          country: contact.primaryAddress?.country || null,
+          bio: contact.biography || null,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;
@@ -170,7 +185,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       nextOffset: validated.data.offset + contacts.length,
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     apiLogger.error({ err: error, msg: "Error importing EventsAir contacts" });
-    return NextResponse.json({ error: "Failed to import contacts" }, { status: 500 });
+    return NextResponse.json({ error: `Failed to import contacts: ${errorMessage}` }, { status: 500 });
   }
 }

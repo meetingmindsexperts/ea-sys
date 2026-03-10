@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const createSpeakerSchema = z.object({
   title: titleEnum.optional(),
@@ -199,6 +200,24 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
         },
       },
+    });
+
+    // Sync to org contact store (fire-and-forget)
+    syncToContact({
+      organizationId: session.user.organizationId!,
+      email,
+      firstName,
+      lastName,
+      title: title || null,
+      organization: organization || null,
+      jobTitle: jobTitle || null,
+      phone: phone || null,
+      photo: photo || null,
+      city: city || null,
+      country: country || null,
+      bio: bio || null,
+      specialty: specialty || null,
+      registrationType: registrationType || null,
     });
 
     // Log the action (non-blocking for better response time)

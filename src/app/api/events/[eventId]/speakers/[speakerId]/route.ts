@@ -7,6 +7,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const updateSpeakerSchema = z.object({
   title: titleEnum.optional().nullable(),
@@ -192,6 +193,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
           },
         },
       },
+    });
+
+    // Sync updated speaker to org contact store (fire-and-forget)
+    syncToContact({
+      organizationId: session.user.organizationId!,
+      email: speaker.email,
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      title: speaker.title,
+      organization: speaker.organization,
+      jobTitle: speaker.jobTitle,
+      phone: speaker.phone,
+      photo: speaker.photo,
+      city: speaker.city,
+      country: speaker.country,
+      bio: speaker.bio,
+      specialty: speaker.specialty,
+      registrationType: speaker.registrationType,
     });
 
     // Log the action

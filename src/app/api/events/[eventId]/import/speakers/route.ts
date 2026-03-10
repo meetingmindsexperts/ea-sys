@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import { syncManyToContacts } from "@/lib/contact-sync";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF", "OTHER"]);
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
@@ -158,6 +159,25 @@ export async function POST(req: Request, { params }: RouteParams) {
       data: speakers,
       skipDuplicates: true,
     });
+
+    // Sync imported speakers to org contact store (fire-and-forget)
+    syncManyToContacts(
+      speakers.map((s) => ({
+        organizationId: session.user.organizationId!,
+        email: s.email,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        title: s.title,
+        organization: s.organization,
+        jobTitle: s.jobTitle,
+        phone: s.phone,
+        city: s.city,
+        country: s.country,
+        bio: s.bio,
+        specialty: s.specialty,
+        registrationType: s.registrationType,
+      }))
+    );
 
     const created = result.count;
     const skipped = rows.length - created - errors.length;

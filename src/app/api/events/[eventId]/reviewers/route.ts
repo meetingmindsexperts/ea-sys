@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
+import { syncToContact } from "@/lib/contact-sync";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
@@ -221,6 +222,40 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Sync reviewer to org contact store (fire-and-forget)
+    if (validated.data.type === "speaker") {
+      // Speaker data already has rich fields — fetch them
+      const spk = await db.speaker.findFirst({
+        where: { id: validated.data.speakerId, eventId },
+        select: { email: true, firstName: true, lastName: true, title: true, organization: true, jobTitle: true, phone: true, photo: true, city: true, country: true, bio: true, specialty: true, registrationType: true },
+      });
+      if (spk) {
+        syncToContact({
+          organizationId: session.user.organizationId!,
+          email: spk.email,
+          firstName: spk.firstName,
+          lastName: spk.lastName,
+          title: spk.title,
+          organization: spk.organization,
+          jobTitle: spk.jobTitle,
+          phone: spk.phone,
+          photo: spk.photo,
+          city: spk.city,
+          country: spk.country,
+          bio: spk.bio,
+          specialty: spk.specialty,
+          registrationType: spk.registrationType,
+        });
+      }
+    } else {
+      syncToContact({
+        organizationId: session.user.organizationId!,
+        email: validated.data.email,
+        firstName: validated.data.firstName,
+        lastName: validated.data.lastName,
+      });
+    }
 
     // Audit log (non-blocking)
     db.auditLog.create({

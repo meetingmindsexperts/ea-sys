@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const registerSchema = z.object({
   title: titleEnum.optional(),
@@ -69,6 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         name: true,
         slug: true,
         settings: true,
+        organizationId: true,
       },
     });
 
@@ -198,6 +200,22 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
         });
       }
+    });
+
+    // Sync submitter to org contact store (fire-and-forget)
+    syncToContact({
+      organizationId: event.organizationId,
+      email: emailLower,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      title: data.title || null,
+      organization: data.organization || null,
+      jobTitle: data.jobTitle || null,
+      phone: data.phone || null,
+      city: data.city || null,
+      country: data.country || null,
+      specialty: data.specialty || null,
+      registrationType: data.registrationType || null,
     });
 
     apiLogger.info({

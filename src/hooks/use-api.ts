@@ -461,6 +461,25 @@ export function useImportEventsAirContacts(eventId: string) {
   });
 }
 
+export function useImportEventsAirToContacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { eventsAirEventId: string; offset?: number; limit?: number }) =>
+      fetchApi<{ processed: number; created: number; updated: number; skipped: number; hasMore: boolean; nextOffset: number; errors: string[] }>(
+        "/api/contacts/import-eventsair",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.contacts, "tags"] });
+    },
+  });
+}
+
 // ============ REGISTRATION TYPES ============
 export function useRegistrationTypes() {
   return useQuery({

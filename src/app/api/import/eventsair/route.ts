@@ -107,7 +107,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ eventId: event.id, alreadyImported: false }, { status: 201 });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     apiLogger.error({ err: error, msg: "Error importing EventsAir event" });
-    return NextResponse.json({ error: "Failed to import event" }, { status: 500 });
+    return NextResponse.json({ error: `Failed to import event: ${errorMessage}` }, { status: 500 });
   }
 }

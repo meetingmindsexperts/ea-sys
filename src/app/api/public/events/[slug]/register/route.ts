@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -220,6 +221,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const registration = result;
+
+    // Sync to org contact store (fire-and-forget)
+    syncToContact({
+      organizationId: event.organizationId,
+      email,
+      firstName,
+      lastName,
+      title: title || null,
+      organization: organization || null,
+      jobTitle: jobTitle || null,
+      phone: phone || null,
+      city: city || null,
+      country: country || null,
+      specialty: specialty || null,
+      registrationType: registrationType || null,
+    });
 
     // Send confirmation email
     try {
