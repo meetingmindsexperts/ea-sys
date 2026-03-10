@@ -42,7 +42,7 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
 
   return (
     <div className="flex gap-2 shrink-0">
-      <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialog open={open} onOpenChange={cloneEvent.isPending ? undefined : setOpen}>
         <AlertDialogTrigger asChild>
           <Button
             variant="outline"
@@ -53,33 +53,36 @@ export function EventActions({ eventId, eventName }: EventActionsProps) {
             Clone
           </Button>
         </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clone Event</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will create a copy of &quot;{eventName}&quot; including all
-              ticket types, speakers, tracks, sessions, and hotels. The cloned
-              event will start as a Draft.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cloneEvent.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleClone}
-              disabled={cloneEvent.isPending}
-            >
-              {cloneEvent.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Cloning...
-                </>
-              ) : (
-                "Clone Event"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+        <AlertDialogContent onEscapeKeyDown={cloneEvent.isPending ? (e) => e.preventDefault() : undefined}>
+          {cloneEvent.isPending ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-4">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <div className="text-center space-y-1">
+                <p className="font-semibold text-base">Cloning Event...</p>
+                <p className="text-sm text-muted-foreground">
+                  Copying ticket types, speakers, tracks, sessions, and hotels.
+                  This may take a moment.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clone Event</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will create a copy of &quot;{eventName}&quot; including all
+                  ticket types, speakers, tracks, sessions, and hotels. The cloned
+                  event will start as a Draft.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleClone}>
+                  Clone Event
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
         </AlertDialogContent>
       </AlertDialog>
       <Button
