@@ -8,10 +8,12 @@ import { generateQRCode } from "@/lib/utils";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { syncToContact } from "@/lib/contact-sync";
 
+export const maxDuration = 60;
+
 const importContactsSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(500).default(500),
+  limit: z.number().int().min(1).max(50).default(50),
 });
 
 interface RouteParams {

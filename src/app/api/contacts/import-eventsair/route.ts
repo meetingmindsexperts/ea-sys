@@ -6,6 +6,9 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 
+// Allow up to 60s for external EventsAir API calls
+export const maxDuration = 60;
+
 const importSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),

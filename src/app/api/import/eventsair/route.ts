@@ -6,6 +6,8 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventDetails } from "@/lib/eventsair-client";
 
+export const maxDuration = 60;
+
 const importSchema = z.object({
   eventsAirEventId: z.string().min(1),
 });
