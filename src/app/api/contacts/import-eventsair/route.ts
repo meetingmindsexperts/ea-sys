@@ -65,6 +65,18 @@ export async function POST(req: Request) {
     );
 
     const organizationId = session.user.organizationId;
+
+    // Look up EA-SYS event mapped to this EventsAir event (for event activity tracking)
+    const mappedEvent = await db.event.findFirst({
+      where: {
+        organizationId,
+        externalId: validated.data.eventsAirEventId,
+        externalSource: "eventsair",
+      },
+      select: { id: true },
+    });
+    const mappedEventId = mappedEvent?.id ?? null;
+
     let created = 0;
     let updated = 0;
     let skipped = 0;
@@ -80,20 +92,35 @@ export async function POST(req: Request) {
       validContacts.push({ email: contact.primaryEmail.toLowerCase().trim(), contact });
     }
 
-    // Pre-fetch existing emails in one query to avoid N+1
-    const existingEmails = new Set(
+    // Pre-fetch existing contacts in one query to avoid N+1
+    const existingContacts = new Map(
       (await db.contact.findMany({
         where: {
           organizationId,
           email: { in: validContacts.map((v) => v.email) },
         },
-        select: { email: true },
-      })).map((c) => c.email)
+        select: { email: true, eventIds: true },
+      })).map((c) => [c.email, c.eventIds])
     );
 
-    // Upsert each contact (no redundant findUnique per row)
+    // Upsert each contact
     for (const { email, contact } of validContacts) {
       try {
+        const existingEventIds = existingContacts.get(email);
+        const isExisting = existingEventIds !== undefined;
+
+        // Build eventIds: append mappedEventId if not already present
+        let eventIds: string[] | undefined;
+        if (mappedEventId) {
+          if (isExisting) {
+            eventIds = existingEventIds.includes(mappedEventId)
+              ? existingEventIds
+              : [...existingEventIds, mappedEventId];
+          } else {
+            eventIds = [mappedEventId];
+          }
+        }
+
         await db.contact.upsert({
           where: { organizationId_email: { organizationId, email } },
           update: {
@@ -105,6 +132,7 @@ export async function POST(req: Request) {
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
+            ...(eventIds && { eventIds }),
           },
           create: {
             organizationId,
@@ -117,10 +145,11 @@ export async function POST(req: Request) {
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
+            ...(eventIds && { eventIds }),
           },
         });
 
-        if (existingEmails.has(email)) {
+        if (isExisting) {
           updated++;
         } else {
           created++;

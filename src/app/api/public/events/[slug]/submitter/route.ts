@@ -205,6 +205,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Sync submitter to org contact store (fire-and-forget)
     syncToContact({
       organizationId: event.organizationId,
+      eventId: event.id,
       email: emailLower,
       firstName: data.firstName,
       lastName: data.lastName,

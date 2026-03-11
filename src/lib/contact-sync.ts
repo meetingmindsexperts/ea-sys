@@ -19,6 +19,7 @@ export interface ContactSyncData {
   email: string;
   firstName: string;
   lastName: string;
+  eventId?: string | null;
   title?: string | null;
   organization?: string | null;
   jobTitle?: string | null;
@@ -32,7 +33,7 @@ export interface ContactSyncData {
 }
 
 /** Strip undefined/null values so we only update fields that are actually provided */
-function cleanFields(data: Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName">) {
+function cleanFields(data: Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName" | "eventId">) {
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     if (value !== undefined) {
@@ -44,6 +45,7 @@ function cleanFields(data: Omit<ContactSyncData, "organizationId" | "email" | "f
 
 /**
  * Upsert a single person into the Contact store.
+ * If eventId is provided, it is appended to the contact's eventIds array (no duplicates).
  * Fire-and-forget — errors are logged but never thrown.
  */
 export async function syncToContact(data: ContactSyncData): Promise<void> {
@@ -64,26 +66,64 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
       registrationType: data.registrationType,
     });
 
-    await db.contact.upsert({
-      where: {
-        organizationId_email: {
-          organizationId: data.organizationId,
-          email,
-        },
-      },
-      update: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        ...optional,
-      },
-      create: {
+    const compositeKey = {
+      organizationId_email: {
         organizationId: data.organizationId,
         email,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        ...optional,
       },
-    });
+    };
+
+    if (data.eventId) {
+      // Check if contact exists and already has this eventId
+      const existing = await db.contact.findUnique({
+        where: compositeKey,
+        select: { eventIds: true },
+      });
+
+      if (existing) {
+        const eventIds = existing.eventIds.includes(data.eventId)
+          ? existing.eventIds
+          : [...existing.eventIds, data.eventId];
+
+        await db.contact.update({
+          where: compositeKey,
+          data: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            eventIds,
+            ...optional,
+          },
+        });
+      } else {
+        await db.contact.create({
+          data: {
+            organizationId: data.organizationId,
+            email,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            eventIds: [data.eventId],
+            ...optional,
+          },
+        });
+      }
+    } else {
+      // No eventId — simple upsert without touching eventIds
+      await db.contact.upsert({
+        where: compositeKey,
+        update: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          ...optional,
+        },
+        create: {
+          organizationId: data.organizationId,
+          email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          ...optional,
+        },
+      });
+    }
   } catch (err) {
     apiLogger.warn({
       msg: "Contact sync failed",

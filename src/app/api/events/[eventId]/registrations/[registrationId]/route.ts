@@ -177,6 +177,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const a = existingRegistration.attendee;
       syncToContact({
         organizationId: session.user.organizationId!,
+        eventId,
         email: a.email,
         firstName: attendee.firstName || a.firstName,
         lastName: attendee.lastName || a.lastName,

@@ -164,6 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     syncManyToContacts(
       speakers.map((s) => ({
         organizationId: session.user.organizationId!,
+        eventId,
         email: s.email,
         firstName: s.firstName,
         lastName: s.lastName,

@@ -214,6 +214,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         // Sync to contact store (fire-and-forget)
         syncToContact({
           organizationId: session.user.organizationId!,
+          eventId,
           email,
           firstName,
           lastName,

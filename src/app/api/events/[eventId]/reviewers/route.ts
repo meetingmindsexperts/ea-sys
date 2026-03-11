@@ -233,6 +233,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (spk) {
         syncToContact({
           organizationId: session.user.organizationId!,
+          eventId,
           email: spk.email,
           firstName: spk.firstName,
           lastName: spk.lastName,
@@ -251,6 +252,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     } else {
       syncToContact({
         organizationId: session.user.organizationId!,
+        eventId,
         email: validated.data.email,
         firstName: validated.data.firstName,
         lastName: validated.data.lastName,
