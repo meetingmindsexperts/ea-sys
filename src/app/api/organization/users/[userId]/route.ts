@@ -158,6 +158,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Unlink any Speaker records referencing this user before deletion
+    await db.speaker.updateMany({
+      where: { userId },
+      data: { userId: null },
+    });
+
     await db.user.delete({
       where: { id: userId },
     });

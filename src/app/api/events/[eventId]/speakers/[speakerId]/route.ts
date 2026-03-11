@@ -268,10 +268,25 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         id: speakerId,
         eventId,
       },
+      include: {
+        _count: {
+          select: {
+            abstracts: { where: { status: { not: "DRAFT" } } },
+          },
+        },
+      },
     });
 
     if (!speaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+    }
+
+    // Prevent deletion if speaker has non-DRAFT abstracts (reviewed, accepted, etc.)
+    if (speaker._count.abstracts > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete speaker with submitted or reviewed abstracts. Remove or reassign their abstracts first." },
+        { status: 400 }
+      );
     }
 
     await db.speaker.delete({

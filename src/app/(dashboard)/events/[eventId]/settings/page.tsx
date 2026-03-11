@@ -308,7 +308,7 @@ export default function EventSettingsPage() {
 
   const handleDeleteEvent = async () => {
     try {
-      const res = await fetch(`/api/events/${eventId}`, {
+      const res = await fetch(`/api/events/${eventId}?confirm=true`, {
         method: "DELETE",
       });
 

@@ -197,6 +197,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const deniedDel = denyReviewer(session);
     if (deniedDel) return deniedDel;
 
+    // Require explicit confirmation to prevent accidental deletion
+    const { searchParams } = new URL(req.url);
+    if (searchParams.get("confirm") !== "true") {
+      return NextResponse.json(
+        { error: "Deleting an event removes all registrations, speakers, sessions, abstracts, and accommodations. Pass ?confirm=true to proceed." },
+        { status: 400 }
+      );
+    }
+
     // Verify event belongs to user's organization (select only needed fields)
     const existingEvent = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
