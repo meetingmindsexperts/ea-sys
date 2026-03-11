@@ -64,7 +64,8 @@ interface Contact {
   createdAt: string;
 }
 
-const LIMIT = 50;
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 20;
 
 const TAG_COLORS = [
   "bg-sky-50 text-sky-700 border-sky-200",
@@ -100,6 +101,7 @@ type TagMode = "add" | "remove" | "replace";
 
 export default function ContactsPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
@@ -116,7 +118,7 @@ export default function ContactsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filters: Record<string, string> = { page: String(page), limit: String(LIMIT) };
+  const filters: Record<string, string> = { page: String(page), limit: String(pageSize) };
   if (search) filters.search = search;
   if (tagFilter.size > 0) filters.tags = [...tagFilter].join(",");
 
@@ -645,35 +647,56 @@ export default function ContactsPage() {
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {total > 0 && (
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400">
-              {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total.toLocaleString()} contacts
-              {isFetching && <span className="ml-2 text-[#00aade]">Refreshing…</span>}
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 border-gray-200"
-                disabled={page === 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="px-3 text-xs text-gray-600 font-medium tabular-nums">
-                {page} / {totalPages}
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">
+                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()} contacts
+                {isFetching && <span className="ml-2 text-[#00aade]">Refreshing…</span>}
               </span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8 border-gray-200"
-                disabled={page === totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400">Show</span>
+                <select
+                  title="Contacts per page"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="h-7 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#00aade]/30"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-400">per page</span>
+              </div>
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-gray-200"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-3 text-xs text-gray-600 font-medium tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 border-gray-200"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

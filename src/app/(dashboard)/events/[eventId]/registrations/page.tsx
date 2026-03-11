@@ -35,6 +35,8 @@ import {
   RefreshCw,
   Share2,
   Plus,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
@@ -47,6 +49,9 @@ import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 20;
 
 export default function RegistrationsPage() {
   const params = useParams();
@@ -66,6 +71,10 @@ export default function RegistrationsPage() {
     refetchRegistrations();
     ticketsQuery.refetch();
   };
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,6 +164,15 @@ export default function RegistrationsPage() {
 
     return matchesSearch && matchesStatus && matchesPayment && matchesTicket;
   });
+
+  // Pagination
+  const totalFiltered = filteredRegistrations.length;
+  const totalPages = Math.ceil(totalFiltered / pageSize);
+  const safePage = Math.min(page, Math.max(1, totalPages));
+  const paginatedRegistrations = filteredRegistrations.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize
+  );
 
   const stats = {
     total: registrations.length,
@@ -301,12 +319,12 @@ export default function RegistrationsPage() {
                 <Input
                   placeholder="Search by name, email, or organization..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                   className="pl-9"
                 />
               </div>
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[150px]">
                 <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Status" />
@@ -320,7 +338,7 @@ export default function RegistrationsPage() {
                 <SelectItem value="CHECKED_IN">Checked In</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+            <Select value={paymentFilter} onValueChange={(v) => { setPaymentFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="Payment" />
               </SelectTrigger>
@@ -333,7 +351,7 @@ export default function RegistrationsPage() {
                 <SelectItem value="FAILED">Failed</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={ticketFilter} onValueChange={setTicketFilter}>
+            <Select value={ticketFilter} onValueChange={(v) => { setTicketFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Registration Type" />
               </SelectTrigger>
@@ -366,13 +384,13 @@ export default function RegistrationsPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {filteredRegistrations.length === registrations.length
+            {totalFiltered === registrations.length
               ? `All Registrations (${registrations.length})`
-              : `Showing ${filteredRegistrations.length} of ${registrations.length}`}
+              : `Showing ${totalFiltered} of ${registrations.length}`}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredRegistrations.length === 0 ? (
+          {totalFiltered === 0 ? (
             <p className="text-muted-foreground text-center py-8">
               {registrations.length === 0
                 ? "No registrations yet. Click 'Add Registration' to register your first attendee."
@@ -392,7 +410,7 @@ export default function RegistrationsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRegistrations.map((registration) => (
+                {paginatedRegistrations.map((registration) => (
                   <TableRow
                     key={registration.id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -449,6 +467,56 @@ export default function RegistrationsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalFiltered > 0 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, totalFiltered)} of {totalFiltered}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-muted-foreground">Show</span>
+              <select
+                title="Rows per page"
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                className="h-8 text-sm border border-input rounded-md px-2 bg-background cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              <span className="text-sm text-muted-foreground">per page</span>
+            </div>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                disabled={safePage === 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="px-3 text-sm text-muted-foreground font-medium tabular-nums">
+                {safePage} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                disabled={safePage === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Registration Detail Sheet */}
       <RegistrationDetailSheet

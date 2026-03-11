@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mic, Plus, Mail, MapPin, RefreshCw } from "lucide-react";
+import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -13,6 +14,9 @@ import { useSpeakers, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 20;
 
 const statusColors: Record<string, string> = {
   INVITED: "bg-yellow-100 text-yellow-800",
@@ -41,11 +45,23 @@ export default function SpeakersPage() {
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
   const { data: event } = useEvent(eventId);
   const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
   const speakers = speakersData as Speaker[];
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
+
+  // Pagination
+  const totalSpeakers = speakers.length;
+  const totalPages = Math.ceil(totalSpeakers / pageSize);
+  const safePage = Math.min(page, Math.max(1, totalPages));
+  const paginatedSpeakers = speakers.slice(
+    (safePage - 1) * pageSize,
+    safePage * pageSize
+  );
 
   const stats = {
     total: speakers.length,
@@ -160,7 +176,7 @@ export default function SpeakersPage() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {speakers.map((speaker) => (
+            {paginatedSpeakers.map((speaker) => (
               <Card key={speaker.id} className="hover:border-primary transition-colors">
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
@@ -227,6 +243,56 @@ export default function SpeakersPage() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalSpeakers > 0 && (
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, totalSpeakers)} of {totalSpeakers}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-muted-foreground">Show</span>
+                <select
+                  title="Speakers per page"
+                  value={pageSize}
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                  className="h-8 text-sm border border-input rounded-md px-2 bg-background cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+                <span className="text-sm text-muted-foreground">per page</span>
+              </div>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={safePage === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="px-3 text-sm text-muted-foreground font-medium tabular-nums">
+                  {safePage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={safePage === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
