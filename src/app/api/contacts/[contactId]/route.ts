@@ -174,11 +174,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
-      select: { id: true },
+      select: { id: true, email: true },
     });
 
     if (!contact) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    }
+
+    // Protected contacts that can never be deleted
+    const PROTECTED_EMAILS = ["krishna@meetingmindsdubai.com"];
+    if (PROTECTED_EMAILS.includes(contact.email.toLowerCase())) {
+      return NextResponse.json({ error: "This contact is protected and cannot be deleted" }, { status: 403 });
     }
 
     await db.contact.delete({ where: { id: contactId } });
