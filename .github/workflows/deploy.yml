@@ -4,17 +4,18 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: deploy-main
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Build & Deploy
+  # ── CI: Lint, type-check, build (runs once) ──────────────────────────────────
+  ci:
+    name: CI
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,12 +42,19 @@ jobs:
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: npm run build
 
+  # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
+  deploy:
+    name: Deploy → Mumbai (ap-south-1)
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.MUMBAI_EC2_HOST }}
+          username: ${{ secrets.MUMBAI_EC2_USER }}
+          key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
           port: 22
           script_stop: true
           command_timeout: 25m
