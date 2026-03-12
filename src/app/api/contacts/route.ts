@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum } from "@/lib/schemas";
 
@@ -104,6 +105,18 @@ export async function POST(req: Request) {
 
     if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const contactLimit = checkRateLimit({
+      key: `contact-create:org:${ctx.organizationId}`,
+      limit: 50,
+      windowMs: 60 * 60 * 1000, // 50 contacts per hour per org
+    });
+    if (!contactLimit.allowed) {
+      return NextResponse.json(
+        { error: "Contact creation limit reached. Maximum 50 per hour." },
+        { status: 429, headers: { "Retry-After": String(contactLimit.retryAfterSeconds) } }
+      );
     }
 
     const validated = createContactSchema.safeParse(body);

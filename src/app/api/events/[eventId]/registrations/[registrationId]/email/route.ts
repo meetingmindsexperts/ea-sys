@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
-import { getClientIp } from "@/lib/security";
+import { getClientIp, checkRateLimit } from "@/lib/security";
 
 const sendEmailSchema = z.object({
   type: z.enum(["confirmation", "reminder", "custom"]),
@@ -31,6 +31,18 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    const emailLimit = checkRateLimit({
+      key: `registration-email:${session.user.id}`,
+      limit: 200,
+      windowMs: 60 * 60 * 1000, // 200 emails per hour per user
+    });
+    if (!emailLimit.allowed) {
+      return NextResponse.json(
+        { error: "Email rate limit reached. Maximum 200 emails per hour." },
+        { status: 429, headers: { "Retry-After": String(emailLimit.retryAfterSeconds) } }
+      );
+    }
 
     const [event, registration] = await Promise.all([
       db.event.findFirst({

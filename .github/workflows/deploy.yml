@@ -62,6 +62,9 @@ jobs:
             set -e
             cd /home/ubuntu/ea-sys
 
+            echo "==> Fixing upload dir ownership for git reset"
+            sudo chown -R ubuntu:ubuntu /home/ubuntu/ea-sys/public/uploads /home/ubuntu/ea-sys/logs
+
             echo "==> Pulling latest code"
             git fetch origin main
             git reset --hard origin/main

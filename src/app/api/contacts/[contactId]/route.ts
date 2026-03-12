@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum } from "@/lib/schemas";
 
@@ -111,6 +112,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const updateLimit = checkRateLimit({
+      key: `contact-update:org:${ctx.organizationId}`,
+      limit: 100,
+      windowMs: 60 * 60 * 1000, // 100 updates per hour per org
+    });
+    if (!updateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Contact update limit reached. Maximum 100 per hour." },
+        { status: 429, headers: { "Retry-After": String(updateLimit.retryAfterSeconds) } }
+      );
     }
 
     const validated = updateContactSchema.safeParse(body);

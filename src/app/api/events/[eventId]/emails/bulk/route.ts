@@ -46,13 +46,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const bulkEmailRateLimit = checkRateLimit({
       key: `bulk-email:org:${session.user.organizationId}:event:${eventId}`,
-      limit: 5,
+      limit: 20,
       windowMs: 60 * 60 * 1000,
     });
 
     if (!bulkEmailRateLimit.allowed) {
       return NextResponse.json(
-        { error: "Bulk email limit reached. Maximum 5 sends per event per hour." },
+        { error: "Bulk email limit reached. Maximum 20 sends per event per hour." },
         { status: 429, headers: { "Retry-After": String(bulkEmailRateLimit.retryAfterSeconds) } }
       );
     }

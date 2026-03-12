@@ -8,7 +8,7 @@
 set -euo pipefail
 
 DOMAIN="events.meetingmindsgroup.com"
-EMAIL="${1:-admin@meetingmindsgroup.com}"
+EMAIL="${1:-krishna@meetingmindsgroup.com}"
 APP_DIR="/home/ubuntu/ea-sys"
 
 echo "==> [1/7] Updating system packages"

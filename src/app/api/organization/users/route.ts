@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
-import { getClientIp, hashVerificationToken } from "@/lib/security";
+import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
 
 const inviteUserSchema = z.object({
   email: z.string().email().max(255),
@@ -58,6 +58,18 @@ export async function POST(req: Request) {
     // Only admins can invite users
     if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const inviteLimit = checkRateLimit({
+      key: `user-invite:org:${session.user.organizationId}`,
+      limit: 10,
+      windowMs: 60 * 60 * 1000, // 10 invitations per hour per org
+    });
+    if (!inviteLimit.allowed) {
+      return NextResponse.json(
+        { error: "Invitation limit reached. Maximum 10 invitations per hour." },
+        { status: 429, headers: { "Retry-After": String(inviteLimit.retryAfterSeconds) } }
+      );
     }
 
     const validated = inviteUserSchema.safeParse(body);
