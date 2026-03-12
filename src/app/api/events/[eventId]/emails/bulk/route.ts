@@ -9,7 +9,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const bulkEmailSchema = z.object({
-  recipientType: z.enum(["speakers", "registrations"]),
+  recipientType: z.enum(["speakers", "registrations", "reviewers"]),
   recipientIds: z.array(z.string().max(100)).optional(), // If empty, send to all
   emailType: z.enum(["invitation", "agreement", "confirmation", "reminder", "custom"]),
   customSubject: z.string().max(500).optional(),
@@ -106,7 +106,30 @@ export async function POST(req: Request, { params }: RouteParams) {
     let failureCount = 0;
     const errors: Array<{ email: string; error: string }> = [];
 
-    if (recipientType === "speakers") {
+    if (recipientType === "reviewers") {
+      // Reviewers are identified by event.settings.reviewerUserIds
+      const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] })?.reviewerUserIds ?? [];
+      if (reviewerUserIds.length === 0) {
+        return NextResponse.json(
+          { error: "No reviewers assigned to this event" },
+          { status: 400 }
+        );
+      }
+
+      const reviewerUsers = await db.user.findMany({
+        where: {
+          id: { in: recipientIds && recipientIds.length > 0 ? recipientIds.filter((id) => reviewerUserIds.includes(id)) : reviewerUserIds },
+          role: "REVIEWER",
+        },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      });
+
+      recipients = reviewerUsers.map((u) => ({
+        id: u.id,
+        email: u.email,
+        name: `${u.firstName} ${u.lastName}`,
+      }));
+    } else if (recipientType === "speakers") {
       const parsedStatus = filters?.status ? speakerStatusSchema.safeParse(filters.status) : null;
       const status = parsedStatus?.success ? parsedStatus.data : undefined;
 
@@ -157,7 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Helper function to generate email content for a recipient
     const generateEmailContent = (recipient: typeof recipients[0]) => {
-      if (recipientType === "speakers") {
+      if (recipientType === "reviewers" || recipientType === "speakers") {
         switch (emailType) {
           case "invitation":
             return emailTemplates.speakerInvitation({
@@ -247,7 +270,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               htmlContent: emailContent.htmlContent,
               textContent: emailContent.textContent,
               replyTo:
-                recipientType === "speakers" && organizerEmail
+                (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
                   ? { email: organizerEmail, name: organizerName }
                   : undefined,
             });
@@ -283,7 +306,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventId,
         userId: session.user.id,
         action: "BULK_EMAIL_SENT",
-        entityType: recipientType === "speakers" ? "Speaker" : "Registration",
+        entityType: recipientType === "speakers" ? "Speaker" : recipientType === "reviewers" ? "Reviewer" : "Registration",
         entityId: eventId,
         changes: {
           emailType,

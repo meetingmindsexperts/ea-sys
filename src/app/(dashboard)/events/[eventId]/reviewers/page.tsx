@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -28,11 +29,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserCheck, Plus, Mail, Building2, Trash2 } from "lucide-react";
+import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
 import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 
 interface Reviewer {
   speakerId: string;
@@ -82,6 +84,10 @@ export default function ReviewersPage() {
   const [directFirstName, setDirectFirstName] = useState("");
   const [directLastName, setDirectLastName] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  // Bulk email state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
 
   const resetForm = () => {
     setSelectedSpeakerId("");
@@ -141,6 +147,33 @@ export default function ReviewersPage() {
     }
   };
 
+  // Selection helpers
+  const allSelected = reviewers.length > 0 && reviewers.every((r) => selectedIds.has(r.userId));
+  const someSelected = reviewers.some((r) => selectedIds.has(r.userId));
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        reviewers.forEach((r) => next.delete(r.userId));
+      } else {
+        reviewers.forEach((r) => next.add(r.userId));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelect = (userId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -166,102 +199,139 @@ export default function ReviewersPage() {
           </p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Reviewer
+        <div className="flex gap-2">
+          {reviewers.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => setBulkEmailOpen(true)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
             </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Reviewer</DialogTitle>
-              <DialogDescription>
-                Add a reviewer from your event speakers or invite someone directly by email.
-              </DialogDescription>
-            </DialogHeader>
-            <Tabs value={addTab} onValueChange={setAddTab} className="pt-2">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="speaker">From Speakers</TabsTrigger>
-                <TabsTrigger value="email">By Email</TabsTrigger>
-              </TabsList>
+          )}
+          <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Reviewer
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Reviewer</DialogTitle>
+                <DialogDescription>
+                  Add a reviewer from your event speakers or invite someone directly by email.
+                </DialogDescription>
+              </DialogHeader>
+              <Tabs value={addTab} onValueChange={setAddTab} className="pt-2">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="speaker">From Speakers</TabsTrigger>
+                  <TabsTrigger value="email">By Email</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="speaker" className="space-y-4 pt-2">
-                {availableSpeakers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No available speakers. All speakers are already reviewers or no speakers exist for this event.
+                <TabsContent value="speaker" className="space-y-4 pt-2">
+                  {availableSpeakers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No available speakers. All speakers are already reviewers or no speakers exist for this event.
+                    </p>
+                  ) : (
+                    <>
+                      <Select value={selectedSpeakerId} onValueChange={setSelectedSpeakerId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a speaker..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableSpeakers.map((speaker) => (
+                            <SelectItem key={speaker.id} value={speaker.id}>
+                              {speaker.firstName} {speaker.lastName} — {speaker.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        onClick={handleAddFromSpeaker}
+                        disabled={!selectedSpeakerId || addReviewer.isPending}
+                        className="w-full"
+                      >
+                        {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
+                      </Button>
+                    </>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="email" className="space-y-4 pt-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="reviewer-firstName">First Name</Label>
+                      <Input
+                        id="reviewer-firstName"
+                        value={directFirstName}
+                        onChange={(e) => setDirectFirstName(e.target.value)}
+                        placeholder="John"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="reviewer-lastName">Last Name</Label>
+                      <Input
+                        id="reviewer-lastName"
+                        value={directLastName}
+                        onChange={(e) => setDirectLastName(e.target.value)}
+                        placeholder="Doe"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reviewer-email">Email</Label>
+                    <Input
+                      id="reviewer-email"
+                      type="email"
+                      value={directEmail}
+                      onChange={(e) => setDirectEmail(e.target.value)}
+                      placeholder="reviewer@example.com"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    An invitation email will be sent if this person doesn&apos;t have an account yet.
                   </p>
-                ) : (
-                  <>
-                    <Select value={selectedSpeakerId} onValueChange={setSelectedSpeakerId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a speaker..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableSpeakers.map((speaker) => (
-                          <SelectItem key={speaker.id} value={speaker.id}>
-                            {speaker.firstName} {speaker.lastName} — {speaker.email}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      onClick={handleAddFromSpeaker}
-                      disabled={!selectedSpeakerId || addReviewer.isPending}
-                      className="w-full"
-                    >
-                      {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
-                    </Button>
-                  </>
-                )}
-              </TabsContent>
-
-              <TabsContent value="email" className="space-y-4 pt-2">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="reviewer-firstName">First Name</Label>
-                    <Input
-                      id="reviewer-firstName"
-                      value={directFirstName}
-                      onChange={(e) => setDirectFirstName(e.target.value)}
-                      placeholder="John"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reviewer-lastName">Last Name</Label>
-                    <Input
-                      id="reviewer-lastName"
-                      value={directLastName}
-                      onChange={(e) => setDirectLastName(e.target.value)}
-                      placeholder="Doe"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reviewer-email">Email</Label>
-                  <Input
-                    id="reviewer-email"
-                    type="email"
-                    value={directEmail}
-                    onChange={(e) => setDirectEmail(e.target.value)}
-                    placeholder="reviewer@example.com"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  An invitation email will be sent if this person doesn&apos;t have an account yet.
-                </p>
-                <Button
-                  onClick={handleAddByEmail}
-                  disabled={!directEmail || !directFirstName || !directLastName || addReviewer.isPending}
-                  className="w-full"
-                >
-                  {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
-                </Button>
-              </TabsContent>
-            </Tabs>
-          </DialogContent>
-        </Dialog>
+                  <Button
+                    onClick={handleAddByEmail}
+                    disabled={!directEmail || !directFirstName || !directLastName || addReviewer.isPending}
+                    className="w-full"
+                  >
+                    {addReviewer.isPending ? "Adding..." : "Add Reviewer"}
+                  </Button>
+                </TabsContent>
+              </Tabs>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      {/* Bulk Selection Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+          <span className="text-sm font-medium">
+            {selectedIds.size} reviewer{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              onClick={() => setBulkEmailOpen(true)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Send Email
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearSelection}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2">
@@ -291,7 +361,21 @@ export default function ReviewersPage() {
 
       {/* Reviewers List */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">All Reviewers</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">All Reviewers</h2>
+          {reviewers.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                onCheckedChange={toggleSelectAll}
+                aria-label="Select all reviewers"
+              />
+              <span className="text-sm text-muted-foreground">
+                Select all
+              </span>
+            </div>
+          )}
+        </div>
         {reviewers.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
@@ -303,45 +387,53 @@ export default function ReviewersPage() {
         ) : (
           <div className="grid gap-4">
             {reviewers.map((reviewer) => (
-              <Card key={reviewer.userId} className="hover:border-primary transition-colors">
+              <Card key={reviewer.userId} className={`hover:border-primary transition-colors ${selectedIds.has(reviewer.userId) ? "border-primary bg-primary/5" : ""}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold">
-                          {reviewer.firstName} {reviewer.lastName}
-                        </h3>
-                        {reviewer.accountActive ? (
-                          <Badge variant="outline" className="bg-green-100 text-green-800">
-                            Active
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
-                            Pending Invitation
-                          </Badge>
-                        )}
-                        {reviewer.speakerStatus && (
-                          <Badge
-                            variant="outline"
-                            className={speakerStatusColors[reviewer.speakerStatus] || ""}
-                          >
-                            Speaker: {reviewer.speakerStatus}
-                          </Badge>
-                        )}
-                      </div>
-
-                      <div className="space-y-1 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4" />
-                          {reviewer.email}
+                    <div className="flex items-start gap-3 flex-1">
+                      <Checkbox
+                        checked={selectedIds.has(reviewer.userId)}
+                        onCheckedChange={() => toggleSelect(reviewer.userId)}
+                        aria-label={`Select ${reviewer.firstName} ${reviewer.lastName}`}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-semibold">
+                            {reviewer.firstName} {reviewer.lastName}
+                          </h3>
+                          {reviewer.accountActive ? (
+                            <Badge variant="outline" className="bg-green-100 text-green-800">
+                              Active
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+                              Pending Invitation
+                            </Badge>
+                          )}
+                          {reviewer.speakerStatus && (
+                            <Badge
+                              variant="outline"
+                              className={speakerStatusColors[reviewer.speakerStatus] || ""}
+                            >
+                              Speaker: {reviewer.speakerStatus}
+                            </Badge>
+                          )}
                         </div>
-                        {reviewer.organization && (
+
+                        <div className="space-y-1 text-sm text-muted-foreground">
                           <div className="flex items-center gap-2">
-                            <Building2 className="h-4 w-4" />
-                            {reviewer.organization}
-                            {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
+                            <Mail className="h-4 w-4" />
+                            {reviewer.email}
                           </div>
-                        )}
+                          {reviewer.organization && (
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4" />
+                              {reviewer.organization}
+                              {reviewer.jobTitle && ` • ${reviewer.jobTitle}`}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -367,6 +459,17 @@ export default function ReviewersPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Email Dialog */}
+      <BulkEmailDialog
+        open={bulkEmailOpen}
+        onOpenChange={setBulkEmailOpen}
+        eventId={eventId}
+        recipientType="reviewers"
+        recipientIds={Array.from(selectedIds)}
+        recipientCount={selectedIds.size > 0 ? selectedIds.size : reviewers.length}
+        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+      />
     </div>
   );
 }

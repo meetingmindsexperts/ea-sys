@@ -6,10 +6,20 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
+import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -47,6 +57,10 @@ export default function SpeakersPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: event } = useEvent(eventId);
   const { data: speakersData = [], isLoading: loading, isFetching, refetch } = useSpeakers(eventId);
@@ -54,11 +68,25 @@ export default function SpeakersPage() {
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
+  // Filter speakers
+  const filteredSpeakers = speakers.filter((s) => {
+    const matchesSearch =
+      searchQuery === "" ||
+      s.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.email && s.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (s.organization && s.organization.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchesStatus = statusFilter === "all" || s.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
   // Pagination
-  const totalSpeakers = speakers.length;
+  const totalSpeakers = filteredSpeakers.length;
   const totalPages = Math.ceil(totalSpeakers / pageSize);
   const safePage = Math.min(page, Math.max(1, totalPages));
-  const paginatedSpeakers = speakers.slice(
+  const paginatedSpeakers = filteredSpeakers.slice(
     (safePage - 1) * pageSize,
     safePage * pageSize
   );
@@ -69,6 +97,33 @@ export default function SpeakersPage() {
     invited: speakers.filter((s) => s.status === "INVITED").length,
     declined: speakers.filter((s) => s.status === "DECLINED").length,
   };
+
+  // Selection helpers
+  const allOnPageSelected = paginatedSpeakers.length > 0 && paginatedSpeakers.every((s) => selectedIds.has(s.id));
+  const someOnPageSelected = paginatedSpeakers.some((s) => selectedIds.has(s.id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        paginatedSpeakers.forEach((s) => next.delete(s.id));
+      } else {
+        paginatedSpeakers.forEach((s) => next.add(s.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
 
   if (loading) {
     return (
@@ -106,6 +161,15 @@ export default function SpeakersPage() {
           </Button>
           {!isReviewer && (
             <>
+              {speakers.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkEmailOpen(true)}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {selectedIds.size > 0 ? `Email (${selectedIds.size})` : statusFilter !== "all" ? `Email ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}` : "Email All"}
+                </Button>
+              )}
               <CSVImportButton eventId={eventId} entityType="speakers" />
               <ImportContactsButton eventId={eventId} mode="speaker" />
               <Button asChild>
@@ -118,6 +182,32 @@ export default function SpeakersPage() {
           )}
         </div>
       </div>
+
+      {/* Bulk Selection Toolbar */}
+      {selectedIds.size > 0 && !isReviewer && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+          <span className="text-sm font-medium">
+            {selectedIds.size} speaker{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              onClick={() => setBulkEmailOpen(true)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Send Email
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearSelection}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
@@ -163,9 +253,70 @@ export default function SpeakersPage() {
         </Card>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-[200px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, email, or organization..."
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[150px]">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="INVITED">Invited</SelectItem>
+                <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                <SelectItem value="DECLINED">Declined</SelectItem>
+                <SelectItem value="CANCELLED">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setSearchQuery("");
+                setStatusFilter("all");
+              }}
+              title="Clear filters"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Speakers List */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">All Speakers</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">
+            {totalSpeakers === speakers.length
+              ? `All Speakers (${speakers.length})`
+              : `Showing ${totalSpeakers} of ${speakers.length}`}
+          </h2>
+          {speakers.length > 0 && !isReviewer && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                onCheckedChange={toggleSelectAll}
+                aria-label="Select all speakers on this page"
+              />
+              <span className="text-sm text-muted-foreground">
+                Select all on page
+              </span>
+            </div>
+          )}
+        </div>
         {speakers.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
@@ -177,59 +328,69 @@ export default function SpeakersPage() {
         ) : (
           <div className="grid gap-4">
             {paginatedSpeakers.map((speaker) => (
-              <Card key={speaker.id} className="hover:border-primary transition-colors">
+              <Card key={speaker.id} className={`hover:border-primary transition-colors ${selectedIds.has(speaker.id) ? "border-primary bg-primary/5" : ""}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold">
-                          {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
-                        </h3>
-                        <Badge className={statusColors[speaker.status] ?? "bg-gray-100 text-gray-800"} variant="outline">
-                          {speaker.status}
-                        </Badge>
-                      </div>
+                    <div className="flex items-start gap-3 flex-1">
+                      {!isReviewer && (
+                        <Checkbox
+                          checked={selectedIds.has(speaker.id)}
+                          onCheckedChange={() => toggleSelect(speaker.id)}
+                          aria-label={`Select ${speaker.firstName} ${speaker.lastName}`}
+                          className="mt-1"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-semibold">
+                            {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
+                          </h3>
+                          <Badge className={statusColors[speaker.status] ?? "bg-gray-100 text-gray-800"} variant="outline">
+                            {speaker.status}
+                          </Badge>
+                        </div>
 
-                      <div className="space-y-1 text-sm text-muted-foreground mb-3">
-                        {speaker.email && (
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-4 w-4" />
-                            {speaker.email}
+                        <div className="space-y-1 text-sm text-muted-foreground mb-3">
+                          {speaker.email && (
+                            <div className="flex items-center gap-2">
+                              <Mail className="h-4 w-4" />
+                              {speaker.email}
+                            </div>
+                          )}
+                          {speaker.organization && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              {speaker.organization}
+                              {speaker.jobTitle && ` • ${speaker.jobTitle}`}
+                            </div>
+                          )}
+                        </div>
+
+                        {speaker.bio && (
+                          <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                            {speaker.bio}
+                          </p>
+                        )}
+
+                        {speaker.tags && speaker.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-3">
+                            {speaker.tags.map((tag, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {tag}
+                              </Badge>
+                            ))}
                           </div>
                         )}
-                        {speaker.organization && (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            {speaker.organization}
-                            {speaker.jobTitle && ` • ${speaker.jobTitle}`}
+
+                        <div className="flex gap-4 text-sm">
+                          <div>
+                            <span className="font-semibold">{speaker._count.sessions}</span>
+                            <span className="text-muted-foreground"> Sessions</span>
                           </div>
-                        )}
-                      </div>
-
-                      {speaker.bio && (
-                        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                          {speaker.bio}
-                        </p>
-                      )}
-
-                      {speaker.tags && speaker.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {speaker.tags.map((tag, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="flex gap-4 text-sm">
-                        <div>
-                          <span className="font-semibold">{speaker._count.sessions}</span>
-                          <span className="text-muted-foreground"> Sessions</span>
-                        </div>
-                        <div>
-                          <span className="font-semibold">{speaker._count.abstracts}</span>
-                          <span className="text-muted-foreground"> Abstracts</span>
+                          <div>
+                            <span className="font-semibold">{speaker._count.abstracts}</span>
+                            <span className="text-muted-foreground"> Abstracts</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -296,6 +457,18 @@ export default function SpeakersPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Email Dialog */}
+      <BulkEmailDialog
+        open={bulkEmailOpen}
+        onOpenChange={setBulkEmailOpen}
+        eventId={eventId}
+        recipientType="speakers"
+        recipientIds={Array.from(selectedIds)}
+        recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredSpeakers.length}
+        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+        statusFilter={statusFilter}
+      />
     </div>
   );
 }

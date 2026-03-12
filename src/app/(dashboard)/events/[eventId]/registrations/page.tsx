@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -37,6 +38,8 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  Send,
+  X,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
@@ -49,6 +52,7 @@ import { registrationStatusColors, paymentStatusColors } from "./types";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
+import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -85,6 +89,10 @@ export default function RegistrationsPage() {
   // Sheet state for registration details
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
 
   const handleRowClick = (registration: Registration) => {
     setSelectedRegistration(registration);
@@ -182,6 +190,33 @@ export default function RegistrationsPage() {
     paid: registrations.filter((r) => r.paymentStatus === "PAID").length,
   };
 
+  // Selection helpers
+  const allOnPageSelected = paginatedRegistrations.length > 0 && paginatedRegistrations.every((r) => selectedIds.has(r.id));
+  const someOnPageSelected = paginatedRegistrations.some((r) => selectedIds.has(r.id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        paginatedRegistrations.forEach((r) => next.delete(r.id));
+      } else {
+        paginatedRegistrations.forEach((r) => next.add(r.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   if (loading) {
@@ -242,6 +277,15 @@ export default function RegistrationsPage() {
           </Button>
           {!isReviewer && (
             <>
+              {registrations.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkEmailOpen(true)}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
+                </Button>
+              )}
               <CSVImportButton eventId={eventId} entityType="registrations" />
               <ImportContactsButton eventId={eventId} mode="registration" />
               <Button asChild>
@@ -254,6 +298,32 @@ export default function RegistrationsPage() {
           )}
         </div>
       </div>
+
+      {/* Bulk Selection Toolbar */}
+      {selectedIds.size > 0 && !isReviewer && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+          <span className="text-sm font-medium">
+            {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              onClick={() => setBulkEmailOpen(true)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Send Email
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearSelection}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-5">
@@ -400,6 +470,15 @@ export default function RegistrationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {!isReviewer && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all registrations on this page"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Attendee</TableHead>
                   <TableHead>Specialty</TableHead>
                   <TableHead>Tags</TableHead>
@@ -413,9 +492,18 @@ export default function RegistrationsPage() {
                 {paginatedRegistrations.map((registration) => (
                   <TableRow
                     key={registration.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(registration.id) ? "bg-primary/5" : ""}`}
                     onClick={() => handleRowClick(registration)}
                   >
+                    {!isReviewer && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(registration.id)}
+                          onCheckedChange={() => toggleSelect(registration.id)}
+                          aria-label={`Select ${registration.attendee.firstName} ${registration.attendee.lastName}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div>
                         <div className="font-medium">
@@ -524,6 +612,19 @@ export default function RegistrationsPage() {
         registration={selectedRegistration}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      {/* Bulk Email Dialog */}
+      <BulkEmailDialog
+        open={bulkEmailOpen}
+        onOpenChange={setBulkEmailOpen}
+        eventId={eventId}
+        recipientType="registrations"
+        recipientIds={Array.from(selectedIds)}
+        recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredRegistrations.length}
+        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+        statusFilter={statusFilter}
+        ticketTypeFilter={ticketFilter}
       />
     </div>
   );

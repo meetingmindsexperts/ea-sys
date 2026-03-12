@@ -488,6 +488,28 @@ export function useRegistrationTypes() {
   });
 }
 
+// ============ BULK EMAIL ============
+export function useBulkEmail(eventId: string) {
+  return useMutation({
+    mutationFn: (data: {
+      recipientType: "speakers" | "registrations" | "reviewers";
+      recipientIds?: string[];
+      emailType: "invitation" | "agreement" | "confirmation" | "reminder" | "custom";
+      customSubject?: string;
+      customMessage?: string;
+      filters?: { status?: string; ticketTypeId?: string };
+    }) =>
+      fetchApi<{ success: boolean; message: string; stats: { total: number; sent: number; failed: number }; errors?: Array<{ email: string; error: string }> }>(
+        `/api/events/${eventId}/emails/bulk`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+  });
+}
+
 // ============ CSV IMPORTS ============
 export function useCSVImport(eventId: string, entityType: "registrations" | "speakers" | "sessions" | "abstracts") {
   const queryClient = useQueryClient();
