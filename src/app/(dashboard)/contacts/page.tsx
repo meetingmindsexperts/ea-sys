@@ -214,28 +214,33 @@ export default function ContactsPage() {
     }
   };
 
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const formData = new FormData();
     formData.append("file", file);
     e.target.value = "";
-    const toastId = toast.loading("Importing contacts…");
-    try {
-      const res = await fetch("/api/contacts/import", { method: "POST", body: formData });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Import failed");
-      toast.dismiss(toastId);
-      toast.success(
-        `Imported ${json.created} contacts` +
-        (json.skipped > 0 ? `, ${json.skipped} skipped (duplicates)` : "") +
-        (json.errors?.length > 0 ? `, ${json.errors.length} errors` : "")
-      );
-      setPage(1);
-    } catch (err: unknown) {
-      toast.dismiss(toastId);
-      toast.error(err instanceof Error ? err.message : "Import failed");
-    }
+    const toastId = toast.loading("Importing contacts in background…", { duration: Infinity });
+
+    // Fire-and-forget: import runs in the background while user continues working
+    fetch("/api/contacts/import", { method: "POST", body: formData })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Import failed");
+        toast.dismiss(toastId);
+        toast.success(
+          `Imported ${json.created} contacts` +
+          (json.skipped > 0 ? `, ${json.skipped} skipped (duplicates)` : "") +
+          (json.errors?.length > 0 ? `, ${json.errors.length} errors` : "")
+        );
+        setPage(1);
+        refetchContacts();
+        refetchTags();
+      })
+      .catch((err: unknown) => {
+        toast.dismiss(toastId);
+        toast.error(err instanceof Error ? err.message : "Import failed");
+      });
   };
 
   const handleExportCSV = () => { window.location.href = "/api/contacts/export"; };

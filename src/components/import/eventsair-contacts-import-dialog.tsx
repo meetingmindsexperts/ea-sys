@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,7 @@ import {
   useEventsAirEvents,
 } from "@/hooks/use-api";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface EventsAirEvent {
   id: string;
@@ -72,11 +73,13 @@ const INITIAL_PROGRESS: ImportProgress = {
 export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirContactsImportDialogProps) {
   const { data: config, isLoading: configLoading } = useEventsAirConfig();
   const { data: events, isLoading: eventsLoading, refetch: fetchEvents, isError: eventsError, error: eventsErrorDetail } = useEventsAirEvents();
+  const queryClient = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState<string>("__latest__");
   const [step, setStep] = useState<ImportStep>("browse");
   const [progress, setProgress] = useState<ImportProgress>(INITIAL_PROGRESS);
+  const importAbortRef = useRef(false);
 
   const typedEvents = useMemo(() => (events ?? []) as EventsAirEvent[], [events]);
 
@@ -109,12 +112,75 @@ export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirC
     }
   }, [open, config?.configured, fetchEvents]);
 
+  const runImportInBackground = useCallback(async (evtId: string, evtName: string) => {
+    const toastId = toast.loading(`Importing contacts from "${evtName}"…`, { duration: Infinity });
+
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    const allErrors: string[] = [];
+    let offset = 0;
+    let hasMore = true;
+    let batchNum = 0;
+
+    try {
+      while (hasMore && !importAbortRef.current) {
+        batchNum++;
+        toast.loading(`Importing "${evtName}" (batch ${batchNum})…`, { id: toastId, duration: Infinity });
+
+        const res = await fetch("/api/contacts/import-eventsair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventsAirEventId: evtId,
+            offset,
+            limit: 50,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `Request failed (${res.status})` }));
+          allErrors.push(err.error || `Failed to import contacts (${res.status})`);
+          break;
+        }
+
+        const data = await res.json();
+        totalCreated += data.created;
+        totalUpdated += data.updated;
+        totalSkipped += data.skipped;
+        if (data.errors?.length) {
+          allErrors.push(...data.errors);
+        }
+        hasMore = data.hasMore;
+        offset = data.nextOffset;
+      }
+    } catch (err) {
+      allErrors.push(err instanceof Error ? err.message : "Import failed");
+    }
+
+    toast.dismiss(toastId);
+    if (allErrors.length > 0) {
+      toast.warning(
+        `Imported ${totalCreated} contacts, updated ${totalUpdated}` +
+        (allErrors.length > 0 ? ` (${allErrors.length} issues)` : "")
+      );
+    } else {
+      toast.success(`Imported ${totalCreated} contacts, updated ${totalUpdated}`);
+    }
+
+    // Refresh contacts data
+    queryClient.invalidateQueries({ queryKey: ["contacts"] });
+
+    return { totalCreated, totalUpdated, totalSkipped, errors: allErrors };
+  }, [queryClient]);
+
   const handleImport = async () => {
     if (!selectedId) return;
 
     const evt = typedEvents.find((e) => e.id === selectedId);
     if (!evt) return;
 
+    importAbortRef.current = false;
     setStep("importing");
     setProgress({ ...INITIAL_PROGRESS, totalEvents: 1 });
 
@@ -185,6 +251,17 @@ export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirC
     });
     setStep("done");
     toast.success(`Imported ${totalCreated} contacts, updated ${totalUpdated}`);
+    queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  };
+
+  const handleRunInBackground = () => {
+    if (!selectedId) return;
+    const evt = typedEvents.find((e) => e.id === selectedId);
+    if (!evt) return;
+
+    // Close dialog and run import via toast notifications
+    handleClose();
+    runImportInBackground(evt.id, evt.name);
   };
 
   const handleClose = () => {
@@ -382,14 +459,24 @@ export function EventsAirContactsImportDialog({ open, onOpenChange }: EventsAirC
             {step === "done" ? "Close" : "Cancel"}
           </Button>
           {step === "browse" && (
-            <Button
-              className="btn-gradient"
-              onClick={handleImport}
-              disabled={!selectedId}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Import Contacts
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleRunInBackground}
+                disabled={!selectedId}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Import in Background
+              </Button>
+              <Button
+                className="btn-gradient"
+                onClick={handleImport}
+                disabled={!selectedId}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Import Contacts
+              </Button>
+            </div>
           )}
         </DialogFooter>
       </DialogContent>
