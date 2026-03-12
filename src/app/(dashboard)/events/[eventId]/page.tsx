@@ -168,7 +168,7 @@ export default async function EventPage({ params }: EventPageProps) {
   return (
     <div className="space-y-6">
       {/* ── Hero Banner ─────────────────────────────────────────────────────── */}
-      <div className="relative rounded-xl overflow-hidden bg-gradient-primary shadow-sm">
+      <div className="relative rounded-xl overflow-hidden bg-gradient-primary shadow-[0_2px_8px_rgba(0,0,0,0.1),0_8px_32px_rgba(0,0,0,0.08)]">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_0%,rgba(255,255,255,0.15),transparent_60%)]" />
         <div className="relative p-6 md:p-7">
           <div className="flex items-start justify-between gap-4">
@@ -208,14 +208,14 @@ export default async function EventPage({ params }: EventPageProps) {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
           <Link key={s.title} href={s.href} className="group block">
-            <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer">
+            <Card className="transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.1),0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-1 hover:border-primary/50 cursor-pointer">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-sm font-medium text-muted-foreground">
                     {s.title}
                   </span>
                   <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center ${statIconStyle[s.title] ?? "bg-primary/10 text-primary"}`}
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${statIconStyle[s.title] ?? "bg-primary/10 text-primary"}`}
                   >
                     <s.icon className="h-[18px] w-[18px]" />
                   </div>
@@ -291,7 +291,7 @@ export default async function EventPage({ params }: EventPageProps) {
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {quickActions.map((action) => (
             <Link key={action.title} href={action.href} className="group block">
-              <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full relative">
+              <Card className="transition-all duration-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.1),0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-1 hover:border-primary/50 cursor-pointer h-full relative">
                 {action.attention && (
                   <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-amber-400" />
                 )}

@@ -355,7 +355,7 @@ export default function TicketsPage() {
         ) : (
           <div className="grid gap-4">
             {tickets.map((ticket) => (
-              <Card key={ticket.id} className="hover:border-primary transition-colors">
+              <Card key={ticket.id} className="transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5">
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">

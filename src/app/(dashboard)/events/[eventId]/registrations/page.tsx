@@ -301,7 +301,7 @@ export default function RegistrationsPage() {
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
           </span>

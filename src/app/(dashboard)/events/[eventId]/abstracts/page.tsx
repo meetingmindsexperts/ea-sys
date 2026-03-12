@@ -783,7 +783,7 @@ export default function AbstractsPage() {
             {abstracts.map((abstract) => (
               <Card
                 key={abstract.id}
-                className="hover:border-primary transition-colors"
+                className="transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5"
               >
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">

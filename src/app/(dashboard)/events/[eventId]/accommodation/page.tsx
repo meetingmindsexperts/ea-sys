@@ -727,7 +727,7 @@ export default function AccommodationPage() {
                       {hotel.roomTypes.map((room) => (
                         <div
                           key={room.id}
-                          className="border rounded-lg p-4 bg-muted/30"
+                          className="border rounded-lg p-4 bg-muted/30 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
                         >
                           <div className="flex items-start justify-between mb-2">
                             <div>

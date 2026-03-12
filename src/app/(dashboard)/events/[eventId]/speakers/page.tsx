@@ -185,7 +185,7 @@ export default function SpeakersPage() {
 
       {/* Bulk Selection Toolbar */}
       {selectedIds.size > 0 && !isReviewer && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} speaker{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
@@ -328,7 +328,7 @@ export default function SpeakersPage() {
         ) : (
           <div className="grid gap-4">
             {paginatedSpeakers.map((speaker) => (
-              <Card key={speaker.id} className={`hover:border-primary transition-colors ${selectedIds.has(speaker.id) ? "border-primary bg-primary/5" : ""}`}>
+              <Card key={speaker.id} className={`transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 ${selectedIds.has(speaker.id) ? "border-primary bg-primary/5" : ""}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1">

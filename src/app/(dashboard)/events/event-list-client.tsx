@@ -12,8 +12,12 @@ import {
   ArrowRight,
   Search,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { formatDateRange } from "@/lib/utils";
+
+const ITEMS_PER_PAGE = 10;
 
 interface EventListItem {
   id: string;
@@ -93,6 +97,7 @@ export function EventListClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [yearFilter, setYearFilter] = useState<string>("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Compute available years from event data
   const availableYears = useMemo(() => {
@@ -115,6 +120,20 @@ export function EventListClient({
     return matchesSearch && matchesStatus && matchesYear;
   });
 
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedEvents = filtered.slice(
+    (safePage - 1) * ITEMS_PER_PAGE,
+    safePage * ITEMS_PER_PAGE
+  );
+
+  // Reset to page 1 when filters change
+  const handleFilterChange = (setter: (v: string) => void, value: string) => {
+    setter(value);
+    setCurrentPage(1);
+  };
+
   // Count events per status for filter badges
   const statusCounts: Record<string, number> = { ALL: events.length };
   for (const event of events) {
@@ -131,29 +150,30 @@ export function EventListClient({
             <Input
               placeholder="Search events..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="pl-9 shadow-sm"
             />
           </div>
 
-          {/* Year filter */}
-          {availableYears.length > 1 && (
-            <div className="relative">
-              <select
-                value={yearFilter}
-                onChange={(e) => setYearFilter(e.target.value)}
-                className="h-9 appearance-none rounded-md border border-input bg-background px-3 pr-8 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
-              >
-                <option value="ALL">All years</option>
-                {availableYears.map((year) => (
-                  <option key={year} value={year.toString()}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            </div>
-          )}
+          {/* Year filter — always visible */}
+          <div className="relative">
+            <select
+              value={yearFilter}
+              onChange={(e) => handleFilterChange(setYearFilter, e.target.value)}
+              className="h-9 appearance-none rounded-md border border-input bg-background px-3 pr-8 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
+            >
+              <option value="ALL">All years</option>
+              {availableYears.map((year) => (
+                <option key={year} value={year.toString()}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
         </div>
 
         {!isRestricted && (
@@ -167,8 +187,8 @@ export function EventListClient({
                   key={status}
                   variant={isActive ? "default" : "outline"}
                   size="sm"
-                  className="h-7 text-xs px-2.5"
-                  onClick={() => setStatusFilter(status)}
+                  className="h-7 text-xs px-2.5 shadow-sm"
+                  onClick={() => handleFilterChange(setStatusFilter, status)}
                 >
                   {filterLabels[status]}
                   <span
@@ -185,41 +205,41 @@ export function EventListClient({
 
       {/* ── Event Table ───────────────────────────────────────────────────── */}
       {filtered.length > 0 ? (
-        <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="rounded-xl border bg-card overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.06),0_16px_48px_rgba(0,0,0,0.03)]">
           <table className="w-full">
             <thead>
-              <tr className="border-b bg-muted/40">
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">
+              <tr className="border-b bg-muted/50 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
                   Event
                 </th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden md:table-cell">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">
                   Date
                 </th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3 hidden lg:table-cell">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
                   Venue
                 </th>
-                <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">
+                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
                   Registrations
                 </th>
-                <th className="text-center text-xs font-medium text-muted-foreground px-4 py-3 hidden sm:table-cell">
+                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
                   Speakers
                 </th>
-                <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">
+                <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
                   Status
                 </th>
                 <th className="w-10 px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {filtered.map((event) => {
+            <tbody className="divide-y divide-border/60">
+              {paginatedEvents.map((event) => {
                 const sc = statusConfig[event.status] ?? statusConfig.DRAFT;
                 return (
                   <tr
                     key={event.id}
-                    className="group transition-colors hover:bg-muted/30"
+                    className="group transition-all duration-150 hover:bg-primary/[0.03] hover:shadow-[inset_3px_0_0_hsl(var(--primary))]"
                   >
                     {/* Event name + mobile meta */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <Link
                         href={`/events/${event.id}`}
                         className="block group-hover:text-primary transition-colors"
@@ -236,7 +256,7 @@ export function EventListClient({
                     </td>
 
                     {/* Date */}
-                    <td className="px-4 py-3 hidden md:table-cell">
+                    <td className="px-4 py-3.5 hidden md:table-cell">
                       <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                         <Calendar className="h-3.5 w-3.5 shrink-0 text-primary/60" />
                         <span className="whitespace-nowrap">
@@ -246,7 +266,7 @@ export function EventListClient({
                     </td>
 
                     {/* Venue */}
-                    <td className="px-4 py-3 hidden lg:table-cell">
+                    <td className="px-4 py-3.5 hidden lg:table-cell">
                       {event.venue ? (
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <MapPin className="h-3.5 w-3.5 shrink-0 text-primary/60" />
@@ -262,7 +282,7 @@ export function EventListClient({
                     </td>
 
                     {/* Registrations */}
-                    <td className="px-4 py-3 text-center hidden sm:table-cell">
+                    <td className="px-4 py-3.5 text-center hidden sm:table-cell">
                       <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
                         <Users className="h-3.5 w-3.5" />
                         <span>{event._count.registrations}</span>
@@ -270,7 +290,7 @@ export function EventListClient({
                     </td>
 
                     {/* Speakers */}
-                    <td className="px-4 py-3 text-center hidden sm:table-cell">
+                    <td className="px-4 py-3.5 text-center hidden sm:table-cell">
                       <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
                         <Mic2 className="h-3.5 w-3.5" />
                         <span>{event._count.speakers}</span>
@@ -278,9 +298,9 @@ export function EventListClient({
                     </td>
 
                     {/* Status */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <span
-                        className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border ${sc.pillCls}`}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border shadow-sm ${sc.pillCls}`}
                       >
                         <span
                           className={`w-1.5 h-1.5 rounded-full ${sc.dotCls}`}
@@ -290,7 +310,7 @@ export function EventListClient({
                     </td>
 
                     {/* Arrow */}
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5">
                       <Link
                         href={`/events/${event.id}`}
                         className="text-primary opacity-0 group-hover:opacity-100 transition-opacity"
@@ -305,9 +325,63 @@ export function EventListClient({
               })}
             </tbody>
           </table>
+
+          {/* ── Pagination ──────────────────────────────────────────────────── */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t bg-muted/30 px-4 py-3">
+              <p className="text-xs text-muted-foreground">
+                Showing{" "}
+                <span className="font-medium text-foreground">
+                  {(safePage - 1) * ITEMS_PER_PAGE + 1}
+                </span>
+                {" - "}
+                <span className="font-medium text-foreground">
+                  {Math.min(safePage * ITEMS_PER_PAGE, filtered.length)}
+                </span>
+                {" of "}
+                <span className="font-medium text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                events
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 shadow-sm"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage(safePage - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                  (page) => (
+                    <Button
+                      key={page}
+                      variant={page === safePage ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 w-8 p-0 text-xs shadow-sm"
+                      onClick={() => setCurrentPage(page)}
+                    >
+                      {page}
+                    </Button>
+                  )
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 shadow-sm"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setCurrentPage(safePage + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="flex flex-col items-center justify-center py-16 text-center rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.06)]">
           <Search className="h-10 w-10 text-muted-foreground/30 mb-3" />
           <h3 className="text-sm font-medium mb-1">
             No events match your filters
@@ -323,6 +397,7 @@ export function EventListClient({
               setSearchQuery("");
               setStatusFilter("ALL");
               setYearFilter("ALL");
+              setCurrentPage(1);
             }}
           >
             Clear filters
