@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
 import {
   Calendar,
@@ -15,8 +15,6 @@ import {
   Building2,
   Settings,
   ArrowRight,
-  CheckCircle2,
-  Circle,
 } from "lucide-react";
 import { EventActions } from "./event-actions";
 import { formatDateRange } from "@/lib/utils";
@@ -90,32 +88,6 @@ export default async function EventPage({ params }: EventPageProps) {
     { title: "Hotels",        value: event._count.hotels,        icon: Building2, href: `/events/${eventId}/accommodation` },
   ];
 
-  // ── Setup Checklist ──────────────────────────────────────────────────────
-  const checklist = [
-    {
-      label: "Create registration types",
-      done: event._count.ticketTypes > 0,
-      href: `/events/${eventId}/tickets`,
-    },
-    {
-      label: "Add speakers",
-      done: event._count.speakers > 0,
-      href: `/events/${eventId}/speakers`,
-    },
-    {
-      label: "Build your schedule",
-      done: event._count.eventSessions > 0,
-      href: `/events/${eventId}/schedule`,
-    },
-    {
-      label: "Publish your event",
-      done: event.status !== "DRAFT",
-      href: `/events/${eventId}/settings`,
-    },
-  ];
-  const completedCount = checklist.filter((c) => c.done).length;
-  const totalCount = checklist.length;
-  const progressPercent = Math.round((completedCount / totalCount) * 100);
 
   // ── Contextual Quick Actions ─────────────────────────────────────────────
   const quickActions = [
@@ -231,57 +203,6 @@ export default async function EventPage({ params }: EventPageProps) {
           </Link>
         ))}
       </div>
-
-      {/* ── Setup Checklist (organizers/admins only) ────────────────────────── */}
-      {!isRestricted && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Setup Progress</CardTitle>
-              <span className="text-xs text-muted-foreground font-medium">
-                {completedCount} of {totalCount} complete
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Progress bar */}
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            {/* Checklist items */}
-            <div className="space-y-1">
-              {checklist.map((item) => (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors group"
-                >
-                  {item.done ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
-                  ) : (
-                    <Circle className="h-5 w-5 text-muted-foreground/40 shrink-0" />
-                  )}
-                  <span
-                    className={`text-sm font-medium ${
-                      item.done
-                        ? "text-muted-foreground line-through"
-                        : "text-foreground group-hover:text-primary transition-colors"
-                    }`}
-                  >
-                    {item.label}
-                  </span>
-                  {!item.done && (
-                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
-                  )}
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* ── Quick Actions ────────────────────────────────────────────────────── */}
       <div>

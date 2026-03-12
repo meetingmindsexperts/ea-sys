@@ -13,7 +13,7 @@ export const maxDuration = 60;
 const importContactsSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(50).default(50),
+  limit: z.number().int().min(1).max(100).default(50),
 });
 
 interface RouteParams {
@@ -100,7 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       try {
         await db.$transaction(async (tx) => {
           // Upsert attendee
-          const phone = contact.primaryAddress?.phone || contact.workPhone || null;
+          const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
           const attendee = await tx.attendee.upsert({
             where: { email },
             update: {
@@ -160,10 +160,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           lastName: contact.lastName,
           organization: contact.organizationName || null,
           jobTitle: contact.jobTitle || null,
-          phone: contact.primaryAddress?.phone || contact.workPhone || null,
+          phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
           city: contact.primaryAddress?.city || null,
           country: contact.primaryAddress?.country || null,
           bio: contact.biography || null,
+          photo: contact.photo?.url || null,
         });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {

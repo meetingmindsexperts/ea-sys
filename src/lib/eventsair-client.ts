@@ -42,7 +42,9 @@ export interface EventsAirContact {
   primaryAddress?: {
     city?: string;
     country?: string;
-    phone?: string;
+  };
+  contactPhoneNumbers?: {
+    mobile?: string;
   };
   workPhone?: string;
   biography?: string;
@@ -284,6 +286,9 @@ export async function fetchEventContacts(
           primaryAddress {
             city
             country
+          }
+          contactPhoneNumbers {
+            mobile
           }
           workPhone
           biography

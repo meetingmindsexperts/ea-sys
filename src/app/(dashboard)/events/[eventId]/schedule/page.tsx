@@ -1116,7 +1116,7 @@ export default function SchedulePage() {
 
         {/* ── All Sessions Panel ───────────────────────────────────────────── */}
         <Sheet open={isSessionListOpen} onOpenChange={setIsSessionListOpen}>
-          <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetContent className="w-full sm:max-w-[600px] overflow-y-auto">
             <SheetHeader className="pb-4">
               <SheetTitle className="flex items-center gap-2">
                 <List className="h-5 w-5" />

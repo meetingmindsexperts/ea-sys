@@ -12,7 +12,7 @@ export const maxDuration = 60;
 const importSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
-  limit: z.number().int().min(1).max(50).default(50),
+  limit: z.number().int().min(1).max(100).default(50),
 });
 
 /** POST: Import contacts from an EventsAir event into the org-wide Contact store */
@@ -128,10 +128,11 @@ export async function POST(req: Request) {
             lastName: contact.lastName,
             organization: contact.organizationName || null,
             jobTitle: contact.jobTitle || null,
-            phone: contact.primaryAddress?.phone || contact.workPhone || null,
+            phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
+            photo: contact.photo?.url || null,
             ...(eventIds && { eventIds }),
           },
           create: {
@@ -141,10 +142,11 @@ export async function POST(req: Request) {
             lastName: contact.lastName,
             organization: contact.organizationName || null,
             jobTitle: contact.jobTitle || null,
-            phone: contact.primaryAddress?.phone || contact.workPhone || null,
+            phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
+            photo: contact.photo?.url || null,
             ...(eventIds && { eventIds }),
           },
         });
