@@ -17,6 +17,9 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session);
     if (denied) return denied;
+    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Only admins can manage API keys" }, { status: 403 });
+    }
 
     const keys = await db.apiKey.findMany({
       where: { organizationId: session.user.organizationId! },
@@ -48,6 +51,9 @@ export async function POST(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const denied = denyReviewer(session);
     if (denied) return denied;
+    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Only admins can manage API keys" }, { status: 403 });
+    }
 
     const body = await req.json();
     const parsed = createKeySchema.safeParse(body);
