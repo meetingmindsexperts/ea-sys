@@ -76,12 +76,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Ensure a default ticket type exists
     let defaultTicketType = await db.ticketType.findFirst({
       where: { eventId, isActive: true },
-      select: { id: true, price: true, requiresApproval: true },
+      select: { id: true, price: true, requiresApproval: true, quantity: true, soldCount: true },
     });
     if (!defaultTicketType) {
       defaultTicketType = await db.ticketType.create({
         data: { eventId, name: "General", price: 0, quantity: 999999, isActive: true },
-        select: { id: true, price: true, requiresApproval: true },
+        select: { id: true, price: true, requiresApproval: true, quantity: true, soldCount: true },
       });
     }
 
@@ -138,6 +138,15 @@ export async function POST(req: Request, { params }: RouteParams) {
             throw new Error("ALREADY_REGISTERED");
           }
 
+          // Check ticket capacity
+          const freshTicket = await tx.ticketType.findUnique({
+            where: { id: defaultTicketType.id },
+            select: { quantity: true, soldCount: true },
+          });
+          if (freshTicket && freshTicket.soldCount >= freshTicket.quantity) {
+            throw new Error("TICKET_CAPACITY_REACHED");
+          }
+
           await tx.registration.create({
             data: {
               eventId,
@@ -147,6 +156,12 @@ export async function POST(req: Request, { params }: RouteParams) {
               paymentStatus: Number(defaultTicketType.price) === 0 ? "PAID" : "UNPAID",
               qrCode: generateQRCode(),
             },
+          });
+
+          // Increment soldCount atomically
+          await tx.ticketType.update({
+            where: { id: defaultTicketType.id },
+            data: { soldCount: { increment: 1 } },
           });
         });
         created++;
@@ -169,6 +184,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;
+        } else if (err instanceof Error && err.message === "TICKET_CAPACITY_REACHED") {
+          errors.push(`Contact ${email}: ticket capacity reached`);
         } else {
           errors.push(`Contact ${email}: ${err instanceof Error ? err.message : "unknown error"}`);
         }

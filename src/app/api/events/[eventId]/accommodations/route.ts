@@ -204,37 +204,50 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const totalPrice = Number(roomType.pricePerNight) * nights;
 
-    const accommodation = await db.accommodation.create({
-      data: {
-        eventId,
-        registrationId,
-        roomTypeId,
-        checkIn: checkInDate,
-        checkOut: checkOutDate,
-        guestCount,
-        specialRequests: specialRequests || null,
-        totalPrice,
-        currency: roomType.currency,
-        status: "PENDING",
-      },
-      include: {
-        registration: {
-          include: {
-            attendee: true,
-          },
-        },
-        roomType: {
-          include: {
-            hotel: true,
-          },
-        },
-      },
-    });
+    // Atomic transaction: create accommodation + increment bookedRooms together
+    const accommodation = await db.$transaction(async (tx) => {
+      // Re-check availability inside transaction to prevent overbooking
+      const freshRoom = await tx.roomType.findUnique({
+        where: { id: roomTypeId },
+        select: { bookedRooms: true, totalRooms: true },
+      });
+      if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
+        throw new Error("NO_ROOMS_AVAILABLE");
+      }
 
-    // Update booked rooms count
-    await db.roomType.update({
-      where: { id: roomTypeId },
-      data: { bookedRooms: { increment: 1 } },
+      const created = await tx.accommodation.create({
+        data: {
+          eventId,
+          registrationId,
+          roomTypeId,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          guestCount,
+          specialRequests: specialRequests || null,
+          totalPrice,
+          currency: roomType.currency,
+          status: "PENDING",
+        },
+        include: {
+          registration: {
+            include: {
+              attendee: true,
+            },
+          },
+          roomType: {
+            include: {
+              hotel: true,
+            },
+          },
+        },
+      });
+
+      await tx.roomType.update({
+        where: { id: roomTypeId },
+        data: { bookedRooms: { increment: 1 } },
+      });
+
+      return created;
     });
 
     // Log the action (non-blocking for better response time)
@@ -251,6 +264,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodation, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
+      return NextResponse.json({ error: "No rooms available" }, { status: 400 });
+    }
     apiLogger.error({ err: error, msg: "Error creating accommodation" });
     return NextResponse.json(
       { error: "Failed to create accommodation" },

@@ -28,7 +28,7 @@ const updateRegistrationSchema = z.object({
     registrationType: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
-    customFields: z.record(z.string(), z.any()).optional(),
+    customFields: z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).optional(),
   }).optional(),
 });
 

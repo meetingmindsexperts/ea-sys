@@ -138,11 +138,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Merge settings if provided
+    // Merge settings if provided — protect managed keys from being overwritten
     const currentSettings = (existingEvent.settings as Record<string, unknown>) || {};
-    const updatedSettings = settings
-      ? JSON.parse(JSON.stringify({ ...currentSettings, ...settings }))
-      : JSON.parse(JSON.stringify(currentSettings));
+    let mergedSettings = currentSettings;
+    if (settings) {
+      // Strip protected keys that are managed by dedicated endpoints (e.g. reviewers API)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { reviewerUserIds: _protected, ...safeSettings } = settings;
+      mergedSettings = { ...currentSettings, ...safeSettings };
+    }
+    const updatedSettings = JSON.parse(JSON.stringify(mergedSettings));
 
     const event = await db.event.update({
       where: { id: eventId },

@@ -125,38 +125,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
     let totalPrice: number = Number(existingAccommodation.totalPrice);
     let newRoomTypeId = existingAccommodation.roomTypeId;
 
-    // Handle room type change
+    // Handle room type change — validate before transaction
     if (data.roomTypeId && data.roomTypeId !== existingAccommodation.roomTypeId) {
       const newRoomType = await db.roomType.findFirst({
         where: {
           id: data.roomTypeId,
           isActive: true,
-          hotel: {
-            eventId,
-            isActive: true,
-          },
+          hotel: { eventId, isActive: true },
         },
       });
 
       if (!newRoomType) {
         return NextResponse.json({ error: "Room type not found or inactive" }, { status: 404 });
       }
-
-      if (newRoomType.bookedRooms >= newRoomType.totalRooms) {
-        return NextResponse.json({ error: "No rooms available for this room type" }, { status: 400 });
-      }
-
-      // Decrement old room type booked count
-      await db.roomType.update({
-        where: { id: existingAccommodation.roomTypeId },
-        data: { bookedRooms: { decrement: 1 } },
-      });
-
-      // Increment new room type booked count
-      await db.roomType.update({
-        where: { id: data.roomTypeId },
-        data: { bookedRooms: { increment: 1 } },
-      });
 
       newRoomTypeId = data.roomTypeId;
 
@@ -168,7 +149,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
       totalPrice = Number(newRoomType.pricePerNight) * nights;
     } else if (data.checkIn || data.checkOut) {
-      // Recalculate price for date changes
       const checkInDate = data.checkIn ? new Date(data.checkIn) : existingAccommodation.checkIn;
       const checkOutDate = data.checkOut ? new Date(data.checkOut) : existingAccommodation.checkOut;
       const nights = Math.ceil(
@@ -185,52 +165,64 @@ export async function PUT(req: Request, { params }: RouteParams) {
       totalPrice = Number(existingAccommodation.roomType.pricePerNight) * nights;
     }
 
-    // Handle cancellation - release room
-    if (data.status === "CANCELLED" && existingAccommodation.status !== "CANCELLED") {
-      await db.roomType.update({
-        where: { id: existingAccommodation.roomTypeId },
-        data: { bookedRooms: { decrement: 1 } },
-      });
-    } else if (data.status !== "CANCELLED" && existingAccommodation.status === "CANCELLED") {
-      // Reactivating - book room again
-      const roomType = await db.roomType.findFirst({
-        where: { id: existingAccommodation.roomTypeId },
-      });
-
-      if (roomType && roomType.bookedRooms >= roomType.totalRooms) {
-        return NextResponse.json({ error: "No rooms available" }, { status: 400 });
+    // Atomic transaction: update accommodation + adjust room counts together
+    const accommodation = await db.$transaction(async (tx) => {
+      // Handle room type change
+      if (data.roomTypeId && data.roomTypeId !== existingAccommodation.roomTypeId) {
+        const freshRoom = await tx.roomType.findUnique({
+          where: { id: data.roomTypeId },
+          select: { bookedRooms: true, totalRooms: true },
+        });
+        if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
+        await tx.roomType.update({
+          where: { id: existingAccommodation.roomTypeId },
+          data: { bookedRooms: { decrement: 1 } },
+        });
+        await tx.roomType.update({
+          where: { id: data.roomTypeId },
+          data: { bookedRooms: { increment: 1 } },
+        });
       }
 
-      await db.roomType.update({
-        where: { id: existingAccommodation.roomTypeId },
-        data: { bookedRooms: { increment: 1 } },
-      });
-    }
+      // Handle cancellation — release room
+      if (data.status === "CANCELLED" && existingAccommodation.status !== "CANCELLED") {
+        await tx.roomType.update({
+          where: { id: existingAccommodation.roomTypeId },
+          data: { bookedRooms: { decrement: 1 } },
+        });
+      } else if (data.status && data.status !== "CANCELLED" && existingAccommodation.status === "CANCELLED") {
+        const freshRoom = await tx.roomType.findUnique({
+          where: { id: existingAccommodation.roomTypeId },
+          select: { bookedRooms: true, totalRooms: true },
+        });
+        if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
+        await tx.roomType.update({
+          where: { id: existingAccommodation.roomTypeId },
+          data: { bookedRooms: { increment: 1 } },
+        });
+      }
 
-    const accommodation = await db.accommodation.update({
-      where: { id: accommodationId },
-      data: {
-        ...(data.roomTypeId && { roomTypeId: newRoomTypeId }),
-        ...(data.checkIn && { checkIn: new Date(data.checkIn) }),
-        ...(data.checkOut && { checkOut: new Date(data.checkOut) }),
-        ...(data.guestCount !== undefined && { guestCount: data.guestCount }),
-        ...(data.specialRequests !== undefined && { specialRequests: data.specialRequests || null }),
-        ...(data.status && { status: data.status }),
-        ...(data.confirmationNo !== undefined && { confirmationNo: data.confirmationNo || null }),
-        totalPrice,
-      },
-      include: {
-        registration: {
-          include: {
-            attendee: true,
-          },
+      return tx.accommodation.update({
+        where: { id: accommodationId },
+        data: {
+          ...(data.roomTypeId && { roomTypeId: newRoomTypeId }),
+          ...(data.checkIn && { checkIn: new Date(data.checkIn) }),
+          ...(data.checkOut && { checkOut: new Date(data.checkOut) }),
+          ...(data.guestCount !== undefined && { guestCount: data.guestCount }),
+          ...(data.specialRequests !== undefined && { specialRequests: data.specialRequests || null }),
+          ...(data.status && { status: data.status }),
+          ...(data.confirmationNo !== undefined && { confirmationNo: data.confirmationNo || null }),
+          totalPrice,
         },
-        roomType: {
-          include: {
-            hotel: true,
-          },
+        include: {
+          registration: { include: { attendee: true } },
+          roomType: { include: { hotel: true } },
         },
-      },
+      });
     });
 
     // Log the action
@@ -251,6 +243,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(accommodation);
   } catch (error) {
+    if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
+      return NextResponse.json({ error: "No rooms available" }, { status: 400 });
+    }
     apiLogger.error({ err: error, msg: "Error updating accommodation" });
     return NextResponse.json(
       { error: "Failed to update accommodation" },
@@ -293,16 +288,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
-    // Release room if not already cancelled
-    if (accommodation.status !== "CANCELLED") {
-      await db.roomType.update({
-        where: { id: accommodation.roomTypeId },
-        data: { bookedRooms: { decrement: 1 } },
+    // Atomic transaction: release room + delete accommodation
+    await db.$transaction(async (tx) => {
+      if (accommodation.status !== "CANCELLED") {
+        await tx.roomType.update({
+          where: { id: accommodation.roomTypeId },
+          data: { bookedRooms: { decrement: 1 } },
+        });
+      }
+      await tx.accommodation.delete({
+        where: { id: accommodationId },
       });
-    }
-
-    await db.accommodation.delete({
-      where: { id: accommodationId },
     });
 
     // Log the action
