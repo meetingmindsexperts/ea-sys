@@ -111,15 +111,9 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
     );
   }, [typedEvents, yearFilter]);
 
-  // Available (non-imported) filtered events for select-all logic
-  const availableFiltered = useMemo(
-    () => filteredEvents.filter((e) => !e.alreadyImported),
-    [filteredEvents]
-  );
-
   const allFilteredSelected =
-    availableFiltered.length > 0 &&
-    availableFiltered.every((e) => selectedIds.has(e.id));
+    filteredEvents.length > 0 &&
+    filteredEvents.every((e) => selectedIds.has(e.id));
 
   // Fetch events when dialog opens and config is ready
   useEffect(() => {
@@ -139,17 +133,15 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
 
   const toggleAllFiltered = () => {
     if (allFilteredSelected) {
-      // Deselect all filtered
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        for (const e of availableFiltered) next.delete(e.id);
+        for (const e of filteredEvents) next.delete(e.id);
         return next;
       });
     } else {
-      // Select all filtered
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        for (const e of availableFiltered) next.add(e.id);
+        for (const e of filteredEvents) next.add(e.id);
         return next;
       });
     }
@@ -176,16 +168,18 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
       }));
 
       try {
-        // Step 1: Create event
+        // Step 1: Create or find existing event
         const result = await importEvent.mutateAsync({ eventsAirEventId: evt.id });
         const eventId = result.eventId;
 
         if (result.alreadyImported) {
-          allErrors.push(`${evt.name}: already imported, skipped`);
-          continue;
+          setProgress((p) => ({
+            ...p,
+            step: `${evt.name} — syncing contacts...`,
+          }));
         }
 
-        // Step 2: Import contacts in batches
+        // Step 2: Import contacts in batches (works for both new and existing events)
         let offset = 0;
         let hasMore = true;
         let batchNum = 0;
@@ -203,7 +197,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
             body: JSON.stringify({
               eventsAirEventId: evt.id,
               offset,
-              limit: 500,
+              limit: 100,
             }),
           });
 
@@ -379,13 +373,12 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                             selectedIds.has(evt.id)
                               ? "bg-primary/5"
                               : "hover:bg-muted/30"
-                          } ${evt.alreadyImported ? "opacity-60" : ""}`}
-                          onClick={() => !evt.alreadyImported && toggleEvent(evt.id)}
+                          }`}
+                          onClick={() => toggleEvent(evt.id)}
                         >
                           <td className="px-3 py-2">
                             <Checkbox
                               checked={selectedIds.has(evt.id)}
-                              disabled={evt.alreadyImported}
                               onCheckedChange={() => toggleEvent(evt.id)}
                               onClick={(e) => e.stopPropagation()}
                               aria-label={`Select ${evt.name}`}

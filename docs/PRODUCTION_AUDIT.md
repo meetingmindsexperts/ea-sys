@@ -29,25 +29,28 @@
 - `docker-ce-cli` and `curl` are installed in the runner stage. These dramatically increase attack surface for post-exploitation.
 - **Fix:** Remove both from the production image. If the logs API needs Docker access, use a separate admin service.
 
-### 3. CSRF protection bypass when Origin header is absent
+### 3. CSRF protection bypass when Origin header is absent [FIXED]
 - **File:** `src/middleware.ts:46-61`
 - The CSRF check is skipped entirely if the `Origin` header is missing. Certain cross-site request methods can omit this header.
 - **Fix:** Reject mutation requests (POST/PUT/DELETE) from browser sessions when `Origin` is absent.
+- **Resolution:** Middleware now blocks requests with missing Origin header for non-API-key sessions (2026-03-13).
 
-### 4. `customFields` accepts arbitrary JSON (`z.any()`)
+### 4. `customFields` accepts arbitrary JSON (`z.any()`) [FIXED]
 - **File:** `src/app/api/events/[eventId]/registrations/route.ts:31`
 - `z.record(z.string(), z.any())` allows storing deeply nested objects, executable content, or multi-MB payloads. Potential stored XSS and DB bloat vector.
 - **Fix:** Replace with `z.record(z.string(), z.union([z.string().max(1000), z.number(), z.boolean()]))`.
+- **Resolution:** Replaced with `z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]))` in both registration routes (2026-03-13).
 
 ### 5. Registration soldCount race condition on cancel/delete
 - **File:** `src/app/api/events/[eventId]/registrations/[registrationId]/route.ts:170-180,255-261`
 - The `soldCount` decrement and registration update/delete are separate non-transactional operations. Concurrent cancellations cause permanent count drift.
 - **Fix:** Wrap in `db.$transaction()` like the CREATE handler already does.
 
-### 6. Accommodation `bookedRooms` not atomic
+### 6. Accommodation `bookedRooms` not atomic [FIXED]
 - **File:** `src/app/api/events/[eventId]/accommodations/route.ts:207-238`
 - Room availability check, accommodation create, and `bookedRooms` increment are 3 separate operations. Concurrent bookings can overbook rooms.
 - **Fix:** Use `db.$transaction()` with conditional `updateMany` (where `bookedRooms < totalRooms`).
+- **Resolution:** All accommodation create/update/delete operations now use `db.$transaction()` with fresh capacity checks inside the transaction (2026-03-13).
 
 ### 7. Event create silently drops `eventType`, `tag`, `specialty` [FIXED]
 - **File:** `src/app/api/events/route.ts:99-128`
@@ -83,25 +86,29 @@
 - `z.string().min(6)` allows `123456`, `aaaaaa`. Combined with no rate limiting, this is serious.
 - **Fix:** Require min 8 chars, 1 uppercase, 1 lowercase, 1 number.
 
-### 13. API key auth bypasses RBAC -- null role treated as admin-equivalent
+### 13. API key auth bypasses RBAC -- null role treated as admin-equivalent [NOT A BUG]
 - **File:** `src/lib/api-auth.ts:39-48`
 - API key `OrgContext` has `role: null`. RBAC checks for `role === "REVIEWER"` pass for null, giving API keys unrestricted access to contacts, registrations, speakers.
 - **Fix:** Scope API key access to specific endpoints or treat null role as restricted.
+- **Resolution:** Verified not a bug — API keys are only used in GET (read-only) handlers via `getOrgContext()`. All write routes (POST/PUT/DELETE) use `auth()` session directly, not `getOrgContext`. API key routes also now require ADMIN+ role (2026-03-13).
 
-### 14. REVIEWER/SUBMITTER can leak user data via `/api/organization/users`
+### 14. REVIEWER/SUBMITTER can leak user data via `/api/organization/users` [FIXED]
 - **File:** `src/app/api/organization/users/route.ts:18-48`
 - No `denyReviewer()` guard on GET. REVIEWER/SUBMITTER with `organizationId: null` causes query `WHERE organizationId IS NULL`, returning all org-independent users.
 - **Fix:** Add early return if `!session.user.organizationId`.
+- **Resolution:** Added explicit `organizationId` null check — returns 403 for REVIEWER/SUBMITTER (2026-03-13).
 
-### 15. `Event.settings` accepts arbitrary JSON, can overwrite `reviewerUserIds`
+### 15. `Event.settings` accepts arbitrary JSON, can overwrite `reviewerUserIds` [FIXED]
 - **File:** `src/app/api/events/[eventId]/route.ts:26`
 - `z.record(z.string(), z.unknown())` with shallow merge means `{ reviewerUserIds: [] }` in an event update wipes all reviewer assignments.
 - **Fix:** Define explicit Zod schema for settings. Strip `reviewerUserIds` from the generic update endpoint.
+- **Resolution:** Event update route now strips `reviewerUserIds` from incoming settings before merging — this key is managed exclusively by the reviewers API (2026-03-13).
 
-### 16. Import-contacts bypasses ticket capacity check
+### 16. Import-contacts bypasses ticket capacity check [FIXED]
 - **File:** `src/app/api/events/[eventId]/registrations/import-contacts/route.ts:70-99`
 - Blindly increments `soldCount` without checking available capacity. Can oversell tickets.
 - **Fix:** Add atomic capacity check using conditional `updateMany`.
+- **Resolution:** EventsAir contact import now checks `soldCount` vs `quantity` inside the transaction and atomically increments `soldCount` on each registration (2026-03-13).
 
 ### 17. No pagination on registrations, speakers, abstracts API & UI
 - **Multiple files**

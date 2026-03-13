@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** February 26, 2026
+**Last Updated:** March 13, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -1031,7 +1031,13 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [ ] Add granular React Query stale times per data type
 
 ### Security
-- [ ] Add CSRF protection
+- [x] CSRF protection — Origin header validation on all API mutations; missing Origin blocked for browser sessions (middleware)
+- [x] `customFields` XSS prevention — replaced `z.any()` with strict `z.union([string, number, boolean, null])` on registration routes
+- [x] Accommodation overbooking fix — all room create/update/delete + `bookedRooms` wrapped in `db.$transaction()` with fresh capacity checks
+- [x] User list data leak fix — REVIEWER/SUBMITTER blocked from `GET /api/organization/users` via `organizationId` null check
+- [x] Event settings protection — `reviewerUserIds` stripped from incoming settings in event update (managed by reviewers API only)
+- [x] Import ticket capacity — EventsAir contact import checks `soldCount` vs `quantity` with atomic increment inside transaction
+- [x] API key management — restricted to ADMIN+ role (previously only `denyReviewer` guard)
 - [x] Implement API key authentication for external access (`GET /api/events`, `/speakers`, `/registrations` support `x-api-key` header)
 - [ ] Add input sanitization
 - [ ] Security audit for OWASP top 10

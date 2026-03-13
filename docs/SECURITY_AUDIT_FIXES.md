@@ -12,7 +12,7 @@
 |-------|----------|-------|--------|--------|
 | 1 | CRITICAL | 3 | `claude/wonderful-einstein` → merged to `main` | **Done** |
 | 2 | HIGH | 7 | `claude/wonderful-einstein` → merged to `main` | **Done** |
-| 3 | MEDIUM | 8 + additional hardening | `claude/medium-fixes` | **Done — pending merge** |
+| 3 | MEDIUM | 8 + additional hardening | `claude/medium-fixes` → merged to `main` | **Done** |
 | 4 | LOW | 4 | — | Not started |
 
 **Commits:**
