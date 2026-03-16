@@ -27,21 +27,25 @@ const ENTITY_CONFIG = {
     label: "Registrations",
     required: ["email", "firstName", "lastName"],
     optional: ["organization", "jobTitle", "phone", "city", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title"],
+    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "Dubai", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr"],
   },
   speakers: {
     label: "Speakers",
     required: ["email", "firstName", "lastName"],
     optional: ["organization", "jobTitle", "phone", "bio", "city", "country", "specialty", "registrationType", "tags", "website", "status", "title"],
+    sampleRow: ["jane@example.com", "Jane", "Smith", "University Hospital", "Professor", "+971509876543", "Keynote speaker on AI in healthcare", "Dubai", "UAE", "Neurology", "Speaker", "keynote,invited", "https://example.com", "CONFIRMED", "Prof"],
   },
   sessions: {
     label: "Sessions",
     required: ["name", "startTime", "endTime"],
     optional: ["description", "location", "capacity", "track", "speakerEmails", "status"],
+    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00Z", "2026-06-15T10:00:00Z", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED"],
   },
   abstracts: {
     label: "Abstracts",
     required: ["title", "content", "speakerEmail"],
     optional: ["specialty", "track", "status"],
+    sampleRow: ["AI in Cardiology", "This paper explores the use of artificial intelligence...", "jane@example.com", "Cardiology", "Research", "SUBMITTED"],
   },
 };
 
@@ -103,7 +107,13 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
 
   const downloadTemplate = () => {
     const allColumns = [...config.required, ...config.optional];
-    const csv = allColumns.join(",") + "\n";
+    const headerRow = allColumns.join(",");
+    // Wrap sample values in quotes to handle commas inside values
+    const sampleValues = config.sampleRow.map((v) =>
+      v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
+    );
+    const sampleRow = sampleValues.join(",");
+    const csv = headerRow + "\n" + sampleRow + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -122,7 +132,13 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
             Import {config.label} from CSV
           </DialogTitle>
           <DialogDescription>
-            Upload a CSV file with {config.required.join(", ")} columns (required).
+            Upload a CSV file with <strong>{config.required.join(", ")}</strong> columns (required).
+            {entityType === "sessions" && (
+              <> Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00Z). Separate multiple speaker emails with semicolons.</>
+            )}
+            {entityType === "registrations" && (
+              <> Separate multiple tags with commas inside the tags field.</>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -155,11 +171,19 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
             )}
           </div>
 
-          {/* Download template */}
-          <Button variant="link" size="sm" className="text-xs px-0" onClick={downloadTemplate}>
-            <Download className="h-3 w-3 mr-1" />
-            Download CSV template
-          </Button>
+          {/* Column info + Download template */}
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Required:</span> {config.required.join(", ")}
+              {config.optional.length > 0 && (
+                <span className="ml-2"><span className="font-medium text-foreground">Optional:</span> {config.optional.join(", ")}</span>
+              )}
+            </div>
+            <Button variant="outline" size="sm" className="text-xs shrink-0" onClick={downloadTemplate}>
+              <Download className="h-3 w-3 mr-1" />
+              Download Template
+            </Button>
+          </div>
 
           {/* Preview */}
           {previewHeaders && preview && !result && (
