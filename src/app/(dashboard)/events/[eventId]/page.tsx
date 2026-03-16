@@ -10,7 +10,6 @@ import {
   Calendar,
   MapPin,
   Users,
-  Ticket,
   Mic,
   Building2,
   Settings,
@@ -63,7 +62,6 @@ export default async function EventPage({ params }: EventPageProps) {
             speakers: true,
             eventSessions: true,
             hotels: true,
-            ticketTypes: true,
           },
         },
       },
@@ -91,18 +89,6 @@ export default async function EventPage({ params }: EventPageProps) {
 
   // ── Contextual Quick Actions ─────────────────────────────────────────────
   const quickActions = [
-    {
-      title: event._count.ticketTypes > 0
-        ? "Manage Registration Types"
-        : "Set Up Registration Types",
-      description: event._count.ticketTypes > 0
-        ? "Edit and manage your registration types"
-        : "Create your first registration type to accept attendees",
-      icon: Ticket,
-      href: `/events/${eventId}/tickets`,
-      attention: event._count.ticketTypes === 0,
-      iconStyle: "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300",
-    },
     {
       title: event._count.speakers > 0
         ? "Manage Speakers"

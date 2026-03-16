@@ -25,6 +25,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Download,
   Settings,
 } from "lucide-react";
@@ -52,6 +53,11 @@ interface EventsAirImportDialogProps {
 
 type ImportStep = "browse" | "importing" | "done";
 
+interface SkippedContact {
+  email: string;
+  reason: string;
+}
+
 interface ImportProgress {
   step: string;
   currentEvent: number;
@@ -60,6 +66,7 @@ interface ImportProgress {
   totalSkipped: number;
   eventsImported: number;
   errors: string[];
+  skippedDetails: SkippedContact[];
 }
 
 const INITIAL_PROGRESS: ImportProgress = {
@@ -70,6 +77,7 @@ const INITIAL_PROGRESS: ImportProgress = {
   totalSkipped: 0,
   eventsImported: 0,
   errors: [],
+  skippedDetails: [],
 };
 
 export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDialogProps) {
@@ -158,6 +166,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
     let totalSkipped = 0;
     let eventsImported = 0;
     const allErrors: string[] = [];
+    const allSkippedDetails: SkippedContact[] = [];
 
     for (let i = 0; i < eventsToImport.length; i++) {
       const evt = eventsToImport[i];
@@ -210,6 +219,14 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
           const data = await res.json();
           totalCreated += data.created;
           totalSkipped += data.skipped;
+          if (data.skippedDetails?.length) {
+            allSkippedDetails.push(
+              ...data.skippedDetails.map((s: SkippedContact) => ({
+                email: s.email,
+                reason: `${evt.name}: ${s.reason}`,
+              }))
+            );
+          }
           if (data.errors?.length) {
             allErrors.push(...data.errors.map((e: string) => `${evt.name}: ${e}`));
           }
@@ -221,6 +238,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
             totalCreated,
             totalSkipped,
             errors: allErrors,
+            skippedDetails: allSkippedDetails,
           }));
         }
 
@@ -239,6 +257,7 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
       totalSkipped,
       eventsImported,
       errors: allErrors,
+      skippedDetails: allSkippedDetails,
     });
     setStep("done");
     toast.success(`Imported ${eventsImported} event${eventsImported !== 1 ? "s" : ""} with ${totalCreated} contacts`);
@@ -440,6 +459,35 @@ export function EventsAirImportDialog({ open, onOpenChange }: EventsAirImportDia
                   <strong>{progress.totalCreated}</strong> contacts created, <strong>{progress.totalSkipped}</strong> skipped
                 </div>
               </div>
+              {progress.skippedDetails.length > 0 && (
+                <div className="border rounded-md p-3 bg-amber-50 dark:bg-amber-950/30 max-h-40 overflow-auto">
+                  <div className="flex items-center gap-1 text-sm text-amber-700 dark:text-amber-400 mb-2">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {progress.skippedDetails.length} contact{progress.skippedDetails.length !== 1 ? "s" : ""} skipped
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground border-b">
+                        <th className="text-left py-1 pr-3">Email</th>
+                        <th className="text-left py-1">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {progress.skippedDetails.slice(0, 50).map((s, i) => (
+                        <tr key={i} className="border-b border-transparent">
+                          <td className="py-0.5 pr-3 font-mono">{s.email}</td>
+                          <td className="py-0.5 text-muted-foreground">{s.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {progress.skippedDetails.length > 50 && (
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      ...and {progress.skippedDetails.length - 50} more (view full history from event page)
+                    </p>
+                  )}
+                </div>
+              )}
               {progress.errors.length > 0 && (
                 <div className="border rounded-md p-3 bg-destructive/5 max-h-32 overflow-auto">
                   <div className="flex items-center gap-1 text-sm text-destructive mb-1">

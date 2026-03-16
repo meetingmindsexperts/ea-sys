@@ -57,6 +57,7 @@ export const queryKeys = {
   apiKeys: ["api-keys"] as const,
   eventsAirConfig: ["eventsair", "config"] as const,
   eventsAirEvents: ["eventsair", "events"] as const,
+  importLogs: (eventId: string) => ["events", eventId, "import-logs"] as const,
   registrationTypes: ["registration-types"] as const,
 };
 
@@ -186,6 +187,11 @@ export function useHotels(eventId: string) {
 // ============ ACCOMMODATIONS ============
 export function useAccommodations(eventId: string, filters?: Record<string, string>) {
   return useEventListQuery<any[]>(eventId, queryKeys.accommodations(eventId), "accommodations", filters);
+}
+
+// ============ IMPORT LOGS ============
+export function useImportLogs(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.importLogs(eventId), "import-logs");
 }
 
 // ============ REVIEWERS ============

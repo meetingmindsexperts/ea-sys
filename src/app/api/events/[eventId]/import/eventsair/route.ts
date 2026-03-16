@@ -20,6 +20,11 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+interface SkippedContact {
+  email: string;
+  reason: string;
+}
+
 /** POST: Import contacts from EventsAir into an existing EA-SYS event */
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -86,12 +91,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     let created = 0;
-    let skipped = 0;
+    const skippedDetails: SkippedContact[] = [];
     const errors: string[] = [];
 
     for (const contact of contacts) {
       if (!contact.primaryEmail) {
-        skipped++;
+        skippedDetails.push({
+          email: "(none)",
+          reason: `No email — ${contact.firstName} ${contact.lastName}`,
+        });
         continue;
       }
 
@@ -183,7 +191,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
-          skipped++;
+          skippedDetails.push({ email, reason: "Already registered" });
         } else if (err instanceof Error && err.message === "TICKET_CAPACITY_REACHED") {
           errors.push(`Contact ${email}: ticket capacity reached`);
         } else {
@@ -192,7 +200,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    apiLogger.info({ msg: "Import complete", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, processed: contacts.length, created, skipped, errorCount: errors.length });
+    // Persist import log
+    db.importLog.create({
+      data: {
+        eventId,
+        userId: session.user.id,
+        source: "eventsair",
+        entityType: "contacts",
+        totalProcessed: contacts.length,
+        totalCreated: created,
+        totalSkipped: skippedDetails.length,
+        totalErrors: errors.length,
+        skippedDetails: JSON.parse(JSON.stringify(skippedDetails)),
+        errors: JSON.parse(JSON.stringify(errors)),
+      },
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to persist import log" }));
+
+    apiLogger.info({ msg: "Import complete", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, processed: contacts.length, created, skipped: skippedDetails.length, errorCount: errors.length });
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
@@ -200,7 +224,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       processed: contacts.length,
       created,
-      skipped,
+      skipped: skippedDetails.length,
+      skippedDetails,
       errors,
       hasMore,
       nextOffset: validated.data.offset + contacts.length,

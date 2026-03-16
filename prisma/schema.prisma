@@ -137,6 +137,8 @@ model Event {
   abstracts      Abstract[]
   auditLogs      AuditLog[]
 
+  importLogs     ImportLog[]
+
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([status])
@@ -554,6 +556,28 @@ model SystemLog {
   @@index([timestamp])
   @@index([level])
   @@index([module])
+}
+
+// ==================== IMPORT LOGS ====================
+
+model ImportLog {
+  id             String   @id @default(cuid())
+  eventId        String
+  userId         String
+  source         String   // "eventsair" | "csv"
+  entityType     String   // "contacts" | "registrations" | "speakers" | "sessions"
+  totalProcessed Int
+  totalCreated   Int
+  totalSkipped   Int
+  totalErrors    Int
+  skippedDetails Json     @default("[]") // [{ email, reason }]
+  errors         Json     @default("[]") // string[]
+  createdAt      DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([createdAt])
 }
 
 // ==================== API KEYS ====================

@@ -39,6 +39,9 @@ import {
   Bell,
   Shield,
   ImageIcon,
+  Ticket,
+  History,
+  ArrowRight,
 } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -603,6 +606,41 @@ export default function EventSettingsPage() {
 
         {/* Registration Settings */}
         <TabsContent value="registration">
+          <div className="grid gap-4 md:grid-cols-2 mb-6">
+            <Link href={`/events/${eventId}/tickets`} className="group block">
+              <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 shrink-0">
+                    <Ticket className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-sm group-hover:text-primary transition-colors">
+                      Registration Types
+                    </h3>
+                    <p className="text-xs text-muted-foreground">Manage ticket types and pricing</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href={`/events/${eventId}/imports`} className="group block">
+              <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300 shrink-0">
+                    <History className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-sm group-hover:text-primary transition-colors">
+                      Import History
+                    </h3>
+                    <p className="text-xs text-muted-foreground">View past imports and skipped contacts</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle>Registration Settings</CardTitle>
