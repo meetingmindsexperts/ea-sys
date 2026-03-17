@@ -784,16 +784,35 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [x] Email dropdown menu on speaker detail page
 - [x] Fixed User model field references (firstName/lastName vs name)
 - [x] Fixed Registration model to include Attendee relation for email access
+- [x] DB-backed email templates (EmailTemplate model, CRUD API, per-event customization)
+- [x] WYSIWYG email editor (Tiptap v2) replacing raw HTML textarea
+- [x] Email preview dialog with desktop (600px) / mobile (375px) toggle
+- [x] Consistent email branding: `emailHeaderImage` + `emailFooterHtml` fields on Event model
+- [x] Branding wrapper (`wrapWithBranding`) applied at render time to all outgoing emails
+- [x] CSS inlining via `juice` for email-client compatibility
+- [x] Templates stored as body fragments (branding applied at render time, not stored per-template)
+- [x] Template list inlined in Settings → Email Templates tab (no separate page navigation)
+- [x] Template editor: source toggle, variable insertion sidebar, save/preview/test/reset/delete
+- [x] `renderAndWrap()` helper combining variable substitution + branding + CSS inlining
 
 **API Endpoints:**
 - `POST /api/events/[eventId]/speakers/[speakerId]/email` - Send email to speaker
 - `POST /api/events/[eventId]/registrations/[registrationId]/email` - Send email to registration
 - `POST /api/events/[eventId]/emails/bulk` - Send bulk emails
+- `GET /api/events/[eventId]/email-templates` - List all templates for event
+- `POST /api/events/[eventId]/email-templates` - Create custom template
+- `GET /api/events/[eventId]/email-templates/[templateId]` - Get template + variables
+- `PUT /api/events/[eventId]/email-templates/[templateId]` - Update template
+- `DELETE /api/events/[eventId]/email-templates/[templateId]` - Delete custom template
+- `POST /api/events/[eventId]/email-templates/[templateId]` - Preview or send test email
+- `PATCH /api/events/[eventId]/email-templates/[templateId]` - Reset to default
 
 **Required Environment Variables:**
 - `BREVO_API_KEY` - Get from https://app.brevo.com/settings/keys/api
 - `EMAIL_FROM` - Verified sender email address
 - `EMAIL_FROM_NAME` - Sender display name
+
+> **General Guidance:** The email template system uses Tiptap v2 (not v3). Tiptap v3 ships source-only packages without compiled `dist/` files, which breaks standard npm installs. If upgrading Tiptap, verify that the new version ships pre-compiled artifacts. The `juice` package is used for CSS inlining — it is stable and rarely changes. All email branding is applied at send time via `renderAndWrap()`, not stored in templates. System-level templates (user invitation, password reset) are hardcoded in `src/lib/email.ts` and do NOT use event branding.
 
 ---
 
@@ -914,7 +933,7 @@ Docker data root configured in `/etc/docker/daemon.json`:
 5. Implement payment status synchronization
 6. Add payment confirmation emails
 
-### Phase 6: Email Notifications (IN PROGRESS)
+### Phase 6: Email Notifications (MOSTLY COMPLETE)
 
 | Feature | Priority | Status |
 |---------|----------|--------|
@@ -928,6 +947,11 @@ Docker data root configured in `/etc/docker/daemon.json`:
 | Payment Receipt Email | High | Pending |
 | Abstract Status Notification | Medium | ✅ Complete |
 | Abstract Submission Confirmation | Medium | ✅ Complete |
+| DB-backed Email Templates | High | ✅ Complete |
+| WYSIWYG Email Editor (Tiptap) | High | ✅ Complete |
+| Email Preview Dialog (Desktop/Mobile) | Medium | ✅ Complete |
+| Consistent Email Branding (Header/Footer) | High | ✅ Complete |
+| CSS Inlining (juice) | Medium | ✅ Complete |
 | Check-in Confirmation | Low | Pending |
 | Email Preferences Management | Low | Pending |
 
@@ -937,12 +961,16 @@ Docker data root configured in `/etc/docker/daemon.json`:
 3. ✅ Speaker email APIs (invitation, agreement, custom)
 4. ✅ Registration email APIs (confirmation, reminder, custom)
 5. ✅ Bulk email API endpoint
+6. ✅ DB-backed email template CRUD (per-event customization)
+7. ✅ WYSIWYG editor with Tiptap v2 (toolbar, source toggle)
+8. ✅ Email preview dialog with desktop/mobile toggle
+9. ✅ Consistent email branding (header image + footer) applied to all outgoing emails
+10. ✅ CSS inlining via juice for email-client compatibility
 
 **Remaining Tasks:**
 1. Add email preferences management
 2. Payment receipt email
-3. Abstract status notification
-4. Check-in confirmation email
+3. Check-in confirmation email
 
 ### Phase 7: Public Registration Portal (PARTIALLY COMPLETE)
 

@@ -75,7 +75,8 @@ src/
 - `src/lib/auth.ts` - Authentication configuration
 - `src/lib/auth-guards.ts` - `denyReviewer()` guard for API route protection (blocks REVIEWER + SUBMITTER)
 - `src/lib/event-access.ts` - `buildEventAccessWhere()` for role-scoped event queries
-- `src/lib/email.ts` - Email templates and sending
+- `src/lib/email.ts` - Email templates, sending, branding wrapper, CSS inlining
+- `src/lib/email-utils.ts` - Client-safe email utilities (stripDocumentWrapper)
 - `src/lib/countries.ts` - ISO 3166-1 country list (249 countries)
 - `src/hooks/use-api.ts` - React Query hooks for data fetching
 - `src/components/providers.tsx` - App providers (QueryClient, SessionProvider)
@@ -86,6 +87,8 @@ src/
 - `src/components/ui/specialty-select.tsx` - Specialty field dropdown
 - `src/components/ui/title-select.tsx` - Title enum dropdown (Mr, Ms, Mrs, Dr, Prof, Other)
 - `src/components/ui/registration-type-select.tsx` - Registration type dropdown (fetches from TicketType or falls back to text input)
+- `src/components/ui/tiptap-editor.tsx` - WYSIWYG email editor (Tiptap v2) with toolbar and source toggle
+- `src/components/email-preview-dialog.tsx` - Email preview dialog with desktop/mobile toggle
 - `src/lib/schemas.ts` - Shared Zod schemas (titleEnum) used across API routes
 - `src/components/forms/person-form-fields.tsx` - Shared form fields for attendees/speakers/contacts
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
@@ -268,7 +271,7 @@ npx tsc --noEmit     # Type check
 The project uses several optimizations to reduce module load times:
 
 **Next.js Config** (`next.config.ts`):
-- `optimizePackageImports` - Tree-shakes large packages like `lucide-react` (44MB) and Radix UI
+- `optimizePackageImports` - Tree-shakes large packages like `lucide-react` (44MB), Radix UI, and `@tiptap/*`
 - `transpilePackages` - Better tree-shaking for `@getbrevo/brevo`
 - `turbopack` - Faster builds with Next.js 16's default bundler
 
@@ -333,6 +336,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 ## Recent Features
 
+- **Email template WYSIWYG editor and branding** - Replaced raw HTML textarea with Tiptap v2 WYSIWYG editor (`src/components/ui/tiptap-editor.tsx`) with toolbar (bold, italic, underline, headings, lists, alignment, link, image, color, undo/redo) and source toggle; email preview opens in popup dialog (`src/components/email-preview-dialog.tsx`) with desktop (600px) / mobile (375px) toggle; added `emailHeaderImage` and `emailFooterHtml` fields to Event model for consistent email branding; `wrapWithBranding()` in `src/lib/email.ts` wraps all outgoing emails with table-based header image + footer layout; `inlineCss()` uses `juice` for email-client-safe inline styles; `renderAndWrap()` combines variable substitution + branding + CSS inlining; `stripDocumentWrapper()` in `src/lib/email-utils.ts` (client-safe) extracts body from legacy full-document templates; all 6+ email send routes updated to use `renderAndWrap()`; templates now stored as body fragments (no DOCTYPE/html/body), branding applied at render time; email template list inlined directly in Settings → Email Templates tab (no extra "Manage" click); Tiptap lazy-loaded with `next/dynamic` to avoid bloating other pages; **note:** Tiptap v2 is used (not v3) because v3 ships source-only without compiled dist
 - **Database-backed logging for Vercel** - `SystemLog` Prisma model stores log entries in PostgreSQL; Pino writes to a custom `Writable` stream that buffers and batch-inserts; `/api/logs` route supports `source=database` (default on Vercel); log viewer UI at `/logs` with database/file/docker source selector; comprehensive logging coverage across all API routes, middleware, auth, uploads, and server pages
 - **EventsAir import error handling** - Import dialog now shows error state UI with actual error message, Retry button, and Settings link; `listEvents()` throws on null API response; `useEventsAirEvents` hook uses `retry: false`; events API route returns actual error details in 500 response
 - **Title and Registration Type fields** - Added `Title` enum (MR, MS, MRS, DR, PROF, OTHER) and `registrationType String?` to Attendee, Speaker, and Contact models; `TitleSelect` dropdown component; `RegistrationTypeSelect` component (fetches TicketType names with event context, falls back to text input); shared `titleEnum` Zod schema in `src/lib/schemas.ts`; `formatPersonName()` and `getTitleLabel()` helpers in utils; updated all 9+ API routes, all person forms, and all display views to show title prefix with names; CSV export includes title and registrationType columns

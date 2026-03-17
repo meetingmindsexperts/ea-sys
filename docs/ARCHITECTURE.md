@@ -59,7 +59,7 @@ This document covers the current architecture, its strengths, known gaps, and fu
 | **Data Access** | Prisma ORM | Direct queries in route handlers and server components — no repository abstraction |
 | **Validation** | Zod | Request validation in route handlers; shared schemas (e.g., `titleEnum`) in `src/lib/schemas.ts` |
 | **Database** | PostgreSQL | Single database, single schema, org-scoped queries; enums for Title, UserRole, EventType |
-| **Email** | Brevo (Sendinblue) API | Transactional emails (invitations, password reset, abstract status notifications) |
+| **Email** | Brevo (Sendinblue) API + Tiptap v2 + juice | DB-backed templates with WYSIWYG editor, consistent branding (header/footer), CSS inlining |
 | **Logging** | Pino | Structured JSON logs to stdout + file (EC2/Docker) with redaction |
 | **Deployment** | Docker on AWS EC2 (t3.large) | Single container, `output: "standalone"`, GitHub Actions CI/CD |
 
@@ -283,11 +283,27 @@ session.user.currentRole            // derived from UserOrganization lookup
 | Auth | NextAuth.js v5 (JWT) | Standard Next.js auth, JWT avoids DB session lookups |
 | Styling | TailwindCSS + Shadcn/ui | Utility-first CSS, copy-paste components (no vendor lock-in) |
 | Client State | React Query | Server state caching with zero boilerplate vs. Redux |
-| Email | Brevo API | Transactional email with templates, free tier sufficient |
+| Email | Brevo API + Tiptap v2 + juice | Transactional email with DB-backed WYSIWYG templates, consistent branding, CSS inlining for email-client compat |
 | Logging | Pino | Fastest Node.js logger, structured JSON, multi-stream support |
 | Database | PostgreSQL | Reliable, Prisma-native, handles relational data well |
 | Deployment | Docker on EC2 | Writable filesystem (needed for photo uploads), full control |
 
 ---
 
-*Last updated: February 2026*
+## General Guidance: Package Dependencies
+
+> **Important for maintainers:** Before upgrading major versions of any dependency, review changelog and test thoroughly. Key constraints:
+>
+> - **Tiptap** — Pinned to v2. Tiptap v3 ships source-only packages (no compiled `dist/`), breaking standard npm installs. Do not upgrade until v3 ships pre-compiled artifacts.
+> - **Next.js** — Major version upgrades (e.g. 16→17) can change App Router behavior, middleware APIs, and build output. Test the full build + deploy pipeline after upgrading.
+> - **Prisma** — Major version changes may affect schema syntax, migration behavior, or client API. Always test against the shared Supabase database (both AWS and Vercel targets).
+> - **juice** — CSS inlining library, very stable. Minor/patch updates are safe.
+> - **@getbrevo/brevo** — Follows Brevo API versioning. Safe to update within the same API version.
+> - **TanStack Query (React Query)** — Stable within major version (v5). Avoid major version jumps without migration guide review.
+> - **Shadcn/ui** — Not a package (copy-paste components), so no version conflicts. Update individual components via `npx shadcn@latest add [component]`.
+>
+> General rule: stay on current major versions, apply minor/patch updates regularly. Major version bumps should be planned with a test cycle.
+
+---
+
+*Last updated: March 2026*

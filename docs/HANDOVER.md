@@ -132,7 +132,8 @@ src/
 │   ├── auth-guards.ts       # denyReviewer() RBAC guard
 │   ├── event-access.ts      # buildEventAccessWhere() role-scoped queries
 │   ├── db.ts                # Prisma client singleton
-│   ├── email.ts             # Brevo email service + templates
+│   ├── email.ts             # Brevo email service + templates + branding
+│   ├── email-utils.ts       # Client-safe email utilities
 │   ├── eventsair-client.ts  # EventsAir GraphQL API client
 │   ├── logger.ts            # Pino logging (3 output modes)
 │   ├── storage.ts           # Photo storage (local or Supabase)
@@ -603,16 +604,30 @@ EventsAir is an external event management platform. EA-SYS can import events and
 
 ### Brevo Email
 
-**File:** `src/lib/email.ts`
+**Files:** `src/lib/email.ts`, `src/lib/email-utils.ts`
 
 Brevo (formerly Sendinblue) handles transactional emails. The SDK is lazily initialized on first use to avoid module load overhead.
 
-**Email templates include:**
-- User invitation with token link
-- Abstract status notifications (ACCEPTED, REJECTED, REVISION_REQUESTED, UNDER_REVIEW)
-- Registration confirmations
-- Bulk email with unsubscribe support
-- Password reset links
+**Email template system:**
+- **DB-backed templates** — `EmailTemplate` model per event, 8 system slugs (registration-confirmation, speaker-invitation, speaker-agreement, event-reminder, abstract-submission-confirmation, abstract-status-update, submitter-welcome, custom-notification) + custom templates
+- **WYSIWYG editor** — Tiptap v2 editor (`src/components/ui/tiptap-editor.tsx`) with toolbar and HTML source toggle; lazy-loaded via `next/dynamic`
+- **Email preview** — Dialog component (`src/components/email-preview-dialog.tsx`) with desktop (600px) / mobile (375px) toggle
+- **Consistent branding** — `emailHeaderImage` and `emailFooterHtml` fields on Event model; `wrapWithBranding()` wraps all per-event emails with table-based header image + footer layout
+- **CSS inlining** — `inlineCss()` uses `juice` to convert `<style>` blocks to inline attributes for email-client compatibility
+- **Body fragments** — Templates store only body HTML (no DOCTYPE/html/body tags). Full document wrapper with branding is applied at render time via `renderAndWrap()`
+- **System-level templates** — User invitation and password reset are hardcoded in `email.ts` (not per-event, not wrapped with event branding)
+
+**Key functions in `src/lib/email.ts`:**
+| Function | Purpose |
+|----------|---------|
+| `sendEmail()` | Send via Brevo API |
+| `renderTemplate()` | Replace `{{variables}}` with HTML-escaped values |
+| `renderTemplatePlain()` | Same but no HTML escaping (for subject/text) |
+| `wrapWithBranding()` | Wrap body HTML with header image + footer layout |
+| `inlineCss()` | CSS inlining via juice |
+| `renderAndWrap()` | Combined: variable substitution + branding + CSS inlining |
+| `getEventTemplate()` | Load template from DB (with default fallback) + event branding |
+| `stripDocumentWrapper()` | Extract body from legacy full-document templates (also in `email-utils.ts` for client use) |
 
 **Security:** All dynamic content in email templates is HTML-escaped via `escapeHtml()` to prevent injection.
 
@@ -620,6 +635,8 @@ Brevo (formerly Sendinblue) handles transactional emails. The SDK is lazily init
 - `BREVO_API_KEY` — API key from Brevo dashboard
 - `EMAIL_FROM` — Sender email (must be verified in Brevo)
 - `EMAIL_FROM_NAME` — Sender display name
+
+> **General Guidance:** Tiptap v2 is pinned intentionally — v3 ships source-only packages without compiled `dist/`. Do not upgrade to v3 without verifying pre-compiled artifacts are included. The `juice` library is stable and rarely has breaking changes. When modifying email templates, always test with both "Preview" (visual check) and "Send Test" (actual inbox rendering) since email clients vary significantly. Email branding fields (`emailHeaderImage`, `emailFooterHtml`) are separate from public page branding fields (`bannerImage`, `footerHtml`) — do not confuse them.
 
 ### Sentry
 
@@ -1009,7 +1026,8 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 | File | Purpose |
 |------|---------|
 | `src/lib/db.ts` | Prisma client singleton (dev: global cache, prod: new instance) |
-| `src/lib/email.ts` | Brevo email service — templates, sending, lazy init |
+| `src/lib/email.ts` | Brevo email service — templates, sending, branding wrapper, CSS inlining |
+| `src/lib/email-utils.ts` | Client-safe email utilities (stripDocumentWrapper) |
 | `src/lib/eventsair-client.ts` | EventsAir GraphQL API — OAuth, queries, encryption |
 | `src/lib/storage.ts` | Photo storage — local filesystem or Supabase Storage |
 | `src/lib/csv-parser.ts` | CSV parsing — shared across all import routes |
@@ -1037,6 +1055,8 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 | `src/components/ui/title-select.tsx` | Title prefix dropdown (Mr/Ms/Dr/Prof) |
 | `src/components/ui/registration-type-select.tsx` | Context-aware registration type dropdown |
 | `src/components/import/eventsair-import-dialog.tsx` | EventsAir bulk import UI |
+| `src/components/ui/tiptap-editor.tsx` | WYSIWYG email editor (Tiptap v2) with toolbar + source toggle |
+| `src/components/email-preview-dialog.tsx` | Email preview dialog with desktop/mobile toggle |
 | `src/components/import/csv-import-dialog.tsx` | CSV import with preview and templates |
 | `src/app/globals.css` | Theme colors (oklch), gradients, CSS variables |
 
