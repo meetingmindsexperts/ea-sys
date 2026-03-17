@@ -47,6 +47,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
+# Allow nextjs user to read the Docker socket (mounted :ro) for docker logs.
+# Host docker group is typically GID 999 on Ubuntu/Debian.
+# DOCKER_GID build arg allows override if the host GID differs.
+ARG DOCKER_GID=988
+RUN groupadd --gid $DOCKER_GID docker || true && usermod -aG docker nextjs
 
 # Standalone output + static assets
 COPY --from=builder /app/.next/standalone ./
