@@ -1,15 +1,42 @@
+# Version control
 .git
 .gitignore
+
+# Environment files
 .env
 .env.*
 !.env.example
+
+# Build artifacts & dependencies (rebuilt inside container)
 node_modules
 .next
-npm-debug.log*
-README.md
-docs/
+
+# Logs & debug
 logs/
-deploy/
-ecosystem.config.js
-.github/
+npm-debug.log*
+
+# Documentation (not needed in image)
+docs/
 *.md
+
+# CI/CD & deploy scripts (not needed in image)
+.github/
+deploy/
+scripts/
+
+# Docker configs (not needed inside the image)
+docker/
+docker-compose*.yml
+
+# Development & testing (not needed in production image)
+__tests__/
+vitest.config.*
+.claude/
+.vscode/
+.idea/
+
+# Uploaded files (bind-mounted at runtime, not baked into image)
+public/uploads/
+
+# Misc
+ecosystem.config.js

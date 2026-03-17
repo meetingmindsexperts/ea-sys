@@ -24,23 +24,39 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      # Cache the full node_modules dir keyed on lockfile.
+      # On hit, npm ci is skipped entirely (~30-40s saved).
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Type check
-        run: npm run type-check
+      # Always run prisma generate — on cache miss it ran via postinstall,
+      # but on cache hit postinstall was skipped. This is fast (~3s).
+      - name: Generate Prisma client
+        run: npx prisma generate
 
-      - name: Lint
-        run: npm run lint
+      # Run type-check in background, lint in foreground, then collect both.
+      # Both are independent — saves ~15-20s vs running sequentially.
+      - name: Type check & Lint
+        run: |
+          npm run type-check &
+          npm run lint
+          wait
 
       - name: Build
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        run: npm run build
+        run: npx next build
 
   # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
   deploy:

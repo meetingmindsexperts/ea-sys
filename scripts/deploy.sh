@@ -21,7 +21,7 @@ phase_done() {
 DEPLOY_DIR="/home/ubuntu/ea-sys"
 SLOT_FILE="/home/ubuntu/.active-slot"
 NGINX_UPSTREAM="/etc/nginx/conf.d/ea-sys-upstream.conf"
-HEALTH_RETRIES=30   # 30 × 2s = 60 seconds max wait
+HEALTH_RETRIES=40   # 40 × 1s = 40 seconds max wait
 COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.prod.yml"
 
 cd "$DEPLOY_DIR"
@@ -51,14 +51,17 @@ mkdir -p "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
 sudo chown -R 1001:1001 "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
 phase_done "Bind-mount dirs"
 
-# ── Remove only dangling images (preserve build cache for fast rebuilds) ───────
-docker image prune -f
-phase_done "Image prune"
+# ── Remove only dangling images in background (non-blocking) ──────────────────
+docker image prune -f > /dev/null 2>&1 &
+PRUNE_PID=$!
 
 # ── Build inactive slot with BuildKit ─────────────────────────────────────────
 echo "==> Building ea-sys-$INACTIVE..."
 DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
 phase_done "Build ea-sys-$INACTIVE"
+
+# Collect background prune (already finished by now, just reap the process)
+wait $PRUNE_PID 2>/dev/null || true
 
 # ── Run DB migrations using the builder stage (has full node_modules) ─────────
 # The builder stage is already cached by BuildKit — tagging it is near-instant.
@@ -109,12 +112,12 @@ ATTEMPTS=0
 until curl -sf "http://localhost:$INACTIVE_PORT/api/health" > /dev/null 2>&1; do
   ATTEMPTS=$((ATTEMPTS + 1))
   if [ "$ATTEMPTS" -ge "$HEALTH_RETRIES" ]; then
-    echo "✗ Health check failed after $((HEALTH_RETRIES * 2))s. Rolling back."
+    echo "✗ Health check failed after ${HEALTH_RETRIES}s. Rolling back."
     $COMPOSE stop "ea-sys-$INACTIVE" || true
     $COMPOSE rm -f "ea-sys-$INACTIVE" || true
     exit 1
   fi
-  sleep 2
+  sleep 1
 done
 echo "✓ Health check passed"
 phase_done "Health check"
