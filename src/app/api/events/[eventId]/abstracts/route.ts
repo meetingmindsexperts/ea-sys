@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -187,11 +187,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
             || getDefaultTemplate("abstract-submission-confirmation");
           if (!tpl) { apiLogger.warn({ msg: "No template found for abstract-submission-confirmation" }); return; }
+          const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
+          const rendered = renderAndWrap(tpl, vars, branding);
           return sendEmail({
             to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
-            subject: renderTemplatePlain(tpl.subject, vars),
-            htmlContent: renderTemplate(tpl.htmlContent, vars),
-            textContent: renderTemplatePlain(tpl.textContent || "", vars),
+            ...rendered,
           });
         })
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));

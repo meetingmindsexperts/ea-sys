@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
@@ -125,15 +125,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Email template not found" }, { status: 500 });
     }
 
-    const subject = renderTemplatePlain(tpl.subject, vars);
-    const htmlContent = renderTemplate(tpl.htmlContent, vars);
-    const textContent = renderTemplatePlain(tpl.textContent || "", vars);
+    const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
+    const rendered = renderAndWrap(tpl, vars, branding);
 
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
-      subject,
-      htmlContent,
-      textContent,
+      ...rendered,
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
     });
 
@@ -154,7 +151,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: {
           emailType: type,
           recipient: speaker.email,
-          subject,
+          subject: rendered.subject,
           ip: getClientIp(req),
         },
       },

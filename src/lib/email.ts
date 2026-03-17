@@ -3,6 +3,7 @@ import {
   TransactionalEmailsApiApiKeys,
   SendSmtpEmail,
 } from "@getbrevo/brevo";
+import juice from "juice";
 import { apiLogger } from "./logger";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -157,6 +158,93 @@ export function renderTemplatePlain(
   });
 }
 
+// ── Email branding wrapper ─────────────────────────────────────────────────────
+
+export interface EmailBranding {
+  emailHeaderImage?: string | null;
+  emailFooterHtml?: string | null;
+  eventName?: string;
+}
+
+/**
+ * Wrap body HTML content with a consistent email layout including header image
+ * and footer. Uses table-based layout for email client compatibility.
+ */
+export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
+
+  // Convert relative image URLs to absolute
+  const headerSrc = branding.emailHeaderImage
+    ? branding.emailHeaderImage.startsWith("http")
+      ? branding.emailHeaderImage
+      : `${appUrl}${branding.emailHeaderImage}`
+    : null;
+
+  const headerBlock = headerSrc
+    ? `<tr><td style="padding: 0;">
+        <img src="${escapeHtml(headerSrc)}" alt="${escapeHtml(branding.eventName || "Event")}" style="display: block; width: 100%; max-width: 600px; height: auto; border-radius: 10px 10px 0 0;" />
+      </td></tr>`
+    : "";
+
+  const footerContent = branding.emailFooterHtml
+    ? branding.emailFooterHtml
+    : branding.eventName
+      ? `<p>This email was sent regarding ${escapeHtml(branding.eventName)}</p>`
+      : `<p>Sent from MMGroup EventsHub</p>`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; background-color: #f4f4f5;">
+    <tr>
+      <td style="padding: 20px 0;" align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; max-width: 600px;">
+          ${headerBlock}
+          <tr>
+            <td style="padding: 0;">
+              ${bodyHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
+              ${footerContent}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Inline CSS from <style> blocks into element style attributes for email
+ * client compatibility. Uses the juice library.
+ */
+export function inlineCss(html: string): string {
+  return juice(html);
+}
+
+/**
+ * Strip the document wrapper (DOCTYPE, html, head, body tags) from a full
+ * HTML email document, returning only the body content.
+ * Used for loading existing full-document templates into the WYSIWYG editor.
+ */
+export function stripDocumentWrapper(html: string): string {
+  // Try to extract content between <body...> and </body>
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  if (bodyMatch) {
+    return bodyMatch[1].trim();
+  }
+  // If no body tag, return as-is (already a fragment)
+  return html;
+}
+
 // ── Available template variables per slug ──────────────────────────────────────
 
 export const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
@@ -235,7 +323,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
   ],
 };
 
-// ── Default template HTML ──────────────────────────────────────────────────────
+// ── Default template HTML (body fragments only — wrapped at render time) ──────
 
 export interface DefaultTemplate {
   slug: string;
@@ -245,28 +333,12 @@ export interface DefaultTemplate {
   textContent: string;
 }
 
-const WRAPPER_START = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">`;
-
-const WRAPPER_END = `
-  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
-    <p>This email was sent regarding {{eventName}}</p>
-  </div>
-</body>
-</html>`;
-
 export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
   {
     slug: "registration-confirmation",
     name: "Registration Confirmation",
     subject: "Registration Confirmed - {{eventName}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">Registration Confirmed!</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -283,10 +355,9 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
         <tr><td style="padding: 8px 0; color: #6b7280;">Ticket Type:</td><td style="padding: 8px 0; font-weight: 500;">{{ticketType}}</td></tr>
       </table>
     </div>
-    <p>If you have any questions, please don't hesitate to contact us.</p>
+    <p>If you have any questions, please don&apos;t hesitate to contact us.</p>
     <p style="margin-bottom: 0;">See you at the event!</p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Registration Confirmed - {{eventName}}
 
 Dear {{firstName}},
@@ -307,9 +378,8 @@ See you at the event!`,
     slug: "speaker-invitation",
     name: "Speaker Invitation",
     subject: "Speaker Invitation - {{eventName}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited to Speak!</h1>
+    htmlContent: `<div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">You&apos;re Invited to Speak!</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
   <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
@@ -324,10 +394,9 @@ See you at the event!`,
         <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
       </table>
     </div>
-    <p>Please let us know if you're interested in speaking at our event. We look forward to hearing from you!</p>
+    <p>Please let us know if you&apos;re interested in speaking at our event. We look forward to hearing from you!</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #11998e;">{{organizerEmail}}</a></p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Speaker Invitation - {{eventName}}
 
 Dear {{firstName}},
@@ -350,8 +419,7 @@ Best regards,
     slug: "speaker-agreement",
     name: "Speaker Agreement",
     subject: "Speaker Agreement - {{eventName}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">Speaker Agreement</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -371,12 +439,11 @@ Best regards,
       <li>Deliver your presentation as scheduled</li>
       <li>Provide presentation materials in advance if requested</li>
       <li>Allow the event to record and distribute your session (if applicable)</li>
-      <li>Adhere to the event's code of conduct</li>
+      <li>Adhere to the event&apos;s code of conduct</li>
     </ul>
-    <p>If you have any questions, please don't hesitate to reach out.</p>
+    <p>If you have any questions, please don&apos;t hesitate to reach out.</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #667eea;">{{organizerEmail}}</a></p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Speaker Agreement - {{eventName}}
 
 Dear {{firstName}},
@@ -397,8 +464,7 @@ Best regards,
     slug: "event-reminder",
     name: "Event Reminder",
     subject: "Reminder: {{eventName}} is coming up!",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">{{daysUntilEvent}} Days to Go!</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -412,10 +478,9 @@ Best regards,
         <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
       </table>
     </div>
-    <p>Don't forget to bring your registration confirmation or QR code for check-in.</p>
+    <p>Don&apos;t forget to bring your registration confirmation or QR code for check-in.</p>
     <p style="margin-bottom: 0;">We look forward to seeing you!</p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Reminder: {{eventName}} is coming up!
 
 Dear {{firstName}},
@@ -433,8 +498,7 @@ We look forward to seeing you!`,
     slug: "abstract-submission-confirmation",
     name: "Abstract Submission Confirmation",
     subject: "Abstract Submitted - {{eventName}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">Abstract Submitted!</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -453,8 +517,7 @@ We look forward to seeing you!`,
       <a href="{{managementLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
     <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Important:</strong> Save this email! The link above is your personal access link to manage your submission.</p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Abstract Submitted - {{eventName}}
 
 Dear {{firstName}},
@@ -474,8 +537,7 @@ Important: Save this email! The link above is your personal access link to manag
     slug: "abstract-status-update",
     name: "Abstract Status Update",
     subject: "{{statusHeading}} - {{eventName}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">{{statusHeading}}</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -493,8 +555,7 @@ Important: Save this email! The link above is your personal access link to manag
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{managementLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `{{statusHeading}} - {{eventName}}
 
 Dear {{firstName}},
@@ -514,8 +575,7 @@ View Your Abstract: {{managementLink}}`,
     slug: "submitter-welcome",
     name: "Submitter Welcome",
     subject: "Welcome to {{eventName}} - Account Created",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">Welcome!</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
@@ -523,11 +583,10 @@ View Your Abstract: {{managementLink}}`,
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your account has been created successfully for <strong>{{eventName}}</strong>. You can now log in to submit your abstracts.</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="{{loginLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In & Submit Abstract</a>
+      <a href="{{loginLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you did not create this account, you can safely ignore this email.</p>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `Welcome to {{eventName}} - Account Created
 
 Dear {{firstName}},
@@ -541,16 +600,14 @@ Log In: {{loginLink}}`,
     slug: "custom-notification",
     name: "Custom Notification",
     subject: "{{subject}}",
-    htmlContent: `${WRAPPER_START}
-  <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 10px 10px 0 0;">
+    htmlContent: `<div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 10px 10px 0 0;">
     <h1 style="color: white; margin: 0; font-size: 24px;">{{subject}}</h1>
     <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
   </div>
   <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <div style="white-space: pre-wrap;">{{message}}</div>
-  </div>
-${WRAPPER_END}`,
+  </div>`,
     textContent: `{{subject}}
 
 Dear {{firstName}},
@@ -691,14 +748,26 @@ export const emailTemplates = {
 export async function getEventTemplate(
   eventId: string,
   slug: string
-): Promise<{ subject: string; htmlContent: string; textContent: string } | null> {
+): Promise<{ subject: string; htmlContent: string; textContent: string; branding: EmailBranding } | null> {
   // Lazy import to avoid circular dependency (db → logger → email)
   const { db } = await import("./db");
 
-  const dbTemplate = await db.emailTemplate.findUnique({
-    where: { eventId_slug: { eventId, slug } },
-    select: { subject: true, htmlContent: true, textContent: true, isActive: true },
-  });
+  const [dbTemplate, event] = await Promise.all([
+    db.emailTemplate.findUnique({
+      where: { eventId_slug: { eventId, slug } },
+      select: { subject: true, htmlContent: true, textContent: true, isActive: true },
+    }),
+    db.event.findFirst({
+      where: { id: eventId },
+      select: { emailHeaderImage: true, emailFooterHtml: true, name: true },
+    }),
+  ]);
+
+  const branding: EmailBranding = {
+    emailHeaderImage: event?.emailHeaderImage,
+    emailFooterHtml: event?.emailFooterHtml,
+    eventName: event?.name,
+  };
 
   if (dbTemplate && !dbTemplate.isActive) {
     apiLogger.info({ msg: "Email template is disabled, falling back to default", eventId, slug });
@@ -709,6 +778,7 @@ export async function getEventTemplate(
       subject: dbTemplate.subject,
       htmlContent: dbTemplate.htmlContent,
       textContent: dbTemplate.textContent || "",
+      branding,
     };
   }
 
@@ -719,7 +789,24 @@ export async function getEventTemplate(
     return null;
   }
 
-  return { subject: def.subject, htmlContent: def.htmlContent, textContent: def.textContent };
+  return { subject: def.subject, htmlContent: def.htmlContent, textContent: def.textContent, branding };
+}
+
+/**
+ * Render a template with variables and wrap with branding.
+ * This is the main function for preparing email HTML for sending.
+ */
+export function renderAndWrap(
+  template: { subject: string; htmlContent: string; textContent: string },
+  variables: Record<string, string | number | undefined>,
+  branding: EmailBranding
+): { subject: string; htmlContent: string; textContent: string } {
+  const subject = renderTemplatePlain(template.subject, variables);
+  const bodyHtml = renderTemplate(template.htmlContent, variables);
+  const wrapped = wrapWithBranding(bodyHtml, branding);
+  const htmlContent = inlineCss(wrapped);
+  const textContent = renderTemplatePlain(template.textContent, variables);
+  return { subject, htmlContent, textContent };
 }
 
 // ── Helper function to send registration confirmation ──────────────────────────
@@ -756,28 +843,24 @@ export async function sendRegistrationConfirmation(params: {
   };
 
   // Try DB template first, fall back to default
-  let tpl: { subject: string; htmlContent: string; textContent: string } | null | undefined = null;
+  let tpl: { subject: string; htmlContent: string; textContent: string; branding: EmailBranding } | null = null;
 
   if (params.eventId) {
     tpl = await getEventTemplate(params.eventId, "registration-confirmation");
   }
-  if (!tpl) {
-    const def = getDefaultTemplate("registration-confirmation");
-    if (!def) {
-      apiLogger.error({ msg: "No registration-confirmation template found" });
-      return { success: false, error: "Email template not found" };
-    }
-    tpl = def;
+
+  const branding = tpl?.branding || { eventName: params.eventName };
+  const template = tpl || getDefaultTemplate("registration-confirmation");
+
+  if (!template) {
+    apiLogger.error({ msg: "No registration-confirmation template found" });
+    return { success: false, error: "Email template not found" };
   }
 
-  const subject = renderTemplatePlain(tpl.subject, vars);
-  const htmlContent = renderTemplate(tpl.htmlContent, vars);
-  const textContent = renderTemplatePlain(tpl.textContent, vars);
+  const rendered = renderAndWrap(template, vars, branding);
 
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],
-    subject,
-    htmlContent,
-    textContent,
+    ...rendered,
   });
 }

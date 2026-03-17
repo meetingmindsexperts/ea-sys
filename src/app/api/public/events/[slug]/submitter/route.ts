@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 
 const registerSchema = z.object({
   title: titleEnum.optional(),
@@ -237,11 +237,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     getEventTemplate(event.id, "submitter-welcome").then((tpl) => {
       const t = tpl || getDefaultTemplate("submitter-welcome");
       if (!t) { apiLogger.warn({ msg: "No template found for submitter-welcome" }); return; }
+      const branding = tpl?.branding || { eventName: event.name };
+      const rendered = renderAndWrap(t, vars, branding);
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
-        subject: renderTemplatePlain(t.subject, vars),
-        htmlContent: renderTemplate(t.htmlContent, vars),
-        textContent: renderTemplatePlain(t.textContent || "", vars),
+        ...rendered,
       });
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send submitter welcome email" }));
 

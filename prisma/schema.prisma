@@ -121,6 +121,8 @@ model Event {
   settings       Json        @default("{}")
   bannerImage    String?
   footerHtml     String?     @db.Text
+  emailHeaderImage String?
+  emailFooterHtml  String?   @db.Text
   externalId     String?
   externalSource String?
   createdAt      DateTime    @default(now())

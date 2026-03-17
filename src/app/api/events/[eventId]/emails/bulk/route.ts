@@ -4,7 +4,7 @@ import { RegistrationStatus, SpeakerStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
@@ -187,6 +187,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? Math.max(1, Math.ceil((new Date(event.startDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
       : 1;
 
+    const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: event.name };
+
     const generateEmailForRecipient = (recipient: typeof recipients[0]) => {
       const vars: Record<string, string | number> = {
         firstName: recipient.firstName,
@@ -209,11 +211,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         vars.message = customMessage;
       }
 
-      return {
-        subject: renderTemplatePlain(tpl.subject, vars),
-        htmlContent: renderTemplate(tpl.htmlContent, vars),
-        textContent: renderTemplatePlain(tpl.textContent || "", vars),
-      };
+      return renderAndWrap(tpl, vars, branding);
     };
 
     // Send in batches of 25

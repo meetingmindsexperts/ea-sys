@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +41,15 @@ import {
   usePreviewEmailTemplate,
   useDeleteEmailTemplate,
 } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { toast } from "sonner";
+import { stripDocumentWrapper } from "@/lib/email-utils";
+
+// Lazy-load Tiptap editor to avoid bloating other pages
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
+  { ssr: false, loading: () => <div className="h-[350px] border rounded-md animate-pulse bg-muted/50" /> }
+);
 
 const SYSTEM_SLUGS = new Set([
   "registration-confirmation",
@@ -72,18 +81,23 @@ export default function EmailTemplateEditorPage() {
   const [textContent, setTextContent] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Key to force re-mount TiptapEditor when server data reloads
+  const [editorKey, setEditorKey] = useState(0);
 
-  // Re-initialize form when server data changes (setState-during-render is React's recommended
-  // pattern for "adjusting state based on props": https://react.dev/learn/you-might-not-need-an-effect#adjusting-state-when-props-change)
+  // Re-initialize form when server data changes
   const serverUpdatedAt = data?.template?.updatedAt ?? null;
   if (serverUpdatedAt && serverUpdatedAt !== syncedAt && data?.template) {
     setSyncedAt(serverUpdatedAt);
     setSubject(data.template.subject);
-    setHtmlContent(data.template.htmlContent);
+    // Strip document wrapper for backwards compat with old full-document templates
+    const bodyContent = stripDocumentWrapper(data.template.htmlContent);
+    setHtmlContent(bodyContent);
     setTextContent(data.template.textContent || "");
     setIsActive(data.template.isActive);
     setDirty(false);
+    setEditorKey((k) => k + 1);
   }
 
   const handleSave = useCallback(async () => {
@@ -103,7 +117,6 @@ export default function EmailTemplateEditorPage() {
     try {
       await resetMutation.mutateAsync(templateId);
       toast.success("Template reset to default");
-      // Refetch will update state via useEffect
     } catch {
       toast.error("Failed to reset template");
     }
@@ -135,6 +148,7 @@ export default function EmailTemplateEditorPage() {
       });
       if (result.htmlContent) {
         setPreviewHtml(result.htmlContent);
+        setPreviewOpen(true);
       }
     } catch {
       toast.error("Failed to generate preview");
@@ -168,6 +182,7 @@ export default function EmailTemplateEditorPage() {
     (varKey: string) => {
       setHtmlContent((prev) => prev + `{{${varKey}}}`);
       setDirty(true);
+      setEditorKey((k) => k + 1);
     },
     []
   );
@@ -201,7 +216,7 @@ export default function EmailTemplateEditorPage() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Link
-              href={`/events/${eventId}/email-templates`}
+              href={`/events/${eventId}/settings`}
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -331,21 +346,20 @@ export default function EmailTemplateEditorPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">HTML Content</CardTitle>
+              <CardTitle className="text-base">Email Content</CardTitle>
               <CardDescription>
-                The HTML body of the email. Use {"{{variableName}}"} for personalization.
+                Edit the email body visually or switch to source mode for raw HTML. Use {"{{variableName}}"} for personalization.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Textarea
-                value={htmlContent}
-                onChange={(e) => {
-                  setHtmlContent(e.target.value);
+              <TiptapEditor
+                key={editorKey}
+                content={htmlContent}
+                onChange={(html) => {
+                  setHtmlContent(html);
                   setDirty(true);
                 }}
-                rows={24}
-                className="font-mono text-xs leading-relaxed"
-                placeholder="<!DOCTYPE html>..."
+                placeholder="Start writing your email content..."
               />
             </CardContent>
           </Card>
@@ -372,13 +386,13 @@ export default function EmailTemplateEditorPage() {
           </Card>
         </div>
 
-        {/* Sidebar: Variables + Preview */}
+        {/* Sidebar: Variables */}
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Variables</CardTitle>
               <CardDescription>
-                Click to insert at cursor position in HTML
+                Click to insert into email content
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -408,36 +422,16 @@ export default function EmailTemplateEditorPage() {
               </div>
             </CardContent>
           </Card>
-
-          {previewHtml && (
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Preview</CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPreviewHtml(null)}
-                    className="h-6 px-2 text-xs"
-                  >
-                    Close
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="border rounded-md overflow-hidden bg-white">
-                  <iframe
-                    srcDoc={previewHtml}
-                    title="Email Preview"
-                    className="w-full h-[500px] border-0"
-                    sandbox="allow-same-origin"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
+
+      {/* Preview Dialog */}
+      <EmailPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        subject={subject}
+        htmlContent={previewHtml || ""}
+      />
     </div>
   );
 }

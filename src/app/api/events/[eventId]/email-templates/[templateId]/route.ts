@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES } from "@/lib/email";
+import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss } from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ eventId: string; templateId: string }>;
@@ -115,13 +115,25 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const template = await db.emailTemplate.findFirst({
-      where: { id: templateId, eventId },
-    });
+    const [template, event] = await Promise.all([
+      db.emailTemplate.findFirst({
+        where: { id: templateId, eventId },
+      }),
+      db.event.findFirst({
+        where: { id: eventId },
+        select: { emailHeaderImage: true, emailFooterHtml: true, name: true },
+      }),
+    ]);
 
     if (!template) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
+
+    const branding = {
+      emailHeaderImage: event?.emailHeaderImage,
+      emailFooterHtml: event?.emailFooterHtml,
+      eventName: event?.name,
+    };
 
     const body = await req.json();
     const { action } = body; // "preview" or "test"
@@ -156,8 +168,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       ctaLink: "#",
     };
 
-    const renderedHtml = renderTemplate(template.htmlContent, sampleVars);
+    const renderedBody = renderTemplate(template.htmlContent, sampleVars);
     const renderedSubject = renderTemplatePlain(template.subject, sampleVars);
+    const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, branding));
 
     if (action === "test") {
       // Send test email to current user
@@ -173,7 +186,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const result = await sendEmail({
         to: [{ email: user.email, name: user.firstName || "Test" }],
         subject: `[TEST] ${renderedSubject}`,
-        htmlContent: renderedHtml,
+        htmlContent: wrappedHtml,
       });
 
       return NextResponse.json({
@@ -185,7 +198,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Preview mode — return rendered HTML
     return NextResponse.json({
       subject: renderedSubject,
-      htmlContent: renderedHtml,
+      htmlContent: wrappedHtml,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error processing email template action" });

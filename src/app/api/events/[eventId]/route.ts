@@ -23,6 +23,9 @@ const updateEventSchema = z.object({
   country: z.string().max(255).nullable().optional(),
   status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
   bannerImage: z.string().max(500).nullable().optional(),
+  footerHtml: z.string().max(10000).nullable().optional(),
+  emailHeaderImage: z.string().max(500).nullable().optional(),
+  emailFooterHtml: z.string().max(10000).nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -117,6 +120,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       country,
       status,
       bannerImage,
+      footerHtml,
+      emailHeaderImage,
+      emailFooterHtml,
       settings,
     } = validated.data;
 
@@ -164,6 +170,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(country !== undefined && { country }),
         ...(status && { status }),
         ...(bannerImage !== undefined && { bannerImage }),
+        ...(footerHtml !== undefined && { footerHtml }),
+        ...(emailHeaderImage !== undefined && { emailHeaderImage }),
+        ...(emailFooterHtml !== undefined && { emailFooterHtml }),
         settings: updatedSettings,
       },
     });

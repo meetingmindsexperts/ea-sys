@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain, getAbstractStatusInfo } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbstractStatusInfo } from "@/lib/email";
 import { getClientIp } from "@/lib/security";
 
 const updateAbstractSchema = z.object({
@@ -231,14 +231,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       getEventTemplate(eventId, "abstract-status-update").then((tpl) => {
         const t = tpl || getDefaultTemplate("abstract-status-update");
         if (!t) { apiLogger.warn({ msg: "No template found for abstract-status-update" }); return; }
-        const subject = renderTemplatePlain(t.subject, vars);
-        const htmlContent = renderTemplate(t.htmlContent, vars);
-        const textContent = renderTemplatePlain(t.textContent || "", vars);
+        const branding = tpl?.branding || { eventName: event.name };
+        const rendered = renderAndWrap(t, vars, branding);
         return sendEmail({
           to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
-          subject,
-          htmlContent,
-          textContent,
+          ...rendered,
         });
       }).catch((err) => {
         apiLogger.error({ err, msg: "Failed to send abstract status notification email" });
