@@ -142,6 +142,7 @@ async function readDatabaseLogs(
 
 async function readLogFile(
   level: string,
+  since: string,
   tailNum: number
 ): Promise<{ logs: LogEntry[]; source: string }> {
   // Use error log file for error-only filter, otherwise app log
@@ -157,20 +158,74 @@ async function readLogFile(
   const content = await readFile(logPath, "utf-8");
   const lines = content.split("\n");
 
-  // Take the last N lines
-  const tailedLines = lines.slice(-tailNum);
+  // Take the last N lines (over-fetch to account for filtering)
+  const tailedLines = lines.slice(-(tailNum * 3));
 
-  const logs = tailedLines
+  let logs = tailedLines
     .map(parsePinoLine)
     .filter((entry): entry is LogEntry => entry !== null);
 
+  // Apply time range filter
+  const sinceDate = sinceToDate(since);
+  if (sinceDate) {
+    const sinceMs = sinceDate.getTime();
+    logs = logs.filter((log) => new Date(log.timestamp).getTime() >= sinceMs);
+  }
+
+  // Apply level filter (error.log is already pre-filtered for errors)
+  if (level !== "all" && level !== "error") {
+    logs = logs.filter((log) => log.level === level);
+  }
+
+  // Trim to requested tail count
+  if (logs.length > tailNum) {
+    logs = logs.slice(-tailNum);
+  }
+
   return { logs, source: `file (${logFileName})` };
+}
+
+// ── Detect running container name for docker logs ─────────────────
+async function getContainerName(): Promise<string> {
+  // Try reading the hostname inside a Docker container (container ID)
+  try {
+    const hostname = (await readFile("/etc/hostname", "utf-8")).trim();
+    if (hostname) {
+      // Get the container name from the container ID
+      const { stdout } = await execFileAsync(
+        "docker",
+        ["inspect", "--format", "{{.Name}}", hostname],
+        { timeout: 5000 }
+      );
+      const name = stdout.trim().replace(/^\//, "");
+      if (name) return name;
+    }
+  } catch {
+    // Not inside Docker or can't inspect
+  }
+
+  // Fallback: find a running container matching our project
+  try {
+    const { stdout } = await execFileAsync(
+      "docker",
+      ["ps", "--format", "{{.Names}}", "--filter", "name=ea-sys"],
+      { timeout: 5000 }
+    );
+    const containers = stdout.trim().split("\n").filter(Boolean);
+    if (containers.length > 0) return containers[0];
+  } catch {
+    // Docker not available
+  }
+
+  // Last resort
+  return "ea-sys-blue";
 }
 
 async function readDockerLogs(
   since: string,
   tailNum: number
 ): Promise<{ logs: LogEntry[]; source: string }> {
+  const containerName = await getContainerName();
   const args: string[] = ["logs"];
 
   if (since !== "all") {
@@ -179,19 +234,20 @@ async function readDockerLogs(
 
   args.push(`--tail=${tailNum}`);
   args.push("--timestamps");
-  args.push("ea-sys");
+  args.push(containerName);
 
   const { stdout, stderr } = await execFileAsync("docker", args, {
     maxBuffer: 10 * 1024 * 1024,
   });
 
-  const rawOutput = stdout + (stderr || "");
+  // Docker outputs app stdout to stdout and app stderr to stderr
+  const rawOutput = (stdout || "") + (stderr || "");
   const logs = rawOutput
     .split("\n")
     .map(parseDockerLine)
     .filter((entry): entry is LogEntry => entry !== null);
 
-  return { logs, source: "docker" };
+  return { logs, source: `docker (${containerName})` };
 }
 
 export async function GET(req: Request) {
@@ -221,20 +277,14 @@ export async function GET(req: Request) {
     // Validate inputs against allowlists
     if (!ALLOWED_SINCE.has(since)) {
       return NextResponse.json(
-        {
-          error:
-            "Invalid 'since' parameter. Allowed: 10m, 30m, 1h, 6h, 24h, all",
-        },
+        { error: "Invalid 'since' parameter. Allowed: 10m, 30m, 1h, 6h, 24h, all" },
         { status: 400 }
       );
     }
 
     if (!ALLOWED_LEVELS.has(level)) {
       return NextResponse.json(
-        {
-          error:
-            "Invalid 'level' parameter. Allowed: all, error, warn, info, debug",
-        },
+        { error: "Invalid 'level' parameter. Allowed: all, error, warn, info, debug" },
         { status: 400 }
       );
     }
@@ -249,9 +299,7 @@ export async function GET(req: Request) {
     const tailNum = parseInt(tailParam, 10);
     if (isNaN(tailNum) || tailNum < 1 || tailNum > MAX_TAIL) {
       return NextResponse.json(
-        {
-          error: `Invalid 'tail' parameter. Must be a number between 1 and ${MAX_TAIL}`,
-        },
+        { error: `Invalid 'tail' parameter. Must be a number between 1 and ${MAX_TAIL}` },
         { status: 400 }
       );
     }
@@ -272,30 +320,21 @@ export async function GET(req: Request) {
       } catch (dockerError) {
         apiLogger.warn({ err: dockerError, msg: "Docker logs unavailable" });
         return NextResponse.json({
-          error:
-            "Docker not available. Try source=database or source=file.",
+          error: "Docker not available. Try source=database or source=file.",
           logs: [],
           count: 0,
         });
       }
     } else {
-      // File source — reads from logs/ directory
-      const result = await readLogFile(level, tailNum);
+      // File source — reads from logs/ directory (filters applied inside)
+      const result = await readLogFile(level, since, tailNum);
       logs = result.logs;
       source = result.source;
     }
 
-    // Filter by level (database source already filters; file/docker need client-side filter)
-    if (sourceParam !== "database") {
-      if (level !== "all" && sourceParam !== "file") {
-        logs = logs.filter((log) => log.level === level);
-      } else if (
-        level !== "all" &&
-        level !== "error" &&
-        sourceParam === "file"
-      ) {
-        logs = logs.filter((log) => log.level === level);
-      }
+    // Docker source: apply level filter (Docker --since handles time, but not level)
+    if (sourceParam === "docker" && level !== "all") {
+      logs = logs.filter((log) => log.level === level);
     }
 
     // Filter by search term

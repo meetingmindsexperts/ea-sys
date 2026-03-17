@@ -195,8 +195,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Sync updated speaker to org contact store (fire-and-forget)
-    syncToContact({
+    // Sync updated speaker to org contact store (awaited — errors caught internally)
+    await syncToContact({
       organizationId: session.user.organizationId!,
       eventId,
       email: speaker.email,

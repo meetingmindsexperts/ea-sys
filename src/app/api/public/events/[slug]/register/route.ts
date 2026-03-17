@@ -222,8 +222,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const registration = result;
 
-    // Sync to org contact store (fire-and-forget)
-    syncToContact({
+    // Sync to org contact store (awaited — errors caught internally)
+    await syncToContact({
       organizationId: event.organizationId,
       eventId: event.id,
       email,

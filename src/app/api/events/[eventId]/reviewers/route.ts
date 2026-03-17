@@ -231,7 +231,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { email: true, firstName: true, lastName: true, title: true, organization: true, jobTitle: true, phone: true, photo: true, city: true, country: true, bio: true, specialty: true, registrationType: true },
       });
       if (spk) {
-        syncToContact({
+        await syncToContact({
           organizationId: session.user.organizationId!,
           eventId,
           email: spk.email,
@@ -250,7 +250,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       }
     } else {
-      syncToContact({
+      await syncToContact({
         organizationId: session.user.organizationId!,
         eventId,
         email: validated.data.email,

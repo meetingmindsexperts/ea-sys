@@ -174,8 +174,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         created++;
 
-        // Sync to contact store (fire-and-forget)
-        syncToContact({
+        // Sync to contact store (awaited — errors caught internally)
+        await syncToContact({
           organizationId: session.user.organizationId!,
           eventId,
           email,

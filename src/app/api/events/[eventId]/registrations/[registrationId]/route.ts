@@ -173,9 +173,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       });
 
-      // Sync updated attendee to org contact store (fire-and-forget)
+      // Sync updated attendee to org contact store (awaited — errors caught internally)
       const a = existingRegistration.attendee;
-      syncToContact({
+      await syncToContact({
         organizationId: session.user.organizationId!,
         eventId,
         email: a.email,

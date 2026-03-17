@@ -202,8 +202,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     });
 
-    // Sync submitter to org contact store (fire-and-forget)
-    syncToContact({
+    // Sync submitter to org contact store (awaited — errors caught internally)
+    await syncToContact({
       organizationId: event.organizationId,
       eventId: event.id,
       email: emailLower,
