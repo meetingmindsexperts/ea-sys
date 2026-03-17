@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const emailLimit = checkRateLimit({
       key: `speaker-email:${session.user.id}`,
       limit: 200,
-      windowMs: 60 * 60 * 1000, // 200 emails per hour per user
+      windowMs: 60 * 60 * 1000,
     });
     if (!emailLimit.allowed) {
       return NextResponse.json(
@@ -46,23 +46,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const [event, speaker, user] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
+        where: { id: eventId, organizationId: session.user.organizationId! },
       }),
       db.speaker.findFirst({
-        where: {
-          id: speakerId,
-          eventId,
-        },
-        include: {
-          sessions: {
-            include: {
-              session: true,
-            },
-          },
-        },
+        where: { id: speakerId, eventId },
+        include: { sessions: { include: { session: true } } },
       }),
       db.user.findUnique({
         where: { id: session.user.id },
@@ -90,80 +78,62 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { type, customSubject, customMessage, includeAgreementLink } = validated.data;
 
-    const speakerName = `${speaker.firstName} ${speaker.lastName}`;
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
+          weekday: "long", year: "numeric", month: "long", day: "numeric",
         })
       : "TBA";
-    const eventVenue = event.venue || "TBA";
     const organizerName = user?.firstName && user?.lastName
-      ? `${user.firstName} ${user.lastName}`
-      : "Event Organizer";
+      ? `${user.firstName} ${user.lastName}` : "Event Organizer";
     const organizerEmail = user?.email || "";
-
-    // Get session details if speaker is assigned to sessions
     const sessionDetails = speaker.sessions.length > 0
-      ? speaker.sessions.map((s) => s.session.name).join(", ")
-      : undefined;
+      ? speaker.sessions.map((s) => s.session.name).join(", ") : "";
 
-    let emailContent;
+    const vars: Record<string, string> = {
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      eventName: event.name,
+      eventDate,
+      eventVenue: event.venue || "TBA",
+      organizerName,
+      organizerEmail,
+      personalMessage: customMessage || "",
+      sessionDetails,
+      agreementLink: includeAgreementLink
+        ? `${process.env.NEXT_PUBLIC_APP_URL || ""}/speaker-agreement/${speaker.id}` : "",
+    };
 
-    switch (type) {
-      case "invitation":
-        emailContent = emailTemplates.speakerInvitation({
-          speakerName,
-          eventName: event.name,
-          eventDate,
-          eventVenue,
-          personalMessage: customMessage,
-          organizerName,
-          organizerEmail,
-        });
-        break;
+    const slugMap: Record<string, string> = {
+      invitation: "speaker-invitation",
+      agreement: "speaker-agreement",
+      custom: "custom-notification",
+    };
 
-      case "agreement":
-        emailContent = emailTemplates.speakerAgreement({
-          speakerName,
-          eventName: event.name,
-          eventDate,
-          eventVenue,
-          sessionDetails,
-          agreementLink: includeAgreementLink
-            ? `${process.env.NEXT_PUBLIC_APP_URL || ""}/speaker-agreement/${speaker.id}`
-            : undefined,
-          organizerName,
-          organizerEmail,
-        });
-        break;
-
-      case "custom":
-        if (!customSubject || !customMessage) {
-          return NextResponse.json(
-            { error: "Custom emails require subject and message" },
-            { status: 400 }
-          );
-        }
-        emailContent = emailTemplates.customNotification({
-          recipientName: speakerName,
-          subject: customSubject,
-          message: customMessage,
-          eventName: event.name,
-        });
-        break;
-
-      default:
-        return NextResponse.json({ error: "Invalid email type" }, { status: 400 });
+    if (type === "custom") {
+      if (!customSubject || !customMessage) {
+        return NextResponse.json(
+          { error: "Custom emails require subject and message" },
+          { status: 400 }
+        );
+      }
+      vars.subject = customSubject;
+      vars.message = customMessage;
     }
 
+    const tpl = await getEventTemplate(eventId, slugMap[type]) || getDefaultTemplate(slugMap[type]);
+    if (!tpl) {
+      return NextResponse.json({ error: "Email template not found" }, { status: 500 });
+    }
+
+    const subject = renderTemplatePlain(tpl.subject, vars);
+    const htmlContent = renderTemplate(tpl.htmlContent, vars);
+    const textContent = renderTemplatePlain(tpl.textContent || "", vars);
+
     const result = await sendEmail({
-      to: [{ email: speaker.email, name: speakerName }],
-      subject: emailContent.subject,
-      htmlContent: emailContent.htmlContent,
-      textContent: emailContent.textContent,
+      to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
+      subject,
+      htmlContent,
+      textContent,
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
     });
 
@@ -174,7 +144,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Log the action
     await db.auditLog.create({
       data: {
         eventId,
@@ -185,7 +154,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: {
           emailType: type,
           recipient: speaker.email,
-          subject: emailContent.subject,
+          subject,
           ip: getClientIp(req),
         },
       },

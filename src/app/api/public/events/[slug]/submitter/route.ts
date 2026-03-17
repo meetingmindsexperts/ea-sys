@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
 
 const registerSchema = z.object({
   title: titleEnum.optional(),
@@ -224,6 +225,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId: event.id,
       email: emailLower,
     });
+
+    // Send welcome email (non-blocking)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const vars = {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      eventName: event.name,
+      loginLink: `${appUrl}/login`,
+    };
+    getEventTemplate(event.id, "submitter-welcome").then((tpl) => {
+      const t = tpl || getDefaultTemplate("submitter-welcome")!;
+      return sendEmail({
+        to: [{ email: emailLower, name: data.firstName }],
+        subject: renderTemplatePlain(t.subject, vars),
+        htmlContent: renderTemplate(t.htmlContent, vars),
+        textContent: renderTemplatePlain(t.textContent || "", vars),
+      });
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send submitter welcome email" }));
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Mail, Send } from "lucide-react";
+import { Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { useBulkEmail } from "@/hooks/use-api";
 
@@ -100,12 +100,56 @@ export function BulkEmailDialog({
   const [emailType, setEmailType] = useState<string>(getDefaultEmailType(recipientType));
   const [customSubject, setCustomSubject] = useState("");
   const [customMessage, setCustomMessage] = useState("");
+  const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
 
   const emailTypes = getEmailTypes(recipientType);
   const isCustom = emailType === "custom";
   const label = getRecipientLabel(recipientType);
+
+  const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
+  const MAX_FILES = 5;
+
+  const totalAttachmentSize = attachments.reduce((sum, a) => sum + a.size, 0);
+
+  const handleFileAdd = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+
+    const remaining = MAX_FILES - attachments.length;
+    const filesToAdd = Array.from(files).slice(0, remaining);
+
+    for (const file of filesToAdd) {
+      const newTotal = totalAttachmentSize + file.size;
+      if (newTotal > MAX_ATTACHMENT_SIZE) {
+        toast.error("Total attachment size exceeds 10MB limit");
+        break;
+      }
+
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1]); // strip data:...;base64, prefix
+        };
+        reader.readAsDataURL(file);
+      });
+
+      setAttachments((prev) => [
+        ...prev,
+        { name: file.name, content: base64, contentType: file.type || undefined, size: file.size },
+      ]);
+    }
+
+    // Reset input so the same file can be re-added
+    e.target.value = "";
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleSend = async () => {
     if (isCustom && (!customSubject.trim() || !customMessage.trim())) {
@@ -120,6 +164,9 @@ export function BulkEmailDialog({
         emailType: emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom",
         customSubject: isCustom ? customSubject.trim() : undefined,
         customMessage: isCustom ? customMessage.trim() : emailType === "invitation" ? customMessage.trim() || undefined : undefined,
+        attachments: attachments.length > 0
+          ? attachments.map(({ name, content, contentType }) => ({ name, content, contentType }))
+          : undefined,
         filters: {
           ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
           ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
@@ -140,6 +187,7 @@ export function BulkEmailDialog({
     setEmailType(getDefaultEmailType(recipientType));
     setCustomSubject("");
     setCustomMessage("");
+    setAttachments([]);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -231,6 +279,56 @@ export function BulkEmailDialog({
               )}
             </div>
           )}
+
+          {/* File Attachments */}
+          <div className="space-y-2">
+            <Label>Attachments</Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              aria-label="Upload file attachments"
+              onChange={handleFileAdd}
+            />
+            {attachments.length > 0 && (
+              <div className="space-y-1">
+                {attachments.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{file.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {(file.size / 1024).toFixed(0)}KB
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      aria-label={`Remove ${file.name}`}
+                      className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={attachments.length >= MAX_FILES}
+            >
+              <Paperclip className="mr-2 h-4 w-4" />
+              {attachments.length === 0 ? "Add Attachments" : "Add More"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Max {MAX_FILES} files, 10MB total
+              {totalAttachmentSize > 0 && ` · ${(totalAttachmentSize / (1024 * 1024)).toFixed(1)}MB used`}
+            </p>
+          </div>
 
           {/* Recipient summary */}
           <div className="rounded-md border p-3 text-sm">

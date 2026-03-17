@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
+import { DEFAULT_TEMPLATES } from "@/lib/email";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -129,6 +130,18 @@ export async function POST(req: Request) {
         specialty: specialty || null,
       },
     });
+
+    // Seed default email templates for this event (non-blocking)
+    db.emailTemplate.createMany({
+      data: DEFAULT_TEMPLATES.map((t) => ({
+        eventId: event.id,
+        slug: t.slug,
+        name: t.name,
+        subject: t.subject,
+        htmlContent: t.htmlContent,
+        textContent: t.textContent,
+      })),
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to seed email templates" }));
 
     return NextResponse.json(event, { status: 201 });
   } catch (error) {

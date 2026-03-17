@@ -58,6 +58,8 @@ export const queryKeys = {
   eventsAirConfig: ["eventsair", "config"] as const,
   eventsAirEvents: ["eventsair", "events"] as const,
   importLogs: (eventId: string) => ["events", eventId, "import-logs"] as const,
+  emailTemplates: (eventId: string) => ["events", eventId, "email-templates"] as const,
+  emailTemplate: (eventId: string, templateId: string) => ["events", eventId, "email-templates", templateId] as const,
   registrationTypes: ["registration-types"] as const,
 };
 
@@ -494,6 +496,72 @@ export function useRegistrationTypes() {
   });
 }
 
+// ============ EMAIL TEMPLATES ============
+export function useEmailTemplates(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.emailTemplates(eventId),
+    queryFn: () =>
+      fetchApi<{ templates: any[]; variables: Record<string, { key: string; description: string }[]> }>(
+        `/api/events/${eventId}/email-templates`
+      ),
+    enabled: !!eventId,
+  });
+}
+
+export function useEmailTemplate(eventId: string, templateId: string) {
+  return useQuery({
+    queryKey: queryKeys.emailTemplate(eventId, templateId),
+    queryFn: () =>
+      fetchApi<{ template: any; variables: { key: string; description: string }[] }>(
+        `/api/events/${eventId}/email-templates/${templateId}`
+      ),
+    enabled: !!eventId && !!templateId,
+  });
+}
+
+export function useUpdateEmailTemplate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, data }: { templateId: string; data: any }) =>
+      fetchApi(`/api/events/${eventId}/email-templates/${templateId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (_, { templateId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplate(eventId, templateId) });
+    },
+  });
+}
+
+export function useResetEmailTemplate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      fetchApi(`/api/events/${eventId}/email-templates/${templateId}`, {
+        method: "PATCH",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
+    },
+  });
+}
+
+export function usePreviewEmailTemplate(eventId: string) {
+  return useMutation({
+    mutationFn: ({ templateId, action }: { templateId: string; action: "preview" | "test" }) =>
+      fetchApi<{ subject?: string; htmlContent?: string; success?: boolean; message?: string }>(
+        `/api/events/${eventId}/email-templates/${templateId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        }
+      ),
+  });
+}
+
 // ============ BULK EMAIL ============
 export function useBulkEmail(eventId: string) {
   return useMutation({
@@ -503,6 +571,7 @@ export function useBulkEmail(eventId: string) {
       emailType: "invitation" | "agreement" | "confirmation" | "reminder" | "custom";
       customSubject?: string;
       customMessage?: string;
+      attachments?: Array<{ name: string; content: string; contentType?: string }>;
       filters?: { status?: string; ticketTypeId?: string };
     }) =>
       fetchApi<{ success: boolean; message: string; stats: { total: number; sent: number; failed: number }; errors?: Array<{ email: string; error: string }> }>(

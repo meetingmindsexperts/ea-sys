@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const emailLimit = checkRateLimit({
       key: `registration-email:${session.user.id}`,
       limit: 200,
-      windowMs: 60 * 60 * 1000, // 200 emails per hour per user
+      windowMs: 60 * 60 * 1000,
     });
     if (!emailLimit.allowed) {
       return NextResponse.json(
@@ -46,20 +46,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
+        where: { id: eventId, organizationId: session.user.organizationId! },
       }),
       db.registration.findFirst({
-        where: {
-          id: registrationId,
-          eventId,
-        },
-        include: {
-          ticketType: true,
-          attendee: true,
-        },
+        where: { id: registrationId, eventId },
+        include: { ticketType: true, attendee: true },
       }),
     ]);
 
@@ -83,69 +74,60 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { type, customSubject, customMessage, daysUntilEvent } = validated.data;
 
-    const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
+          weekday: "long", year: "numeric", month: "long", day: "numeric",
         })
       : "TBA";
-    const eventVenue = event.venue || "TBA";
-    const ticketType = registration.ticketType?.name || "General Admission";
 
-    let emailContent;
+    const vars: Record<string, string | number> = {
+      firstName: registration.attendee.firstName,
+      lastName: registration.attendee.lastName,
+      eventName: event.name,
+      eventDate,
+      eventVenue: event.venue || "TBA",
+      eventAddress: event.address || "",
+      ticketType: registration.ticketType?.name || "General Admission",
+      registrationId: registration.id.slice(-8).toUpperCase(),
+    };
 
-    switch (type) {
-      case "confirmation":
-        emailContent = emailTemplates.registrationConfirmation({
-          attendeeName,
-          eventName: event.name,
-          eventDate,
-          eventVenue,
-          ticketType,
-          registrationId: registration.id.slice(-8).toUpperCase(),
-          additionalInfo: customMessage,
-        });
-        break;
+    const slugMap: Record<string, string> = {
+      confirmation: "registration-confirmation",
+      reminder: "event-reminder",
+      custom: "custom-notification",
+    };
 
-      case "reminder":
-        const days = daysUntilEvent ?? 1;
-        emailContent = emailTemplates.eventReminder({
-          recipientName: attendeeName,
-          eventName: event.name,
-          eventDate,
-          eventVenue,
-          eventAddress: event.address || undefined,
-          daysUntilEvent: days,
-        });
-        break;
-
-      case "custom":
-        if (!customSubject || !customMessage) {
-          return NextResponse.json(
-            { error: "Custom emails require subject and message" },
-            { status: 400 }
-          );
-        }
-        emailContent = emailTemplates.customNotification({
-          recipientName: attendeeName,
-          subject: customSubject,
-          message: customMessage,
-          eventName: event.name,
-        });
-        break;
-
-      default:
-        return NextResponse.json({ error: "Invalid email type" }, { status: 400 });
+    if (type === "reminder") {
+      vars.daysUntilEvent = daysUntilEvent ?? 1;
     }
+
+    if (type === "custom") {
+      if (!customSubject || !customMessage) {
+        return NextResponse.json(
+          { error: "Custom emails require subject and message" },
+          { status: 400 }
+        );
+      }
+      vars.subject = customSubject;
+      vars.message = customMessage;
+    }
+
+    const tpl = await getEventTemplate(eventId, slugMap[type]) || getDefaultTemplate(slugMap[type]);
+    if (!tpl) {
+      return NextResponse.json({ error: "Email template not found" }, { status: 500 });
+    }
+
+    const subject = renderTemplatePlain(tpl.subject, vars);
+    const htmlContent = renderTemplate(tpl.htmlContent, vars);
+    const textContent = renderTemplatePlain(tpl.textContent || "", vars);
+
+    const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
 
     const result = await sendEmail({
       to: [{ email: registration.attendee.email, name: attendeeName }],
-      subject: emailContent.subject,
-      htmlContent: emailContent.htmlContent,
-      textContent: emailContent.textContent,
+      subject,
+      htmlContent,
+      textContent,
     });
 
     if (!result.success) {
@@ -155,7 +137,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Log the action
     await db.auditLog.create({
       data: {
         eventId,
@@ -166,7 +147,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: {
           emailType: type,
           recipient: registration.attendee.email,
-          subject: emailContent.subject,
+          subject,
           ip: getClientIp(req),
         },
       },

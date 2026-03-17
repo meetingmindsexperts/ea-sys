@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain, getAbstractStatusInfo } from "@/lib/email";
 import { getClientIp } from "@/lib/security";
 
 const updateAbstractSchema = z.object({
@@ -211,22 +211,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
       const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
 
-      const template = emailTemplates.abstractStatusUpdate({
-        recipientName: `${abstract.speaker.firstName} ${abstract.speaker.lastName}`,
-        recipientEmail: abstract.speaker.email,
+      const statusInfo = getAbstractStatusInfo(data.status);
+      const reviewNotesHtml = data.reviewNotes
+        ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${data.reviewNotes}</span></div>`
+        : "";
+      const vars: Record<string, string | number | undefined> = {
+        firstName: abstract.speaker.firstName,
+        lastName: abstract.speaker.lastName,
         eventName: event.name,
         abstractTitle: abstract.title,
-        newStatus: data.status,
-        reviewNotes: data.reviewNotes || undefined,
+        newStatus: data.status.replace(/_/g, " "),
+        statusHeading: statusInfo.heading,
+        statusMessage: statusInfo.message,
+        reviewNotes: reviewNotesHtml,
         reviewScore: data.reviewScore ?? undefined,
         managementLink,
-      });
+      };
 
-      sendEmail({
-        to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
-        subject: template.subject,
-        htmlContent: template.htmlContent,
-        textContent: template.textContent,
+      getEventTemplate(eventId, "abstract-status-update").then((tpl) => {
+        const t = tpl || getDefaultTemplate("abstract-status-update")!;
+        const subject = renderTemplatePlain(t.subject, vars);
+        const htmlContent = renderTemplate(t.htmlContent, vars);
+        const textContent = renderTemplatePlain(t.textContent || "", vars);
+        return sendEmail({
+          to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
+          subject,
+          htmlContent,
+          textContent,
+        });
       }).catch((err) => {
         apiLogger.error({ err, msg: "Failed to send abstract status notification email" });
       });

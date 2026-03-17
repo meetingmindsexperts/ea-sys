@@ -42,6 +42,7 @@ import {
   Ticket,
   History,
   ArrowRight,
+  Mail,
 } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -386,6 +387,10 @@ export default function EventSettingsPage() {
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <ImageIcon className="h-4 w-4" />
             Branding
+          </TabsTrigger>
+          <TabsTrigger value="email-templates" className="flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email Templates
           </TabsTrigger>
           <TabsTrigger value="danger" className="flex items-center gap-2 text-red-600">
             <Trash2 className="h-4 w-4" />
@@ -942,6 +947,28 @@ export default function EventSettingsPage() {
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Branding"}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Email Templates */}
+        <TabsContent value="email-templates">
+          <Card>
+            <CardHeader>
+              <CardTitle>Email Templates</CardTitle>
+              <CardDescription>
+                Customize the email templates sent to attendees, speakers, and reviewers for this event
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-center py-4">
+                <Link href={`/events/${eventId}/email-templates`}>
+                  <Button>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Manage Email Templates
+                  </Button>
+                </Link>
               </div>
             </CardContent>
           </Card>

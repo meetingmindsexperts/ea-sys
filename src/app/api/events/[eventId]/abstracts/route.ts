@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderTemplate, renderTemplatePlain } from "@/lib/email";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -167,6 +168,33 @@ export async function POST(req: Request, { params }: RouteParams) {
         track: true,
       },
     });
+
+    // Send abstract submission confirmation email (non-blocking)
+    if (abstract.speaker && (status === "SUBMITTED" || status === "DRAFT")) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
+      const vars = {
+        firstName: abstract.speaker.firstName,
+        lastName: abstract.speaker.lastName,
+        eventName: "",
+        abstractTitle: abstract.title,
+        managementLink,
+      };
+      // Fetch event name for the email
+      db.event.findUnique({ where: { id: eventId }, select: { name: true } })
+        .then(async (ev) => {
+          vars.eventName = ev?.name || "";
+          const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
+            || getDefaultTemplate("abstract-submission-confirmation")!;
+          return sendEmail({
+            to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
+            subject: renderTemplatePlain(tpl.subject, vars),
+            htmlContent: renderTemplate(tpl.htmlContent, vars),
+            textContent: renderTemplatePlain(tpl.textContent || "", vars),
+          });
+        })
+        .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));
+    }
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({
