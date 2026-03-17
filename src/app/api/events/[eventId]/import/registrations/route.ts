@@ -197,6 +197,19 @@ export async function POST(req: Request, { params }: RouteParams) {
             throw new Error("ALREADY_REGISTERED");
           }
 
+          // Check capacity and increment soldCount
+          const currentTicket = await tx.ticketType.findUnique({
+            where: { id: ticketType.id },
+            select: { quantity: true, soldCount: true },
+          });
+          if (currentTicket && currentTicket.soldCount >= currentTicket.quantity) {
+            throw new Error("CAPACITY_EXCEEDED");
+          }
+          await tx.ticketType.update({
+            where: { id: ticketType.id },
+            data: { soldCount: { increment: 1 } },
+          });
+
           await tx.registration.create({
             data: {
               eventId,
@@ -231,6 +244,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {
           skipped++;
+        } else if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
+          errors.push(`Row ${rowNum}: registration type is at full capacity`);
         } else {
           errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
         }

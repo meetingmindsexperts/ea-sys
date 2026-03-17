@@ -45,31 +45,34 @@ export default auth((req) => {
     !pathname.startsWith("/api/public/") &&
     !pathname.startsWith("/api/health")
   ) {
-    const hasApiKey =
-      req.headers.get("x-api-key") ||
-      req.headers.get("authorization")?.startsWith("Bearer ");
+    const origin = req.headers.get("origin");
+    const host = req.headers.get("host");
 
-    if (!hasApiKey) {
-      const origin = req.headers.get("origin");
-      const host = req.headers.get("host");
-
-      if (!origin) {
-        // Block requests with no Origin header (non-browser clients should use API keys)
-        logWarn("CSRF missing origin", { pathname });
+    // Browser requests always send Origin — validate it regardless of API-key headers
+    // to prevent CSRF via forged headers
+    if (origin && host) {
+      let originHost: string;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        logWarn("CSRF invalid origin URL", { pathname, origin });
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      if (originHost !== host) {
+        logWarn("CSRF origin mismatch", { pathname, origin, host });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
 
-      if (host) {
-        try {
-          const originHost = new URL(origin).host;
-          if (originHost !== host) {
-            logWarn("CSRF origin mismatch", { pathname, origin, host });
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-          }
-        } catch {
-          logWarn("CSRF invalid origin URL", { pathname, origin });
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
+    // No Origin header — only allow non-browser clients with API key or Bearer token
+    if (!origin) {
+      const hasApiKey =
+        req.headers.get("x-api-key") ||
+        req.headers.get("authorization")?.startsWith("Bearer ");
+
+      if (!hasApiKey) {
+        logWarn("CSRF missing origin", { pathname });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
   }

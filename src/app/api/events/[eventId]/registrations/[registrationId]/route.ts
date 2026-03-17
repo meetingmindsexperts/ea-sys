@@ -194,31 +194,45 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
-    // Handle ticket count updates for cancellation
-    if (status === "CANCELLED" && existingRegistration.status !== "CANCELLED") {
-      await db.ticketType.update({
-        where: { id: existingRegistration.ticketTypeId },
-        data: { soldCount: { decrement: 1 } },
-      });
-    } else if (status !== "CANCELLED" && existingRegistration.status === "CANCELLED") {
-      await db.ticketType.update({
-        where: { id: existingRegistration.ticketTypeId },
-        data: { soldCount: { increment: 1 } },
-      });
-    }
+    // Wrap soldCount + registration update in a transaction to prevent race conditions
+    const registration = await db.$transaction(async (tx) => {
+      if (status === "CANCELLED" && existingRegistration.status !== "CANCELLED") {
+        await tx.ticketType.update({
+          where: { id: existingRegistration.ticketTypeId },
+          data: { soldCount: { decrement: 1 } },
+        });
+      } else if (status !== "CANCELLED" && existingRegistration.status === "CANCELLED") {
+        // Check capacity before reactivating
+        const ticket = await tx.ticketType.findUnique({
+          where: { id: existingRegistration.ticketTypeId },
+          select: { quantity: true, soldCount: true },
+        });
+        if (ticket && ticket.soldCount >= ticket.quantity) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
+        await tx.ticketType.update({
+          where: { id: existingRegistration.ticketTypeId },
+          data: { soldCount: { increment: 1 } },
+        });
+      }
 
-    const registration = await db.registration.update({
-      where: { id: registrationId },
-      data: {
-        ...(status && { status }),
-        ...(paymentStatus && { paymentStatus }),
-        ...(notes !== undefined && { notes: notes || null }),
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-      },
+      return tx.registration.update({
+        where: { id: registrationId },
+        data: {
+          ...(status && { status }),
+          ...(paymentStatus && { paymentStatus }),
+          ...(notes !== undefined && { notes: notes || null }),
+        },
+        include: {
+          attendee: true,
+          ticketType: true,
+        },
+      });
     });
+
+    if (!registration) {
+      return NextResponse.json({ error: "Failed to update registration" }, { status: 500 });
+    }
 
     // Log the action
     await db.auditLog.create({
@@ -238,6 +252,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(registration);
   } catch (error) {
+    if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
+      return NextResponse.json(
+        { error: "Registration type is at full capacity" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error updating registration" });
     return NextResponse.json(
       { error: "Failed to update registration" },
@@ -280,16 +300,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    // Update ticket sold count
-    if (registration.status !== "CANCELLED") {
-      await db.ticketType.update({
-        where: { id: registration.ticketTypeId },
-        data: { soldCount: { decrement: 1 } },
+    // Wrap soldCount decrement + delete in a transaction
+    await db.$transaction(async (tx) => {
+      if (registration.status !== "CANCELLED") {
+        await tx.ticketType.update({
+          where: { id: registration.ticketTypeId },
+          data: { soldCount: { decrement: 1 } },
+        });
+      }
+      await tx.registration.delete({
+        where: { id: registrationId },
       });
-    }
-
-    await db.registration.delete({
-      where: { id: registrationId },
     });
 
     // Log the action

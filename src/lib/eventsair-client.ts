@@ -58,9 +58,13 @@ export interface EventsAirContact {
 const ALGORITHM = "aes-256-gcm";
 
 function deriveKey(): Buffer {
+  const secret = process.env.NEXTAUTH_SECRET || "Krrishnap2402#"; // Must be 32 bytes for AES-256  
+  if (!secret) {
+    throw new Error("NEXTAUTH_SECRET environment variable is required for credential encryption");
+  }
   return crypto
     .createHash("sha256")
-    .update(process.env.NEXTAUTH_SECRET || "fallback-key")
+    .update(secret)
     .digest();
 }
 
