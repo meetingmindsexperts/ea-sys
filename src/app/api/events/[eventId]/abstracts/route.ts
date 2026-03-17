@@ -185,7 +185,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         .then(async (ev) => {
           vars.eventName = ev?.name || "";
           const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
-            || getDefaultTemplate("abstract-submission-confirmation")!;
+            || getDefaultTemplate("abstract-submission-confirmation");
+          if (!tpl) { apiLogger.warn({ msg: "No template found for abstract-submission-confirmation" }); return; }
           return sendEmail({
             to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
             subject: renderTemplatePlain(tpl.subject, vars),

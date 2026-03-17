@@ -700,6 +700,10 @@ export async function getEventTemplate(
     select: { subject: true, htmlContent: true, textContent: true, isActive: true },
   });
 
+  if (dbTemplate && !dbTemplate.isActive) {
+    apiLogger.info({ msg: "Email template is disabled, falling back to default", eventId, slug });
+  }
+
   if (dbTemplate?.isActive) {
     return {
       subject: dbTemplate.subject,
@@ -710,7 +714,10 @@ export async function getEventTemplate(
 
   // Fallback to default template
   const def = getDefaultTemplate(slug);
-  if (!def) return null;
+  if (!def) {
+    apiLogger.error({ msg: "No default email template found for slug", slug, eventId });
+    return null;
+  }
 
   return { subject: def.subject, htmlContent: def.htmlContent, textContent: def.textContent };
 }
@@ -749,28 +756,23 @@ export async function sendRegistrationConfirmation(params: {
   };
 
   // Try DB template first, fall back to default
-  let subject: string;
-  let htmlContent: string;
-  let textContent: string;
+  let tpl: { subject: string; htmlContent: string; textContent: string } | null | undefined = null;
 
   if (params.eventId) {
-    const tpl = await getEventTemplate(params.eventId, "registration-confirmation");
-    if (tpl) {
-      subject = renderTemplatePlain(tpl.subject, vars);
-      htmlContent = renderTemplate(tpl.htmlContent, vars);
-      textContent = renderTemplatePlain(tpl.textContent, vars);
-    } else {
-      const def = getDefaultTemplate("registration-confirmation")!;
-      subject = renderTemplatePlain(def.subject, vars);
-      htmlContent = renderTemplate(def.htmlContent, vars);
-      textContent = renderTemplatePlain(def.textContent, vars);
-    }
-  } else {
-    const def = getDefaultTemplate("registration-confirmation")!;
-    subject = renderTemplatePlain(def.subject, vars);
-    htmlContent = renderTemplate(def.htmlContent, vars);
-    textContent = renderTemplatePlain(def.textContent, vars);
+    tpl = await getEventTemplate(params.eventId, "registration-confirmation");
   }
+  if (!tpl) {
+    const def = getDefaultTemplate("registration-confirmation");
+    if (!def) {
+      apiLogger.error({ msg: "No registration-confirmation template found" });
+      return { success: false, error: "Email template not found" };
+    }
+    tpl = def;
+  }
+
+  const subject = renderTemplatePlain(tpl.subject, vars);
+  const htmlContent = renderTemplate(tpl.htmlContent, vars);
+  const textContent = renderTemplatePlain(tpl.textContent, vars);
 
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],

@@ -548,6 +548,34 @@ export function useResetEmailTemplate(eventId: string) {
   });
 }
 
+export function useCreateEmailTemplate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { slug: string; name: string; subject: string; htmlContent: string; textContent?: string }) =>
+      fetchApi(`/api/events/${eventId}/email-templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
+    },
+  });
+}
+
+export function useDeleteEmailTemplate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      fetchApi(`/api/events/${eventId}/email-templates/${templateId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emailTemplates(eventId) });
+    },
+  });
+}
+
 export function usePreviewEmailTemplate(eventId: string) {
   return useMutation({
     mutationFn: ({ templateId, action }: { templateId: string; action: "preview" | "test" }) =>

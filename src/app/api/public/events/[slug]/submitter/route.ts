@@ -235,7 +235,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       loginLink: `${appUrl}/login`,
     };
     getEventTemplate(event.id, "submitter-welcome").then((tpl) => {
-      const t = tpl || getDefaultTemplate("submitter-welcome")!;
+      const t = tpl || getDefaultTemplate("submitter-welcome");
+      if (!t) { apiLogger.warn({ msg: "No template found for submitter-welcome" }); return; }
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
         subject: renderTemplatePlain(t.subject, vars),

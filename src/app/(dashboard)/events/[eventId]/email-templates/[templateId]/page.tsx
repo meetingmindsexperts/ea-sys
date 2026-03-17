@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
   RotateCcw,
   Copy,
   Mail,
+  Trash2,
 } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -37,11 +38,24 @@ import {
   useUpdateEmailTemplate,
   useResetEmailTemplate,
   usePreviewEmailTemplate,
+  useDeleteEmailTemplate,
 } from "@/hooks/use-api";
 import { toast } from "sonner";
 
+const SYSTEM_SLUGS = new Set([
+  "registration-confirmation",
+  "speaker-invitation",
+  "speaker-agreement",
+  "event-reminder",
+  "abstract-submission-confirmation",
+  "abstract-status-update",
+  "submitter-welcome",
+  "custom-notification",
+]);
+
 export default function EmailTemplateEditorPage() {
   const params = useParams();
+  const router = useRouter();
   const eventId = params.eventId as string;
   const templateId = params.templateId as string;
 
@@ -49,6 +63,7 @@ export default function EmailTemplateEditorPage() {
   const updateMutation = useUpdateEmailTemplate(eventId);
   const resetMutation = useResetEmailTemplate(eventId);
   const previewMutation = usePreviewEmailTemplate(eventId);
+  const deleteMutation = useDeleteEmailTemplate(eventId);
 
   // Track the server data version to know when to re-initialize form
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
@@ -93,6 +108,16 @@ export default function EmailTemplateEditorPage() {
       toast.error("Failed to reset template");
     }
   }, [resetMutation, templateId]);
+
+  const handleDelete = useCallback(async () => {
+    try {
+      await deleteMutation.mutateAsync(templateId);
+      toast.success("Template deleted");
+      router.push(`/events/${eventId}/email-templates`);
+    } catch {
+      toast.error("Failed to delete template");
+    }
+  }, [deleteMutation, templateId, router, eventId]);
 
   const handlePreview = useCallback(async () => {
     try {
@@ -167,6 +192,7 @@ export default function EmailTemplateEditorPage() {
 
   const template = data.template;
   const variables = data.variables || [];
+  const isSystemTemplate = SYSTEM_SLUGS.has(template.slug);
 
   return (
     <div className="space-y-6">
@@ -191,26 +217,51 @@ export default function EmailTemplateEditorPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset to Default
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Reset template?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will overwrite your customizations with the default template. This cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {isSystemTemplate ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Reset to Default
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset template?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will overwrite your customizations with the default template. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete template?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete this custom template. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <Button
             variant="outline"
             size="sm"
