@@ -182,7 +182,7 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
 
   const headerBlock = headerSrc
     ? `<tr><td style="padding: 0;">
-        <img src="${escapeHtml(headerSrc)}" alt="${escapeHtml(branding.eventName || "Event")}" style="display: block; width: 100%; max-width: 600px; height: auto; border-radius: 10px 10px 0 0;" />
+        <img src="${escapeHtml(headerSrc)}" alt="${escapeHtml(branding.eventName || "Event")}" style="display: block; width: 100%; max-width: 600px; height: auto;" />
       </td></tr>`
     : "";
 
@@ -338,14 +338,13 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     slug: "registration-confirmation",
     name: "Registration Confirmation",
     subject: "Registration Confirmed - {{eventName}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">Registration Confirmed!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Registration Confirmed!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your registration for <strong>{{eventName}}</strong> has been confirmed. We look forward to seeing you!</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Registration Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Confirmation #:</td><td style="padding: 8px 0; font-weight: 500; font-family: monospace;">{{registrationId}}</td></tr>
@@ -378,15 +377,14 @@ See you at the event!`,
     slug: "speaker-invitation",
     name: "Speaker Invitation",
     subject: "Speaker Invitation - {{eventName}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">You&apos;re Invited to Speak!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You&apos;re Invited to Speak!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>We would be honored to have you as a speaker at <strong>{{eventName}}</strong>!</p>
     {{personalMessage}}
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
@@ -395,7 +393,7 @@ See you at the event!`,
       </table>
     </div>
     <p>Please let us know if you&apos;re interested in speaking at our event. We look forward to hearing from you!</p>
-    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #11998e;">{{organizerEmail}}</a></p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
   </div>`,
     textContent: `Speaker Invitation - {{eventName}}
 
@@ -419,14 +417,13 @@ Best regards,
     slug: "speaker-agreement",
     name: "Speaker Agreement",
     subject: "Speaker Agreement - {{eventName}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">Speaker Agreement</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Speaker Agreement</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Thank you for agreeing to speak at <strong>{{eventName}}</strong>. We are excited to have you as part of our event!</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
@@ -442,7 +439,7 @@ Best regards,
       <li>Adhere to the event&apos;s code of conduct</li>
     </ul>
     <p>If you have any questions, please don&apos;t hesitate to reach out.</p>
-    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #667eea;">{{organizerEmail}}</a></p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
   </div>`,
     textContent: `Speaker Agreement - {{eventName}}
 
@@ -464,14 +461,13 @@ Best regards,
     slug: "event-reminder",
     name: "Event Reminder",
     subject: "Reminder: {{eventName}} is coming up!",
-    htmlContent: `<div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">{{daysUntilEvent}} Days to Go!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{daysUntilEvent}} Days to Go!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>This is a friendly reminder that <strong>{{eventName}}</strong> is coming up in {{daysUntilEvent}} days!</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">{{eventDate}}</td></tr>
@@ -498,14 +494,13 @@ We look forward to seeing you!`,
     slug: "abstract-submission-confirmation",
     name: "Abstract Submission Confirmation",
     subject: "Abstract Submitted - {{eventName}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">Abstract Submitted!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Submitted!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your abstract has been successfully submitted for <strong>{{eventName}}</strong>.</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Submission Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{abstractTitle}}</td></tr>
@@ -514,7 +509,7 @@ We look forward to seeing you!`,
     </div>
     <p>You can view the status of your abstract, make edits, and see reviewer feedback using the link below:</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="{{managementLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
+      <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
     <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Important:</strong> Save this email! The link above is your personal access link to manage your submission.</p>
   </div>`,
@@ -537,14 +532,13 @@ Important: Save this email! The link above is your personal access link to manag
     slug: "abstract-status-update",
     name: "Abstract Status Update",
     subject: "{{statusHeading}} - {{eventName}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">{{statusHeading}}</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{statusHeading}}</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>{{statusMessage}}</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Abstract Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{abstractTitle}}</td></tr>
@@ -553,7 +547,7 @@ Important: Save this email! The link above is your personal access link to manag
     </div>
     {{reviewNotes}}
     <div style="text-align: center; margin: 30px 0;">
-      <a href="{{managementLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
+      <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
   </div>`,
     textContent: `{{statusHeading}} - {{eventName}}
@@ -575,15 +569,14 @@ View Your Abstract: {{managementLink}}`,
     slug: "submitter-welcome",
     name: "Submitter Welcome",
     subject: "Welcome to {{eventName}} - Account Created",
-    htmlContent: `<div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">Welcome!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Welcome!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your account has been created successfully for <strong>{{eventName}}</strong>. You can now log in to submit your abstracts.</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="{{loginLink}}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
+      <a href="{{loginLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you did not create this account, you can safely ignore this email.</p>
   </div>`,
@@ -600,11 +593,10 @@ Log In: {{loginLink}}`,
     slug: "custom-notification",
     name: "Custom Notification",
     subject: "{{subject}}",
-    htmlContent: `<div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">{{subject}}</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{subject}}</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <div style="white-space: pre-wrap;">{{message}}</div>
   </div>`,
@@ -657,20 +649,14 @@ export const systemTemplates = {
     role: string;
     setupLink: string;
     expiresIn?: string;
-  }) => ({
-    subject: `You've been invited to join ${params.organizationName}`,
-    htmlContent: `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited!</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Join ${escapeHtml(params.organizationName)} on MMGroup EventsHub</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+  }) => {
+    const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're Invited!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join ${escapeHtml(params.organizationName)} on MMGroup EventsHub</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
     <p><strong>${escapeHtml(params.inviterName)}</strong> has invited you to join <strong>${escapeHtml(params.organizationName)}</strong> on MMGroup EventsHub as a <strong>${escapeHtml(params.role)}</strong>.</p>
-    <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Organization:</td><td style="padding: 8px 0; font-weight: 500;">${escapeHtml(params.organizationName)}</td></tr>
@@ -679,14 +665,15 @@ export const systemTemplates = {
       </table>
     </div>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${escapeHtml(params.setupLink)}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept Invitation & Set Password</a>
+      <a href="${escapeHtml(params.setupLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Accept Invitation & Set Password</a>
     </div>
     ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This invitation will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
     <p style="color: #6b7280; font-size: 14px;">If you didn't expect this invitation, you can safely ignore this email.</p>
-  </div>
-  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;"><p>Sent from MMGroup EventsHub - Event Management Platform</p></div>
-</body></html>`,
-    textContent: `You've been invited to join ${params.organizationName}
+  </div>`;
+    return {
+      subject: `You've been invited to join ${params.organizationName}`,
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, { eventName: params.organizationName })),
+      textContent: `You've been invited to join ${params.organizationName}
 
 Hi ${params.recipientName},
 
@@ -695,41 +682,38 @@ ${params.inviterName} has invited you to join ${params.organizationName} on MMGr
 Accept Invitation & Set Password: ${params.setupLink}
 
 ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.` : ""}`,
-  }),
+    };
+  },
 
   passwordReset: (params: {
     recipientName: string;
     resetLink: string;
     expiresIn?: string;
-  }) => ({
-    subject: "Reset your EventsHub password",
-    htmlContent: `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">Reset Your Password</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">We received a request to reset your password.</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
+  }) => {
+    const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Reset Your Password</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">We received a request to reset your password.</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
     <p>Use the button below to set a new password for your MMGroup EventsHub account.</p>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${escapeHtml(params.resetLink)}" style="display: inline-block; background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Reset Password</a>
+      <a href="${escapeHtml(params.resetLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Reset Password</a>
     </div>
     ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This reset link will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
     <p style="color: #6b7280; font-size: 14px;">If you did not request a password reset, you can safely ignore this email.</p>
-  </div>
-  <div style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;"><p>Sent from MMGroup EventsHub - Event Management Platform</p></div>
-</body></html>`,
-    textContent: `Reset your EventsHub password
+  </div>`;
+    return {
+      subject: "Reset your EventsHub password",
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
+      textContent: `Reset your EventsHub password
 
 Hi ${params.recipientName},
 
 Use the link below to set a new password: ${params.resetLink}
 
 ${params.expiresIn ? `Note: This reset link will expire in ${params.expiresIn}.` : ""}`,
-  }),
+    };
+  },
 };
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
