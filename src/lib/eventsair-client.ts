@@ -90,6 +90,25 @@ export function decryptSecret(ciphertext: string): string {
   return decrypted;
 }
 
+// ── Fetch with timeout ────────────────────────────────────────────
+
+const FETCH_TIMEOUT_MS = 30_000; // 30s
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Request to ${new URL(url).hostname} timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── OAuth 2.0 Token Management ─────────────────────────────────────
 
 const TOKEN_ENDPOINT =
@@ -112,7 +131,7 @@ async function getAccessToken(creds: EventsAirCredentials): Promise<string> {
     client_secret: creds.clientSecret,
   });
 
-  const res = await fetch(TOKEN_ENDPOINT, {
+  const res = await fetchWithTimeout(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -143,7 +162,7 @@ async function graphqlQuery<T>(
 ): Promise<T> {
   const token = await getAccessToken(creds);
 
-  const res = await fetch(GRAPHQL_ENDPOINT, {
+  const res = await fetchWithTimeout(GRAPHQL_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -192,12 +211,18 @@ export async function testConnection(creds: EventsAirCredentials): Promise<boole
 /** List all events accessible with these credentials (paginated, ordered by startDate desc) */
 export async function listEvents(creds: EventsAirCredentials): Promise<EventsAirEvent[]> {
   const PAGE_SIZE = 2000; // Max allowed by EventsAir API
+  const MAX_PAGES = 25; // Safety limit: 25 × 2000 = 50,000 events max
   const allEvents: EventsAirEvent[] = [];
   let offset = 0;
+  let page = 0;
 
   // Paginate through all events
   let hasMore = true;
   while (hasMore) {
+    if (++page > MAX_PAGES) {
+      apiLogger.warn({ msg: "listEvents hit pagination safety limit", pages: MAX_PAGES, totalFetched: allEvents.length });
+      break;
+    }
     const data = await graphqlQuery<{ events: EventsAirEvent[] }>(
       creds,
       `query($input: FindEventsInput!, $limit: PaginationLimit!, $offset: NonNegativeInt!) {

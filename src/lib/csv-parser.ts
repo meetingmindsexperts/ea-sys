@@ -64,13 +64,52 @@ export function parseTags(value: string | undefined): string[] {
 
 const MAX_ROWS = 5000;
 
+/**
+ * Split CSV text into logical lines, merging lines that are inside quoted fields.
+ * Handles RFC 4180 multiline quoted fields like: "Line 1\nLine 2"
+ */
+function splitCSVLines(text: string): string[] {
+  const rawLines = text.split(/\r?\n/);
+  const logicalLines: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (const raw of rawLines) {
+    if (current) {
+      current += "\n" + raw;
+    } else {
+      current = raw;
+    }
+
+    // Count unescaped quotes to track whether we're inside a quoted field
+    for (const ch of raw) {
+      if (ch === '"') inQuotes = !inQuotes;
+    }
+
+    // If quotes are balanced, this logical line is complete
+    if (!inQuotes) {
+      if (current.trim()) {
+        logicalLines.push(current);
+      }
+      current = "";
+    }
+  }
+
+  // If there's a dangling unclosed quote, include it as-is
+  if (current.trim()) {
+    logicalLines.push(current);
+  }
+
+  return logicalLines;
+}
+
 /** Parse a full CSV text into headers + rows, with validation */
 export function parseCSV(text: string): {
   headers: string[];
   rows: string[][];
   error?: string;
 } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const lines = splitCSVLines(text);
 
   if (lines.length < 2) {
     return { headers: [], rows: [], error: "CSV must have a header row and at least one data row" };

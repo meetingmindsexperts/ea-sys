@@ -115,7 +115,43 @@ export async function POST(req: Request) {
       select: { name: true },
     });
 
-    // Create user and invitation token in a transaction
+    // Send invitation email BEFORE creating the user — if email fails, don't
+    // leave an orphaned user record that blocks re-invitation.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
+
+    const inviterName = session.user.firstName && session.user.lastName
+      ? `${session.user.firstName} ${session.user.lastName}`
+      : session.user.email || "A team member";
+
+    const roleDisplayName = role === "ADMIN" ? "Admin" : role === "ORGANIZER" ? "Organizer" : "Reviewer";
+
+    const emailTemplate = emailTemplates.userInvitation({
+      recipientName: `${firstName} ${lastName}`,
+      recipientEmail: email,
+      organizationName: organization?.name || "your organization",
+      inviterName,
+      role: roleDisplayName,
+      setupLink,
+      expiresIn: "7 days",
+    });
+
+    const emailResult = await sendEmail({
+      to: [{ email, name: `${firstName} ${lastName}` }],
+      subject: emailTemplate.subject,
+      htmlContent: emailTemplate.htmlContent,
+      textContent: emailTemplate.textContent,
+    });
+
+    if (!emailResult.success) {
+      apiLogger.warn({ msg: "Failed to send invitation email", email, error: emailResult.error });
+      return NextResponse.json(
+        { error: "Failed to send invitation email. Please check the email address and try again." },
+        { status: 502 }
+      );
+    }
+
+    // Email sent successfully — now create the user + token atomically
     const user = await db.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
@@ -159,48 +195,11 @@ export async function POST(req: Request) {
       return newUser;
     });
 
-    // Send invitation email
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(email)}`;
-
-    const inviterName = session.user.firstName && session.user.lastName
-      ? `${session.user.firstName} ${session.user.lastName}`
-      : session.user.email || "A team member";
-
-    const roleDisplayName = role === "ADMIN" ? "Admin" : role === "ORGANIZER" ? "Organizer" : "Reviewer";
-
-    const emailTemplate = emailTemplates.userInvitation({
-      recipientName: `${firstName} ${lastName}`,
-      recipientEmail: email,
-      organizationName: organization?.name || "your organization",
-      inviterName,
-      role: roleDisplayName,
-      setupLink,
-      expiresIn: "7 days",
-    });
-
-    const emailResult = await sendEmail({
-      to: [{ email, name: `${firstName} ${lastName}` }],
-      subject: emailTemplate.subject,
-      htmlContent: emailTemplate.htmlContent,
-      textContent: emailTemplate.textContent,
-    });
-
-    if (!emailResult.success) {
-      apiLogger.warn({
-        msg: "Failed to send invitation email",
-        email,
-        error: emailResult.error,
-      });
-    }
-
     return NextResponse.json(
       {
         ...user,
-        invitationSent: emailResult.success,
-        message: emailResult.success
-          ? "Invitation email sent successfully"
-          : "User created but invitation email could not be sent"
+        invitationSent: true,
+        message: "Invitation email sent successfully",
       },
       { status: 201 }
     );
