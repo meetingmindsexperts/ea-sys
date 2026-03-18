@@ -23,10 +23,31 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
+type TicketTypeCategory = "EARLY_BIRD" | "STANDARD" | "PRESENTER" | "OTHER";
+
+const CATEGORY_OPTIONS: { value: TicketTypeCategory; label: string }[] = [
+  { value: "EARLY_BIRD", label: "Early Bird" },
+  { value: "STANDARD", label: "Standard" },
+  { value: "PRESENTER", label: "Presenter" },
+  { value: "OTHER", label: "Other" },
+];
+
+const CATEGORY_COLORS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "bg-orange-100 text-orange-800",
+  STANDARD: "bg-blue-100 text-blue-800",
+  PRESENTER: "bg-purple-100 text-purple-800",
+  OTHER: "bg-gray-100 text-gray-800",
+};
+
+function getCategoryLabel(category: TicketTypeCategory) {
+  return CATEGORY_OPTIONS.find((o) => o.value === category)?.label ?? category;
+}
+
 interface TicketType {
   id: string;
   name: string;
   description: string | null;
+  category: TicketTypeCategory;
   price: number;
   currency: string;
   quantity: number;
@@ -56,6 +77,7 @@ export default function TicketsPage() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    category: "STANDARD" as TicketTypeCategory,
     price: 0,
     currency: "USD",
     quantity: 100,
@@ -97,6 +119,7 @@ export default function TicketsPage() {
     setFormData({
       name: ticket.name,
       description: ticket.description || "",
+      category: ticket.category || "STANDARD",
       price: Number(ticket.price),
       currency: ticket.currency,
       quantity: ticket.quantity,
@@ -112,6 +135,7 @@ export default function TicketsPage() {
     setFormData({
       name: "",
       description: "",
+      category: "STANDARD",
       price: 0,
       currency: "USD",
       quantity: 100,
@@ -204,6 +228,24 @@ export default function TicketsPage() {
                   }
                   placeholder="What's included with this ticket..."
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="category">Category</Label>
+                <select
+                  id="category"
+                  aria-label="Category"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value as TicketTypeCategory })
+                  }
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {CATEGORY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -361,6 +403,12 @@ export default function TicketsPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">{ticket.name}</h3>
+                        <Badge
+                          variant="outline"
+                          className={CATEGORY_COLORS[ticket.category as TicketTypeCategory] || CATEGORY_COLORS.OTHER}
+                        >
+                          {getCategoryLabel(ticket.category)}
+                        </Badge>
                         <Badge
                           variant="outline"
                           className={

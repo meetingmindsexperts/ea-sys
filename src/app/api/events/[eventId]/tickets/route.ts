@@ -9,6 +9,7 @@ import { getClientIp } from "@/lib/security";
 const createTicketTypeSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).optional(),
+  category: z.enum(["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"]).default("STANDARD"),
   price: z.number().min(0),
   currency: z.string().max(10).default("USD"),
   quantity: z.number().min(1),
@@ -110,6 +111,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const {
       name,
       description,
+      category,
       price,
       currency,
       quantity,
@@ -125,6 +127,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventId,
         name,
         description: description || null,
+        category,
         price,
         currency,
         quantity,

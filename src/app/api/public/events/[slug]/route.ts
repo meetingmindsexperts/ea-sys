@@ -61,6 +61,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             id: true,
             name: true,
             description: true,
+            category: true,
             price: true,
             currency: true,
             quantity: true,

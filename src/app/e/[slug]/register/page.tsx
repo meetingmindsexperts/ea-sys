@@ -40,10 +40,22 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+type TicketTypeCategory = "EARLY_BIRD" | "STANDARD" | "PRESENTER" | "OTHER";
+
+const CATEGORY_LABELS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "Early Bird",
+  STANDARD: "Standard",
+  PRESENTER: "Presenter",
+  OTHER: "Other",
+};
+
+const CATEGORY_ORDER: TicketTypeCategory[] = ["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"];
+
 interface TicketType {
   id: string;
   name: string;
   description: string | null;
+  category: TicketTypeCategory;
   price: string;
   currency: string;
   quantity: number;
@@ -351,40 +363,58 @@ export default function PublicEventRegisterPage() {
               </Link>
             )}
 
-            {/* All ticket types overview */}
+            {/* All ticket types overview (grouped by category) */}
             {event.ticketTypes.length > 0 && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
                 <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-4">
                   Registration Types
                 </h3>
-                <div className="space-y-3">
-                  {event.ticketTypes.map((rt) => (
-                    <div
-                      key={rt.id}
-                      className={cn(
-                        "flex justify-between items-center text-sm",
-                        !rt.canPurchase && "opacity-40"
-                      )}
-                    >
-                      <span className="text-slate-700 font-medium">
-                        {rt.name}
-                      </span>
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          rt.canPurchase ? "text-primary" : "text-slate-400"
+                <div className="space-y-4">
+                  {CATEGORY_ORDER
+                    .map((cat) => ({
+                      category: cat,
+                      label: CATEGORY_LABELS[cat],
+                      tickets: event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat),
+                    }))
+                    .filter((g) => g.tickets.length > 0)
+                    .map((group) => (
+                      <div key={group.category}>
+                        {event.ticketTypes.some((t) => (t.category || "STANDARD") !== (event.ticketTypes[0]?.category || "STANDARD")) && (
+                          <p className="text-xs font-medium text-slate-500 mb-2">
+                            {group.label}
+                          </p>
                         )}
-                      >
-                        {rt.soldOut || rt.salesEnded
-                          ? "Closed"
-                          : !rt.salesStarted
-                          ? "Soon"
-                          : Number(rt.price) === 0
-                          ? "Free"
-                          : `${rt.currency} ${rt.price}`}
-                      </span>
-                    </div>
-                  ))}
+                        <div className="space-y-2">
+                          {group.tickets.map((rt) => (
+                            <div
+                              key={rt.id}
+                              className={cn(
+                                "flex justify-between items-center text-sm",
+                                !rt.canPurchase && "opacity-40"
+                              )}
+                            >
+                              <span className="text-slate-700 font-medium">
+                                {rt.name}
+                              </span>
+                              <span
+                                className={cn(
+                                  "font-semibold",
+                                  rt.canPurchase ? "text-primary" : "text-slate-400"
+                                )}
+                              >
+                                {rt.soldOut || rt.salesEnded
+                                  ? "Closed"
+                                  : !rt.salesStarted
+                                  ? "Soon"
+                                  : Number(rt.price) === 0
+                                  ? "Free"
+                                  : `${rt.currency} ${rt.price}`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
@@ -421,7 +451,7 @@ export default function PublicEventRegisterPage() {
                       onSubmit={form.handleSubmit(onSubmit)}
                       className="space-y-6"
                     >
-                      {/* Section: Registration Type */}
+                      {/* Section: Registration Type (grouped by category) */}
                       <div>
                         <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
                           Registration Type
@@ -429,68 +459,89 @@ export default function PublicEventRegisterPage() {
                         <FormField
                           control={form.control}
                           name="ticketTypeId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <div className="grid gap-3">
-                                {availableTickets.map((rt) => {
-                                  const isSelected = field.value === rt.id;
-                                  return (
-                                    <button
-                                      key={rt.id}
-                                      type="button"
-                                      onClick={() => field.onChange(rt.id)}
-                                      className={cn(
-                                        "w-full text-left rounded-xl border-2 p-4 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                                        isSelected
-                                          ? "border-primary bg-primary/5 shadow-sm"
-                                          : "border-slate-200 hover:border-primary/50 hover:bg-slate-50"
+                          render={({ field }) => {
+                            const grouped = CATEGORY_ORDER
+                              .map((cat) => ({
+                                category: cat,
+                                label: CATEGORY_LABELS[cat],
+                                tickets: availableTickets.filter((t) => (t.category || "STANDARD") === cat),
+                              }))
+                              .filter((g) => g.tickets.length > 0);
+
+                            return (
+                              <FormItem>
+                                <div className="grid gap-4">
+                                  {grouped.map((group) => (
+                                    <div key={group.category}>
+                                      {grouped.length > 1 && (
+                                        <p className="text-xs font-medium text-slate-500 mb-2">
+                                          {group.label}
+                                        </p>
                                       )}
-                                    >
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <p className="font-semibold text-slate-900 text-sm">
-                                            {rt.name}
-                                          </p>
-                                          {rt.description && (
-                                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                                              {rt.description}
-                                            </p>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-3 shrink-0">
-                                          <span
-                                            className={cn(
-                                              "text-sm font-bold",
-                                              isSelected
-                                                ? "text-primary"
-                                                : "text-slate-700"
-                                            )}
-                                          >
-                                            {Number(rt.price) === 0
-                                              ? "Free"
-                                              : `${rt.currency} ${rt.price}`}
-                                          </span>
-                                          <div
-                                            className={cn(
-                                              "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all",
-                                              isSelected
-                                                ? "border-primary bg-primary"
-                                                : "border-slate-300"
-                                            )}
-                                          >
-                                            {isSelected && (
-                                              <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                                            )}
-                                          </div>
-                                        </div>
+                                      <div className="grid gap-3">
+                                        {group.tickets.map((rt) => {
+                                          const isSelected = field.value === rt.id;
+                                          return (
+                                            <button
+                                              key={rt.id}
+                                              type="button"
+                                              onClick={() => field.onChange(rt.id)}
+                                              className={cn(
+                                                "w-full text-left rounded-xl border-2 p-4 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                                isSelected
+                                                  ? "border-primary bg-primary/5 shadow-sm"
+                                                  : "border-slate-200 hover:border-primary/50 hover:bg-slate-50"
+                                              )}
+                                            >
+                                              <div className="flex items-start justify-between gap-3">
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="font-semibold text-slate-900 text-sm">
+                                                    {rt.name}
+                                                  </p>
+                                                  {rt.description && (
+                                                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                                      {rt.description}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                                <div className="flex items-center gap-3 shrink-0">
+                                                  <span
+                                                    className={cn(
+                                                      "text-sm font-bold",
+                                                      isSelected
+                                                        ? "text-primary"
+                                                        : "text-slate-700"
+                                                    )}
+                                                  >
+                                                    {Number(rt.price) === 0
+                                                      ? "Free"
+                                                      : `${rt.currency} ${rt.price}`}
+                                                  </span>
+                                                  <div
+                                                    className={cn(
+                                                      "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all",
+                                                      isSelected
+                                                        ? "border-primary bg-primary"
+                                                        : "border-slate-300"
+                                                    )}
+                                                  >
+                                                    {isSelected && (
+                                                      <div className="h-1.5 w-1.5 rounded-full bg-white" />
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </button>
+                                          );
+                                        })}
                                       </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <FormMessage className="mt-2" />
-                            </FormItem>
-                          )}
+                                    </div>
+                                  ))}
+                                </div>
+                                <FormMessage className="mt-2" />
+                              </FormItem>
+                            );
+                          }}
                         />
                       </div>
 

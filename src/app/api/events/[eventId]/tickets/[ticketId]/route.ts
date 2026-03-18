@@ -9,6 +9,7 @@ import { getClientIp } from "@/lib/security";
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
+  category: z.enum(["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"]).optional(),
   price: z.number().min(0).optional(),
   currency: z.string().max(10).optional(),
   quantity: z.number().min(1).optional(),
@@ -128,6 +129,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       data: {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description || null }),
+        ...(data.category && { category: data.category }),
         ...(data.price !== undefined && { price: data.price }),
         ...(data.currency && { currency: data.currency }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
