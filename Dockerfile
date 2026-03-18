@@ -63,8 +63,8 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
 
-# Create logs directory writable by nextjs user
-RUN mkdir -p /app/logs && chown nextjs:nodejs /app/logs
+# Create logs and Next.js cache directories writable by nextjs user
+RUN mkdir -p /app/logs /app/.next/cache && chown -R nextjs:nodejs /app/logs /app/.next/cache
 
 USER nextjs
 
