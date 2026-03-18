@@ -140,27 +140,29 @@ function ConfirmationContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {branding?.bannerImage ? (
-        <div className="relative w-full h-36 sm:h-44 overflow-hidden">
-          <Image
-            src={branding.bannerImage}
-            alt={branding.name || "Event banner"}
-            width={1400}
-            height={300}
-            className="w-full h-full object-cover"
-            unoptimized
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />
+        <div className="w-full max-w-2xl mx-auto px-4 pt-6">
+          <div className="relative w-full h-36 sm:h-44 overflow-hidden rounded-2xl">
+            <Image
+              src={branding.bannerImage}
+              alt={branding.name || "Event banner"}
+              width={1400}
+              height={300}
+              className="w-full h-full object-cover"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />
 
-          {/* Event name overlay */}
-          {branding.name && (
-            <div className="absolute inset-0 flex flex-col justify-end">
-              <div className="max-w-2xl mx-auto w-full px-4 pb-4 text-center">
-                <p className="text-white/90 text-sm font-medium drop-shadow-sm">
-                  {branding.name}
-                </p>
+            {/* Event name overlay */}
+            {branding.name && (
+              <div className="absolute inset-0 flex flex-col justify-end">
+                <div className="px-5 pb-4 text-center">
+                  <p className="text-white/90 text-sm font-medium drop-shadow-sm">
+                    {branding.name}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       ) : (
         /* No banner — thin gradient accent line */
@@ -347,7 +349,7 @@ function ConfirmationContent() {
       {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {branding?.footerHtml && (
         <div
-          className="w-full border-t border-slate-100 bg-white"
+          className="w-full border-t border-slate-100 bg-white text-center p-4"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.footerHtml) }}
         />
       )}

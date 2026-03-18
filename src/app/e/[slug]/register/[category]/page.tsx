@@ -260,38 +260,25 @@ export default function CategoryRegistrationPage() {
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {event.bannerImage ? (
-        <div className="relative w-full h-48 sm:h-64 overflow-hidden">
-          <Image
-            src={event.bannerImage}
-            alt={event.name}
-            width={1400}
-            height={500}
-            className="w-full h-full object-cover"
-            unoptimized
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />
+        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6">
+          <div className="relative w-full h-48 sm:h-64 overflow-hidden rounded-2xl">
+            <Image
+              src={event.bannerImage}
+              alt={event.name}
+              width={1400}
+              height={500}
+              className="w-full h-full object-cover"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />
 
-          {/* Event title overlay on banner */}
-          <div className="absolute inset-0 flex flex-col justify-end">
-            <div className="max-w-6xl mx-auto w-full px-4 sm:px-6 pb-5">
-              <div className="flex items-center gap-2 mb-2">
-                {event.organization.logo && (
-                  <Image
-                    src={event.organization.logo}
-                    alt={event.organization.name}
-                    width={20}
-                    height={20}
-                    className="rounded"
-                    unoptimized
-                  />
-                )}
-                <span className="text-xs font-medium tracking-widest uppercase text-white/80">
-                  {event.organization.name}
-                </span>
+            {/* Event title overlay on banner */}
+            <div className="absolute inset-0 flex flex-col justify-end">
+              <div className="px-5 sm:px-8 pb-5">
+                <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm">
+                  {event.name}
+                </h1>
               </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm">
-                {event.name}
-              </h1>
             </div>
           </div>
         </div>
@@ -300,21 +287,6 @@ export default function CategoryRegistrationPage() {
         <div className="relative bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center gap-2 mb-2">
-              {event.organization.logo && (
-                <Image
-                  src={event.organization.logo}
-                  alt={event.organization.name}
-                  width={20}
-                  height={20}
-                  className="rounded"
-                  unoptimized
-                />
-              )}
-              <span className="text-xs font-medium tracking-widest uppercase text-primary">
-                {event.organization.name}
-              </span>
-            </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight max-w-3xl">
               {event.name}
             </h1>
@@ -777,7 +749,7 @@ export default function CategoryRegistrationPage() {
       {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {event.footerHtml && (
         <div
-          className="w-full border-t border-slate-100 bg-white"
+          className="w-full border-t border-slate-100 bg-white text-center"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
         />
       )}
