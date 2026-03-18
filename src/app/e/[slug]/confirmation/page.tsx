@@ -20,6 +20,8 @@ import { toast } from "sonner";
 interface EventBranding {
   bannerImage: string | null;
   footerHtml: string | null;
+  name: string | null;
+  organization?: { name: string; logo: string | null } | null;
 }
 
 interface PaymentInfo {
@@ -51,7 +53,12 @@ function ConfirmationContent() {
     fetch(`/api/public/events/${slug}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data) setBranding({ bannerImage: data.bannerImage, footerHtml: data.footerHtml });
+        if (data) setBranding({
+          bannerImage: data.bannerImage,
+          footerHtml: data.footerHtml,
+          name: data.name,
+          organization: data.organization,
+        });
       })
       .catch(() => {});
   }, [slug]);
@@ -130,31 +137,43 @@ function ConfirmationContent() {
   const hasPaidTicket = ticketPrice > 0;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-900">
-      {/* Background pattern */}
-      <div className="absolute inset-0 bg-dot-pattern opacity-5 pointer-events-none" />
-
-      {/* Banner image strip */}
-      {branding?.bannerImage && (
-        <div className="relative w-full h-32 overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
+      {/* ── Banner ─────────────────────────────────────────────────────────── */}
+      {branding?.bannerImage ? (
+        <div className="relative w-full h-36 sm:h-44 overflow-hidden">
           <Image
             src={branding.bannerImage}
-            alt="Event banner"
+            alt={branding.name || "Event banner"}
             width={1400}
             height={300}
-            className="w-full h-full object-cover opacity-40"
+            className="w-full h-full object-cover"
             unoptimized
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-900/40 to-slate-900" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />
+
+          {/* Event name overlay */}
+          {branding.name && (
+            <div className="absolute inset-0 flex flex-col justify-end">
+              <div className="max-w-2xl mx-auto w-full px-4 pb-4 text-center">
+                <p className="text-white/90 text-sm font-medium drop-shadow-sm">
+                  {branding.name}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
+      ) : (
+        /* No banner — thin gradient accent line */
+        <div className="h-1 bg-gradient-primary" />
       )}
 
-      <div className="flex-1 flex items-center justify-center p-4 relative">
+      {/* ── Main Content ───────────────────────────────────────────────────── */}
+      <div className="flex-1 flex items-start justify-center px-4 py-8 sm:py-12">
         <div className="w-full max-w-md">
           {/* Success card */}
-          <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
             {/* Top gradient bar */}
-            <div className="h-1.5 bg-gradient-primary" />
+            <div className="h-1 bg-gradient-primary" />
 
             <div className="px-8 pt-8 pb-6 text-center">
               {/* Animated check */}
@@ -325,10 +344,10 @@ function ConfirmationContent() {
         </div>
       </div>
 
-      {/* Custom Footer */}
+      {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {branding?.footerHtml && (
         <div
-          className="w-full border-t bg-white"
+          className="w-full border-t border-slate-100 bg-white"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.footerHtml) }}
         />
       )}
@@ -340,8 +359,8 @@ export default function ConfirmationPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-12 text-center w-full max-w-md mx-4">
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-12 text-center w-full max-w-md mx-4">
             <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
             <p className="text-slate-500 text-sm">Loading…</p>
           </div>

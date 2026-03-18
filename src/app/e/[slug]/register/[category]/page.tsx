@@ -23,7 +23,6 @@ import {
   Utensils,
   Stethoscope,
   AlertCircle,
-
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -207,24 +206,26 @@ export default function CategoryRegistrationPage() {
     }
   }
 
+  /* ── Loading state ──────────────────────────────────────────────────────── */
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             <div className="h-12 w-12 rounded-full border-2 border-primary/20" />
             <Loader2 className="h-12 w-12 animate-spin text-primary absolute inset-0" />
           </div>
-          <p className="text-slate-400 text-sm tracking-wide">Loading event…</p>
+          <p className="text-slate-500 text-sm tracking-wide">Loading event…</p>
         </div>
       </div>
     );
   }
 
+  /* ── Error state ────────────────────────────────────────────────────────── */
   if (error || !event || !categoryLabel) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
             <AlertCircle className="h-7 w-7 text-red-500" />
           </div>
@@ -255,66 +256,86 @@ export default function CategoryRegistrationPage() {
   const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
-
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* Hero Section */}
-      <div className="relative bg-slate-900 overflow-hidden">
-        {event.bannerImage && (
-          <>
-            <Image
-              src={event.bannerImage}
-              alt={event.name}
-              width={1400}
-              height={500}
-              className="w-full h-52 sm:h-72 object-cover opacity-40"
-              unoptimized
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900" />
-          </>
-        )}
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
+      {/* ── Banner ─────────────────────────────────────────────────────────── */}
+      {event.bannerImage ? (
+        <div className="relative w-full h-48 sm:h-64 overflow-hidden">
+          <Image
+            src={event.bannerImage}
+            alt={event.name}
+            width={1400}
+            height={500}
+            className="w-full h-full object-cover"
+            unoptimized
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />
 
-        {!event.bannerImage && (
-          <div className="absolute inset-0 opacity-5 bg-dot-pattern" />
-        )}
-
-        <div
-          className={cn(
-            "relative max-w-6xl mx-auto px-4 sm:px-6",
-            event.bannerImage ? "py-8 -mt-8" : "py-12"
-          )}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            {event.organization.logo ? (
-              <Image
-                src={event.organization.logo}
-                alt={event.organization.name}
-                width={24}
-                height={24}
-                className="rounded"
-                unoptimized
-              />
-            ) : null}
-            <span className="text-xs font-medium tracking-widest uppercase text-primary/80">
-              {event.organization.name}
-            </span>
+          {/* Event title overlay on banner */}
+          <div className="absolute inset-0 flex flex-col justify-end">
+            <div className="max-w-6xl mx-auto w-full px-4 sm:px-6 pb-5">
+              <div className="flex items-center gap-2 mb-2">
+                {event.organization.logo && (
+                  <Image
+                    src={event.organization.logo}
+                    alt={event.organization.name}
+                    width={20}
+                    height={20}
+                    className="rounded"
+                    unoptimized
+                  />
+                )}
+                <span className="text-xs font-medium tracking-widest uppercase text-white/80">
+                  {event.organization.name}
+                </span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm">
+                {event.name}
+              </h1>
+            </div>
           </div>
+        </div>
+      ) : (
+        /* No banner — text-only header with subtle gradient accent */
+        <div className="relative bg-white border-b border-slate-100">
+          <div className="h-1 bg-gradient-primary" />
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+            <div className="flex items-center gap-2 mb-2">
+              {event.organization.logo && (
+                <Image
+                  src={event.organization.logo}
+                  alt={event.organization.name}
+                  width={20}
+                  height={20}
+                  className="rounded"
+                  unoptimized
+                />
+              )}
+              <span className="text-xs font-medium tracking-widest uppercase text-primary">
+                {event.organization.name}
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight max-w-3xl">
+              {event.name}
+            </h1>
+          </div>
+        </div>
+      )}
 
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-6 leading-tight max-w-3xl">
-            {event.name}
-          </h1>
-
-          <div className="flex flex-wrap gap-3">
-            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+      {/* ── Event Meta Bar ─────────────────────────────────────────────────── */}
+      <div className="bg-white border-b border-slate-100 shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-4 py-3">
+            <div className="flex items-center gap-1.5 text-sm text-slate-600">
               <Calendar className="h-3.5 w-3.5 text-primary" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+            <div className="flex items-center gap-1.5 text-sm text-slate-600">
               <Clock className="h-3.5 w-3.5 text-primary" />
               <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
             {locationParts.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
+              <div className="flex items-center gap-1.5 text-sm text-slate-600">
                 <MapPin className="h-3.5 w-3.5 text-primary" />
                 <span>{locationParts.join(", ")}</span>
               </div>
@@ -323,13 +344,11 @@ export default function CategoryRegistrationPage() {
         </div>
       </div>
 
-      {/* Body */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex-1 w-full">
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full">
         <div className="grid md:grid-cols-5 gap-8 items-start">
           {/* Left: Info sidebar */}
           <div className="md:col-span-2 space-y-5">
-            {/* Category switcher removed — public registrants should only see their assigned category */}
-
             {event.description && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
                 <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
@@ -755,10 +774,10 @@ export default function CategoryRegistrationPage() {
         </div>
       </div>
 
-      {/* Custom Footer */}
+      {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {event.footerHtml && (
         <div
-          className="w-full border-t bg-white"
+          className="w-full border-t border-slate-100 bg-white"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
         />
       )}
