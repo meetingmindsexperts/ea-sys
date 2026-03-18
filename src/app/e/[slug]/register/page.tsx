@@ -18,50 +18,19 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type TicketTypeCategory = "EARLY_BIRD" | "STANDARD" | "PRESENTER" | "OTHER";
-
-const CATEGORY_LABELS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "Early Bird",
-  STANDARD: "Standard",
-  PRESENTER: "Presenter",
-  OTHER: "Other",
-};
-
-const CATEGORY_DESCRIPTIONS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "Discounted rates for early registrants",
-  STANDARD: "Standard registration rates",
-  PRESENTER: "Special rates for presenters and speakers",
-  OTHER: "Additional registration options",
-};
-
-const CATEGORY_SLUGS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "early-bird",
-  STANDARD: "standard",
-  PRESENTER: "presenter",
-  OTHER: "other",
-};
-
-const CATEGORY_ORDER: TicketTypeCategory[] = ["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"];
-
-const CATEGORY_COLORS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "bg-orange-50 border-orange-200 hover:border-orange-400",
-  STANDARD: "bg-blue-50 border-blue-200 hover:border-blue-400",
-  PRESENTER: "bg-purple-50 border-purple-200 hover:border-purple-400",
-  OTHER: "bg-slate-50 border-slate-200 hover:border-slate-400",
-};
-
-const CATEGORY_ICON_COLORS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "bg-orange-100 text-orange-600",
-  STANDARD: "bg-blue-100 text-blue-600",
-  PRESENTER: "bg-purple-100 text-purple-600",
-  OTHER: "bg-slate-100 text-slate-600",
-};
+/** Convert a category name to a URL-safe slug */
+function toSlug(category: string): string {
+  return category
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 interface TicketType {
   id: string;
   name: string;
   description: string | null;
-  category: TicketTypeCategory;
+  category: string;
   price: string;
   currency: string;
   quantity: number;
@@ -99,8 +68,7 @@ interface Event {
 }
 
 interface CategoryGroup {
-  category: TicketTypeCategory;
-  label: string;
+  category: string;
   slug: string;
   tickets: TicketType[];
   availableCount: number;
@@ -109,6 +77,18 @@ interface CategoryGroup {
   currency: string;
   allFree: boolean;
 }
+
+/** Rotate through accent colors for dynamic categories */
+const ACCENT_COLORS = [
+  { card: "bg-blue-50 border-blue-200 hover:border-blue-400", icon: "bg-blue-100 text-blue-600" },
+  { card: "bg-orange-50 border-orange-200 hover:border-orange-400", icon: "bg-orange-100 text-orange-600" },
+  { card: "bg-purple-50 border-purple-200 hover:border-purple-400", icon: "bg-purple-100 text-purple-600" },
+  { card: "bg-emerald-50 border-emerald-200 hover:border-emerald-400", icon: "bg-emerald-100 text-emerald-600" },
+  { card: "bg-rose-50 border-rose-200 hover:border-rose-400", icon: "bg-rose-100 text-rose-600" },
+  { card: "bg-amber-50 border-amber-200 hover:border-amber-400", icon: "bg-amber-100 text-amber-600" },
+  { card: "bg-cyan-50 border-cyan-200 hover:border-cyan-400", icon: "bg-cyan-100 text-cyan-600" },
+  { card: "bg-slate-50 border-slate-200 hover:border-slate-400", icon: "bg-slate-100 text-slate-600" },
+];
 
 export default function PublicEventRegisterPage() {
   const params = useParams();
@@ -144,18 +124,20 @@ export default function PublicEventRegisterPage() {
   useEffect(() => {
     if (!event) return;
 
-    // Build category groups to check for auto-redirect
-    const groups = CATEGORY_ORDER
-      .map((cat) => {
-        const tickets = event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat);
-        const available = tickets.filter((t) => t.canPurchase);
-        return { category: cat, available };
-      })
-      .filter((g) => g.available.length > 0);
+    // Build unique categories with available tickets
+    const seen = new Set<string>();
+    const groups: { category: string }[] = [];
+    for (const t of event.ticketTypes) {
+      const cat = t.category || "Standard";
+      if (!seen.has(cat) && t.canPurchase) {
+        seen.add(cat);
+        groups.push({ category: cat });
+      }
+    }
 
     // If only one category has available tickets, auto-redirect
     if (groups.length === 1) {
-      router.replace(`/e/${slug}/register/${CATEGORY_SLUGS[groups[0].category]}`);
+      router.replace(`/e/${slug}/register/${toSlug(groups[0].category)}`);
     }
   }, [event, slug, router]);
 
@@ -191,16 +173,21 @@ export default function PublicEventRegisterPage() {
     );
   }
 
-  // Build category groups
-  const categoryGroups: CategoryGroup[] = CATEGORY_ORDER
-    .map((cat) => {
-      const tickets = event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat);
+  // Build category groups dynamically from ticket data (preserve insertion order)
+  const categoryMap = new Map<string, TicketType[]>();
+  for (const t of event.ticketTypes) {
+    const cat = t.category || "Standard";
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat)!.push(t);
+  }
+
+  const categoryGroups: CategoryGroup[] = Array.from(categoryMap.entries()).map(
+    ([cat, tickets]) => {
       const available = tickets.filter((t) => t.canPurchase);
       const prices = available.map((t) => Number(t.price));
       return {
         category: cat,
-        label: CATEGORY_LABELS[cat],
-        slug: CATEGORY_SLUGS[cat],
+        slug: toSlug(cat),
         tickets,
         availableCount: available.length,
         minPrice: prices.length > 0 ? Math.min(...prices) : 0,
@@ -208,8 +195,8 @@ export default function PublicEventRegisterPage() {
         currency: available[0]?.currency || "USD",
         allFree: prices.every((p) => p === 0),
       };
-    })
-    .filter((g) => g.tickets.length > 0);
+    }
+  );
 
   const hasAvailable = categoryGroups.some((g) => g.availableCount > 0);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
@@ -361,8 +348,9 @@ export default function PublicEventRegisterPage() {
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {categoryGroups.map((group) => {
+                    {categoryGroups.map((group, idx) => {
                       const isClosed = group.availableCount === 0;
+                      const accent = ACCENT_COLORS[idx % ACCENT_COLORS.length];
 
                       return (
                         <Link
@@ -372,14 +360,14 @@ export default function PublicEventRegisterPage() {
                             "block rounded-2xl border-2 p-5 transition-all duration-200",
                             isClosed
                               ? "opacity-50 cursor-not-allowed border-slate-200 bg-slate-50"
-                              : cn(CATEGORY_COLORS[group.category], "hover:shadow-md hover:-translate-y-0.5")
+                              : cn(accent.card, "hover:shadow-md hover:-translate-y-0.5")
                           )}
                           onClick={(e) => isClosed && e.preventDefault()}
                         >
                           <div className="flex items-start gap-4">
                             <div className={cn(
                               "h-11 w-11 rounded-xl flex items-center justify-center shrink-0",
-                              CATEGORY_ICON_COLORS[group.category]
+                              isClosed ? "bg-slate-100 text-slate-400" : accent.icon
                             )}>
                               <Ticket className="h-5 w-5" />
                             </div>
@@ -387,10 +375,10 @@ export default function PublicEventRegisterPage() {
                               <div className="flex items-start justify-between gap-3">
                                 <div>
                                   <p className="font-semibold text-slate-900">
-                                    {group.label} Registration
+                                    {group.category} Registration
                                   </p>
                                   <p className="text-xs text-slate-500 mt-0.5">
-                                    {CATEGORY_DESCRIPTIONS[group.category]}
+                                    {group.tickets.length} {group.tickets.length === 1 ? "type" : "types"} in this category
                                   </p>
                                 </div>
                                 {!isClosed && (

@@ -9,7 +9,7 @@ import { getClientIp } from "@/lib/security";
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
-  category: z.enum(["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"]).optional(),
+  category: z.string().max(100).optional(),
   price: z.number().min(0).optional(),
   currency: z.string().max(10).optional(),
   quantity: z.number().min(1).optional(),
@@ -145,6 +145,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
+    apiLogger.info({ msg: "Ticket type updated", eventId, ticketTypeId: ticketId, userId: session.user.id, changes: data });
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -221,6 +223,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     await db.ticketType.delete({
       where: { id: ticketId },
     });
+
+    apiLogger.info({ msg: "Ticket type deleted", eventId, ticketTypeId: ticketId, name: ticketType.name, userId: session.user.id });
 
     // Log the action
     await db.auditLog.create({

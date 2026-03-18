@@ -163,21 +163,14 @@ enum EventType {
   HYBRID
 }
 
-enum TicketTypeCategory {
-  EARLY_BIRD
-  STANDARD
-  PRESENTER
-  OTHER
-}
-
 // ==================== REGISTRATION & TICKETING ====================
 
 model TicketType {
-  id               String              @id @default(cuid())
+  id               String   @id @default(cuid())
   eventId          String
   name             String
-  description      String?             @db.Text
-  category         TicketTypeCategory  @default(STANDARD)
+  description      String?  @db.Text
+  category         String   @default("Standard")
   price            Decimal   @db.Decimal(10, 2)
   currency         String    @default("USD")
   quantity         Int

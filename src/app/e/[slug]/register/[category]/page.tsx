@@ -41,27 +41,19 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type TicketTypeCategory = "EARLY_BIRD" | "STANDARD" | "PRESENTER" | "OTHER";
-
-const SLUG_TO_CATEGORY: Record<string, TicketTypeCategory> = {
-  "early-bird": "EARLY_BIRD",
-  standard: "STANDARD",
-  presenter: "PRESENTER",
-  other: "OTHER",
-};
-
-const CATEGORY_LABELS: Record<TicketTypeCategory, string> = {
-  EARLY_BIRD: "Early Bird",
-  STANDARD: "Standard",
-  PRESENTER: "Presenter",
-  OTHER: "Other",
-};
+/** Convert a category name to a URL-safe slug */
+function toSlug(category: string): string {
+  return category
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 interface TicketType {
   id: string;
   name: string;
   description: string | null;
-  category: TicketTypeCategory;
+  category: string;
   price: string;
   currency: string;
   quantity: number;
@@ -121,9 +113,9 @@ export default function CategoryRegistrationPage() {
   const router = useRouter();
   const slug = params.slug as string;
   const categorySlug = params.category as string;
-  const categoryEnum = SLUG_TO_CATEGORY[categorySlug];
 
   const [event, setEvent] = useState<Event | null>(null);
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,12 +140,6 @@ export default function CategoryRegistrationPage() {
   });
 
   useEffect(() => {
-    if (!categoryEnum) {
-      setError("Invalid registration category");
-      setLoading(false);
-      return;
-    }
-
     async function fetchEvent() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
@@ -161,11 +147,23 @@ export default function CategoryRegistrationPage() {
           setError(res.status === 404 ? "Event not found" : "Failed to load event");
           return;
         }
-        const data = await res.json();
+        const data: Event = await res.json();
         setEvent(data);
 
+        // Find the category that matches this URL slug
+        const matchedCategory = data.ticketTypes.find(
+          (t) => toSlug(t.category || "Standard") === categorySlug
+        )?.category;
+
+        if (!matchedCategory) {
+          setError("Invalid registration category");
+          return;
+        }
+
+        setCategoryLabel(matchedCategory);
+
         const categoryTickets = data.ticketTypes.filter(
-          (t: TicketType) => t.canPurchase && (t.category || "STANDARD") === categoryEnum
+          (t) => t.canPurchase && (t.category || "Standard") === matchedCategory
         );
         if (categoryTickets.length === 1) {
           form.setValue("ticketTypeId", categoryTickets[0].id);
@@ -180,7 +178,7 @@ export default function CategoryRegistrationPage() {
     if (slug) {
       fetchEvent();
     }
-  }, [slug, categoryEnum, form]);
+  }, [slug, categorySlug, form]);
 
   async function onSubmit(data: RegistrationForm) {
     setSubmitting(true);
@@ -219,7 +217,7 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  if (error || !event || !categoryEnum) {
+  if (error || !event || !categoryLabel) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
@@ -243,12 +241,11 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  const categoryLabel = CATEGORY_LABELS[categoryEnum];
   const availableTickets = event.ticketTypes.filter(
-    (t) => t.canPurchase && (t.category || "STANDARD") === categoryEnum
+    (t) => t.canPurchase && (t.category || "Standard") === categoryLabel
   );
   const allCategoryTickets = event.ticketTypes.filter(
-    (t) => (t.category || "STANDARD") === categoryEnum
+    (t) => (t.category || "Standard") === categoryLabel
   );
   const selectedTicketId = form.watch("ticketTypeId");
   const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
