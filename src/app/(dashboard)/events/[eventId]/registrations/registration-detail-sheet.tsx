@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { TagInput } from "@/components/ui/tag-input";
 import {
@@ -437,10 +438,10 @@ export function RegistrationDetailSheet({
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="edit-registrationType">Registration Type</Label>
-                        <Input
-                          id="edit-registrationType"
+                        <RegistrationTypeSelect
                           value={editData.registrationType}
-                          onChange={(e) => setEditData({ ...editData, registrationType: e.target.value })}
+                          onChange={(registrationType) => setEditData({ ...editData, registrationType })}
+                          eventId={eventId}
                         />
                       </div>
                     </div>

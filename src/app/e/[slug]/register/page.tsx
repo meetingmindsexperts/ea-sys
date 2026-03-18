@@ -214,7 +214,7 @@ export default function PublicEventRegisterPage() {
               alt={event.name}
               width={1400}
               height={500}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain object-center"
               unoptimized
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />
@@ -222,7 +222,7 @@ export default function PublicEventRegisterPage() {
             {/* Event title overlay on banner */}
             <div className="absolute inset-0 flex flex-col justify-end">
               <div className="px-5 sm:px-8 pb-5">
-                <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm">
+                <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm hidden">
                   {event.name}
                 </h1>
               </div>
@@ -410,7 +410,7 @@ export default function PublicEventRegisterPage() {
       {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {event.footerHtml && (
         <div
-          className="w-full border-t border-slate-100 bg-white text-center"
+          className="w-full border-t border-slate-100 bg-white text-center p-4 text-xs text-slate-500"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
         />
       )}
