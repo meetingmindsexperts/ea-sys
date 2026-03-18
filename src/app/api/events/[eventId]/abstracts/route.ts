@@ -105,8 +105,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = createAbstractSchema.safeParse(body);
 
     if (!validated.success) {
+      const details = validated.error.flatten();
+      apiLogger.warn({ msg: "Abstract create validation failed", eventId, userId: session.user.id, errors: details });
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: "Invalid input", details },
         { status: 400 }
       );
     }
@@ -208,6 +210,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify({ abstract })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+
+    apiLogger.info({ msg: "Abstract created", eventId, abstractId: abstract.id, speakerId, title, userId: session.user.id });
 
     return NextResponse.json(abstract, { status: 201 });
   } catch (error) {

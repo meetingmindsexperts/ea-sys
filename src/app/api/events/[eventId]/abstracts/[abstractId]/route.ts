@@ -106,8 +106,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const validated = updateAbstractSchema.safeParse(body);
 
     if (!validated.success) {
+      const details = validated.error.flatten();
+      apiLogger.warn({ msg: "Abstract update validation failed", eventId, abstractId, userId: session.user.id, errors: details });
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: "Invalid input", details },
         { status: 400 }
       );
     }
@@ -242,6 +244,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
+    apiLogger.info({ msg: "Abstract updated", eventId, abstractId, userId: session.user.id, changes: Object.keys(data) });
+
     return NextResponse.json(abstract);
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating abstract" });
@@ -313,6 +317,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         changes: { deleted: abstract, ip: getClientIp(req) },
       },
     });
+
+    apiLogger.info({ msg: "Abstract deleted", eventId, abstractId, title: abstract.title, userId: session.user.id });
 
     return NextResponse.json({ success: true });
   } catch (error) {

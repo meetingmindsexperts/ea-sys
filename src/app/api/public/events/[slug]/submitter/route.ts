@@ -38,6 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 1000,
     });
     if (!burstLimit.allowed) {
+      apiLogger.warn({ msg: "Submitter registration burst rate limit hit", ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(burstLimit.retryAfterSeconds) } }
@@ -52,6 +53,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "Submitter registration IP rate limit hit", ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
@@ -103,8 +105,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = registerSchema.safeParse(body);
 
     if (!validated.success) {
+      const details = validated.error.flatten();
+      apiLogger.warn({ msg: "Submitter registration validation failed", slug, errors: details });
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: "Invalid input", details },
         { status: 400 }
       );
     }
@@ -119,6 +123,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!emailRateLimit.allowed) {
+      apiLogger.warn({ msg: "Submitter registration email rate limit hit", email: emailLower, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(emailRateLimit.retryAfterSeconds) } }
