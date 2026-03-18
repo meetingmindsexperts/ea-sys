@@ -3,9 +3,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { format } from "date-fns";
 import Link from "next/link";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -16,28 +13,9 @@ import {
   Loader2,
   FileText,
   ChevronRight,
-  User,
-  Building2,
-  Phone,
-  Globe,
-  Utensils,
-  Stethoscope,
   AlertCircle,
+  Ticket,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { CountrySelect } from "@/components/ui/country-select";
-import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { TitleSelect } from "@/components/ui/title-select";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type TicketTypeCategory = "EARLY_BIRD" | "STANDARD" | "PRESENTER" | "OTHER";
@@ -49,7 +27,35 @@ const CATEGORY_LABELS: Record<TicketTypeCategory, string> = {
   OTHER: "Other",
 };
 
+const CATEGORY_DESCRIPTIONS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "Discounted rates for early registrants",
+  STANDARD: "Standard registration rates",
+  PRESENTER: "Special rates for presenters and speakers",
+  OTHER: "Additional registration options",
+};
+
+const CATEGORY_SLUGS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "early-bird",
+  STANDARD: "standard",
+  PRESENTER: "presenter",
+  OTHER: "other",
+};
+
 const CATEGORY_ORDER: TicketTypeCategory[] = ["EARLY_BIRD", "STANDARD", "PRESENTER", "OTHER"];
+
+const CATEGORY_COLORS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "bg-orange-50 border-orange-200 hover:border-orange-400",
+  STANDARD: "bg-blue-50 border-blue-200 hover:border-blue-400",
+  PRESENTER: "bg-purple-50 border-purple-200 hover:border-purple-400",
+  OTHER: "bg-slate-50 border-slate-200 hover:border-slate-400",
+};
+
+const CATEGORY_ICON_COLORS: Record<TicketTypeCategory, string> = {
+  EARLY_BIRD: "bg-orange-100 text-orange-600",
+  STANDARD: "bg-blue-100 text-blue-600",
+  PRESENTER: "bg-purple-100 text-purple-600",
+  OTHER: "bg-slate-100 text-slate-600",
+};
 
 interface TicketType {
   id: string;
@@ -92,23 +98,17 @@ interface Event {
   };
 }
 
-const registrationSchema = z.object({
-  ticketTypeId: z.string().min(1, "Please select a registration type"),
-  title: z.string().optional(),
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  phone: z.string().optional(),
-  city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
-  registrationType: z.string().optional(),
-  dietaryReqs: z.string().optional(),
-});
-
-type RegistrationForm = z.infer<typeof registrationSchema>;
+interface CategoryGroup {
+  category: TicketTypeCategory;
+  label: string;
+  slug: string;
+  tickets: TicketType[];
+  availableCount: number;
+  minPrice: number;
+  maxPrice: number;
+  currency: string;
+  allFree: boolean;
+}
 
 export default function PublicEventRegisterPage() {
   const params = useParams();
@@ -117,49 +117,18 @@ export default function PublicEventRegisterPage() {
 
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const form = useForm<RegistrationForm>({
-    resolver: zodResolver(registrationSchema),
-    defaultValues: {
-      ticketTypeId: "",
-      title: "",
-      firstName: "",
-      lastName: "",
-      email: "",
-      organization: "",
-      jobTitle: "",
-      phone: "",
-      city: "",
-      country: "",
-      specialty: "",
-      registrationType: "",
-      dietaryReqs: "",
-    },
-  });
 
   useEffect(() => {
     async function fetchEvent() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) {
-          if (res.status === 404) {
-            setError("Event not found");
-          } else {
-            setError("Failed to load event");
-          }
+          setError(res.status === 404 ? "Event not found" : "Failed to load event");
           return;
         }
         const data = await res.json();
         setEvent(data);
-
-        const availableTickets = data.ticketTypes.filter(
-          (t: TicketType) => t.canPurchase
-        );
-        if (availableTickets.length === 1) {
-          form.setValue("ticketTypeId", availableTickets[0].id);
-        }
       } catch {
         setError("Failed to load event");
       } finally {
@@ -170,34 +139,25 @@ export default function PublicEventRegisterPage() {
     if (slug) {
       fetchEvent();
     }
-  }, [slug, form]);
+  }, [slug]);
 
-  async function onSubmit(data: RegistrationForm) {
-    setSubmitting(true);
+  useEffect(() => {
+    if (!event) return;
 
-    try {
-      const res = await fetch(`/api/public/events/${slug}/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+    // Build category groups to check for auto-redirect
+    const groups = CATEGORY_ORDER
+      .map((cat) => {
+        const tickets = event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat);
+        const available = tickets.filter((t) => t.canPurchase);
+        return { category: cat, available };
+      })
+      .filter((g) => g.available.length > 0);
 
-      const result = await res.json();
-
-      if (!res.ok) {
-        toast.error(result.error || "Registration failed");
-        setSubmitting(false);
-        return;
-      }
-
-      router.push(
-        `/e/${slug}/confirmation?id=${result.registration.id}&name=${encodeURIComponent(data.firstName)}`
-      );
-    } catch {
-      toast.error("Something went wrong. Please try again.");
-      setSubmitting(false);
+    // If only one category has available tickets, auto-redirect
+    if (groups.length === 1) {
+      router.replace(`/e/${slug}/register/${CATEGORY_SLUGS[groups[0].category]}`);
     }
-  }
+  }, [event, slug, router]);
 
   if (loading) {
     return (
@@ -231,10 +191,27 @@ export default function PublicEventRegisterPage() {
     );
   }
 
-  const availableTickets = event.ticketTypes.filter((t) => t.canPurchase);
-  const selectedTicketId = form.watch("ticketTypeId");
-  const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
+  // Build category groups
+  const categoryGroups: CategoryGroup[] = CATEGORY_ORDER
+    .map((cat) => {
+      const tickets = event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat);
+      const available = tickets.filter((t) => t.canPurchase);
+      const prices = available.map((t) => Number(t.price));
+      return {
+        category: cat,
+        label: CATEGORY_LABELS[cat],
+        slug: CATEGORY_SLUGS[cat],
+        tickets,
+        availableCount: available.length,
+        minPrice: prices.length > 0 ? Math.min(...prices) : 0,
+        maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
+        currency: available[0]?.currency || "USD",
+        allFree: prices.every((p) => p === 0),
+      };
+    })
+    .filter((g) => g.tickets.length > 0);
 
+  const hasAvailable = categoryGroups.some((g) => g.availableCount > 0);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
@@ -255,7 +232,6 @@ export default function PublicEventRegisterPage() {
           </>
         )}
 
-        {/* Decorative pattern */}
         {!event.bannerImage && (
           <div className="absolute inset-0 opacity-5 bg-dot-pattern" />
         )}
@@ -266,7 +242,6 @@ export default function PublicEventRegisterPage() {
             event.bannerImage ? "py-8 -mt-8" : "py-12"
           )}
         >
-          {/* Org name */}
           <div className="flex items-center gap-2 mb-4">
             {event.organization.logo ? (
               <Image
@@ -287,7 +262,6 @@ export default function PublicEventRegisterPage() {
             {event.name}
           </h1>
 
-          {/* Meta chips */}
           <div className="flex flex-wrap gap-3">
             <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5 text-sm text-white/90">
               <Calendar className="h-3.5 w-3.5 text-primary" />
@@ -323,7 +297,6 @@ export default function PublicEventRegisterPage() {
               </div>
             )}
 
-            {/* Schedule link */}
             <Link href={`/e/${slug}/schedule`} className="block group">
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
                 <div className="flex items-center gap-4">
@@ -339,7 +312,6 @@ export default function PublicEventRegisterPage() {
               </div>
             </Link>
 
-            {/* Abstract submission CTA */}
             {event.abstractSettings?.allowAbstractSubmissions && (
               <Link href={`/e/${slug}/submitAbstract`} className="block group">
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
@@ -348,9 +320,7 @@ export default function PublicEventRegisterPage() {
                       <FileText className="h-5 w-5 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900 text-sm">
-                        Call for Abstracts
-                      </p>
+                      <p className="font-semibold text-slate-900 text-sm">Call for Abstracts</p>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {event.abstractSettings.abstractDeadline
                           ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
@@ -362,65 +332,9 @@ export default function PublicEventRegisterPage() {
                 </div>
               </Link>
             )}
-
-            {/* All ticket types overview (grouped by category) */}
-            {event.ticketTypes.length > 0 && (
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-4">
-                  Registration Types
-                </h3>
-                <div className="space-y-4">
-                  {CATEGORY_ORDER
-                    .map((cat) => ({
-                      category: cat,
-                      label: CATEGORY_LABELS[cat],
-                      tickets: event.ticketTypes.filter((t) => (t.category || "STANDARD") === cat),
-                    }))
-                    .filter((g) => g.tickets.length > 0)
-                    .map((group) => (
-                      <div key={group.category}>
-                        {event.ticketTypes.some((t) => (t.category || "STANDARD") !== (event.ticketTypes[0]?.category || "STANDARD")) && (
-                          <p className="text-xs font-medium text-slate-500 mb-2">
-                            {group.label}
-                          </p>
-                        )}
-                        <div className="space-y-2">
-                          {group.tickets.map((rt) => (
-                            <div
-                              key={rt.id}
-                              className={cn(
-                                "flex justify-between items-center text-sm",
-                                !rt.canPurchase && "opacity-40"
-                              )}
-                            >
-                              <span className="text-slate-700 font-medium">
-                                {rt.name}
-                              </span>
-                              <span
-                                className={cn(
-                                  "font-semibold",
-                                  rt.canPurchase ? "text-primary" : "text-slate-400"
-                                )}
-                              >
-                                {rt.soldOut || rt.salesEnded
-                                  ? "Closed"
-                                  : !rt.salesStarted
-                                  ? "Soon"
-                                  : Number(rt.price) === 0
-                                  ? "Free"
-                                  : `${rt.currency} ${rt.price}`}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Right: Registration Form */}
+          {/* Right: Registration Categories */}
           <div className="md:col-span-3">
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100">
@@ -428,12 +342,12 @@ export default function PublicEventRegisterPage() {
                   Register for This Event
                 </h2>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  Complete the form below to secure your spot
+                  Choose your registration category to proceed
                 </p>
               </div>
 
               <div className="p-6">
-                {availableTickets.length === 0 ? (
+                {!hasAvailable ? (
                   <div className="text-center py-12">
                     <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
                       <AlertCircle className="h-7 w-7 text-slate-400" />
@@ -446,395 +360,63 @@ export default function PublicEventRegisterPage() {
                     </p>
                   </div>
                 ) : (
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(onSubmit)}
-                      className="space-y-6"
-                    >
-                      {/* Section: Registration Type (grouped by category) */}
-                      <div>
-                        <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                          Registration Type
-                        </p>
-                        <FormField
-                          control={form.control}
-                          name="ticketTypeId"
-                          render={({ field }) => {
-                            const grouped = CATEGORY_ORDER
-                              .map((cat) => ({
-                                category: cat,
-                                label: CATEGORY_LABELS[cat],
-                                tickets: availableTickets.filter((t) => (t.category || "STANDARD") === cat),
-                              }))
-                              .filter((g) => g.tickets.length > 0);
+                  <div className="grid gap-4">
+                    {categoryGroups.map((group) => {
+                      const isClosed = group.availableCount === 0;
 
-                            return (
-                              <FormItem>
-                                <div className="grid gap-4">
-                                  {grouped.map((group) => (
-                                    <div key={group.category}>
-                                      {grouped.length > 1 && (
-                                        <p className="text-xs font-medium text-slate-500 mb-2">
-                                          {group.label}
-                                        </p>
-                                      )}
-                                      <div className="grid gap-3">
-                                        {group.tickets.map((rt) => {
-                                          const isSelected = field.value === rt.id;
-                                          return (
-                                            <button
-                                              key={rt.id}
-                                              type="button"
-                                              onClick={() => field.onChange(rt.id)}
-                                              className={cn(
-                                                "w-full text-left rounded-xl border-2 p-4 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                                                isSelected
-                                                  ? "border-primary bg-primary/5 shadow-sm"
-                                                  : "border-slate-200 hover:border-primary/50 hover:bg-slate-50"
-                                              )}
-                                            >
-                                              <div className="flex items-start justify-between gap-3">
-                                                <div className="flex-1 min-w-0">
-                                                  <p className="font-semibold text-slate-900 text-sm">
-                                                    {rt.name}
-                                                  </p>
-                                                  {rt.description && (
-                                                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                                                      {rt.description}
-                                                    </p>
-                                                  )}
-                                                </div>
-                                                <div className="flex items-center gap-3 shrink-0">
-                                                  <span
-                                                    className={cn(
-                                                      "text-sm font-bold",
-                                                      isSelected
-                                                        ? "text-primary"
-                                                        : "text-slate-700"
-                                                    )}
-                                                  >
-                                                    {Number(rt.price) === 0
-                                                      ? "Free"
-                                                      : `${rt.currency} ${rt.price}`}
-                                                  </span>
-                                                  <div
-                                                    className={cn(
-                                                      "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all",
-                                                      isSelected
-                                                        ? "border-primary bg-primary"
-                                                        : "border-slate-300"
-                                                    )}
-                                                  >
-                                                    {isSelected && (
-                                                      <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  ))}
+                      return (
+                        <Link
+                          key={group.category}
+                          href={isClosed ? "#" : `/e/${slug}/register/${group.slug}`}
+                          className={cn(
+                            "block rounded-2xl border-2 p-5 transition-all duration-200",
+                            isClosed
+                              ? "opacity-50 cursor-not-allowed border-slate-200 bg-slate-50"
+                              : cn(CATEGORY_COLORS[group.category], "hover:shadow-md hover:-translate-y-0.5")
+                          )}
+                          onClick={(e) => isClosed && e.preventDefault()}
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className={cn(
+                              "h-11 w-11 rounded-xl flex items-center justify-center shrink-0",
+                              CATEGORY_ICON_COLORS[group.category]
+                            )}>
+                              <Ticket className="h-5 w-5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold text-slate-900">
+                                    {group.label} Registration
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-0.5">
+                                    {CATEGORY_DESCRIPTIONS[group.category]}
+                                  </p>
                                 </div>
-                                <FormMessage className="mt-2" />
-                              </FormItem>
-                            );
-                          }}
-                        />
-                      </div>
-
-                      {/* Section: Personal Information */}
-                      <div>
-                        <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                          Personal Information
-                        </p>
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
-                            <FormField
-                              control={form.control}
-                              name="title"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    Title
-                                  </FormLabel>
-                                  <TitleSelect
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                  />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="firstName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    First Name <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="John"
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="lastName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    Last Name <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Doe"
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+                                {!isClosed && (
+                                  <ChevronRight className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 mt-3">
+                                <span className="text-sm font-bold text-slate-800">
+                                  {isClosed
+                                    ? "Closed"
+                                    : group.allFree
+                                    ? "Free"
+                                    : group.minPrice === group.maxPrice
+                                    ? `${group.currency} ${group.minPrice}`
+                                    : `From ${group.currency} ${group.minPrice}`}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {group.availableCount} {group.availableCount === 1 ? "option" : "options"} available
+                                </span>
+                              </div>
+                            </div>
                           </div>
-
-                          <FormField
-                            control={form.control}
-                            name="email"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600">
-                                  Email Address <span className="text-red-400">*</span>
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="email"
-                                    placeholder="john@example.com"
-                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="organization"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Building2 className="h-3 w-3" />
-                                    Organization
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Acme Inc."
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="jobTitle"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <User className="h-3 w-3" />
-                                    Job Title
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Physician"
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="phone"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Phone className="h-3 w-3" />
-                                  Phone
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="+1 234 567 8900"
-                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="city"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <MapPin className="h-3 w-3" />
-                                    City
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="New York"
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="country"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Globe className="h-3 w-3" />
-                                    Country
-                                  </FormLabel>
-                                  <CountrySelect
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="specialty"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Stethoscope className="h-3 w-3" />
-                                    Specialty
-                                  </FormLabel>
-                                  <SpecialtySelect
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="registrationType"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <FileText className="h-3 w-3" />
-                                    Registration Type
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder="e.g. Delegate, Speaker, Student"
-                                      className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="dietaryReqs"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Utensils className="h-3 w-3" />
-                                  Dietary Requirements
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="e.g. Vegetarian, Halal, Gluten-free"
-                                    className="rounded-lg border-slate-200 focus-visible:ring-primary/30"
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Summary & Submit */}
-                      {selectedTicket && (
-                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-slate-600">
-                              {selectedTicket.name}
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {Number(selectedTicket.price) === 0
-                                ? "Free"
-                                : `${selectedTicket.currency} ${selectedTicket.price}`}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-
-                      <Button
-                        type="submit"
-                        className="w-full btn-gradient h-11 font-semibold text-sm rounded-xl shadow-sm hover:shadow-md transition-shadow"
-                        disabled={submitting}
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Registering…
-                          </>
-                        ) : (
-                          <>
-                            Complete Registration
-                            <ChevronRight className="ml-1 h-4 w-4" />
-                          </>
-                        )}
-                      </Button>
-
-                      <p className="text-center text-xs text-slate-400">
-                        By registering, you agree to the event terms and conditions.
-                      </p>
-                    </form>
-                  </Form>
+                        </Link>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>
