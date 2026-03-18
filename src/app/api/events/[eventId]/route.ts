@@ -101,8 +101,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const validated = updateEventSchema.safeParse(body);
 
     if (!validated.success) {
+      const details = validated.error.flatten();
+      apiLogger.warn({ msg: "Event update validation failed", eventId, userId: session.user.id, errors: details, body });
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: "Invalid input", details },
         { status: 400 }
       );
     }
@@ -177,6 +179,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
+    apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -230,10 +234,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Delete the event and log in parallel (delete first, then log)
     await db.event.delete({
       where: { id: eventId },
     });
+
+    apiLogger.info({ msg: "Event deleted", eventId, name: existingEvent.name, userId: session.user.id });
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({

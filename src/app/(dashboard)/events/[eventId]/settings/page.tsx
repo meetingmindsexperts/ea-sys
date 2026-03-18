@@ -265,7 +265,15 @@ export default function EventSettingsPage() {
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Failed to save general settings");
+        const fieldErrors = data.details?.fieldErrors;
+        if (fieldErrors) {
+          const fields = Object.entries(fieldErrors)
+            .map(([k, v]) => `${k}: ${(v as string[]).join(", ")}`)
+            .join("; ");
+          toast.error(`Validation failed — ${fields}`);
+        } else {
+          toast.error(data.error || "Failed to save general settings");
+        }
       }
     } catch (error) {
       console.error("Error saving event:", error);
