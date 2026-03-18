@@ -335,6 +335,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "amount", description: "Amount paid (e.g. USD 100.00)" },
     { key: "currency", description: "Currency code" },
     { key: "paymentDate", description: "Payment date (formatted)" },
+    { key: "receiptUrl", description: "Stripe receipt URL (auto-generated)" },
   ],
 };
 
@@ -645,6 +646,7 @@ Dear {{firstName}},
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Amount Paid</td><td style="padding: 10px 16px; font-weight: 700; font-size: 16px; text-align: right; color: #059669;">{{amount}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Payment Date</td><td style="padding: 10px 16px; text-align: right;">{{paymentDate}}</td></tr>
     </table>
+    {{receiptBlock}}
     <p style="color: #6b7280; font-size: 13px;">Please save this email for your records. If you have any questions, contact the event organizer.</p>
   </div>`,
     textContent: `Payment Received — {{eventName}}
@@ -659,6 +661,8 @@ Date: {{eventDate}}
 Registration Type: {{ticketType}}
 Amount Paid: {{amount}}
 Payment Date: {{paymentDate}}
+
+{{receiptBlock}}
 
 Please save this email for your records.`,
   },

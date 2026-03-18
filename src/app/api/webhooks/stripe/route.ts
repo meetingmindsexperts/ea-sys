@@ -65,6 +65,26 @@ export async function POST(req: Request) {
 
       const amount = session.amount_total ? session.amount_total / 100 : Number(registration.ticketType.price);
       const currency = (session.currency || registration.ticketType.currency).toUpperCase();
+      const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
+
+      // Fetch receipt URL from the payment intent's latest charge
+      let receiptUrl: string | null = null;
+      if (paymentIntentId) {
+        try {
+          const stripe = getStripe();
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+          const chargeId = typeof paymentIntent.latest_charge === "string"
+            ? paymentIntent.latest_charge
+            : paymentIntent.latest_charge?.id;
+          if (chargeId) {
+            const charge = await stripe.charges.retrieve(chargeId);
+            receiptUrl = charge.receipt_url || null;
+          }
+        } catch (err) {
+          apiLogger.warn({ err, msg: "Failed to fetch Stripe receipt URL", paymentIntentId });
+        }
+      }
 
       // Update registration and create payment record in transaction
       await db.$transaction([
@@ -77,10 +97,10 @@ export async function POST(req: Request) {
             registrationId,
             amount,
             currency,
-            stripePaymentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null,
-            stripeCustomerId: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+            stripePaymentId: paymentIntentId,
+            stripeCustomerId: customerId,
             status: "PAID",
-            receiptUrl: null,
+            receiptUrl,
             metadata: { checkoutSessionId: session.id },
           },
         }),
@@ -96,7 +116,7 @@ export async function POST(req: Request) {
       });
 
       // Send payment confirmation email (non-blocking)
-      sendPaymentConfirmationEmail(registration, amount, currency).catch((err) =>
+      sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl).catch((err) =>
         apiLogger.error({ err, msg: "Failed to send payment confirmation email", registrationId })
       );
     } catch (err) {
@@ -117,7 +137,8 @@ async function sendPaymentConfirmationEmail(
     event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null };
   },
   amount: number,
-  currency: string
+  currency: string,
+  receiptUrl: string | null
 ) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -134,7 +155,15 @@ async function sendPaymentConfirmationEmail(
     minute: "2-digit",
   }).format(new Date());
 
-  const vars = {
+  // Build receipt block — only shown if Stripe provided a receipt URL
+  const receiptBlock = receiptUrl
+    ? `<div style="text-align: center; margin: 20px 0;">
+        <a href="${receiptUrl}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">View Receipt / Invoice</a>
+      </div>`
+    : "";
+  const receiptBlockText = receiptUrl ? `View Receipt: ${receiptUrl}` : "";
+
+  const vars: Record<string, string | number | undefined> = {
     firstName: registration.attendee.firstName,
     lastName: registration.attendee.lastName,
     eventName: registration.event.name,
@@ -145,6 +174,8 @@ async function sendPaymentConfirmationEmail(
     amount: `${currency} ${amount.toFixed(2)}`,
     currency,
     paymentDate,
+    receiptUrl: receiptUrl || undefined,
+    receiptBlock,
   };
 
   const tpl = await getEventTemplate(registration.event.id, "payment-confirmation");
@@ -156,7 +187,12 @@ async function sendPaymentConfirmationEmail(
   }
 
   const branding = tpl?.branding || { eventName: registration.event.name };
-  const rendered = renderAndWrap(template, vars, branding);
+  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock"]));
+
+  // Override text content with plain text receipt link
+  const textVars = { ...vars, receiptBlock: receiptBlockText };
+  const { renderTemplatePlain } = await import("@/lib/email");
+  rendered.textContent = renderTemplatePlain(template.textContent, textVars);
 
   await sendEmail({
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
