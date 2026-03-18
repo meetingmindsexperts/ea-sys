@@ -62,12 +62,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "Checkout: registration not found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
     const ticketPrice = Number(registration.ticketType.price);
 
     if (ticketPrice === 0) {
+      apiLogger.warn({ msg: "Checkout attempted for free ticket", registrationId });
       return NextResponse.json(
         { error: "No payment required for free tickets" },
         { status: 400 }
@@ -75,6 +77,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (registration.paymentStatus === "PAID") {
+      apiLogger.warn({ msg: "Checkout attempted for already-paid registration", registrationId });
       return NextResponse.json(
         { error: "Payment already completed" },
         { status: 400 }

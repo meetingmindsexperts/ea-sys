@@ -30,6 +30,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "Payment status: registration not found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
