@@ -16,6 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ClipboardList, Plus, Edit, Trash2, ArrowLeft, Copy, ExternalLink } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useTickets, useCreateTicket, useUpdateTicket, useDeleteTicket, useEvent } from "@/hooks/use-api";
@@ -309,20 +316,22 @@ export default function TicketsPage() {
                 <p className="text-xs text-muted-foreground">
                   Tickets in the same category share one registration form page
                 </p>
-                <select
-                  id="category"
-                  aria-label="Category"
+                <Select
                   value={categoryMode === "custom" ? CUSTOM_VALUE : formData.category}
-                  onChange={(e) => handleCategorySelect(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  onValueChange={(value) => handleCategorySelect(value)}
                 >
-                  {dropdownOptions.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_VALUE}>+ Custom Category</option>
-                </select>
+                  <SelectTrigger id="category">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dropdownOptions.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_VALUE}>+ Custom Category</SelectItem>
+                  </SelectContent>
+                </Select>
                 {categoryMode === "custom" && (
                   <Input
                     autoFocus

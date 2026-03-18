@@ -23,7 +23,7 @@ import {
   Utensils,
   Stethoscope,
   AlertCircle,
-  ArrowLeft,
+
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -251,17 +251,6 @@ export default function CategoryRegistrationPage() {
   const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
-  // Build list of other categories for switching
-  const allCategories: string[] = [];
-  const seen = new Set<string>();
-  for (const t of event.ticketTypes) {
-    const cat = t.category || "Standard";
-    if (!seen.has(cat) && t.canPurchase) {
-      seen.add(cat);
-      allCategories.push(cat);
-    }
-  }
-  const otherCategories = allCategories.filter((c) => c !== categoryLabel);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -335,26 +324,7 @@ export default function CategoryRegistrationPage() {
         <div className="grid md:grid-cols-5 gap-8 items-start">
           {/* Left: Info sidebar */}
           <div className="md:col-span-2 space-y-5">
-            {/* Category switcher */}
-            {otherCategories.length > 0 && (
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-                <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                  Other Categories
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {otherCategories.map((cat) => (
-                    <Link
-                      key={cat}
-                      href={`/e/${slug}/register/${toSlug(cat)}`}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 bg-slate-50 hover:bg-primary/10 hover:text-primary border border-slate-200 hover:border-primary/30 rounded-lg px-3 py-1.5 transition-colors"
-                    >
-                      <ArrowLeft className="h-3 w-3" />
-                      {cat}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Category switcher removed — public registrants should only see their assigned category */}
 
             {event.description && (
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
@@ -464,12 +434,6 @@ export default function CategoryRegistrationPage() {
                     <p className="text-sm text-slate-400 mt-1">
                       Check back later or contact the organizer.
                     </p>
-                    <Link
-                      href={`/e/${slug}/register`}
-                      className="text-primary text-sm font-medium hover:underline mt-3 inline-block"
-                    >
-                      View other registration types →
-                    </Link>
                   </div>
                 ) : (
                   <Form {...form}>
