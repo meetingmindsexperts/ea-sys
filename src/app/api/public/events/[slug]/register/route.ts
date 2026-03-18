@@ -251,6 +251,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: ticketType.name,
         registrationId: registration.id,
         qrCode: registration.qrCode || "",
+        eventId: event.id,
+        eventSlug: slug,
+        ticketPrice: Number(ticketType.price),
+        ticketCurrency: ticketType.currency,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });
@@ -263,8 +267,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         registration: {
           id: registration.id,
           status: registration.status,
+          paymentStatus: registration.paymentStatus,
           qrCode: registration.qrCode,
           ticketType: ticketType.name,
+          ticketPrice: Number(ticketType.price),
+          ticketCurrency: ticketType.currency,
           attendee: {
             firstName,
             lastName,

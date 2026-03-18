@@ -43,6 +43,7 @@ export default auth((req) => {
     MUTATION_METHODS.has(req.method) &&
     !pathname.startsWith("/api/auth/") &&
     !pathname.startsWith("/api/public/") &&
+    !pathname.startsWith("/api/webhooks/") &&
     !pathname.startsWith("/api/health")
   ) {
     const origin = req.headers.get("origin");

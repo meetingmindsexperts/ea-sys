@@ -194,9 +194,13 @@ export default function CategoryRegistrationPage() {
         setSubmitting(false);
         return;
       }
-      router.push(
-        `/e/${slug}/confirmation?id=${result.registration.id}&name=${encodeURIComponent(data.firstName)}`
-      );
+      const reg = result.registration;
+      const confirmParams = new URLSearchParams({
+        id: reg.id,
+        name: data.firstName,
+        ...(reg.ticketPrice > 0 ? { price: String(reg.ticketPrice), currency: reg.ticketCurrency } : {}),
+      });
+      router.push(`/e/${slug}/confirmation?${confirmParams.toString()}`);
     } catch {
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);

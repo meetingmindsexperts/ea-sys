@@ -135,11 +135,13 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
  */
 export function renderTemplate(
   template: string,
-  variables: Record<string, string | number | undefined>
+  variables: Record<string, string | number | undefined>,
+  rawHtmlKeys?: Set<string>
 ): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = variables[key];
     if (value === undefined) return `{{${key}}}`;
+    if (rawHtmlKeys?.has(key)) return String(value);
     return escapeHtml(String(value));
   });
 }
@@ -256,6 +258,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventVenue", description: "Event venue" },
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "registrationId", description: "Confirmation number" },
+    { key: "paymentBlock", description: "Payment pending block (auto-generated for paid tickets)" },
   ],
   "speaker-invitation": [
     { key: "firstName", description: "Speaker first name" },
@@ -321,6 +324,18 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "ctaText", description: "Call-to-action button text" },
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],
+  "payment-confirmation": [
+    { key: "firstName", description: "Attendee first name" },
+    { key: "lastName", description: "Attendee last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDate", description: "Event date (formatted)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "registrationId", description: "Confirmation number" },
+    { key: "ticketType", description: "Registration/ticket type" },
+    { key: "amount", description: "Amount paid (e.g. USD 100.00)" },
+    { key: "currency", description: "Currency code" },
+    { key: "paymentDate", description: "Payment date (formatted)" },
+  ],
 };
 
 // ── Default template HTML (body fragments only — wrapped at render time) ──────
@@ -354,6 +369,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
         <tr><td style="padding: 8px 0; color: #6b7280;">Ticket Type:</td><td style="padding: 8px 0; font-weight: 500;">{{ticketType}}</td></tr>
       </table>
     </div>
+    {{paymentBlock}}
     <p>If you have any questions, please don&apos;t hesitate to contact us.</p>
     <p style="margin-bottom: 0;">See you at the event!</p>
   </div>`,
@@ -369,6 +385,8 @@ Registration Details:
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
 - Ticket Type: {{ticketType}}
+
+{{paymentBlock}}
 
 See you at the event!`,
   },
@@ -606,6 +624,44 @@ Dear {{firstName}},
 
 {{message}}`,
   },
+  {
+    slug: "payment-confirmation",
+    name: "Payment Confirmation",
+    subject: "Payment Received — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="display: inline-block; width: 56px; height: 56px; border-radius: 50%; background: #dcfce7; text-align: center; line-height: 56px; font-size: 28px;">&#10003;</div>
+    </div>
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Payment Received</h1>
+    <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Thank you for your payment. Here are your invoice details:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
+      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Confirmation Number</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{registrationId}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Date</td><td style="padding: 10px 16px; text-align: right;">{{eventDate}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration Type</td><td style="padding: 10px 16px; text-align: right;">{{ticketType}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Amount Paid</td><td style="padding: 10px 16px; font-weight: 700; font-size: 16px; text-align: right; color: #059669;">{{amount}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Payment Date</td><td style="padding: 10px 16px; text-align: right;">{{paymentDate}}</td></tr>
+    </table>
+    <p style="color: #6b7280; font-size: 13px;">Please save this email for your records. If you have any questions, contact the event organizer.</p>
+  </div>`,
+    textContent: `Payment Received — {{eventName}}
+
+Dear {{firstName}},
+
+Thank you for your payment. Here are your invoice details:
+
+Confirmation Number: {{registrationId}}
+Event: {{eventName}}
+Date: {{eventDate}}
+Registration Type: {{ticketType}}
+Amount Paid: {{amount}}
+Payment Date: {{paymentDate}}
+
+Please save this email for your records.`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────
@@ -783,10 +839,11 @@ export async function getEventTemplate(
 export function renderAndWrap(
   template: { subject: string; htmlContent: string; textContent: string },
   variables: Record<string, string | number | undefined>,
-  branding: EmailBranding
+  branding: EmailBranding,
+  rawHtmlKeys?: Set<string>
 ): { subject: string; htmlContent: string; textContent: string } {
   const subject = renderTemplatePlain(template.subject, variables);
-  const bodyHtml = renderTemplate(template.htmlContent, variables);
+  const bodyHtml = renderTemplate(template.htmlContent, variables, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);
   const htmlContent = inlineCss(wrapped);
   const textContent = renderTemplatePlain(template.textContent, variables);
@@ -806,6 +863,9 @@ export async function sendRegistrationConfirmation(params: {
   registrationId: string;
   qrCode: string;
   eventId?: string;
+  eventSlug?: string;
+  ticketPrice?: number;
+  ticketCurrency?: string;
 }) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -816,7 +876,27 @@ export async function sendRegistrationConfirmation(params: {
     minute: "2-digit",
   }).format(new Date(params.eventDate));
 
-  const vars = {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
+  const paymentLink = params.eventSlug
+    ? `${appUrl}/e/${params.eventSlug}/confirmation?id=${params.registrationId}&name=${encodeURIComponent(params.firstName)}&price=${params.ticketPrice ?? 0}&currency=${params.ticketCurrency ?? "USD"}`
+    : "";
+
+  // Build payment block for paid tickets (HTML + plain text versions)
+  let paymentBlock = "";
+  let paymentBlockText = "";
+  if (params.ticketPrice && params.ticketPrice > 0) {
+    const currency = params.ticketCurrency || "USD";
+    const amount = Number(params.ticketPrice).toFixed(2);
+    paymentBlock = `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">Payment Pending</p>
+      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${amount}</strong></p>
+      <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #92400e;">You can also pay later using this link anytime.</p>
+    </div>`;
+    paymentBlockText = `Payment Pending: ${currency} ${amount}\nPay Now: ${paymentLink}`;
+  }
+
+  const vars: Record<string, string | number | undefined> = {
     firstName: params.firstName,
     lastName: "",
     eventName: params.eventName,
@@ -824,6 +904,7 @@ export async function sendRegistrationConfirmation(params: {
     eventVenue: [params.eventVenue, params.eventCity].filter(Boolean).join(", "),
     ticketType: params.ticketType,
     registrationId: params.registrationId,
+    paymentBlock,
   };
 
   // Try DB template first, fall back to default
@@ -841,10 +922,18 @@ export async function sendRegistrationConfirmation(params: {
     return { success: false, error: "Email template not found" };
   }
 
-  const rendered = renderAndWrap(template, vars, branding);
+  // Render HTML with raw paymentBlock (contains HTML), text with plain text version
+  const subject = renderTemplatePlain(template.subject, vars);
+  const bodyHtml = renderTemplate(template.htmlContent, vars, new Set(["paymentBlock"]));
+  const wrapped = wrapWithBranding(bodyHtml, branding);
+  const htmlContent = inlineCss(wrapped);
+  const textVars = { ...vars, paymentBlock: paymentBlockText };
+  const textContent = renderTemplatePlain(template.textContent, textVars);
 
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],
-    ...rendered,
+    subject,
+    htmlContent,
+    textContent,
   });
 }

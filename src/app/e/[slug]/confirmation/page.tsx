@@ -1,16 +1,32 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Mail, ArrowLeft, Calendar } from "lucide-react";
+import {
+  CheckCircle2,
+  Mail,
+  ArrowLeft,
+  Calendar,
+  CreditCard,
+  Loader2,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { toast } from "sonner";
 
 interface EventBranding {
   bannerImage: string | null;
   footerHtml: string | null;
+}
+
+interface PaymentInfo {
+  paymentStatus: string;
+  ticketName: string;
+  ticketPrice: number;
+  ticketCurrency: string;
 }
 
 function ConfirmationContent() {
@@ -19,29 +35,99 @@ function ConfirmationContent() {
   const slug = params.slug as string;
   const registrationId = searchParams.get("id");
   const firstName = searchParams.get("name");
+  const paymentParam = searchParams.get("payment"); // "success" | "cancelled" | null
+  const priceParam = searchParams.get("price");
+  const currencyParam = searchParams.get("currency");
 
   const [branding, setBranding] = useState<EventBranding | null>(null);
+  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
+  const [loadingPayment, setLoadingPayment] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [polling, setPolling] = useState(false);
+
+  // Fetch event branding
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/public/events/${slug}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setBranding({ bannerImage: data.bannerImage, footerHtml: data.footerHtml });
+      })
+      .catch(() => {});
+  }, [slug]);
+
+  // Fetch payment status
+  const fetchPaymentStatus = useCallback(async () => {
+    if (!slug || !registrationId) return null;
+    try {
+      const res = await fetch(`/api/public/events/${slug}/payment-status/${registrationId}`);
+      if (res.ok) {
+        const data: PaymentInfo = await res.json();
+        setPaymentInfo(data);
+        return data;
+      }
+    } catch {
+      // Silently fail
+    }
+    return null;
+  }, [slug, registrationId]);
 
   useEffect(() => {
-    async function fetchEventBranding() {
-      try {
-        const res = await fetch(`/api/public/events/${slug}`);
-        if (res.ok) {
-          const data = await res.json();
-          setBranding({
-            bannerImage: data.bannerImage,
-            footerHtml: data.footerHtml,
-          });
-        }
-      } catch {
-        // Silently fail - branding is optional
-      }
+    if (registrationId && (priceParam || paymentParam)) {
+      setLoadingPayment(true);
+      fetchPaymentStatus().finally(() => setLoadingPayment(false));
     }
+  }, [registrationId, priceParam, paymentParam, fetchPaymentStatus]);
 
-    if (slug) {
-      fetchEventBranding();
+  // Poll for payment completion after returning from Stripe
+  useEffect(() => {
+    if (paymentParam !== "success" || !registrationId) return;
+    // If we already know it's paid, skip
+    if (paymentInfo?.paymentStatus === "PAID") return;
+
+    setPolling(true);
+    let attempts = 0;
+    const maxAttempts = 8;
+
+    const interval = setInterval(async () => {
+      attempts++;
+      const data = await fetchPaymentStatus();
+      if (data?.paymentStatus === "PAID" || attempts >= maxAttempts) {
+        clearInterval(interval);
+        setPolling(false);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [paymentParam, registrationId, paymentInfo?.paymentStatus, fetchPaymentStatus]);
+
+  const handlePayNow = async () => {
+    if (!registrationId) return;
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch(`/api/public/events/${slug}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to create checkout session");
+        setCheckoutLoading(false);
+        return;
+      }
+      // Redirect to Stripe Checkout
+      window.location.href = data.checkoutUrl;
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+      setCheckoutLoading(false);
     }
-  }, [slug]);
+  };
+
+  const isPaid = paymentInfo?.paymentStatus === "PAID";
+  const ticketPrice = paymentInfo?.ticketPrice ?? (priceParam ? Number(priceParam) : 0);
+  const ticketCurrency = paymentInfo?.ticketCurrency ?? currencyParam ?? "USD";
+  const hasPaidTicket = ticketPrice > 0;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-900">
@@ -93,6 +179,90 @@ function ConfirmationContent() {
                 <p className="font-mono font-bold text-slate-900 text-sm tracking-wider">
                   {registrationId.toUpperCase()}
                 </p>
+              </div>
+            )}
+
+            {/* Payment Section — only for paid tickets */}
+            {hasPaidTicket && !loadingPayment && (
+              <div className="mx-6 mb-5">
+                {isPaid ? (
+                  /* Payment Complete */
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
+                        <p className="text-xs text-emerald-600 mt-0.5">
+                          {ticketCurrency} {ticketPrice.toFixed(2)} — A receipt has been sent to your email.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : polling ? (
+                  /* Processing payment */
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-blue-600 animate-spin shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-blue-800">Processing Payment...</p>
+                        <p className="text-xs text-blue-600 mt-0.5">
+                          This may take a few moments. Please don&apos;t close this page.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Pay Now / Pay Later */
+                  <div className="space-y-3">
+                    {paymentParam === "cancelled" && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                        <p className="text-xs text-amber-700">Payment was cancelled. You can try again below.</p>
+                      </div>
+                    )}
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-slate-500" />
+                          <span className="text-sm font-medium text-slate-700">Payment Due</span>
+                        </div>
+                        <span className="text-sm font-bold text-slate-900">
+                          {ticketCurrency} {ticketPrice.toFixed(2)}
+                        </span>
+                      </div>
+                      {paymentInfo?.ticketName && (
+                        <p className="text-xs text-slate-500 mb-3">{paymentInfo.ticketName}</p>
+                      )}
+                      <div className="space-y-2">
+                        <Button
+                          onClick={handlePayNow}
+                          disabled={checkoutLoading}
+                          className="w-full h-10 rounded-lg font-medium btn-gradient"
+                        >
+                          {checkoutLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <CreditCard className="h-4 w-4 mr-2" />
+                          )}
+                          Pay Now
+                        </Button>
+                        <p className="text-xs text-center text-slate-400">
+                          Or pay later using the link in your confirmation email.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Loading payment info */}
+            {hasPaidTicket && loadingPayment && (
+              <div className="mx-6 mb-5 flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
               </div>
             )}
 

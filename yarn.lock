@@ -2017,7 +2017,7 @@
   dependencies:
     "@types/node" "*"
 
-"@types/node@*", "@types/node@^20", "@types/node@^20.0.0 || ^22.0.0 || >=24.0.0", "@types/node@^20.19.0 || >=22.12.0":
+"@types/node@*", "@types/node@^20", "@types/node@^20.0.0 || ^22.0.0 || >=24.0.0", "@types/node@^20.19.0 || >=22.12.0", "@types/node@>=16":
   version "20.19.30"
   resolved "https://registry.npmjs.org/@types/node/-/node-20.19.30.tgz"
   integrity sha512-WJtwWJu7UdlvzEAUm484QNg5eAoq5QR08KDNx7g45Usrs2NtOPiX8ugDqmKdXkyL03rBqU5dYNYVQetEpBHq2g==
@@ -6347,6 +6347,11 @@ strip-json-comments@^5.0.2:
   version "5.0.3"
   resolved "https://registry.npmjs.org/strip-json-comments/-/strip-json-comments-5.0.3.tgz"
   integrity sha512-1tB5mhVo7U+ETBKNf92xT4hrQa3pm0MZ0PQvuDnWgAAGHDsfp4lPSpiS6psrSiet87wyGPh9ft6wmhOMQ0hDiw==
+
+stripe@^20.4.1:
+  version "20.4.1"
+  resolved "https://registry.npmjs.org/stripe/-/stripe-20.4.1.tgz"
+  integrity sha512-axCguHItc8Sxt0HC6aSkdVRPffjYPV7EQqZRb2GkIa8FzWDycE7nHJM19C6xAIynH1Qp1/BHiopSi96jGBxT0w==
 
 styled-jsx@5.1.6:
   version "5.1.6"
