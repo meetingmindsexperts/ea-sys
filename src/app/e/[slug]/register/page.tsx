@@ -135,8 +135,8 @@ export default function PublicEventRegisterPage() {
       }
     }
 
-    // If only one category has available tickets, auto-redirect
-    if (groups.length === 1) {
+    // Always redirect to the first available category's form
+    if (groups.length >= 1) {
       router.replace(`/e/${slug}/register/${toSlug(groups[0].category)}`);
     }
   }, [event, slug, router]);
