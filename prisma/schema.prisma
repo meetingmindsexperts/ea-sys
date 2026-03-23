@@ -270,6 +270,7 @@ model Registration {
   paymentStatus  PaymentStatus      @default(UNPAID)
   qrCode         String?            @unique
   barcode        String?            @unique
+  badgeType      String?
   checkedInAt    DateTime?
   notes          String?            @db.Text
   createdAt      DateTime           @default(now())

@@ -13,6 +13,7 @@ import { deletePhoto } from "@/lib/storage";
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
   paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "REFUNDED", "FAILED"]).optional(),
+  badgeType: z.enum(["Delegate", "Faculty", "Exhibitor"]).optional().nullable(),
   notes: z.string().max(2000).optional(),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
@@ -149,7 +150,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { status, paymentStatus, notes, attendee } = validated.data;
+    const { status, paymentStatus, badgeType, notes, attendee } = validated.data;
 
     // Update attendee if provided
     if (attendee) {
@@ -222,6 +223,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         data: {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
+          ...(badgeType !== undefined && { badgeType }),
           ...(notes !== undefined && { notes: notes || null }),
         },
         include: {

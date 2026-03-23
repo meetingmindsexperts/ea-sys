@@ -617,6 +617,28 @@ export function RegistrationDetailSheet({
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Badge Type</Label>
+                    <Select
+                      value={selectedRegistration.badgeType || "Delegate"}
+                      onValueChange={(value) =>
+                        updateRegistration.mutate({
+                          id: selectedRegistration.id,
+                          data: { badgeType: value },
+                        })
+                      }
+                      disabled={updateRegistration.isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Delegate">Delegate</SelectItem>
+                        <SelectItem value="Faculty">Faculty</SelectItem>
+                        <SelectItem value="Exhibitor">Exhibitor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               )}

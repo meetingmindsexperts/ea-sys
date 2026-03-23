@@ -1,0 +1,1 @@
+ALTER TABLE "Registration" ADD COLUMN IF NOT EXISTS "badgeType" TEXT;

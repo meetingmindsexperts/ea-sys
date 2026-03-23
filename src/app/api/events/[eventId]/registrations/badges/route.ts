@@ -23,6 +23,15 @@ const BADGES_PER_PAGE = BADGES_PER_ROW * BADGES_PER_COL;
 const PAGE_MARGIN = 36; // 0.5 inch page margins
 const GAP = 12;
 
+// Badge type colors
+const BADGE_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
+  DELEGATE:  { bg: "#00aade", text: "#ffffff" },
+  FACULTY:   { bg: "#7c3aed", text: "#ffffff" },
+  EXHIBITOR: { bg: "#059669", text: "#ffffff" },
+};
+
+const DEFAULT_BADGE_COLOR = { bg: "#00aade", text: "#ffffff" };
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -34,23 +43,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    // Fetch event
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true, name: true, bannerImage: true },
+      select: { id: true, name: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Fetch registrations
     const body = await req.json();
     const { registrationIds, all } = body as { registrationIds?: string[]; all?: boolean };
 
     const where = all
-      ? { eventId, status: { not: "CANCELLED" as const } }
-      : { eventId, id: { in: registrationIds || [] } };
+      ? { eventId, status: { not: "CANCELLED" as const }, barcode: { not: null } }
+      : { eventId, id: { in: registrationIds || [] }, barcode: { not: null } };
 
     const registrations = await db.registration.findMany({
       where,
@@ -69,10 +76,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (registrations.length === 0) {
-      return NextResponse.json({ error: "No registrations found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No registrations with barcodes found. Import barcodes first before generating badges." },
+        { status: 400 }
+      );
     }
 
-    // Generate PDF
     const pdfBuffer = await generateBadgePDF(registrations, event);
 
     return new Response(new Uint8Array(pdfBuffer), {
@@ -90,7 +99,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 interface BadgeRegistration {
   id: string;
   barcode: string | null;
-  qrCode: string | null;
+  badgeType: string | null;
   attendee: {
     title: string | null;
     firstName: string;
@@ -102,7 +111,6 @@ interface BadgeRegistration {
 
 interface BadgeEvent {
   name: string;
-  bannerImage: string | null;
 }
 
 async function generateBadgePDF(
@@ -140,6 +148,9 @@ async function generateBadgePDF(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: number, y: number) {
+  const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
+  const colors = BADGE_TYPE_COLORS[badgeType] || DEFAULT_BADGE_COLOR;
+
   // Badge border (dashed for cutting guide)
   doc.save()
     .rect(x, y, BADGE_W, BADGE_H)
@@ -147,10 +158,9 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
     .stroke("#cccccc")
     .undash();
 
-  // Event name bar at top
-  doc.rect(x, y, BADGE_W, 32).fill("#00aade");
-  doc.font("Helvetica-Bold").fontSize(9).fillColor("#ffffff");
-
+  // Event name bar at top — colored by badge type
+  doc.rect(x, y, BADGE_W, 32).fill(colors.bg);
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(colors.text);
   const eventNameTrunc = event.name.length > 45 ? event.name.substring(0, 42) + "..." : event.name;
   doc.text(eventNameTrunc, x + MARGIN, y + 10, {
     width: BADGE_W - MARGIN * 2,
@@ -158,9 +168,9 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
     lineBreak: false,
   });
 
-  // Registration type label
-  doc.font("Helvetica-Bold").fontSize(8).fillColor("#00aade");
-  doc.text(reg.ticketType.name.toUpperCase(), x + MARGIN, y + 40, {
+  // Badge type label (Delegate / Faculty / Exhibitor)
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(colors.bg);
+  doc.text(badgeType, x + MARGIN, y + 40, {
     width: BADGE_W - MARGIN * 2,
     align: "center",
     lineBreak: false,
@@ -190,13 +200,20 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
     });
   }
 
-  // Barcode at bottom
-  const barcodeValue = reg.barcode || reg.qrCode;
-  if (barcodeValue) {
+  // Registration type (smaller, below org)
+  doc.font("Helvetica").fontSize(8).fillColor("#94a3b8");
+  doc.text(reg.ticketType.name, x + MARGIN, y + 125, {
+    width: BADGE_W - MARGIN * 2,
+    align: "center",
+    lineBreak: false,
+  });
+
+  // Barcode at bottom (always present since we filter for barcode != null)
+  if (reg.barcode) {
     try {
       const png = bwipjs.toBufferSync({
         bcid: "code128",
-        text: barcodeValue,
+        text: reg.barcode,
         scale: 2,
         height: 12,
         includetext: true,
@@ -208,9 +225,8 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
         align: "center",
       });
     } catch {
-      // Fallback to text if barcode generation fails
       doc.font("Courier").fontSize(8).fillColor("#94a3b8");
-      doc.text(barcodeValue, x + MARGIN, y + BADGE_H - 30, {
+      doc.text(reg.barcode, x + MARGIN, y + BADGE_H - 30, {
         width: BADGE_W - MARGIN * 2,
         align: "center",
         lineBreak: false,

@@ -61,6 +61,7 @@ export interface Registration {
   paymentStatus: string;
   qrCode: string | null;
   barcode: string | null;
+  badgeType: string | null;
   checkedInAt: string | null;
   notes: string | null;
   createdAt: string;
