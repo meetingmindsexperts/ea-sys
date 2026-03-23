@@ -77,6 +77,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Auto-assign sortOrder based on existing tier count
+    const existingCount = await db.pricingTier.count({ where: { ticketTypeId: ticketId } });
+
     const tier = await db.pricingTier.create({
       data: {
         ticketTypeId: ticketId,
@@ -89,7 +92,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         salesEnd: data.salesEnd ? new Date(data.salesEnd) : null,
         isActive: data.isActive,
         requiresApproval: data.requiresApproval,
-        sortOrder: data.sortOrder ?? 0,
+        sortOrder: data.sortOrder ?? existingCount,
       },
       include: { _count: { select: { registrations: true } } },
     });

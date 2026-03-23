@@ -22,7 +22,7 @@ import {
   Plus,
   Pencil,
   Trash2,
-  DollarSign,
+  RefreshCw,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -30,7 +30,9 @@ import {
   useCreateTicket,
   useUpdateTicket,
   useDeleteTicket,
+  queryKeys,
 } from "@/hooks/use-api";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -68,11 +70,16 @@ export default function TicketsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
 
-  const { data: ticketTypesData = [], isLoading, isFetching, refetch } = useTickets(eventId);
+  const queryClient = useQueryClient();
+  const { data: ticketTypesData = [], isLoading, isFetching } = useTickets(eventId);
   const ticketTypes = ticketTypesData as TicketType[];
   const createTicket = useCreateTicket(eventId);
   const updateTicket = useUpdateTicket(eventId);
   const deleteTicket = useDeleteTicket(eventId);
+
+  const invalidateAndRefetch = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+  };
 
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [editingType, setEditingType] = useState<TicketType | null>(null);
@@ -170,7 +177,7 @@ export default function TicketsPage() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || "Failed"); }
       toast.success(editingTier ? "Pricing tier updated" : "Pricing tier created");
       setTierDialogOpen(false);
-      refetch();
+      invalidateAndRefetch();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     }
@@ -185,7 +192,7 @@ export default function TicketsPage() {
       });
       if (!res.ok) throw new Error("Failed");
       toast.success(tier.isActive ? `"${tier.name}" deactivated` : `"${tier.name}" activated`);
-      refetch();
+      invalidateAndRefetch();
     } catch { toast.error("Failed to update"); }
   };
 
@@ -196,7 +203,7 @@ export default function TicketsPage() {
       const res = await fetch(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers/${tier.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
       toast.success("Pricing tier deleted");
-      refetch();
+      invalidateAndRefetch();
     } catch { toast.error("Failed to delete"); }
   };
 
@@ -226,10 +233,15 @@ export default function TicketsPage() {
             {ticketTypes.length} types · {totalRegs} registrations
           </p>
         </div>
-        <Button onClick={openCreateType}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Type
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button onClick={openCreateType}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Type
+          </Button>
+        </div>
       </div>
 
       {/* 3-column grid */}
@@ -309,10 +321,9 @@ export default function TicketsPage() {
                           </div>
 
                           {/* Price */}
-                          <div className="flex items-center gap-0.5 text-sm font-semibold text-slate-700 shrink-0">
-                            <DollarSign className="h-3 w-3 text-slate-400" />
+                          <span className="text-sm font-semibold text-slate-700 shrink-0">
                             {formatCurrency(Number(tier.price), tier.currency)}
-                          </div>
+                          </span>
 
                           {/* Edit */}
                           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
