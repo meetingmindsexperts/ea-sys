@@ -31,9 +31,14 @@ CREATE INDEX IF NOT EXISTS "PricingTier_ticketTypeId_idx" ON "PricingTier"("tick
 CREATE INDEX IF NOT EXISTS "PricingTier_isActive_idx" ON "PricingTier"("isActive");
 CREATE INDEX IF NOT EXISTS "Registration_pricingTierId_idx" ON "Registration"("pricingTierId");
 
--- Unique constraints (use CREATE UNIQUE INDEX, not ADD CONSTRAINT per db push compat)
+-- Unique constraint on PricingTier (ticketTypeId, name)
 CREATE UNIQUE INDEX IF NOT EXISTS "PricingTier_ticketTypeId_name_key" ON "PricingTier"("ticketTypeId", "name");
-CREATE UNIQUE INDEX IF NOT EXISTS "TicketType_eventId_name_key" ON "TicketType"("eventId", "name");
+
+-- TicketType (eventId, name) unique index:
+-- Skip this index — existing data may have duplicate (eventId, name) pairs from the old
+-- category-based system. The data migration script (scripts/migrate-pricing-tiers.ts)
+-- must be run first to consolidate duplicates before this constraint can be added.
+-- The unique constraint is enforced at the application layer (API checks for duplicates).
 
 -- Foreign keys (idempotent with DO block)
 DO $$ BEGIN

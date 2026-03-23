@@ -109,7 +109,8 @@ export default function PublicEventRegisterPage() {
         }
         const data = await res.json();
         setEvent(data);
-      } catch {
+      } catch (err) {
+        console.error("[register] Failed to load event:", err);
         setError("Failed to load event");
       } finally {
         setLoading(false);

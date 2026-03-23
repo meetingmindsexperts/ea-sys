@@ -73,8 +73,8 @@ function ConfirmationContent() {
         setPaymentInfo(data);
         return data;
       }
-    } catch {
-      // Silently fail
+    } catch (err) {
+      console.error("[confirmation] Failed to load registration details:", err);
     }
     return null;
   }, [slug, registrationId]);
@@ -125,7 +125,8 @@ function ConfirmationContent() {
       }
       // Redirect to Stripe Checkout
       window.location.href = data.checkoutUrl;
-    } catch {
+    } catch (err) {
+      console.error("[confirmation] Checkout redirect failed:", err);
       toast.error("Something went wrong. Please try again.");
       setCheckoutLoading(false);
     }

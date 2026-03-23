@@ -16,6 +16,7 @@ import {
   Loader2,
   FileText,
   ChevronRight,
+  ChevronLeft,
   User,
   Building2,
   Phone,
@@ -27,6 +28,7 @@ import {
   Mail,
   Shield,
   PenLine,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +47,6 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-/** Convert a category name to a URL-safe slug */
 function toSlug(category: string): string {
   return category
     .toLowerCase()
@@ -98,10 +99,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
-  organization: {
-    name: string;
-    logo: string | null;
-  };
+  organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
@@ -130,6 +128,19 @@ const registrationSchema = z.object({
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
 
+const STEPS = [
+  { id: "tier", label: "Registration" },
+  { id: "personal", label: "Personal Info" },
+  { id: "details", label: "Details" },
+] as const;
+
+// Fields validated per step (for partial validation)
+const STEP_FIELDS: Record<string, (keyof RegistrationForm)[]> = {
+  tier: ["ticketTypeId"],
+  personal: ["title", "firstName", "lastName", "email", "role"],
+  details: ["country", "specialty"],
+};
+
 export default function CategoryRegistrationPage() {
   const params = useParams();
   const router = useRouter();
@@ -141,26 +152,16 @@ export default function CategoryRegistrationPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+  const [skipTierStep, setSkipTierStep] = useState(false);
 
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
-      ticketTypeId: "",
-      pricingTierId: "",
-      title: "",
-      role: "",
-      firstName: "",
-      lastName: "",
-      email: "",
-      additionalEmail: "",
-      organization: "",
-      jobTitle: "",
-      phone: "",
-      city: "",
-      country: "",
-      specialty: "",
-      customSpecialty: "",
-      dietaryReqs: "",
+      ticketTypeId: "", pricingTierId: "", title: "", role: "",
+      firstName: "", lastName: "", email: "", additionalEmail: "",
+      organization: "", jobTitle: "", phone: "", city: "",
+      country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
     },
   });
 
@@ -175,15 +176,10 @@ export default function CategoryRegistrationPage() {
         const data: Event = await res.json();
         setEvent(data);
 
-        // Match by registration type name slug (new) or category slug (legacy)
-        const matchedType = data.ticketTypes.find(
-          (t) => toSlug(t.name) === categorySlug
-        );
+        const matchedType = data.ticketTypes.find((t) => toSlug(t.name) === categorySlug);
         const matchedCategory = matchedType
           ? matchedType.name
-          : data.ticketTypes.find(
-              (t) => toSlug(t.category || "Standard") === categorySlug
-            )?.category;
+          : data.ticketTypes.find((t) => toSlug(t.category || "Standard") === categorySlug)?.category;
 
         if (!matchedCategory && !matchedType) {
           setError("Invalid registration category");
@@ -194,32 +190,53 @@ export default function CategoryRegistrationPage() {
         setCategoryLabel(label);
 
         if (matchedType) {
-          // New flow: set ticketTypeId and let user pick pricing tier
           form.setValue("ticketTypeId", matchedType.id);
           const tiers = matchedType.pricingTiers?.filter((t) => t.canPurchase) ?? [];
-          if (tiers.length === 1) {
-            form.setValue("pricingTierId", tiers[0].id);
+          if (tiers.length <= 1) {
+            if (tiers.length === 1) form.setValue("pricingTierId", tiers[0].id);
+            setSkipTierStep(true);
+            setStep(1); // Skip to personal info
           }
         } else {
-          // Legacy flow: filter by category
           const categoryTickets = data.ticketTypes.filter(
             (t) => t.canPurchase && (t.category || "Standard") === matchedCategory
           );
-          if (categoryTickets.length === 1) {
-            form.setValue("ticketTypeId", categoryTickets[0].id);
+          if (categoryTickets.length <= 1) {
+            if (categoryTickets.length === 1) form.setValue("ticketTypeId", categoryTickets[0].id);
+            setSkipTierStep(true);
+            setStep(1);
           }
         }
-      } catch {
+      } catch (err) {
+        console.error("[register] Failed to load event:", err);
         setError("Failed to load event");
       } finally {
         setLoading(false);
       }
     }
 
-    if (slug) {
-      fetchEvent();
-    }
+    if (slug) fetchEvent();
   }, [slug, categorySlug, form]);
+
+  const activeSteps = skipTierStep ? STEPS.filter((s) => s.id !== "tier") : [...STEPS];
+  const activeStepIndex = activeSteps.findIndex((s) => s.id === STEPS[step].id);
+  const isLastStep = activeStepIndex === activeSteps.length - 1;
+
+  async function handleNext() {
+    const currentStepId = STEPS[step].id;
+    const fieldsToValidate = STEP_FIELDS[currentStepId] || [];
+    const isValid = await form.trigger(fieldsToValidate);
+    if (!isValid) return;
+    if (isLastStep) {
+      form.handleSubmit(onSubmit)();
+    } else {
+      setStep((s) => s + 1);
+    }
+  }
+
+  function handleBack() {
+    if (step > (skipTierStep ? 1 : 0)) setStep((s) => s - 1);
+  }
 
   async function onSubmit(data: RegistrationForm) {
     setSubmitting(true);
@@ -229,8 +246,17 @@ export default function CategoryRegistrationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      const result = await res.json();
+      let result;
+      try {
+        result = await res.json();
+      } catch {
+        console.error("[register] Non-JSON response from API:", res.status, res.statusText);
+        toast.error("Server error. Please try again.");
+        setSubmitting(false);
+        return;
+      }
       if (!res.ok) {
+        console.warn("[register] Registration rejected:", res.status, result.error);
         toast.error(result.error || "Registration failed");
         setSubmitting(false);
         return;
@@ -242,13 +268,13 @@ export default function CategoryRegistrationPage() {
         ...(reg.ticketPrice > 0 ? { price: String(reg.ticketPrice), currency: reg.ticketCurrency } : {}),
       });
       router.push(`/e/${slug}/confirmation?${confirmParams.toString()}`);
-    } catch {
+    } catch (err) {
+      console.error("[register] Registration submission failed:", err);
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);
     }
   }
 
-  /* ── Loading state ──────────────────────────────────────────────────────── */
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -263,7 +289,6 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  /* ── Error state ────────────────────────────────────────────────────────── */
   if (error || !event || !categoryLabel) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
@@ -271,16 +296,9 @@ export default function CategoryRegistrationPage() {
           <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
             <AlertCircle className="h-7 w-7 text-red-500" />
           </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">
-            {error || "Registration not available"}
-          </h2>
-          <p className="text-slate-500 text-sm mb-4">
-            Please check the link and try again.
-          </p>
-          <Link
-            href={`/e/${slug}/register`}
-            className="text-primary text-sm font-medium hover:underline"
-          >
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Registration not available"}</h2>
+          <p className="text-slate-500 text-sm mb-4">Please check the link and try again.</p>
+          <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
             ← View all registration types
           </Link>
         </div>
@@ -288,22 +306,11 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  // New flow: find the matched registration type and its pricing tiers
   const matchedRegType = event.ticketTypes.find((t) => t.name === categoryLabel);
-  const hasPricingTiers = matchedRegType && matchedRegType.pricingTiers && matchedRegType.pricingTiers.length > 0;
+  const hasPricingTiers = matchedRegType?.pricingTiers && matchedRegType.pricingTiers.length > 0;
 
-  // Legacy flow: filter by category
   const availableTickets = hasPricingTiers
-    ? []
-    : event.ticketTypes.filter(
-        (t) => t.canPurchase && (t.category || "Standard") === categoryLabel
-      );
-  const allCategoryTickets = hasPricingTiers
-    ? []
-    : event.ticketTypes.filter(
-        (t) => (t.category || "Standard") === categoryLabel
-      );
-
+    ? [] : event.ticketTypes.filter((t) => t.canPurchase && (t.category || "Standard") === categoryLabel);
   const availableTiers = matchedRegType?.pricingTiers?.filter((t) => t.canPurchase) ?? [];
 
   const selectedTicketId = form.watch("ticketTypeId");
@@ -312,44 +319,36 @@ export default function CategoryRegistrationPage() {
   const selectedTier = matchedRegType?.pricingTiers?.find((t) => t.id === selectedPricingTierId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
+  // Determine display price
+  const displayPrice = selectedTier
+    ? { amount: Number(selectedTier.price), currency: selectedTier.currency, label: `${categoryLabel} — ${selectedTier.name}` }
+    : selectedTicket
+    ? { amount: Number(selectedTicket.price), currency: selectedTicket.currency, label: selectedTicket.name }
+    : null;
+
+  const isClosed = !hasPricingTiers && availableTickets.length === 0;
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
-      {/* ── Banner — full-width edge-to-edge ───────────────────────────────── */}
+      {/* Banner */}
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <Image
-              src={event.bannerImage}
-              alt={event.name}
-              width={1400}
-              height={400}
-              className="w-full h-auto max-h-[280px] object-contain"
-              priority
-              unoptimized
-            />
+            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
+              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
           </div>
         </div>
       ) : (
-        /* No banner — clean header with accent */
         <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-              {event.name}
-            </h1>
-          </div>
         </div>
       )}
 
-      {/* ── Event Info Strip ────────────────────────────────────────────────── */}
+      {/* Event Info Strip */}
       <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
-            {event.bannerImage && (
-              <h2 className="w-full text-base font-semibold text-slate-800 sm:w-auto sm:mr-4">
-                {event.name}
-              </h2>
-            )}
+            <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
             <div className="flex items-center gap-1.5 text-sm text-slate-500">
               <Calendar className="h-3.5 w-3.5 text-primary/70" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
@@ -368,500 +367,416 @@ export default function CategoryRegistrationPage() {
         </div>
       </div>
 
-      {/* ── Main Content ────────────────────────────────────────────────────── */}
-      <div className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-8">
-        {/* Back link */}
-        <Link
-          href={`/e/${slug}/register`}
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-primary transition-colors mb-6"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          All registration types
+      {/* Main Content */}
+      <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-6">
+        <Link href={`/e/${slug}/register`}
+          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-primary transition-colors mb-5">
+          <ArrowLeft className="h-3.5 w-3.5" /> All registration types
         </Link>
 
-        <div className="grid lg:grid-cols-3 gap-6 items-start">
-          {/* ── Left column: Form ─────────────────────────────────────────── */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-              {/* Form header */}
-              <div className="px-6 py-5 border-b border-slate-100">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {categoryLabel} Registration
-                </h2>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  Complete the form below to register
-                </p>
-              </div>
-
-              <div className="p-6">
-                {availableTickets.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
-                      <AlertCircle className="h-7 w-7 text-slate-400" />
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+          {/* Form header with step indicator */}
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-900">{categoryLabel} Registration</h2>
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 mt-4">
+              {activeSteps.map((s, i) => {
+                const isCurrent = i === activeStepIndex;
+                const isCompleted = i < activeStepIndex;
+                return (
+                  <div key={s.id} className="flex items-center gap-2">
+                    {i > 0 && <div className={cn("h-px w-6 sm:w-10", isCompleted ? "bg-primary" : "bg-slate-200")} />}
+                    <div className="flex items-center gap-1.5">
+                      <div className={cn(
+                        "h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors",
+                        isCompleted ? "bg-primary text-white" :
+                        isCurrent ? "bg-primary/10 text-primary border-2 border-primary" :
+                        "bg-slate-100 text-slate-400"
+                      )}>
+                        {isCompleted ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                      </div>
+                      <span className={cn(
+                        "text-xs font-medium hidden sm:inline",
+                        isCurrent ? "text-slate-800" : isCompleted ? "text-primary" : "text-slate-400"
+                      )}>{s.label}</span>
                     </div>
-                    <p className="font-medium text-slate-700">
-                      {categoryLabel} registration is currently closed
-                    </p>
-                    <p className="text-sm text-slate-400 mt-1">
-                      Check back later or contact the organizer.
-                    </p>
                   </div>
-                ) : (
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(onSubmit)}
-                      className="space-y-6"
-                    >
-                      {/* Section: Registration Type */}
-                      {availableTickets.length > 1 && (
-                        <div>
-                          <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                            Select Your Option
-                          </p>
-                          <FormField
-                            control={form.control}
-                            name="ticketTypeId"
-                            render={({ field }) => (
-                              <FormItem>
-                                <div className="grid gap-2.5">
-                                  {availableTickets.map((rt) => {
-                                    const isSelected = field.value === rt.id;
-                                    return (
-                                      <button
-                                        key={rt.id}
-                                        type="button"
-                                        onClick={() => field.onChange(rt.id)}
-                                        className={cn(
-                                          "w-full text-left rounded-lg border p-4 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                                          isSelected
-                                            ? "border-primary bg-primary/[0.03] ring-1 ring-primary/30"
-                                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
-                                        )}
-                                      >
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="font-medium text-slate-900 text-sm">
-                                              {rt.name}
-                                            </p>
-                                            {rt.description && (
-                                              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                                                {rt.description}
-                                              </p>
-                                            )}
-                                          </div>
-                                          <div className="flex items-center gap-3 shrink-0">
-                                            <span
-                                              className={cn(
-                                                "text-sm font-semibold",
-                                                isSelected ? "text-primary" : "text-slate-700"
-                                              )}
-                                            >
-                                              {Number(rt.price) === 0
-                                                ? "Free"
-                                                : `${rt.currency} ${rt.price}`}
-                                            </span>
-                                            <div
-                                              className={cn(
-                                                "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all",
-                                                isSelected
-                                                  ? "border-primary bg-primary"
-                                                  : "border-slate-300"
-                                              )}
-                                            >
-                                              {isSelected && (
-                                                <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                                              )}
-                                            </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-6">
+            {isClosed ? (
+              <div className="text-center py-12">
+                <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
+                  <AlertCircle className="h-7 w-7 text-slate-400" />
+                </div>
+                <p className="font-medium text-slate-700">{categoryLabel} registration is currently closed</p>
+                <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
+              </div>
+            ) : (
+              <Form {...form}>
+                <form onSubmit={(e) => { e.preventDefault(); handleNext(); }} className="space-y-5">
+
+                  {/* Step: Pricing Tier Selection */}
+                  {STEPS[step].id === "tier" && (
+                    <div className="space-y-4">
+                      <p className="text-sm text-slate-600">Select your preferred registration option:</p>
+
+                      {/* Pricing tiers (new flow) */}
+                      {hasPricingTiers && availableTiers.length > 0 && (
+                        <FormField control={form.control} name="pricingTierId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <div className="grid gap-3">
+                                {availableTiers.map((tier) => {
+                                  const isSelected = field.value === tier.id;
+                                  return (
+                                    <button key={tier.id} type="button"
+                                      onClick={() => field.onChange(tier.id)}
+                                      className={cn(
+                                        "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
+                                        isSelected
+                                          ? "border-primary bg-primary/[0.03] shadow-sm"
+                                          : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
+                                      )}>
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <p className="font-semibold text-slate-900">{tier.name}</p>
+                                          <p className="text-xs text-slate-500 mt-0.5">
+                                            {tier.available > 0
+                                              ? `${tier.available} spot${tier.available !== 1 ? "s" : ""} remaining`
+                                              : "Sold out"}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
+                                            {Number(tier.price) === 0 ? "Free" : `${tier.currency} ${tier.price}`}
+                                          </span>
+                                          <div className={cn(
+                                            "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                            isSelected ? "border-primary bg-primary" : "border-slate-300"
+                                          )}>
+                                            {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
                                           </div>
                                         </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <FormMessage className="mt-2" />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      )}
-
-                      {/* Hidden ticket selector when only one option */}
-                      {availableTickets.length === 1 && (
-                        <FormField
-                          control={form.control}
-                          name="ticketTypeId"
-                          render={() => (
-                            <FormItem className="hidden">
-                              <FormMessage />
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <FormMessage className="mt-2" />
                             </FormItem>
                           )}
                         />
                       )}
 
-                      {/* Section: Personal Information */}
-                      <div>
-                        <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                          Personal Information
-                        </p>
-                        <div className="space-y-4">
-                          <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
-                            <FormField
-                              control={form.control}
-                              name="title"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    Title <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <TitleSelect value={field.value} onChange={field.onChange} />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="firstName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    First Name <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="John" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="lastName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">
-                                    Last Name <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="Doe" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
+                      {/* Legacy ticket type selection */}
+                      {!hasPricingTiers && availableTickets.length > 1 && (
+                        <FormField control={form.control} name="ticketTypeId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <div className="grid gap-3">
+                                {availableTickets.map((rt) => {
+                                  const isSelected = field.value === rt.id;
+                                  return (
+                                    <button key={rt.id} type="button"
+                                      onClick={() => field.onChange(rt.id)}
+                                      className={cn(
+                                        "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
+                                        isSelected
+                                          ? "border-primary bg-primary/[0.03] shadow-sm"
+                                          : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
+                                      )}>
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <p className="font-semibold text-slate-900">{rt.name}</p>
+                                          {rt.description && <p className="text-xs text-slate-500 mt-0.5">{rt.description}</p>}
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
+                                            {Number(rt.price) === 0 ? "Free" : `${rt.currency} ${rt.price}`}
+                                          </span>
+                                          <div className={cn(
+                                            "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                            isSelected ? "border-primary bg-primary" : "border-slate-300"
+                                          )}>
+                                            {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <FormMessage className="mt-2" />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </div>
+                  )}
 
-                          <FormField
-                            control={form.control}
-                            name="email"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600">
-                                  Email Address <span className="text-red-400">*</span>
-                                </FormLabel>
-                                <FormControl>
-                                  <Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="additionalEmail"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Mail className="h-3 w-3" /> Additional Email
-                                </FormLabel>
-                                <FormControl>
-                                  <Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="role"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span>
-                                </FormLabel>
-                                <RoleSelect value={field.value} onChange={field.onChange} />
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="organization"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Building2 className="h-3 w-3" /> Organization
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="Acme Inc." className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="jobTitle"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <User className="h-3 w-3" /> Job Title
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="Physician" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="phone"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Phone className="h-3 w-3" /> Phone
-                                </FormLabel>
-                                <FormControl>
-                                  <Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="city"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <MapPin className="h-3 w-3" /> City
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="New York" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="country"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span>
-                                  </FormLabel>
-                                  <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="specialty"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span>
-                                </FormLabel>
-                                <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="customSpecialty"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <PenLine className="h-3 w-3" /> Specialty (Specific)
-                                </FormLabel>
-                                <FormControl>
-                                  <Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="dietaryReqs"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Utensils className="h-3 w-3" /> Dietary Requirements
-                                </FormLabel>
-                                <FormControl>
-                                  <Input placeholder="e.g. Vegetarian, Halal, Gluten-free" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
+                  {/* Step: Personal Information */}
+                  {STEPS[step].id === "personal" && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                        <FormField control={form.control} name="title"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                              <TitleSelect value={field.value} onChange={field.onChange} />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField control={form.control} name="firstName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
+                              <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField control={form.control} name="lastName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
+                              <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </div>
 
-                      {/* Summary & Submit */}
-                      {selectedTicket && (
-                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-                          <div className="flex justify-between items-center text-sm">
-                            <span className="text-slate-600">{selectedTicket.name}</span>
-                            <span className="font-bold text-slate-900">
-                              {Number(selectedTicket.price) === 0
-                                ? "Free"
-                                : `${selectedTicket.currency} ${selectedTicket.price}`}
+                      <FormField control={form.control} name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> Email <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField control={form.control} name="additionalEmail"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> Additional Email
+                            </FormLabel>
+                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField control={form.control} name="role"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <RoleSelect value={field.value} onChange={field.onChange} />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
+
+                  {/* Step: Professional & Location Details */}
+                  {STEPS[step].id === "details" && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={form.control} name="organization"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                <Building2 className="h-3 w-3" /> Organization
+                              </FormLabel>
+                              <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField control={form.control} name="jobTitle"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                <User className="h-3 w-3" /> Job Title
+                              </FormLabel>
+                              <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField control={form.control} name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Phone className="h-3 w-3" /> Phone
+                            </FormLabel>
+                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={form.control} name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                <MapPin className="h-3 w-3" /> City
+                              </FormLabel>
+                              <FormControl><Input placeholder="New York" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField control={form.control} name="country"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                <Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span>
+                              </FormLabel>
+                              <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField control={form.control} name="specialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField control={form.control} name="customSpecialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <PenLine className="h-3 w-3" /> Specialty (Specific)
+                            </FormLabel>
+                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField control={form.control} name="dietaryReqs"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Utensils className="h-3 w-3" /> Dietary Requirements
+                            </FormLabel>
+                            <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Summary before submit */}
+                      {displayPrice && (
+                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-600">{displayPrice.label}</span>
+                            <span className="text-lg font-bold text-slate-900">
+                              {displayPrice.amount === 0 ? "Free" : `${displayPrice.currency} ${displayPrice.amount}`}
                             </span>
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      <Button
-                        type="submit"
-                        className="w-full btn-gradient h-11 font-semibold text-sm rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                        disabled={submitting}
-                      >
-                        {submitting ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Registering…
-                          </>
-                        ) : (
-                          <>
-                            Complete Registration
-                            <ChevronRight className="ml-1 h-4 w-4" />
-                          </>
-                        )}
+                  {/* Navigation buttons */}
+                  <div className="flex items-center justify-between pt-2">
+                    {activeStepIndex > 0 ? (
+                      <Button type="button" variant="outline" onClick={handleBack} className="rounded-lg">
+                        <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
-
-                      <p className="text-center text-xs text-slate-400">
-                        By registering, you agree to the event terms and conditions.
-                      </p>
-                    </form>
-                  </Form>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Right column: Sidebar ────────────────────────────────────── */}
-          <div className="space-y-4">
-            {/* Event details card */}
-            {event.description && (
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5">
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2.5">
-                  About This Event
-                </h3>
-                <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">
-                  {event.description}
-                </p>
-              </div>
-            )}
-
-            {/* Registration types overview */}
-            {allCategoryTickets.length > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5">
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                  {categoryLabel} Options
-                </h3>
-                <div className="space-y-2">
-                  {allCategoryTickets.map((rt) => (
-                    <div
-                      key={rt.id}
-                      className={cn(
-                        "flex justify-between items-center text-sm py-1",
-                        !rt.canPurchase && "opacity-40"
+                    ) : (
+                      <div />
+                    )}
+                    <Button type="submit" disabled={submitting}
+                      className={cn("rounded-lg font-semibold", isLastStep ? "btn-gradient px-8" : "px-6")}>
+                      {submitting ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Registering…</>
+                      ) : isLastStep ? (
+                        <>Complete Registration <ChevronRight className="ml-1 h-4 w-4" /></>
+                      ) : (
+                        <>Continue <ChevronRight className="ml-1 h-4 w-4" /></>
                       )}
-                    >
-                      <span className="text-slate-600">{rt.name}</span>
-                      <span
-                        className={cn(
-                          "font-semibold text-xs",
-                          rt.canPurchase ? "text-primary" : "text-slate-400"
-                        )}
-                      >
-                        {rt.soldOut || rt.salesEnded
-                          ? "Closed"
-                          : !rt.salesStarted
-                          ? "Soon"
-                          : Number(rt.price) === 0
-                          ? "Free"
-                          : `${rt.currency} ${rt.price}`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    </Button>
+                  </div>
 
-            {/* Quick links */}
-            <Link href={`/e/${slug}/schedule`} className="block group">
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all duration-200">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
-                    <Calendar className="h-4 w-4 text-amber-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-800 text-sm">View Programme</p>
-                    <p className="text-xs text-slate-400">Full agenda</p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary transition-colors shrink-0" />
-                </div>
-              </div>
-            </Link>
-
-            {event.abstractSettings?.allowAbstractSubmissions && (
-              <Link href={`/e/${slug}/submitAbstract`} className="block group">
-                <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-800 text-sm">Call for Abstracts</p>
-                      <p className="text-xs text-slate-400">
-                        {event.abstractSettings.abstractDeadline
-                          ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
-                          : "Submit your abstract"}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary transition-colors shrink-0" />
-                  </div>
-                </div>
-              </Link>
+                  <p className="text-center text-xs text-slate-400">
+                    By registering, you agree to the event terms and conditions.
+                  </p>
+                </form>
+              </Form>
             )}
           </div>
         </div>
+
+        {/* Sidebar links */}
+        <div className="grid sm:grid-cols-2 gap-3 mt-4">
+          <Link href={`/e/${slug}/schedule`} className="block group">
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                  <Calendar className="h-4 w-4 text-amber-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-800 text-sm">View Programme</p>
+                  <p className="text-xs text-slate-400">Full agenda</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
+              </div>
+            </div>
+          </Link>
+          {event.abstractSettings?.allowAbstractSubmissions && (
+            <Link href={`/e/${slug}/submitAbstract`} className="block group">
+              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <FileText className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-800 text-sm">Call for Abstracts</p>
+                    <p className="text-xs text-slate-400">
+                      {event.abstractSettings.abstractDeadline
+                        ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
+                        : "Submit your abstract"}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
+                </div>
+              </div>
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* ── Custom Footer ──────────────────────────────────────────────────── */}
+      {/* Footer */}
       {event.footerHtml && (
-        <div
-          className="w-full border-t border-slate-200/60 bg-white text-center"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
-        />
+        <div className="w-full border-t border-slate-200/60 bg-white text-center"
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
       )}
     </div>
   );

@@ -132,7 +132,8 @@ export default function SubmitAbstractPage() {
             setError("The abstract submission deadline has passed");
           }
         }
-      } catch {
+      } catch (err) {
+        console.error("[submitAbstract] Failed to load event:", err);
         setError("Failed to load event");
       } finally {
         setLoading(false);
@@ -172,7 +173,8 @@ export default function SubmitAbstractPage() {
       }
 
       setSuccess(true);
-    } catch {
+    } catch (err) {
+      console.error("[submitAbstract] Submission failed:", err);
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);
     }

@@ -104,7 +104,8 @@ export default function PublicSchedulePage() {
         }
         const data: EventData = await res.json();
         setEventData(data);
-      } catch {
+      } catch (err) {
+        console.error("[schedule] Failed to load schedule:", err);
         setError("Failed to load schedule");
       } finally {
         setLoading(false);

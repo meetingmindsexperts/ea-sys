@@ -202,7 +202,6 @@ model TicketType {
   pricingTiers  PricingTier[]
   registrations Registration[]
 
-  @@unique([eventId, name])
   @@index([eventId])
   @@index([isActive])
 }
