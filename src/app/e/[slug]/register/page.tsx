@@ -1,22 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Image from "next/image";
 import { format } from "date-fns";
-import Link from "next/link";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { useSession } from "next-auth/react";
 import {
   Calendar,
   MapPin,
   Clock,
   Loader2,
-  FileText,
-  ChevronRight,
   AlertCircle,
   Users,
+  Copy,
+  Check,
+  ExternalLink,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -61,10 +67,6 @@ interface Event {
   footerHtml: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
-  abstractSettings?: {
-    allowAbstractSubmissions: boolean;
-    abstractDeadline: string | null;
-  };
 }
 
 interface TierGroup {
@@ -78,14 +80,17 @@ interface TierGroup {
   availableCount: number;
 }
 
-export default function PublicEventRegisterPage() {
+export default function RegisterOverviewPage() {
   const params = useParams();
-  const router = useRouter();
   const slug = params.slug as string;
+  const { data: session, status: sessionStatus } = useSession();
 
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+
+  const isAuthorized = session?.user?.role === "SUPER_ADMIN" || session?.user?.role === "ADMIN" || session?.user?.role === "ORGANIZER";
 
   useEffect(() => {
     async function fetchEvent() {
@@ -106,21 +111,35 @@ export default function PublicEventRegisterPage() {
     if (slug) fetchEvent();
   }, [slug]);
 
-  useEffect(() => {
-    if (!event) return;
-    const groups = buildTierGroups(event.ticketTypes);
-    const available = groups.filter((g) => g.availableCount > 0);
-    if (available.length === 1) {
-      router.replace(`/e/${slug}/register/${available[0].slug}`);
-    }
-  }, [event, slug, router]);
+  const copyLink = (tierSlug: string) => {
+    const url = `${window.location.origin}/e/${slug}/register/${tierSlug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedSlug(tierSlug);
+    toast.success("Link copied to clipboard");
+    setTimeout(() => setCopiedSlug(null), 2000);
+  };
 
-  if (loading) {
+  if (loading || sessionStatus === "loading") {
     return (
       <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-slate-400 text-sm">Loading event…</p>
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Not logged in or not admin/organizer → show access denied
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
+          <Lock className="h-10 w-10 text-slate-300 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Registration Form Links</h2>
+          <p className="text-slate-500 text-sm mb-4">
+            This page is for event organizers. Please use a direct registration link provided by the organizer.
+          </p>
+          <p className="text-xs text-slate-400">
+            If you are an organizer, please log in first.
+          </p>
         </div>
       </div>
     );
@@ -139,7 +158,6 @@ export default function PublicEventRegisterPage() {
   }
 
   const tierGroups = buildTierGroups(event.ticketTypes);
-  const hasAvailable = tierGroups.some((g) => g.availableCount > 0);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
@@ -149,7 +167,7 @@ export default function PublicEventRegisterPage() {
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
             <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[260px] object-contain" priority unoptimized />
+              className="w-full h-auto max-h-[200px] object-contain" priority unoptimized />
           </div>
         </div>
       ) : (
@@ -181,144 +199,120 @@ export default function PublicEventRegisterPage() {
         </div>
       </div>
 
-      {/* Main — single centered column */}
+      {/* Main */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
-        {/* Heading */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Choose Your Registration</h1>
-          <p className="text-slate-500 text-sm mt-1">Select a registration period to view available types and pricing</p>
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="h-5 w-5 rounded bg-amber-100 flex items-center justify-center">
+              <Eye className="h-3 w-3 text-amber-600" />
+            </div>
+            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Organizer View</span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">Registration Form Links</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Copy and share these links with attendees. Each link opens a separate registration form.
+          </p>
         </div>
 
-        {!hasAvailable ? (
+        {tierGroups.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center">
             <AlertCircle className="h-10 w-10 text-slate-300 mx-auto mb-4" />
-            <p className="font-medium text-slate-700">Registration is currently closed</p>
-            <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
+            <p className="font-medium text-slate-700">No registration forms configured</p>
+            <p className="text-sm text-slate-400 mt-1">Add pricing tiers to your registration types in the dashboard.</p>
           </div>
         ) : (
           <div className="space-y-4">
             {tierGroups.map((group) => {
               const isClosed = group.availableCount === 0;
-              const purchasable = group.regTypes.filter((rt) => rt.canPurchase);
+              const formUrl = `/e/${slug}/register/${group.slug}`;
+              const isCopied = copiedSlug === group.slug;
 
               return (
-                <Link
+                <div
                   key={group.tierName}
-                  href={isClosed ? "#" : `/e/${slug}/register/${group.slug}`}
                   className={cn(
-                    "block bg-white rounded-2xl border shadow-sm transition-all duration-200 overflow-hidden",
-                    isClosed
-                      ? "opacity-50 cursor-not-allowed border-slate-200"
-                      : "border-slate-200 hover:border-primary/40 hover:shadow-md"
+                    "bg-white rounded-2xl border shadow-sm overflow-hidden",
+                    isClosed ? "border-slate-200 opacity-70" : "border-slate-200"
                   )}
-                  onClick={(e) => isClosed && e.preventDefault()}
                 >
-                  {/* Top accent bar */}
-                  {!isClosed && <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />}
-
-                  <div className="p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-900">{group.tierName}</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {isClosed ? "Registration closed" : `${purchasable.length} registration type${purchasable.length !== 1 ? "s" : ""} available`}
-                        </p>
-                      </div>
+                  <div className="p-5">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-slate-900">
-                            {isClosed ? "Closed"
-                              : group.allFree ? "Free"
-                              : group.minPrice === group.maxPrice
-                              ? `${group.currency} ${group.minPrice}`
-                              : `${group.currency} ${group.minPrice} – ${group.maxPrice}`}
-                          </p>
-                          {!isClosed && !group.allFree && group.minPrice !== group.maxPrice && (
-                            <p className="text-[11px] text-slate-400">depending on type</p>
-                          )}
-                        </div>
-                        {!isClosed && (
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                            <ChevronRight className="h-5 w-5 text-primary" />
-                          </div>
+                        <h3 className="text-lg font-bold text-slate-900">{group.tierName}</h3>
+                        {isClosed ? (
+                          <span className="flex items-center gap-1 text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                            <EyeOff className="h-3 w-3" /> Closed
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                            <Eye className="h-3 w-3" /> Active
+                          </span>
                         )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-slate-900">
+                          {group.allFree ? "Free"
+                            : group.minPrice === group.maxPrice
+                            ? `${group.currency} ${group.minPrice}`
+                            : `${group.currency} ${group.minPrice} – ${group.maxPrice}`}
+                        </p>
                       </div>
                     </div>
 
                     {/* Pricing table */}
-                    {!isClosed && purchasable.length > 0 && (
-                      <div className="border-t border-slate-100 pt-4">
-                        <div className="grid gap-2">
-                          {purchasable.map((rt) => (
-                            <div key={rt.name} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-slate-50/80">
-                              <div className="flex items-center gap-2">
-                                <Users className="h-3.5 w-3.5 text-slate-400" />
-                                <span className="text-sm font-medium text-slate-700">{rt.name}</span>
-                              </div>
-                              <span className="text-sm font-semibold text-slate-900">
-                                {rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`}
-                              </span>
+                    {group.regTypes.length > 0 && (
+                      <div className="grid gap-1.5 mb-4">
+                        {group.regTypes.map((rt) => (
+                          <div key={rt.name} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-slate-50/80">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-3.5 w-3.5 text-slate-400" />
+                              <span className={cn("text-sm font-medium", rt.canPurchase ? "text-slate-700" : "text-slate-400 line-through")}>{rt.name}</span>
                             </div>
-                          ))}
-                        </div>
+                            <span className={cn("text-sm font-semibold", rt.canPurchase ? "text-slate-900" : "text-slate-400")}>
+                              {rt.canPurchase ? (rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`) : "Closed"}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     )}
+
+                    {/* Shareable URL */}
+                    <div className="flex items-center gap-2 bg-slate-50 rounded-lg border border-slate-200 p-2">
+                      <code className="flex-1 text-xs text-slate-500 truncate pl-2">{formUrl}</code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        onClick={() => copyLink(group.slug)}
+                      >
+                        {isCopied ? <Check className="h-3 w-3 mr-1" /> : <Copy className="h-3 w-3 mr-1" />}
+                        {isCopied ? "Copied" : "Copy"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        asChild
+                      >
+                        <a href={formUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3 w-3 mr-1" /> Open
+                        </a>
+                      </Button>
+                    </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
         )}
 
-        {/* Quick links */}
-        <div className="grid sm:grid-cols-2 gap-3 mt-8">
-          <Link href={`/e/${slug}/schedule`} className="block group">
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
-                  <Calendar className="h-4 w-4 text-amber-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-800 text-sm">View Programme</p>
-                  <p className="text-xs text-slate-400">Full agenda &amp; schedule</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
-              </div>
-            </div>
-          </Link>
-          {event.abstractSettings?.allowAbstractSubmissions && (
-            <Link href={`/e/${slug}/submitAbstract`} className="block group">
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
-                <div className="flex items-center gap-3">
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <FileText className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-800 text-sm">Call for Abstracts</p>
-                    <p className="text-xs text-slate-400">
-                      {event.abstractSettings.abstractDeadline
-                        ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
-                        : "Submit your abstract"}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
-                </div>
-              </div>
-            </Link>
-          )}
-        </div>
-
-        {/* Event description */}
-        {event.description && (
-          <div className="mt-6 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
-            <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2">About This Event</h3>
-            <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">{event.description}</p>
-          </div>
-        )}
+        <p className="text-xs text-slate-400 text-center mt-6">
+          Deactivate pricing tiers in the dashboard to close a registration form.
+        </p>
       </div>
 
       {/* Footer */}
-      {event.footerHtml && (
+      {event?.footerHtml && (
         <div className="w-full border-t border-slate-200/60 bg-white text-center p-4 text-xs text-slate-500"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
       )}
@@ -355,6 +349,7 @@ function buildTierGroups(ticketTypes: TicketType[]): TierGroup[] {
     });
   }
 
+  // Legacy fallback
   const catMap = new Map<string, TicketType[]>();
   const catOrder: string[] = [];
   for (const tt of ticketTypes) {
