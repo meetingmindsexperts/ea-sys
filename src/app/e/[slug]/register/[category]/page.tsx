@@ -24,7 +24,6 @@ import {
   Utensils,
   Stethoscope,
   AlertCircle,
-  ArrowLeft,
   Mail,
   Shield,
   PenLine,
@@ -412,11 +411,6 @@ export default function CategoryRegistrationPage() {
 
       {/* Main Content */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-6">
-        <Link href={`/e/${slug}/register`}
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-primary transition-colors mb-5">
-          <ArrowLeft className="h-3.5 w-3.5" /> All registration forms
-        </Link>
-
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header + steps */}
           <div className="px-6 py-5 border-b border-slate-100">
@@ -740,7 +734,7 @@ export default function CategoryRegistrationPage() {
 
       {/* Footer */}
       {event.footerHtml && (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center"
+        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6"
           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
       )}
     </div>
