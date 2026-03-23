@@ -14,16 +14,22 @@ import {
   FileText,
   ChevronRight,
   AlertCircle,
-  Ticket,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Convert a category name to a URL-safe slug */
-function toSlug(category: string): string {
-  return category
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+function toSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+interface PricingTier {
+  id: string;
+  name: string;
+  price: string;
+  currency: string;
+  available: number;
+  soldOut: boolean;
+  canPurchase: boolean;
 }
 
 interface TicketType {
@@ -33,13 +39,10 @@ interface TicketType {
   category: string;
   price: string;
   currency: string;
-  quantity: number;
-  soldCount: number;
   available: number;
   soldOut: boolean;
   canPurchase: boolean;
-  salesStarted: boolean;
-  salesEnded: boolean;
+  pricingTiers?: PricingTier[];
 }
 
 interface Event {
@@ -56,10 +59,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
-  organization: {
-    name: string;
-    logo: string | null;
-  };
+  organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
@@ -67,28 +67,16 @@ interface Event {
   };
 }
 
-interface CategoryGroup {
-  category: string;
+interface TierGroup {
+  tierName: string;
   slug: string;
-  tickets: TicketType[];
-  availableCount: number;
+  regTypes: { name: string; price: number; currency: string; canPurchase: boolean }[];
   minPrice: number;
   maxPrice: number;
   currency: string;
   allFree: boolean;
+  availableCount: number;
 }
-
-/** Rotate through accent colors for dynamic categories */
-const ACCENT_COLORS = [
-  { card: "bg-blue-50 border-blue-200 hover:border-blue-400", icon: "bg-blue-100 text-blue-600" },
-  { card: "bg-orange-50 border-orange-200 hover:border-orange-400", icon: "bg-orange-100 text-orange-600" },
-  { card: "bg-purple-50 border-purple-200 hover:border-purple-400", icon: "bg-purple-100 text-purple-600" },
-  { card: "bg-emerald-50 border-emerald-200 hover:border-emerald-400", icon: "bg-emerald-100 text-emerald-600" },
-  { card: "bg-rose-50 border-rose-200 hover:border-rose-400", icon: "bg-rose-100 text-rose-600" },
-  { card: "bg-amber-50 border-amber-200 hover:border-amber-400", icon: "bg-amber-100 text-amber-600" },
-  { card: "bg-cyan-50 border-cyan-200 hover:border-cyan-400", icon: "bg-cyan-100 text-cyan-600" },
-  { card: "bg-slate-50 border-slate-200 hover:border-slate-400", icon: "bg-slate-100 text-slate-600" },
-];
 
 export default function PublicEventRegisterPage() {
   const params = useParams();
@@ -107,8 +95,7 @@ export default function PublicEventRegisterPage() {
           setError(res.status === 404 ? "Event not found" : "Failed to load event");
           return;
         }
-        const data = await res.json();
-        setEvent(data);
+        setEvent(await res.json());
       } catch (err) {
         console.error("[register] Failed to load event:", err);
         setError("Failed to load event");
@@ -116,147 +103,77 @@ export default function PublicEventRegisterPage() {
         setLoading(false);
       }
     }
-
-    if (slug) {
-      fetchEvent();
-    }
+    if (slug) fetchEvent();
   }, [slug]);
 
   useEffect(() => {
     if (!event) return;
-
-    // Build unique categories with available tickets
-    const seen = new Set<string>();
-    const groups: { category: string }[] = [];
-    for (const t of event.ticketTypes) {
-      const cat = t.category || "Standard";
-      if (!seen.has(cat) && t.canPurchase) {
-        seen.add(cat);
-        groups.push({ category: cat });
-      }
-    }
-
-    // Always redirect to the first available category's form
-    if (groups.length >= 1) {
-      router.replace(`/e/${slug}/register/${toSlug(groups[0].category)}`);
+    const groups = buildTierGroups(event.ticketTypes);
+    const available = groups.filter((g) => g.availableCount > 0);
+    if (available.length === 1) {
+      router.replace(`/e/${slug}/register/${available[0].slug}`);
     }
   }, [event, slug, router]);
 
-  /* ── Loading state ──────────────────────────────────────────────────────── */
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center">
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="h-12 w-12 rounded-full border-2 border-primary/20" />
-            <Loader2 className="h-12 w-12 animate-spin text-primary absolute inset-0" />
-          </div>
-          <p className="text-slate-500 text-sm tracking-wide">Loading event…</p>
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-slate-400 text-sm">Loading event…</p>
         </div>
       </div>
     );
   }
 
-  /* ── Error state ────────────────────────────────────────────────────────── */
   if (error || !event) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">
-            {error || "Event not found"}
-          </h2>
-          <p className="text-slate-500 text-sm">
-            Please check the link and try again.
-          </p>
+          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
+          <p className="text-slate-500 text-sm">Please check the link and try again.</p>
         </div>
       </div>
     );
   }
 
-  // Build category groups dynamically from ticket data (preserve insertion order)
-  const categoryMap = new Map<string, TicketType[]>();
-  for (const t of event.ticketTypes) {
-    const cat = t.category || "Standard";
-    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
-    categoryMap.get(cat)!.push(t);
-  }
-
-  const categoryGroups: CategoryGroup[] = Array.from(categoryMap.entries()).map(
-    ([cat, tickets]) => {
-      const available = tickets.filter((t) => t.canPurchase);
-      const prices = available.map((t) => Number(t.price));
-      return {
-        category: cat,
-        slug: toSlug(cat),
-        tickets,
-        availableCount: available.length,
-        minPrice: prices.length > 0 ? Math.min(...prices) : 0,
-        maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
-        currency: available[0]?.currency || "USD",
-        allFree: prices.every((p) => p === 0),
-      };
-    }
-  );
-
-  const hasAvailable = categoryGroups.some((g) => g.availableCount > 0);
+  const tierGroups = buildTierGroups(event.ticketTypes);
+  const hasAvailable = tierGroups.some((g) => g.availableCount > 0);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
-      {/* ── Banner ─────────────────────────────────────────────────────────── */}
+    <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+      {/* Banner */}
       {event.bannerImage ? (
-        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6">
-          <div className="relative w-full h-48 sm:h-64 overflow-hidden rounded-2xl">
-            <Image
-              src={event.bannerImage}
-              alt={event.name}
-              width={1400}
-              height={500}
-              className="w-full h-full object-contain object-center"
-              unoptimized
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />
-
-            {/* Event title overlay on banner */}
-            <div className="absolute inset-0 flex flex-col justify-end">
-              <div className="px-5 sm:px-8 pb-5">
-                <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight max-w-3xl drop-shadow-sm hidden">
-                  {event.name}
-                </h1>
-              </div>
-            </div>
+        <div className="relative w-full bg-white">
+          <div className="max-w-[1400px] mx-auto">
+            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
+              className="w-full h-auto max-h-[260px] object-contain" priority unoptimized />
           </div>
         </div>
       ) : (
-        /* No banner — text-only header with subtle gradient accent */
-        <div className="relative bg-white border-b border-slate-100">
+        <div className="bg-white border-b border-slate-100">
           <div className="h-1 bg-gradient-primary" />
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight max-w-3xl">
-              {event.name}
-            </h1>
-          </div>
         </div>
       )}
 
-      {/* ── Event Meta Bar ─────────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-100 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-4 py-3">
-            <div className="flex items-center gap-1.5 text-sm text-slate-600">
-              <Calendar className="h-3.5 w-3.5 text-primary" />
+      {/* Event Info Strip */}
+      <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
+            <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
+            <div className="flex items-center gap-1.5 text-sm text-slate-500">
+              <Calendar className="h-3.5 w-3.5 text-primary/70" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-slate-600">
-              <Clock className="h-3.5 w-3.5 text-primary" />
+            <div className="flex items-center gap-1.5 text-sm text-slate-500">
+              <Clock className="h-3.5 w-3.5 text-primary/70" />
               <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
             {locationParts.length > 0 && (
-              <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                <MapPin className="h-3.5 w-3.5 text-primary" />
+              <div className="flex items-center gap-1.5 text-sm text-slate-500">
+                <MapPin className="h-3.5 w-3.5 text-primary/70" />
                 <span>{locationParts.join(", ")}</span>
               </div>
             )}
@@ -264,157 +181,199 @@ export default function PublicEventRegisterPage() {
         </div>
       </div>
 
-      {/* ── Body ───────────────────────────────────────────────────────────── */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full">
-        <div className="grid md:grid-cols-5 gap-8 items-start">
-          {/* Left: Info sidebar */}
-          <div className="md:col-span-2 space-y-5">
-            {event.description && (
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-                <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
-                  About This Event
-                </h3>
-                <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">
-                  {event.description}
-                </p>
-              </div>
-            )}
+      {/* Main — single centered column */}
+      <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
+        {/* Heading */}
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-slate-900">Choose Your Registration</h1>
+          <p className="text-slate-500 text-sm mt-1">Select a registration period to view available types and pricing</p>
+        </div>
 
-            <Link href={`/e/${slug}/schedule`} className="block group">
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                    <Calendar className="h-5 w-5 text-amber-500" />
+        {!hasAvailable ? (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center">
+            <AlertCircle className="h-10 w-10 text-slate-300 mx-auto mb-4" />
+            <p className="font-medium text-slate-700">Registration is currently closed</p>
+            <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {tierGroups.map((group) => {
+              const isClosed = group.availableCount === 0;
+              const purchasable = group.regTypes.filter((rt) => rt.canPurchase);
+
+              return (
+                <Link
+                  key={group.tierName}
+                  href={isClosed ? "#" : `/e/${slug}/register/${group.slug}`}
+                  className={cn(
+                    "block bg-white rounded-2xl border shadow-sm transition-all duration-200 overflow-hidden",
+                    isClosed
+                      ? "opacity-50 cursor-not-allowed border-slate-200"
+                      : "border-slate-200 hover:border-primary/40 hover:shadow-md"
+                  )}
+                  onClick={(e) => isClosed && e.preventDefault()}
+                >
+                  {/* Top accent bar */}
+                  {!isClosed && <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />}
+
+                  <div className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">{group.tierName}</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {isClosed ? "Registration closed" : `${purchasable.length} registration type${purchasable.length !== 1 ? "s" : ""} available`}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-slate-900">
+                            {isClosed ? "Closed"
+                              : group.allFree ? "Free"
+                              : group.minPrice === group.maxPrice
+                              ? `${group.currency} ${group.minPrice}`
+                              : `${group.currency} ${group.minPrice} – ${group.maxPrice}`}
+                          </p>
+                          {!isClosed && !group.allFree && group.minPrice !== group.maxPrice && (
+                            <p className="text-[11px] text-slate-400">depending on type</p>
+                          )}
+                        </div>
+                        {!isClosed && (
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <ChevronRight className="h-5 w-5 text-primary" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Pricing table */}
+                    {!isClosed && purchasable.length > 0 && (
+                      <div className="border-t border-slate-100 pt-4">
+                        <div className="grid gap-2">
+                          {purchasable.map((rt) => (
+                            <div key={rt.name} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-slate-50/80">
+                              <div className="flex items-center gap-2">
+                                <Users className="h-3.5 w-3.5 text-slate-400" />
+                                <span className="text-sm font-medium text-slate-700">{rt.name}</span>
+                              </div>
+                              <span className="text-sm font-semibold text-slate-900">
+                                {rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Quick links */}
+        <div className="grid sm:grid-cols-2 gap-3 mt-8">
+          <Link href={`/e/${slug}/schedule`} className="block group">
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                  <Calendar className="h-4 w-4 text-amber-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-800 text-sm">View Programme</p>
+                  <p className="text-xs text-slate-400">Full agenda &amp; schedule</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
+              </div>
+            </div>
+          </Link>
+          {event.abstractSettings?.allowAbstractSubmissions && (
+            <Link href={`/e/${slug}/submitAbstract`} className="block group">
+              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <FileText className="h-4 w-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-900 text-sm">View Programme</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Full agenda &amp; schedule</p>
+                    <p className="font-medium text-slate-800 text-sm">Call for Abstracts</p>
+                    <p className="text-xs text-slate-400">
+                      {event.abstractSettings.abstractDeadline
+                        ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
+                        : "Submit your abstract"}
+                    </p>
                   </div>
-                  <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors shrink-0" />
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
                 </div>
               </div>
             </Link>
-
-            {event.abstractSettings?.allowAbstractSubmissions && (
-              <Link href={`/e/${slug}/submitAbstract`} className="block group">
-                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:border-primary/40 hover:shadow-md transition-all duration-200">
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                      <FileText className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900 text-sm">Call for Abstracts</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {event.abstractSettings.abstractDeadline
-                          ? `Deadline: ${format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}`
-                          : "Submit your abstract for review"}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors shrink-0" />
-                  </div>
-                </div>
-              </Link>
-            )}
-          </div>
-
-          {/* Right: Registration Categories */}
-          <div className="md:col-span-3">
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="px-6 py-5 border-b border-slate-100">
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Register for This Event
-                </h2>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  Choose your registration category to proceed
-                </p>
-              </div>
-
-              <div className="p-6">
-                {!hasAvailable ? (
-                  <div className="text-center py-12">
-                    <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
-                      <AlertCircle className="h-7 w-7 text-slate-400" />
-                    </div>
-                    <p className="font-medium text-slate-700">
-                      Registration is currently closed
-                    </p>
-                    <p className="text-sm text-slate-400 mt-1">
-                      Check back later or contact the organizer.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {categoryGroups.map((group, idx) => {
-                      const isClosed = group.availableCount === 0;
-                      const accent = ACCENT_COLORS[idx % ACCENT_COLORS.length];
-
-                      return (
-                        <Link
-                          key={group.category}
-                          href={isClosed ? "#" : `/e/${slug}/register/${group.slug}`}
-                          className={cn(
-                            "block rounded-2xl border-2 p-5 transition-all duration-200",
-                            isClosed
-                              ? "opacity-50 cursor-not-allowed border-slate-200 bg-slate-50"
-                              : cn(accent.card, "hover:shadow-md hover:-translate-y-0.5")
-                          )}
-                          onClick={(e) => isClosed && e.preventDefault()}
-                        >
-                          <div className="flex items-start gap-4">
-                            <div className={cn(
-                              "h-11 w-11 rounded-xl flex items-center justify-center shrink-0",
-                              isClosed ? "bg-slate-100 text-slate-400" : accent.icon
-                            )}>
-                              <Ticket className="h-5 w-5" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="font-semibold text-slate-900">
-                                    {group.category} Registration
-                                  </p>
-                                  <p className="text-xs text-slate-500 mt-0.5">
-                                    {group.tickets.length} {group.tickets.length === 1 ? "type" : "types"} in this category
-                                  </p>
-                                </div>
-                                {!isClosed && (
-                                  <ChevronRight className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
-                                )}
-                              </div>
-                              <div className="flex items-center gap-4 mt-3">
-                                <span className="text-sm font-bold text-slate-800">
-                                  {isClosed
-                                    ? "Closed"
-                                    : group.allFree
-                                    ? "Free"
-                                    : group.minPrice === group.maxPrice
-                                    ? `${group.currency} ${group.minPrice}`
-                                    : `From ${group.currency} ${group.minPrice}`}
-                                </span>
-                                <span className="text-xs text-slate-400">
-                                  {group.availableCount} {group.availableCount === 1 ? "option" : "options"} available
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          )}
         </div>
+
+        {/* Event description */}
+        {event.description && (
+          <div className="mt-6 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+            <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2">About This Event</h3>
+            <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap line-clamp-6">{event.description}</p>
+          </div>
+        )}
       </div>
 
-      {/* ── Custom Footer ──────────────────────────────────────────────────── */}
+      {/* Footer */}
       {event.footerHtml && (
-        <div
-          className="w-full border-t border-slate-100 bg-white text-center p-4 text-xs text-slate-500"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }}
-        />
+        <div className="w-full border-t border-slate-200/60 bg-white text-center p-4 text-xs text-slate-500"
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
       )}
     </div>
   );
+}
+
+function buildTierGroups(ticketTypes: TicketType[]): TierGroup[] {
+  const hasPricingTiers = ticketTypes.some((tt) => tt.pricingTiers && tt.pricingTiers.length > 0);
+
+  if (hasPricingTiers) {
+    const tierMap = new Map<string, TierGroup["regTypes"]>();
+    const tierOrder: string[] = [];
+    for (const tt of ticketTypes) {
+      for (const tier of tt.pricingTiers ?? []) {
+        if (!tierMap.has(tier.name)) { tierMap.set(tier.name, []); tierOrder.push(tier.name); }
+        tierMap.get(tier.name)!.push({
+          name: tt.name, price: Number(tier.price), currency: tier.currency, canPurchase: tier.canPurchase,
+        });
+      }
+    }
+    return tierOrder.map((tierName) => {
+      const regTypes = tierMap.get(tierName)!;
+      const purchasable = regTypes.filter((rt) => rt.canPurchase);
+      const prices = purchasable.map((rt) => rt.price);
+      return {
+        tierName, slug: toSlug(tierName), regTypes,
+        minPrice: prices.length > 0 ? Math.min(...prices) : 0,
+        maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
+        currency: purchasable[0]?.currency ?? "USD",
+        allFree: prices.every((p) => p === 0),
+        availableCount: purchasable.length,
+      };
+    });
+  }
+
+  const catMap = new Map<string, TicketType[]>();
+  const catOrder: string[] = [];
+  for (const tt of ticketTypes) {
+    const cat = tt.category || "Standard";
+    if (!catMap.has(cat)) { catMap.set(cat, []); catOrder.push(cat); }
+    catMap.get(cat)!.push(tt);
+  }
+  return catOrder.map((cat) => {
+    const tickets = catMap.get(cat)!;
+    const purchasable = tickets.filter((t) => t.canPurchase);
+    const prices = purchasable.map((t) => Number(t.price));
+    return {
+      tierName: cat, slug: toSlug(cat),
+      regTypes: tickets.map((t) => ({ name: t.name, price: Number(t.price), currency: t.currency, canPurchase: t.canPurchase })),
+      minPrice: prices.length > 0 ? Math.min(...prices) : 0,
+      maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
+      currency: purchasable[0]?.currency ?? "USD",
+      allFree: prices.every((p) => p === 0),
+      availableCount: purchasable.length,
+    };
+  });
 }

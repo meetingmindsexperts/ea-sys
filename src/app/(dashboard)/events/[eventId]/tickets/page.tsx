@@ -32,6 +32,8 @@ import {
   ChevronDown,
   ChevronRight,
   DollarSign,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
@@ -369,6 +371,25 @@ export default function TicketsPage() {
                       <span className="text-sm text-muted-foreground">
                         · {tt.pricingTiers.length} tier{tt.pricingTiers.length !== 1 ? "s" : ""}
                       </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title={tt.isActive ? "Hide from registration" : "Show in registration"}
+                        onClick={async () => {
+                          try {
+                            await updateTicket.mutateAsync({
+                              ticketId: tt.id,
+                              data: { isActive: !tt.isActive },
+                            });
+                            toast.success(tt.isActive ? `"${tt.name}" hidden from registration` : `"${tt.name}" visible in registration`);
+                          } catch {
+                            toast.error("Failed to update");
+                          }
+                        }}
+                      >
+                        {tt.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditType(tt)}>
                         <Pencil className="h-4 w-4" />
                       </Button>

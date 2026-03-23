@@ -47,8 +47,8 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-function toSlug(category: string): string {
-  return category
+function toSlug(name: string): string {
+  return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -107,6 +107,18 @@ interface Event {
   };
 }
 
+/** A registration type option within the matched tier */
+interface RegTypeOption {
+  ticketTypeId: string;
+  pricingTierId: string;
+  regTypeName: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  available: number;
+  canPurchase: boolean;
+}
+
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a registration type"),
   pricingTierId: z.string().optional(),
@@ -129,14 +141,13 @@ const registrationSchema = z.object({
 type RegistrationForm = z.infer<typeof registrationSchema>;
 
 const STEPS = [
-  { id: "tier", label: "Registration" },
+  { id: "type", label: "Registration Type" },
   { id: "personal", label: "Personal Info" },
   { id: "details", label: "Details" },
 ] as const;
 
-// Fields validated per step (for partial validation)
 const STEP_FIELDS: Record<string, (keyof RegistrationForm)[]> = {
-  tier: ["ticketTypeId"],
+  type: ["ticketTypeId"],
   personal: ["title", "firstName", "lastName", "email", "role"],
   details: ["country", "specialty"],
 };
@@ -148,12 +159,13 @@ export default function CategoryRegistrationPage() {
   const categorySlug = params.category as string;
 
   const [event, setEvent] = useState<Event | null>(null);
-  const [categoryLabel, setCategoryLabel] = useState<string | null>(null);
+  const [formLabel, setFormLabel] = useState<string | null>(null);
+  const [regTypeOptions, setRegTypeOptions] = useState<RegTypeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
-  const [skipTierStep, setSkipTierStep] = useState(false);
+  const [skipTypeStep, setSkipTypeStep] = useState(false);
 
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
@@ -176,34 +188,81 @@ export default function CategoryRegistrationPage() {
         const data: Event = await res.json();
         setEvent(data);
 
-        const matchedType = data.ticketTypes.find((t) => toSlug(t.name) === categorySlug);
-        const matchedCategory = matchedType
-          ? matchedType.name
-          : data.ticketTypes.find((t) => toSlug(t.category || "Standard") === categorySlug)?.category;
+        const hasPricingTiers = data.ticketTypes.some((tt) => tt.pricingTiers && tt.pricingTiers.length > 0);
 
-        if (!matchedCategory && !matchedType) {
-          setError("Invalid registration category");
-          return;
-        }
+        if (hasPricingTiers) {
+          // New flow: [category] = pricing tier name slug (e.g., "early-bird")
+          // Build options: all registration types that have this tier
+          const options: RegTypeOption[] = [];
 
-        const label = matchedType ? matchedType.name : matchedCategory!;
-        setCategoryLabel(label);
+          for (const tt of data.ticketTypes) {
+            const tier = tt.pricingTiers?.find((t) => toSlug(t.name) === categorySlug);
+            if (tier) {
+              options.push({
+                ticketTypeId: tt.id,
+                pricingTierId: tier.id,
+                regTypeName: tt.name,
+                description: tt.description,
+                price: Number(tier.price),
+                currency: tier.currency,
+                available: tier.available,
+                canPurchase: tier.canPurchase,
+              });
+            }
+          }
 
-        if (matchedType) {
-          form.setValue("ticketTypeId", matchedType.id);
-          const tiers = matchedType.pricingTiers?.filter((t) => t.canPurchase) ?? [];
-          if (tiers.length <= 1) {
-            if (tiers.length === 1) form.setValue("pricingTierId", tiers[0].id);
-            setSkipTierStep(true);
-            setStep(1); // Skip to personal info
+          if (options.length === 0) {
+            setError("Invalid registration form");
+            return;
+          }
+
+          // Get the tier name from the first match
+          const tierName = data.ticketTypes
+            .flatMap((tt) => tt.pricingTiers ?? [])
+            .find((t) => toSlug(t.name) === categorySlug)?.name ?? categorySlug;
+
+          setFormLabel(tierName);
+          setRegTypeOptions(options);
+
+          const purchasable = options.filter((o) => o.canPurchase);
+          if (purchasable.length === 1) {
+            form.setValue("ticketTypeId", purchasable[0].ticketTypeId);
+            form.setValue("pricingTierId", purchasable[0].pricingTierId);
+            setSkipTypeStep(true);
+            setStep(1);
           }
         } else {
-          const categoryTickets = data.ticketTypes.filter(
-            (t) => t.canPurchase && (t.category || "Standard") === matchedCategory
-          );
-          if (categoryTickets.length <= 1) {
-            if (categoryTickets.length === 1) form.setValue("ticketTypeId", categoryTickets[0].id);
-            setSkipTierStep(true);
+          // Legacy: [category] = old category slug
+          const matchedCategory = data.ticketTypes.find(
+            (t) => toSlug(t.category || "Standard") === categorySlug
+          )?.category;
+
+          if (!matchedCategory) {
+            setError("Invalid registration form");
+            return;
+          }
+
+          setFormLabel(matchedCategory);
+
+          const options: RegTypeOption[] = data.ticketTypes
+            .filter((t) => (t.category || "Standard") === matchedCategory)
+            .map((t) => ({
+              ticketTypeId: t.id,
+              pricingTierId: "",
+              regTypeName: t.name,
+              description: t.description,
+              price: Number(t.price),
+              currency: t.currency,
+              available: t.available,
+              canPurchase: t.canPurchase,
+            }));
+
+          setRegTypeOptions(options);
+
+          const purchasable = options.filter((o) => o.canPurchase);
+          if (purchasable.length === 1) {
+            form.setValue("ticketTypeId", purchasable[0].ticketTypeId);
+            setSkipTypeStep(true);
             setStep(1);
           }
         }
@@ -214,11 +273,10 @@ export default function CategoryRegistrationPage() {
         setLoading(false);
       }
     }
-
     if (slug) fetchEvent();
   }, [slug, categorySlug, form]);
 
-  const activeSteps = skipTierStep ? STEPS.filter((s) => s.id !== "tier") : [...STEPS];
+  const activeSteps = skipTypeStep ? STEPS.filter((s) => s.id !== "type") : [...STEPS];
   const activeStepIndex = activeSteps.findIndex((s) => s.id === STEPS[step].id);
   const isLastStep = activeStepIndex === activeSteps.length - 1;
 
@@ -235,7 +293,7 @@ export default function CategoryRegistrationPage() {
   }
 
   function handleBack() {
-    if (step > (skipTierStep ? 1 : 0)) setStep((s) => s - 1);
+    if (step > (skipTypeStep ? 1 : 0)) setStep((s) => s - 1);
   }
 
   async function onSubmit(data: RegistrationForm) {
@@ -289,7 +347,7 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  if (error || !event || !categoryLabel) {
+  if (error || !event || !formLabel) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
@@ -299,34 +357,18 @@ export default function CategoryRegistrationPage() {
           <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Registration not available"}</h2>
           <p className="text-slate-500 text-sm mb-4">Please check the link and try again.</p>
           <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
-            ← View all registration types
+            ← View all registration forms
           </Link>
         </div>
       </div>
     );
   }
 
-  const matchedRegType = event.ticketTypes.find((t) => t.name === categoryLabel);
-  const hasPricingTiers = matchedRegType?.pricingTiers && matchedRegType.pricingTiers.length > 0;
-
-  const availableTickets = hasPricingTiers
-    ? [] : event.ticketTypes.filter((t) => t.canPurchase && (t.category || "Standard") === categoryLabel);
-  const availableTiers = matchedRegType?.pricingTiers?.filter((t) => t.canPurchase) ?? [];
-
+  const purchasableOptions = regTypeOptions.filter((o) => o.canPurchase);
   const selectedTicketId = form.watch("ticketTypeId");
-  const selectedPricingTierId = form.watch("pricingTierId");
-  const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
-  const selectedTier = matchedRegType?.pricingTiers?.find((t) => t.id === selectedPricingTierId);
+  const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
-
-  // Determine display price
-  const displayPrice = selectedTier
-    ? { amount: Number(selectedTier.price), currency: selectedTier.currency, label: `${categoryLabel} — ${selectedTier.name}` }
-    : selectedTicket
-    ? { amount: Number(selectedTicket.price), currency: selectedTicket.currency, label: selectedTicket.name }
-    : null;
-
-  const isClosed = !hasPricingTiers && availableTickets.length === 0;
+  const isClosed = purchasableOptions.length === 0;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
@@ -371,14 +413,13 @@ export default function CategoryRegistrationPage() {
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-6">
         <Link href={`/e/${slug}/register`}
           className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-primary transition-colors mb-5">
-          <ArrowLeft className="h-3.5 w-3.5" /> All registration types
+          <ArrowLeft className="h-3.5 w-3.5" /> All registration forms
         </Link>
 
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-          {/* Form header with step indicator */}
+          {/* Header + steps */}
           <div className="px-6 py-5 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900">{categoryLabel} Registration</h2>
-            {/* Step indicator */}
+            <h2 className="text-lg font-semibold text-slate-900">{formLabel} Registration</h2>
             <div className="flex items-center gap-2 mt-4">
               {activeSteps.map((s, i) => {
                 const isCurrent = i === activeStepIndex;
@@ -412,109 +453,67 @@ export default function CategoryRegistrationPage() {
                 <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
                   <AlertCircle className="h-7 w-7 text-slate-400" />
                 </div>
-                <p className="font-medium text-slate-700">{categoryLabel} registration is currently closed</p>
+                <p className="font-medium text-slate-700">{formLabel} registration is currently closed</p>
                 <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
               </div>
             ) : (
               <Form {...form}>
                 <form onSubmit={(e) => { e.preventDefault(); handleNext(); }} className="space-y-5">
 
-                  {/* Step: Pricing Tier Selection */}
-                  {STEPS[step].id === "tier" && (
+                  {/* Step: Registration Type Selection */}
+                  {STEPS[step].id === "type" && (
                     <div className="space-y-4">
-                      <p className="text-sm text-slate-600">Select your preferred registration option:</p>
-
-                      {/* Pricing tiers (new flow) */}
-                      {hasPricingTiers && availableTiers.length > 0 && (
-                        <FormField control={form.control} name="pricingTierId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <div className="grid gap-3">
-                                {availableTiers.map((tier) => {
-                                  const isSelected = field.value === tier.id;
-                                  return (
-                                    <button key={tier.id} type="button"
-                                      onClick={() => field.onChange(tier.id)}
-                                      className={cn(
-                                        "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
-                                        isSelected
-                                          ? "border-primary bg-primary/[0.03] shadow-sm"
-                                          : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
-                                      )}>
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <p className="font-semibold text-slate-900">{tier.name}</p>
-                                          <p className="text-xs text-slate-500 mt-0.5">
-                                            {tier.available > 0
-                                              ? `${tier.available} spot${tier.available !== 1 ? "s" : ""} remaining`
-                                              : "Sold out"}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                          <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
-                                            {Number(tier.price) === 0 ? "Free" : `${tier.currency} ${tier.price}`}
-                                          </span>
-                                          <div className={cn(
-                                            "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                            isSelected ? "border-primary bg-primary" : "border-slate-300"
-                                          )}>
-                                            {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
-                                          </div>
+                      <p className="text-sm text-slate-600">Select your registration type:</p>
+                      <FormField control={form.control} name="ticketTypeId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="grid gap-3">
+                              {purchasableOptions.map((opt) => {
+                                const isSelected = field.value === opt.ticketTypeId;
+                                return (
+                                  <button key={opt.ticketTypeId} type="button"
+                                    onClick={() => {
+                                      field.onChange(opt.ticketTypeId);
+                                      if (opt.pricingTierId) {
+                                        form.setValue("pricingTierId", opt.pricingTierId);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
+                                      isSelected
+                                        ? "border-primary bg-primary/[0.03] shadow-sm"
+                                        : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
+                                    )}>
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <p className="font-semibold text-slate-900">{opt.regTypeName}</p>
+                                        {opt.description && <p className="text-xs text-slate-500 mt-0.5">{opt.description}</p>}
+                                        <p className="text-xs text-slate-400 mt-1">
+                                          {opt.available > 0
+                                            ? `${opt.available} spot${opt.available !== 1 ? "s" : ""} remaining`
+                                            : "Sold out"}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
+                                          {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price}`}
+                                        </span>
+                                        <div className={cn(
+                                          "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                          isSelected ? "border-primary bg-primary" : "border-slate-300"
+                                        )}>
+                                          {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
                                         </div>
                                       </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <FormMessage className="mt-2" />
-                            </FormItem>
-                          )}
-                        />
-                      )}
-
-                      {/* Legacy ticket type selection */}
-                      {!hasPricingTiers && availableTickets.length > 1 && (
-                        <FormField control={form.control} name="ticketTypeId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <div className="grid gap-3">
-                                {availableTickets.map((rt) => {
-                                  const isSelected = field.value === rt.id;
-                                  return (
-                                    <button key={rt.id} type="button"
-                                      onClick={() => field.onChange(rt.id)}
-                                      className={cn(
-                                        "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
-                                        isSelected
-                                          ? "border-primary bg-primary/[0.03] shadow-sm"
-                                          : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
-                                      )}>
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <p className="font-semibold text-slate-900">{rt.name}</p>
-                                          {rt.description && <p className="text-xs text-slate-500 mt-0.5">{rt.description}</p>}
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                          <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
-                                            {Number(rt.price) === 0 ? "Free" : `${rt.currency} ${rt.price}`}
-                                          </span>
-                                          <div className={cn(
-                                            "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                            isSelected ? "border-primary bg-primary" : "border-slate-300"
-                                          )}>
-                                            {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <FormMessage className="mt-2" />
-                            </FormItem>
-                          )}
-                        />
-                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <FormMessage className="mt-2" />
+                          </FormItem>
+                        )}
+                      />
                     </div>
                   )}
 
@@ -529,8 +528,7 @@ export default function CategoryRegistrationPage() {
                               <TitleSelect value={field.value} onChange={field.onChange} />
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                         <FormField control={form.control} name="firstName"
                           render={({ field }) => (
                             <FormItem>
@@ -538,8 +536,7 @@ export default function CategoryRegistrationPage() {
                               <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                         <FormField control={form.control} name="lastName"
                           render={({ field }) => (
                             <FormItem>
@@ -547,45 +544,32 @@ export default function CategoryRegistrationPage() {
                               <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                       </div>
-
                       <FormField control={form.control} name="email"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> Email <span className="text-red-400">*</span>
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Mail className="h-3 w-3" /> Email <span className="text-red-400">*</span></FormLabel>
                             <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
-
+                        )} />
                       <FormField control={form.control} name="additionalEmail"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> Additional Email
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Mail className="h-3 w-3" /> Additional Email</FormLabel>
                             <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
-
+                        )} />
                       <FormField control={form.control} name="role"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span>
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span></FormLabel>
                             <RoleSelect value={field.value} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
+                        )} />
                     </div>
                   )}
 
@@ -596,107 +580,81 @@ export default function CategoryRegistrationPage() {
                         <FormField control={form.control} name="organization"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                <Building2 className="h-3 w-3" /> Organization
-                              </FormLabel>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Building2 className="h-3 w-3" /> Organization</FormLabel>
                               <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                         <FormField control={form.control} name="jobTitle"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                <User className="h-3 w-3" /> Job Title
-                              </FormLabel>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><User className="h-3 w-3" /> Job Title</FormLabel>
                               <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                       </div>
-
                       <FormField control={form.control} name="phone"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> Phone
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</FormLabel>
                             <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
-
+                        )} />
                       <div className="grid grid-cols-2 gap-3">
                         <FormField control={form.control} name="city"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> City
-                              </FormLabel>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><MapPin className="h-3 w-3" /> City</FormLabel>
                               <FormControl><Input placeholder="New York" className="rounded-lg border-slate-200" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                         <FormField control={form.control} name="country"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                <Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span>
-                              </FormLabel>
+                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span></FormLabel>
                               <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
+                          )} />
                       </div>
-
                       <FormField control={form.control} name="specialty"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span>
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span></FormLabel>
                             <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
-
+                        )} />
                       <FormField control={form.control} name="customSpecialty"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <PenLine className="h-3 w-3" /> Specialty (Specific)
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><PenLine className="h-3 w-3" /> Specialty (Specific)</FormLabel>
                             <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
-
+                        )} />
                       <FormField control={form.control} name="dietaryReqs"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Utensils className="h-3 w-3" /> Dietary Requirements
-                            </FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Utensils className="h-3 w-3" /> Dietary Requirements</FormLabel>
                             <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
+                        )} />
 
-                      {/* Summary before submit */}
-                      {displayPrice && (
+                      {/* Summary */}
+                      {selectedOption && (
                         <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                           <div className="flex justify-between items-center">
-                            <span className="text-sm text-slate-600">{displayPrice.label}</span>
+                            <div>
+                              <span className="text-sm text-slate-600">{selectedOption.regTypeName}</span>
+                              <span className="text-xs text-slate-400 ml-2">({formLabel})</span>
+                            </div>
                             <span className="text-lg font-bold text-slate-900">
-                              {displayPrice.amount === 0 ? "Free" : `${displayPrice.currency} ${displayPrice.amount}`}
+                              {selectedOption.price === 0 ? "Free" : `${selectedOption.currency} ${selectedOption.price}`}
                             </span>
                           </div>
                         </div>
@@ -704,7 +662,7 @@ export default function CategoryRegistrationPage() {
                     </div>
                   )}
 
-                  {/* Navigation buttons */}
+                  {/* Navigation */}
                   <div className="flex items-center justify-between pt-2">
                     {activeStepIndex > 0 ? (
                       <Button type="button" variant="outline" onClick={handleBack} className="rounded-lg">
