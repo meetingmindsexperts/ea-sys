@@ -255,6 +255,8 @@ npx tsc --noEmit     # Type check
 - Avoid N+1 queries - use `include` for related data in single query
 - Use `findFirst` instead of `findUnique` when filtering by non-unique fields
 - Don't add explicit `@@index` on fields that already have `@unique` (unique creates an implicit index)
+- **Event existence checks:** Always use `select: { id: true }` when the event lookup only validates access (don't fetch full event objects)
+- **Parallelize independent queries:** Event lookup + entity lookup should use `Promise.all()` when they don't depend on each other
 
 ### Server Pages
 - **Parallelize `params` + `auth()`:** Always use `Promise.all([params, auth()])` in server page functions
@@ -359,7 +361,12 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Server page query optimization** - Parallelized `params`/`auth()`/DB queries on speakers and event detail pages; switched to Prisma `select` for minimal data transfer
 - **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries
 - **Middleware scope narrowing** - Matcher targets only dashboard routes; reviewers redirected from non-abstract event routes
-- **Registration detail edit** - Slide-out panel with full CRUD for registration details
+- **Barcode import system** - CSV import route (`/api/events/[eventId]/import/barcodes`) maps DTCM barcodes to registrations by ID or email; `barcode` field on Registration (`@unique`); import dialog UI with results summary
+- **Badge PDF generation** - Server-side PDF generation with `pdfkit` + `bwip-js` (Code128 barcodes); A4 layout with 6 badges per page (2×3 grid, 4"×3" each); badge dialog for selected or all registrations
+- **Check-in scanner page** - Mobile-optimized page at `/events/[eventId]/check-in`; camera mode via `html5-qrcode`; manual/hardware scanner mode with auto-focused input; check-in API searches both `qrCode` and `barcode` fields; live attendance counter, recent scans log, Web Audio API sound feedback, 2s debounce
+- **API query optimization (March 2026)** - `select: { id: true }` on event existence checks across 25+ route files; parallelized independent queries in speaker/abstract detail routes; reduced over-fetching in registration list
+- **WYSIWYG footer editor** - Event footer HTML now edited via TiptapEditor in settings (replaced textarea)
+- **Registration detail edit** - Slide-out panel with full CRUD for registration details; registration type editable via dropdown
 - **React Query caching** for instant page navigation (registration types, registrations, schedule, abstracts, reviewers)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens

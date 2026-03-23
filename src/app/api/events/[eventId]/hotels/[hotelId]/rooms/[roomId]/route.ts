@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         id: eventId,
         organizationId: session.user.organizationId!,
       },
+      select: { id: true },
     });
 
     if (!event) {
@@ -95,6 +96,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         id: eventId,
         organizationId: session.user.organizationId!,
       },
+      select: { id: true },
     });
 
     if (!event) {
@@ -195,6 +197,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         id: eventId,
         organizationId: session.user.organizationId!,
       },
+      select: { id: true },
     });
 
     if (!event) {

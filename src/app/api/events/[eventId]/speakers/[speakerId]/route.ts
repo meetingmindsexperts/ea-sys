@@ -39,52 +39,53 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, speakerId } = await params;
-    const session = await auth();
+    const [{ eventId, speakerId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
+    const [event, speaker] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId!,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: {
+          id: speakerId,
+          eventId,
+        },
+        include: {
+          sessions: {
+            include: {
+              session: {
+                include: {
+                  track: true,
+                },
+              },
+            },
+          },
+          abstracts: {
+            include: {
+              track: true,
+            },
+          },
+          _count: {
+            select: {
+              sessions: true,
+              abstracts: true,
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const speaker = await db.speaker.findFirst({
-      where: {
-        id: speakerId,
-        eventId,
-      },
-      include: {
-        sessions: {
-          include: {
-            session: {
-              include: {
-                track: true,
-              },
-            },
-          },
-        },
-        abstracts: {
-          include: {
-            track: true,
-          },
-        },
-        _count: {
-          select: {
-            sessions: true,
-            abstracts: true,
-          },
-        },
-      },
-    });
 
     if (!speaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
@@ -102,8 +103,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, speakerId } = await params;
-    const session = await auth();
+    const [{ eventId, speakerId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -112,23 +112,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
+    const [event, existingSpeaker] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId!,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: {
+          id: speakerId,
+          eventId,
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const existingSpeaker = await db.speaker.findFirst({
-      where: {
-        id: speakerId,
-        eventId,
-      },
-    });
 
     if (!existingSpeaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
@@ -242,8 +244,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, speakerId } = await params;
-    const session = await auth();
+    const [{ eventId, speakerId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -252,30 +253,32 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
+    const [event, speaker] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: session.user.organizationId!,
+        },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: {
+          id: speakerId,
+          eventId,
+        },
+        include: {
+          _count: {
+            select: {
+              abstracts: { where: { status: { not: "DRAFT" } } },
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const speaker = await db.speaker.findFirst({
-      where: {
-        id: speakerId,
-        eventId,
-      },
-      include: {
-        _count: {
-          select: {
-            abstracts: { where: { status: { not: "DRAFT" } } },
-          },
-        },
-      },
-    });
 
     if (!speaker) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });

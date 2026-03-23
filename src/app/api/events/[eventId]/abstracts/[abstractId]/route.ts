@@ -23,41 +23,42 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, abstractId } = await params;
-    const session = await auth();
+    const [session, { eventId, abstractId }] = await Promise.all([auth(), params]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    const abstract = await db.abstract.findFirst({
-      where: {
-        id: abstractId,
-        eventId,
-      },
-      include: {
-        speaker: true,
-        track: true,
-        eventSession: {
-          include: {
-            track: true,
-            speakers: {
-              include: {
-                speaker: true,
+    const [event, abstract] = await Promise.all([
+      db.event.findFirst({
+        where: buildEventAccessWhere(session.user, eventId),
+        select: { id: true },
+      }),
+      db.abstract.findFirst({
+        where: {
+          id: abstractId,
+          eventId,
+        },
+        include: {
+          speaker: true,
+          track: true,
+          eventSession: {
+            include: {
+              track: true,
+              speakers: {
+                include: {
+                  speaker: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (!abstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
@@ -75,28 +76,29 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, abstractId } = await params;
-    const session = await auth();
+    const [session, { eventId, abstractId }] = await Promise.all([auth(), params]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
-    });
+    const [event, existingAbstract] = await Promise.all([
+      db.event.findFirst({
+        where: buildEventAccessWhere(session.user, eventId),
+        select: { id: true, name: true },
+      }),
+      db.abstract.findFirst({
+        where: {
+          id: abstractId,
+          eventId,
+        },
+        include: { speaker: { select: { userId: true } } },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const existingAbstract = await db.abstract.findFirst({
-      where: {
-        id: abstractId,
-        eventId,
-      },
-      include: { speaker: { select: { userId: true } } },
-    });
 
     if (!existingAbstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
@@ -258,8 +260,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, abstractId } = await params;
-    const session = await auth();
+    const [session, { eventId, abstractId }] = await Promise.all([auth(), params]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -272,23 +273,25 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
-    });
+    const [event, abstract] = await Promise.all([
+      db.event.findFirst({
+        where: buildEventAccessWhere(session.user, eventId),
+        select: { id: true },
+      }),
+      db.abstract.findFirst({
+        where: {
+          id: abstractId,
+          eventId,
+        },
+        include: {
+          eventSession: true,
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const abstract = await db.abstract.findFirst({
-      where: {
-        id: abstractId,
-        eventId,
-      },
-      include: {
-        eventSession: true,
-      },
-    });
 
     if (!abstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });

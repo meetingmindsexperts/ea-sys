@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** March 13, 2026
+**Last Updated:** March 23, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -81,7 +81,10 @@ This document outlines the current development status of the Event Administratio
 | Update Registration Status | ✅ | ✅ | Complete |
 | Update Payment Status | ✅ | ✅ | Complete |
 | Check-in (Manual) | ✅ | ✅ | Complete |
-| Check-in (QR Code) | ✅ | ❌ | API Complete |
+| Check-in (QR Code) | ✅ | ✅ | Complete |
+| Check-in Scanner Page | ✅ | ✅ | Complete |
+| Barcode Import (CSV) | ✅ | ✅ | Complete |
+| Badge PDF Generation | ✅ | ✅ | Complete |
 | QR Code Generation | ✅ | ✅ | Complete |
 | Delete Registration | ✅ | ❌ | API Complete |
 | Search/Filter Registrations | ✅ | ✅ | Complete |
@@ -95,7 +98,9 @@ This document outlines the current development status of the Event Administratio
 - `PUT /api/events/[eventId]/registrations/[id]` - Update registration
 - `DELETE /api/events/[eventId]/registrations/[id]` - Delete registration
 - `POST /api/events/[eventId]/registrations/[id]/check-in` - Check-in by ID
-- `PUT /api/events/[eventId]/registrations/[id]/check-in` - Check-in by QR code
+- `PUT /api/events/[eventId]/registrations/[id]/check-in` - Check-in by QR/barcode
+- `POST /api/events/[eventId]/import/barcodes` - Import barcodes from CSV
+- `POST /api/events/[eventId]/registrations/badges` - Generate badge PDFs
 
 ---
 
@@ -816,6 +821,53 @@ Docker data root configured in `/etc/docker/daemon.json`:
 
 ---
 
+## Updates (March 23, 2026)
+
+### Barcode, Badge & Check-In System
+
+#### Barcode Import
+- [x] `barcode` field on Registration model (`@unique` with index)
+- [x] CSV import API (`POST /api/events/[eventId]/import/barcodes`)
+- [x] Matches by `registrationId` or `email` + eventId fallback
+- [x] Duplicate barcode validation
+- [x] Import dialog UI with results summary (imported/skipped/errors)
+- [x] CSV export includes Registration ID and Barcode columns
+
+#### Badge PDF Generation
+- [x] Server-side PDF generation with `pdfkit`
+- [x] Barcode image rendering with `bwip-js` (Code128 format)
+- [x] A4 layout: 6 badges per page (2×3 grid), 4"×3" badge size
+- [x] Badge layout: event name header, ticket type, attendee name, organization, barcode
+- [x] Fallback to QR code text when no barcode imported
+- [x] Generate for selected registrations or all
+- [x] Badge dialog UI with download
+
+#### Check-In Scanner Page
+- [x] Mobile-optimized full-screen check-in page (`/events/[eventId]/check-in`)
+- [x] Camera mode: `html5-qrcode` library for QR/barcode scanning via device camera
+- [x] Manual/Scanner mode: auto-focused text input for hardware barcode scanners
+- [x] Check-in API searches by both `qrCode` and `barcode` fields
+- [x] Live attendance counter with progress bar
+- [x] Recent scans log (last 10) with color-coded results (success/warning/error)
+- [x] Sound feedback via Web Audio API (success beep, error buzz)
+- [x] Debounce: prevents double-scan within 2 seconds
+- [x] Sidebar navigation link with ScanBarcode icon
+
+### Performance Optimization (March 2026)
+- [x] `select: { id: true }` on all event existence-check queries (25+ route files)
+- [x] Parallelized event + entity lookups in speaker and abstract routes
+- [x] Reduced over-fetching in registration list (accommodation includes)
+- [x] Event footer WYSIWYG editor (TiptapEditor replacing textarea in settings)
+
+### Public Registration UI Improvements
+- [x] Banner image constrained to container width (not full viewport)
+- [x] Removed org logo from public pages
+- [x] Center-aligned footer on public pages
+- [x] White email background (replaced gray #f4f4f5)
+- [x] Registration type editable via dropdown in registration detail sheet
+
+---
+
 ## Updates (January 26, 2026)
 
 ### New Features
@@ -1006,8 +1058,10 @@ Docker data root configured in `/etc/docker/daemon.json`:
 
 | Feature | Priority | Estimated Effort |
 |---------|----------|------------------|
-| QR Code Scanner (Mobile Web) | High | Medium |
-| Badge Printing Integration | Medium | High |
+| QR Code Scanner (Mobile Web) | High | ✅ Complete |
+| Badge Printing (PDF with barcodes) | Medium | ✅ Complete |
+| Barcode Import (CSV) | High | ✅ Complete |
+| Check-In Scanner Page (Camera + Manual) | High | ✅ Complete |
 | Calendar Integration (ICS Export) | Medium | Low |
 | Session Feedback/Ratings | Medium | Medium |
 | Networking/Attendee Directory | Low | High |
@@ -1050,13 +1104,17 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [x] Removed redundant indexes (Organization `@@index([slug])` duplicated `@unique`)
 - [x] Narrowed middleware matcher to dashboard routes only (skip public/API/auth/static)
 - [x] Fixed Prisma client caching (dev-only `globalThis` pattern)
+- [x] `select: { id: true }` on all event existence-check queries across 25+ API route files
+- [x] Parallelized independent queries in speaker/abstract detail routes
+- [x] Reduced over-fetching in registration list (trimmed accommodation includes)
+- [x] Split registrations page (1,246 → 393 lines) into 4 focused sub-components
 - [ ] Add Redis caching for frequently accessed data
 - [ ] Optimize bundle size (add missing Radix packages + date-fns to `optimizePackageImports`)
 - [ ] Remove unused tRPC dependencies (~200KB in node_modules)
 - [ ] Add image optimization for uploads
 - [ ] Implement pagination for large lists
-- [x] Split registrations page (1,246 → 393 lines) into 4 focused sub-components
 - [ ] Add granular React Query stale times per data type
+- [ ] Extract services layer (thin routes, reusable business logic)
 
 ### Security
 - [x] CSRF protection — Origin header validation on all API mutations; missing Origin blocked for browser sessions (middleware)
@@ -1174,7 +1232,7 @@ src/
 |----------|-----------|--------|
 | Events | 5 | ✅ Complete |
 | Tickets | 5 | ✅ Complete |
-| Registrations | 7 | ✅ Complete |
+| Registrations | 9 | ✅ Complete |
 | Speakers | 6 | ✅ Complete |
 | Tracks | 5 | ✅ Complete |
 | Sessions | 5 | ✅ Complete |
@@ -1189,7 +1247,9 @@ src/
 | Contacts (CRUD + import/export) | 7 | ✅ Complete |
 | Event Speaker Import | 1 | ✅ Complete |
 | Event Registration Import | 1 | ✅ Complete |
-| **Total** | **71** | |
+| Import (Barcodes) | 1 | ✅ Complete |
+| Badges | 1 | ✅ Complete |
+| **Total** | **75** | |
 
 ---
 

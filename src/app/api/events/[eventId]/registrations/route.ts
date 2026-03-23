@@ -77,16 +77,37 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
         include: {
           attendee: true,
-          ticketType: true,
+          ticketType: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              currency: true,
+              quantity: true,
+              soldCount: true,
+            },
+          },
           payments: {
+            select: {
+              id: true,
+              amount: true,
+              currency: true,
+              status: true,
+              createdAt: true,
+            },
             orderBy: { createdAt: "desc" },
           },
           accommodation: {
-            include: {
+            select: {
+              id: true,
+              checkIn: true,
+              checkOut: true,
+              status: true,
               roomType: {
-                include: {
+                select: {
+                  name: true,
                   hotel: {
-                    select: { id: true, name: true },
+                    select: { name: true },
                   },
                 },
               },
@@ -154,6 +175,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: ticketTypeId,
           eventId,
           isActive: true,
+        },
+        select: {
+          id: true,
+          price: true,
+          currency: true,
+          quantity: true,
+          soldCount: true,
+          salesStart: true,
+          salesEnd: true,
+          requiresApproval: true,
         },
       }),
     ]);
@@ -241,6 +272,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendeeRecord.id,
           status: { notIn: ["CANCELLED"] },
         },
+        select: { id: true },
       });
       if (existingRegistration) {
         throw new Error("ALREADY_REGISTERED");
