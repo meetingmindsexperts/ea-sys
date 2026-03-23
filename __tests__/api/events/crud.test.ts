@@ -69,7 +69,7 @@ function makePutRequest(body: unknown) {
 }
 
 function makeDeleteRequest() {
-  return new Request("http://localhost/api/events/evt-1", { method: "DELETE" });
+  return new Request("http://localhost/api/events/evt-1?confirm=true", { method: "DELETE" });
 }
 
 const adminSession = { user: { id: "user-1", role: "ADMIN", organizationId: "org-1" } };

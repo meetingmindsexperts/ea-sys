@@ -5,7 +5,7 @@ import { titleEnum } from "@/lib/schemas";
 // ── titleEnum ──────────────────────────────────────────────────────────────
 
 describe("titleEnum", () => {
-  const validTitles = ["MR", "MS", "MRS", "DR", "PROF", "OTHER"];
+  const validTitles = ["MR", "MS", "MRS", "DR", "PROF"];
 
   it.each(validTitles)("accepts valid title: %s", (title) => {
     const result = titleEnum.safeParse(title);
