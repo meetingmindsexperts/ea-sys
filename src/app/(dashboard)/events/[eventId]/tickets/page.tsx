@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,25 +15,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   ClipboardList,
   Plus,
   Pencil,
   Trash2,
-  ChevronDown,
-  ChevronRight,
   DollarSign,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -85,8 +74,6 @@ export default function TicketsPage() {
   const updateTicket = useUpdateTicket(eventId);
   const deleteTicket = useDeleteTicket(eventId);
 
-  // State
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [editingType, setEditingType] = useState<TicketType | null>(null);
   const [typeName, setTypeName] = useState("");
@@ -105,15 +92,6 @@ export default function TicketsPage() {
 
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
 
-  const toggleExpand = (id: string) => {
-    setExpandedTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   // Registration type CRUD
   const openCreateType = () => {
     setEditingType(null);
@@ -130,16 +108,10 @@ export default function TicketsPage() {
   };
 
   const handleSaveType = async () => {
-    if (!typeName.trim()) {
-      toast.error("Name is required");
-      return;
-    }
+    if (!typeName.trim()) { toast.error("Name is required"); return; }
     try {
       if (editingType) {
-        await updateTicket.mutateAsync({
-          ticketId: editingType.id,
-          data: { name: typeName, description: typeDesc },
-        });
+        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc } });
         toast.success("Registration type updated");
       } else {
         await createTicket.mutateAsync({ name: typeName, description: typeDesc });
@@ -152,10 +124,7 @@ export default function TicketsPage() {
   };
 
   const handleDeleteType = async (tt: TicketType) => {
-    if (tt._count.registrations > 0) {
-      toast.error("Cannot delete registration type with existing registrations");
-      return;
-    }
+    if (tt._count.registrations > 0) { toast.error("Cannot delete with existing registrations"); return; }
     if (!confirm(`Delete "${tt.name}" and all its pricing tiers?`)) return;
     try {
       await deleteTicket.mutateAsync(tt.id);
@@ -163,6 +132,13 @@ export default function TicketsPage() {
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to delete");
     }
+  };
+
+  const toggleTypeActive = async (tt: TicketType) => {
+    try {
+      await updateTicket.mutateAsync({ ticketId: tt.id, data: { isActive: !tt.isActive } });
+      toast.success(tt.isActive ? `"${tt.name}" hidden` : `"${tt.name}" visible`);
+    } catch { toast.error("Failed to update"); }
   };
 
   // Pricing tier CRUD
@@ -176,45 +152,23 @@ export default function TicketsPage() {
   const openEditTier = (ticketTypeId: string, tier: PricingTier) => {
     setEditingTier(tier);
     setTierParentId(ticketTypeId);
-    setTierForm({
-      name: tier.name,
-      price: Number(tier.price),
-      currency: tier.currency,
-      isActive: tier.isActive,
-      requiresApproval: tier.requiresApproval,
-    });
+    setTierForm({ name: tier.name, price: Number(tier.price), currency: tier.currency, isActive: tier.isActive, requiresApproval: tier.requiresApproval });
     setTierDialogOpen(true);
   };
 
   const handleSaveTier = async () => {
-    if (!tierForm.name.trim()) {
-      toast.error("Tier name is required");
-      return;
-    }
+    if (!tierForm.name.trim()) { toast.error("Tier name is required"); return; }
     try {
-      if (editingTier) {
-        const res = await fetch(`/api/events/${eventId}/tickets/${tierParentId}/tiers/${editingTier.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tierForm),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Failed to update tier");
-        }
-        toast.success("Pricing tier updated");
-      } else {
-        const res = await fetch(`/api/events/${eventId}/tickets/${tierParentId}/tiers`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tierForm),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Failed to create tier");
-        }
-        toast.success("Pricing tier created");
-      }
+      const url = editingTier
+        ? `/api/events/${eventId}/tickets/${tierParentId}/tiers/${editingTier.id}`
+        : `/api/events/${eventId}/tickets/${tierParentId}/tiers`;
+      const res = await fetch(url, {
+        method: editingTier ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tierForm),
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error || "Failed"); }
+      toast.success(editingTier ? "Pricing tier updated" : "Pricing tier created");
       setTierDialogOpen(false);
       refetch();
     } catch (err: unknown) {
@@ -222,30 +176,31 @@ export default function TicketsPage() {
     }
   };
 
-  const handleDeleteTier = async (ticketTypeId: string, tier: PricingTier) => {
-    if (tier._count.registrations > 0) {
-      toast.error("Cannot delete tier with existing registrations");
-      return;
-    }
-    if (!confirm(`Delete pricing tier "${tier.name}"?`)) return;
+  const toggleTierActive = async (ticketTypeId: string, tier: PricingTier) => {
     try {
       const res = await fetch(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers/${tier.id}`, {
-        method: "DELETE",
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !tier.isActive }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to delete tier");
-      }
-      toast.success("Pricing tier deleted");
+      if (!res.ok) throw new Error("Failed");
+      toast.success(tier.isActive ? `"${tier.name}" deactivated` : `"${tier.name}" activated`);
       refetch();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
-    }
+    } catch { toast.error("Failed to update"); }
   };
 
-  // Stats
+  const handleDeleteTier = async (ticketTypeId: string, tier: PricingTier) => {
+    if (tier._count.registrations > 0) { toast.error("Cannot delete with existing registrations"); return; }
+    if (!confirm(`Delete "${tier.name}"?`)) return;
+    try {
+      const res = await fetch(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers/${tier.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      toast.success("Pricing tier deleted");
+      refetch();
+    } catch { toast.error("Failed to delete"); }
+  };
+
   const totalRegs = ticketTypes.reduce((sum, tt) => sum + tt._count.registrations, 0);
-  const totalTiers = ticketTypes.reduce((sum, tt) => sum + tt.pricingTiers.length, 0);
 
   if (isLoading) {
     return (
@@ -268,260 +223,160 @@ export default function TicketsPage() {
             )}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Manage registration types and their pricing tiers
+            {ticketTypes.length} types · {totalRegs} registrations
           </p>
         </div>
         <Button onClick={openCreateType}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Registration Type
+          Add Type
         </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Registration Types</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{ticketTypes.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pricing Tiers</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalTiers}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Registrations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{totalRegs}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Registration Types */}
+      {/* 3-column grid */}
       {ticketTypes.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <p className="text-muted-foreground text-center py-8">
-              No registration types yet. Click &quot;Add Registration Type&quot; to get started.
+              No registration types yet. Click &quot;Add Type&quot; to get started.
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {ticketTypes.map((tt) => {
-            const isExpanded = expandedTypes.has(tt.id);
-            return (
-              <Card key={tt.id} className={!tt.isActive ? "opacity-60" : ""}>
-                <CardHeader className="py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => toggleExpand(tt.id)}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-semibold">{tt.name}</h3>
-                          {tt.isDefault && (
-                            <Badge variant="secondary" className="text-xs">Default</Badge>
-                          )}
-                          {!tt.isActive && (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">Inactive</Badge>
-                          )}
-                        </div>
-                        {tt.description && (
-                          <p className="text-sm text-muted-foreground">{tt.description}</p>
-                        )}
-                      </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {ticketTypes.map((tt) => (
+            <Card key={tt.id} className={!tt.isActive ? "opacity-50" : ""}>
+              <CardContent className="pt-5 pb-4 px-5">
+                {/* Card header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-bold text-slate-900 truncate">{tt.name}</h3>
+                      {tt.isDefault && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Default</Badge>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">
-                        {tt._count.registrations} registration{tt._count.registrations !== 1 ? "s" : ""}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        · {tt.pricingTiers.length} tier{tt.pricingTiers.length !== 1 ? "s" : ""}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title={tt.isActive ? "Hide from registration" : "Show in registration"}
-                        onClick={async () => {
-                          try {
-                            await updateTicket.mutateAsync({
-                              ticketId: tt.id,
-                              data: { isActive: !tt.isActive },
-                            });
-                            toast.success(tt.isActive ? `"${tt.name}" hidden from registration` : `"${tt.name}" visible in registration`);
-                          } catch {
-                            toast.error("Failed to update");
-                          }
-                        }}
-                      >
-                        {tt.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4 text-muted-foreground" />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditType(tt)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-red-500 hover:text-red-700"
-                        onClick={() => handleDeleteType(tt)}
-                        disabled={tt._count.registrations > 0}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {tt.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{tt.description}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {tt._count.registrations} registration{tt._count.registrations !== 1 ? "s" : ""}
+                    </p>
                   </div>
-                </CardHeader>
-
-                {isExpanded && (
-                  <CardContent className="pt-0">
-                    <div className="border rounded-lg">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Pricing Tier</TableHead>
-                            <TableHead>Price</TableHead>
-                            <TableHead>Registrations</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="w-24" />
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {tt.pricingTiers.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
-                                No pricing tiers yet. Add one to enable registration.
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            tt.pricingTiers.map((tier) => (
-                              <TableRow key={tier.id} className={!tier.isActive ? "opacity-50" : ""}>
-                                <TableCell className="font-medium">{tier.name}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-1">
-                                    <DollarSign className="h-3 w-3 text-muted-foreground" />
-                                    {formatCurrency(Number(tier.price), tier.currency)}
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <span className={tier._count.registrations > 0 ? "font-semibold text-green-600" : ""}>
-                                    {tier._count.registrations}
-                                  </span>
-                                </TableCell>
-                                <TableCell>
-                                  <button
-                                    type="button"
-                                    className="cursor-pointer"
-                                    title={tier.isActive ? "Click to deactivate" : "Click to activate"}
-                                    onClick={async () => {
-                                      try {
-                                        const res = await fetch(`/api/events/${eventId}/tickets/${tt.id}/tiers/${tier.id}`, {
-                                          method: "PUT",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ isActive: !tier.isActive }),
-                                        });
-                                        if (!res.ok) throw new Error("Failed");
-                                        toast.success(tier.isActive ? `"${tier.name}" deactivated` : `"${tier.name}" activated`);
-                                        refetch();
-                                      } catch {
-                                        toast.error("Failed to update");
-                                      }
-                                    }}
-                                  >
-                                    {tier.isActive ? (
-                                      <Badge className="bg-green-100 text-green-800 hover:bg-green-200" variant="outline">Active</Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-muted-foreground hover:bg-slate-100">Inactive</Badge>
-                                    )}
-                                  </button>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7"
-                                      onClick={() => openEditTier(tt.id, tier)}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-red-500 hover:text-red-700"
-                                      onClick={() => handleDeleteTier(tt.id, tier)}
-                                      disabled={tier._count.registrations > 0}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => openCreateTier(tt.id)}
-                    >
-                      <Plus className="mr-2 h-3.5 w-3.5" />
-                      Add Pricing Tier
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditType(tt)} title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                  </CardContent>
-                )}
-              </Card>
-            );
-          })}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700"
+                      onClick={() => handleDeleteType(tt)} disabled={tt._count.registrations > 0} title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Active toggle for the type */}
+                <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-50 mb-3">
+                  <span className="text-xs font-medium text-slate-600">Visible in forms</span>
+                  <Switch
+                    checked={tt.isActive}
+                    onCheckedChange={() => toggleTypeActive(tt)}
+                    className="scale-90"
+                  />
+                </div>
+
+                {/* Pricing tiers list */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Pricing Tiers</p>
+
+                  {tt.pricingTiers.length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-3 text-center">No tiers yet</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {tt.pricingTiers.map((tier) => (
+                        <div
+                          key={tier.id}
+                          className={`flex items-center gap-2 py-2 px-3 rounded-lg border transition-colors ${
+                            tier.isActive ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-50"
+                          }`}
+                        >
+                          {/* Active checkbox */}
+                          <Checkbox
+                            checked={tier.isActive}
+                            onCheckedChange={() => toggleTierActive(tt.id, tier)}
+                            className="shrink-0"
+                          />
+
+                          {/* Tier info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{tier.name}</p>
+                          </div>
+
+                          {/* Price */}
+                          <div className="flex items-center gap-0.5 text-sm font-semibold text-slate-700 shrink-0">
+                            <DollarSign className="h-3 w-3 text-slate-400" />
+                            {formatCurrency(Number(tier.price), tier.currency)}
+                          </div>
+
+                          {/* Edit */}
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
+                            onClick={() => openEditTier(tt.id, tier)} title="Edit tier">
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+
+                          {/* Delete */}
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-red-400 hover:text-red-600"
+                            onClick={() => handleDeleteTier(tt.id, tier)} disabled={tier._count.registrations > 0} title="Delete tier">
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs"
+                    onClick={() => openCreateTier(tt.id)}>
+                    <Plus className="mr-1.5 h-3 w-3" />
+                    Add Tier
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
+
+      {/* Instructions */}
+      <div className="bg-slate-50 rounded-xl border border-slate-200 p-5">
+        <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">How it works</h3>
+        <ul className="space-y-2 text-sm text-slate-600">
+          <li className="flex gap-2.5">
+            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">1</span>
+            <span>Each <strong>registration type</strong> (Physician, Student, etc.) appears as an option on the public form. Toggle &quot;Visible in forms&quot; off to hide a type from all forms.</span>
+          </li>
+          <li className="flex gap-2.5">
+            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">2</span>
+            <span>Each type has <strong>pricing tiers</strong> (Early Bird, Standard, Onsite, etc.). Each tier becomes a separate public registration form with its own shareable link.</span>
+          </li>
+          <li className="flex gap-2.5">
+            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">3</span>
+            <span>Use the <strong>checkbox</strong> next to each tier to activate or close it. Unchecking a tier (e.g., Early Bird) closes that form for all registration types at once.</span>
+          </li>
+        </ul>
+      </div>
 
       {/* Registration Type Dialog */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {editingType ? "Edit Registration Type" : "New Registration Type"}
-            </DialogTitle>
+            <DialogTitle>{editingType ? "Edit Registration Type" : "New Registration Type"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Name *</Label>
-              <Input
-                placeholder="e.g., Physician, Allied Health, Student"
-                value={typeName}
-                onChange={(e) => setTypeName(e.target.value)}
-              />
+              <Input placeholder="e.g., Physician, Allied Health, Student" value={typeName}
+                onChange={(e) => setTypeName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea
-                placeholder="Optional description"
-                value={typeDesc}
-                onChange={(e) => setTypeDesc(e.target.value)}
-              />
+              <Textarea placeholder="Optional description" value={typeDesc}
+                onChange={(e) => setTypeDesc(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -537,9 +392,7 @@ export default function TicketsPage() {
       <Dialog open={tierDialogOpen} onOpenChange={setTierDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {editingTier ? "Edit Pricing Tier" : "New Pricing Tier"}
-            </DialogTitle>
+            <DialogTitle>{editingTier ? "Edit Pricing Tier" : "New Pricing Tier"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -548,72 +401,47 @@ export default function TicketsPage() {
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-2">
                     {DEFAULT_TIER_NAMES.map((name) => (
-                      <Button
-                        key={name}
-                        variant={tierForm.name === name ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setTierForm({ ...tierForm, name })}
-                      >
+                      <Button key={name} variant={tierForm.name === name ? "default" : "outline"}
+                        size="sm" onClick={() => setTierForm({ ...tierForm, name })}>
                         {name}
                       </Button>
                     ))}
                   </div>
-                  <Input
-                    placeholder="Or enter a custom tier name"
-                    value={tierForm.name}
-                    onChange={(e) => setTierForm({ ...tierForm, name: e.target.value })}
-                  />
+                  <Input placeholder="Or enter a custom tier name" value={tierForm.name}
+                    onChange={(e) => setTierForm({ ...tierForm, name: e.target.value })} />
                 </div>
               ) : (
-                <Input
-                  value={tierForm.name}
-                  onChange={(e) => setTierForm({ ...tierForm, name: e.target.value })}
-                />
+                <Input value={tierForm.name} onChange={(e) => setTierForm({ ...tierForm, name: e.target.value })} />
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Price</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={tierForm.price}
-                  onChange={(e) => setTierForm({ ...tierForm, price: Number(e.target.value) })}
-                />
+                <Input type="number" min={0} step={0.01} value={tierForm.price}
+                  onChange={(e) => setTierForm({ ...tierForm, price: Number(e.target.value) })} />
               </div>
               <div className="space-y-2">
                 <Label>Currency</Label>
-                <Input
-                  value={tierForm.currency}
-                  onChange={(e) => setTierForm({ ...tierForm, currency: e.target.value })}
-                />
+                <Input value={tierForm.currency}
+                  onChange={(e) => setTierForm({ ...tierForm, currency: e.target.value })} />
               </div>
             </div>
             <div className="flex gap-6">
               <div className="flex items-center gap-2">
-                <Checkbox
-                  id="tier-active"
-                  checked={tierForm.isActive}
-                  onCheckedChange={(checked) => setTierForm({ ...tierForm, isActive: !!checked })}
-                />
+                <Checkbox id="tier-active" checked={tierForm.isActive}
+                  onCheckedChange={(checked) => setTierForm({ ...tierForm, isActive: !!checked })} />
                 <Label htmlFor="tier-active">Active</Label>
               </div>
               <div className="flex items-center gap-2">
-                <Checkbox
-                  id="tier-approval"
-                  checked={tierForm.requiresApproval}
-                  onCheckedChange={(checked) => setTierForm({ ...tierForm, requiresApproval: !!checked })}
-                />
+                <Checkbox id="tier-approval" checked={tierForm.requiresApproval}
+                  onCheckedChange={(checked) => setTierForm({ ...tierForm, requiresApproval: !!checked })} />
                 <Label htmlFor="tier-approval">Requires Approval</Label>
               </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTierDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveTier}>
-              {editingTier ? "Update" : "Create"}
-            </Button>
+            <Button onClick={handleSaveTier}>{editingTier ? "Update" : "Create"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
