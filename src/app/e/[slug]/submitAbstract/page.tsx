@@ -276,7 +276,7 @@ export default function SubmitAbstractPage() {
               alt={event.name}
               width={1400}
               height={500}
-              className="w-full h-52 sm:h-64 object-cover opacity-40"
+              className="w-full h-52 sm:h-64 object-contain object-center opacity-40"
               unoptimized
             />
             <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900" />

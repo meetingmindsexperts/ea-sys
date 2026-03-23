@@ -147,7 +147,7 @@ function ConfirmationContent() {
               alt={branding.name || "Event banner"}
               width={1400}
               height={300}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain object-center"
               unoptimized
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />

@@ -267,7 +267,7 @@ export default function CategoryRegistrationPage() {
               alt={event.name}
               width={1400}
               height={500}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain object-center"
               unoptimized
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/60" />

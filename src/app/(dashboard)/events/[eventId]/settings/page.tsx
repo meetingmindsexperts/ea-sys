@@ -942,7 +942,7 @@ export default function EventSettingsPage() {
                       alt="Banner preview"
                       width={1200}
                       height={400}
-                      className="w-full h-48 object-cover"
+                      className="w-full h-48 object-contain"
                       unoptimized
                     />
                   </div>
