@@ -14,7 +14,6 @@ export const TITLE_OPTIONS = [
   { value: "MRS", label: "Mrs" },
   { value: "DR", label: "Dr" },
   { value: "PROF", label: "Prof" },
-  { value: "OTHER", label: "Other" },
 ] as const;
 
 interface TitleSelectProps {

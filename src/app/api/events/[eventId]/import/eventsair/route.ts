@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { generateQRCode } from "@/lib/utils";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { syncToContact } from "@/lib/contact-sync";
+import { downloadExternalPhoto } from "@/lib/storage";
 
 export const maxDuration = 60;
 
@@ -106,6 +107,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       const email = contact.primaryEmail.toLowerCase().trim();
 
       try {
+        // Download external photo before transaction to avoid holding DB lock
+        const photo = contact.photo?.url
+          ? await downloadExternalPhoto(contact.photo.url)
+          : null;
+
         await db.$transaction(async (tx) => {
           // Upsert attendee
           const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
@@ -120,7 +126,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               city: contact.primaryAddress?.city || null,
               country: contact.primaryAddress?.country || null,
               bio: contact.biography || null,
-              photo: contact.photo?.url || null,
+              photo,
               externalId: contact.id,
             },
             create: {
@@ -133,7 +139,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               city: contact.primaryAddress?.city || null,
               country: contact.primaryAddress?.country || null,
               bio: contact.biography || null,
-              photo: contact.photo?.url || null,
+              photo,
               externalId: contact.id,
             },
           });
@@ -187,7 +193,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: contact.primaryAddress?.city || null,
           country: contact.primaryAddress?.country || null,
           bio: contact.biography || null,
-          photo: contact.photo?.url || null,
+          photo,
         });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {

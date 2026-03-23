@@ -8,7 +8,7 @@ import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncManyToContacts } from "@/lib/contact-sync";
 
-const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF", "OTHER"]);
+const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -131,7 +131,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         email,
         firstName,
         lastName,
-        title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | "OTHER" | null,
+        title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
         organization: getField(fields, idx.organization) || null,
         jobTitle: getField(fields, idx.jobTitle) || null,
         phone: getField(fields, idx.phone) || null,

@@ -98,7 +98,18 @@ enum Title {
   MRS
   DR
   PROF
-  OTHER
+}
+
+enum AttendeeRole {
+  ACADEMIA
+  ALLIED_HEALTH
+  MEDICAL_DEVICES
+  PHARMA
+  PHYSICIAN
+  RESIDENT
+  SPEAKER
+  STUDENT
+  OTHERS
 }
 
 model Event {
@@ -191,9 +202,11 @@ model TicketType {
 }
 
 model Attendee {
-  id               String   @id @default(cuid())
+  id               String        @id @default(cuid())
   title            Title?
-  email            String   @unique
+  role             AttendeeRole?
+  email            String        @unique
+  additionalEmail  String?
   firstName        String
   lastName         String
   organization     String?
@@ -204,13 +217,14 @@ model Attendee {
   country          String?
   bio              String?       @db.Text
   specialty        String?
+  customSpecialty  String?
   registrationType String?
-  tags             String[] @default([])
+  tags             String[]      @default([])
   dietaryReqs      String?
-  customFields     Json     @default("{}")
+  customFields     Json          @default("{}")
   externalId       String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   registrations Registration[]
 }
@@ -285,7 +299,9 @@ model Speaker {
   eventId          String
   userId           String?
   title            Title?
+  role             AttendeeRole?
   email            String
+  additionalEmail  String?
   firstName        String
   lastName         String
   bio              String?       @db.Text
@@ -297,6 +313,7 @@ model Speaker {
   city             String?
   country          String?
   specialty        String?
+  customSpecialty  String?
   registrationType String?
   tags             String[]      @default([])
   socialLinks      Json          @default("{}")
@@ -502,27 +519,30 @@ enum AccommodationStatus {
 // ==================== CONTACT STORE ====================
 
 model Contact {
-  id               String       @id @default(cuid())
+  id               String        @id @default(cuid())
   organizationId   String
-  org              Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  org              Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   title            Title?
+  role             AttendeeRole?
   email            String
+  additionalEmail  String?
   firstName        String
   lastName         String
   organization     String?
   jobTitle         String?
-  bio              String?      @db.Text
+  bio              String?       @db.Text
   specialty        String?
+  customSpecialty  String?
   registrationType String?
   phone            String?
   photo            String?
   city             String?
   country          String?
-  tags             String[]     @default([])
-  eventIds         String[]     @default([])
-  notes            String?      @db.Text
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  tags             String[]      @default([])
+  eventIds         String[]      @default([])
+  notes            String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@unique([organizationId, email])
   @@index([organizationId])

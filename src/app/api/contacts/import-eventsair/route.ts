@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
+import { downloadExternalPhoto } from "@/lib/storage";
 
 // Allow up to 60s for external EventsAir API calls
 export const maxDuration = 60;
@@ -121,6 +122,11 @@ export async function POST(req: Request) {
           }
         }
 
+        // Download external photo and re-host in our storage
+        const photo = contact.photo?.url
+          ? await downloadExternalPhoto(contact.photo.url)
+          : null;
+
         await db.contact.upsert({
           where: { organizationId_email: { organizationId, email } },
           update: {
@@ -132,7 +138,7 @@ export async function POST(req: Request) {
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
-            photo: contact.photo?.url || null,
+            photo,
             ...(eventIds && { eventIds }),
           },
           create: {
@@ -146,7 +152,7 @@ export async function POST(req: Request) {
             city: contact.primaryAddress?.city || null,
             country: contact.primaryAddress?.country || null,
             bio: contact.biography || null,
-            photo: contact.photo?.url || null,
+            photo,
             ...(eventIds && { eventIds }),
           },
         });

@@ -75,7 +75,6 @@ const TITLE_LABELS: Record<string, string> = {
   MRS: "Mrs.",
   DR: "Dr.",
   PROF: "Prof.",
-  OTHER: "",
 };
 
 /** Format a person's name with optional title prefix, e.g. "Dr. John Smith" */

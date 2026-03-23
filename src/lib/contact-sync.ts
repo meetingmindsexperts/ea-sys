@@ -21,6 +21,8 @@ export interface ContactSyncData {
   lastName: string;
   eventId?: string | null;
   title?: string | null;
+  role?: string | null;
+  additionalEmail?: string | null;
   organization?: string | null;
   jobTitle?: string | null;
   phone?: string | null;
@@ -29,6 +31,7 @@ export interface ContactSyncData {
   country?: string | null;
   bio?: string | null;
   specialty?: string | null;
+  customSpecialty?: string | null;
   registrationType?: string | null;
 }
 
@@ -55,6 +58,8 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
 
     const optional = cleanFields({
       title: data.title,
+      role: data.role,
+      additionalEmail: data.additionalEmail,
       organization: data.organization,
       jobTitle: data.jobTitle,
       phone: data.phone,
@@ -63,6 +68,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
       country: data.country,
       bio: data.bio,
       specialty: data.specialty,
+      customSpecialty: data.customSpecialty,
       registrationType: data.registrationType,
     });
 

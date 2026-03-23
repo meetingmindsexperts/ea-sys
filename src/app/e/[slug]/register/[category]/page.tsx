@@ -24,6 +24,9 @@ import {
   Stethoscope,
   AlertCircle,
   ArrowLeft,
+  Mail,
+  Shield,
+  PenLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -92,16 +96,19 @@ interface Event {
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a registration type"),
-  title: z.string().optional(),
+  title: z.string().min(1, "Title is required"),
+  role: z.string().min(1, "Role is required"),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
+  additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
   city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
+  country: z.string().min(1, "Country is required"),
+  specialty: z.string().min(1, "Specialty is required"),
+  customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
 });
 
@@ -124,15 +131,18 @@ export default function CategoryRegistrationPage() {
     defaultValues: {
       ticketTypeId: "",
       title: "",
+      role: "",
       firstName: "",
       lastName: "",
       email: "",
+      additionalEmail: "",
       organization: "",
       jobTitle: "",
       phone: "",
       city: "",
       country: "",
       specialty: "",
+      customSpecialty: "",
       dietaryReqs: "",
     },
   });
@@ -453,7 +463,9 @@ export default function CategoryRegistrationPage() {
                               name="title"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600">Title</FormLabel>
+                                  <FormLabel className="text-xs font-medium text-slate-600">
+                                    Title <span className="text-red-400">*</span>
+                                  </FormLabel>
                                   <TitleSelect value={field.value} onChange={field.onChange} />
                                   <FormMessage />
                                 </FormItem>
@@ -502,6 +514,36 @@ export default function CategoryRegistrationPage() {
                                 <FormControl>
                                   <Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
                                 </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="additionalEmail"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Mail className="h-3 w-3" /> Additional Email
+                                </FormLabel>
+                                <FormControl>
+                                  <Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="role"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span>
+                                </FormLabel>
+                                <RoleSelect value={field.value} onChange={field.onChange} />
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -578,7 +620,7 @@ export default function CategoryRegistrationPage() {
                               render={({ field }) => (
                                 <FormItem>
                                   <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Globe className="h-3 w-3" /> Country
+                                    <Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span>
                                   </FormLabel>
                                   <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                                   <FormMessage />
@@ -593,9 +635,25 @@ export default function CategoryRegistrationPage() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                  <Stethoscope className="h-3 w-3" /> Specialty
+                                  <Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span>
                                 </FormLabel>
                                 <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="customSpecialty"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <PenLine className="h-3 w-3" /> Specialty (Specific)
+                                </FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
+                                </FormControl>
                                 <FormMessage />
                               </FormItem>
                             )}

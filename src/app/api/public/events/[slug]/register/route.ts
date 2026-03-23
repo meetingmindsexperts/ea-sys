@@ -5,21 +5,24 @@ import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
-  title: titleEnum.optional(),
+  title: titleEnum,
+  role: attendeeRoleEnum,
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   email: z.string().email("Valid email is required").max(255),
+  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
   organization: z.string().max(255).optional(),
   jobTitle: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
   city: z.string().max(255).optional(),
-  country: z.string().max(255).optional(),
-  specialty: z.string().max(255).optional(),
+  country: z.string().min(1, "Country is required").max(255),
+  specialty: z.string().min(1, "Specialty is required").max(255),
+  customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
 });
 
@@ -69,7 +72,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, title, firstName, lastName, organization, jobTitle, phone, city, country, specialty, dietaryReqs } =
+    const { ticketTypeId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -152,29 +155,35 @@ export async function POST(req: Request, { params }: RouteParams) {
       const attendee = await tx.attendee.upsert({
         where: { email },
         update: {
-          title: title || null,
+          title,
+          role,
           firstName,
           lastName,
+          additionalEmail: additionalEmail || null,
           organization: organization || null,
           jobTitle: jobTitle || null,
           phone: phone || null,
           city: city || null,
-          country: country || null,
-          specialty: specialty || null,
+          country,
+          specialty,
+          customSpecialty: customSpecialty || null,
           registrationType,
           dietaryReqs: dietaryReqs || null,
         },
         create: {
-          title: title || null,
+          title,
+          role,
           email,
           firstName,
           lastName,
+          additionalEmail: additionalEmail || null,
           organization: organization || null,
           jobTitle: jobTitle || null,
           phone: phone || null,
           city: city || null,
-          country: country || null,
-          specialty: specialty || null,
+          country,
+          specialty,
+          customSpecialty: customSpecialty || null,
           registrationType,
           dietaryReqs: dietaryReqs || null,
         },
@@ -232,12 +241,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       firstName,
       lastName,
       title: title || null,
+      role: role || null,
+      additionalEmail: additionalEmail || null,
       organization: organization || null,
       jobTitle: jobTitle || null,
       phone: phone || null,
       city: city || null,
       country: country || null,
       specialty: specialty || null,
+      customSpecialty: customSpecialty || null,
       registrationType,
     });
 

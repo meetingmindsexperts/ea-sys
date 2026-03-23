@@ -8,7 +8,7 @@ import { generateQRCode } from "@/lib/utils";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncToContact } from "@/lib/contact-sync";
 
-const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF", "OTHER"]);
+const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface RouteParams {
@@ -159,7 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             update: {
               firstName,
               lastName,
-              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | "OTHER" | null,
+              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
               organization: getField(fields, idx.organization) || null,
               jobTitle: getField(fields, idx.jobTitle) || null,
               phone: getField(fields, idx.phone) || null,
@@ -175,7 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               email,
               firstName,
               lastName,
-              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | "OTHER" | null,
+              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
               organization: getField(fields, idx.organization) || null,
               jobTitle: getField(fields, idx.jobTitle) || null,
               phone: getField(fields, idx.phone) || null,

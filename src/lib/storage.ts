@@ -149,4 +149,57 @@ export async function deletePhoto(url: string): Promise<void> {
   return deleteLocal(url);
 }
 
+/**
+ * Downloads an external photo URL and re-hosts it in our storage.
+ * Returns the local/Supabase URL on success, or null on failure.
+ * Skips URLs that are already hosted by us.
+ */
+export async function downloadExternalPhoto(
+  externalUrl: string
+): Promise<string | null> {
+  // Skip if already a local upload or Supabase URL
+  if (externalUrl.startsWith("/uploads/")) return externalUrl;
+  if (externalUrl.includes(".supabase.co/storage/")) return externalUrl;
+
+  try {
+    const res = await fetch(externalUrl, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      apiLogger.warn({ msg: "Failed to download external photo", url: externalUrl, status: res.status });
+      return null;
+    }
+
+    const contentType = res.headers.get("content-type")?.split(";")[0]?.trim();
+    const ALLOWED: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+
+    const ext = contentType ? ALLOWED[contentType] : null;
+    if (!ext) {
+      apiLogger.warn({ msg: "External photo has unsupported content type", url: externalUrl, contentType });
+      return null;
+    }
+
+    const arrayBuf = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+
+    // Enforce 500KB limit
+    if (buffer.length > 500 * 1024) {
+      apiLogger.warn({ msg: "External photo too large, skipping", url: externalUrl, size: buffer.length });
+      return null;
+    }
+
+    const { randomUUID } = await import("crypto");
+    const filename = `${randomUUID()}.${ext}`;
+
+    return await uploadPhoto(buffer, filename, contentType!);
+  } catch (err) {
+    apiLogger.warn({ msg: "Error downloading external photo", url: externalUrl, err });
+    return null;
+  }
+}
+
 export { PROVIDER as storageProvider };
