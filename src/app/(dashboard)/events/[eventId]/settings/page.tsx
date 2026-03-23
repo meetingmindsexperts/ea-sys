@@ -57,9 +57,14 @@ import { Badge } from "@/components/ui/badge";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
-import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
 import { Loader2, Pencil, Plus } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
+  { ssr: false, loading: () => <div className="h-[200px] border rounded-md animate-pulse bg-muted/50" /> }
+);
 
 interface Event {
   id: string;
@@ -950,32 +955,20 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="footerHtml">Custom Footer HTML</Label>
-                <Textarea
-                  id="footerHtml"
-                  value={brandingSettings.footerHtml}
-                  onChange={(e) =>
+                <Label>Custom Footer</Label>
+                <TiptapEditor
+                  content={brandingSettings.footerHtml}
+                  onChange={(html) =>
                     setBrandingSettings({
                       ...brandingSettings,
-                      footerHtml: e.target.value,
+                      footerHtml: html,
                     })
                   }
-                  placeholder="<p>© 2024 Your Organization. All rights reserved.</p>"
-                  rows={6}
-                  className="font-mono text-sm"
+                  placeholder="Design your public event page footer..."
                 />
                 <p className="text-sm text-muted-foreground">
-                  Add custom HTML for the footer of your public event pages. Supports basic HTML tags.
+                  Customize the footer shown on your public event pages. Use the toolbar for formatting or switch to source mode for raw HTML.
                 </p>
-                {brandingSettings.footerHtml && (
-                  <div className="mt-4">
-                    <Label className="text-sm">Preview:</Label>
-                    <div
-                      className="mt-2 p-4 border rounded-lg bg-muted/50"
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(brandingSettings.footerHtml) }}
-                    />
-                  </div>
-                )}
               </div>
 
               <div className="flex justify-end">
@@ -1027,32 +1020,20 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="emailFooterHtml">Email Footer HTML</Label>
-                <Textarea
-                  id="emailFooterHtml"
-                  value={brandingSettings.emailFooterHtml}
-                  onChange={(e) =>
+                <Label>Email Footer</Label>
+                <TiptapEditor
+                  content={brandingSettings.emailFooterHtml}
+                  onChange={(html) =>
                     setBrandingSettings({
                       ...brandingSettings,
-                      emailFooterHtml: e.target.value,
+                      emailFooterHtml: html,
                     })
                   }
-                  placeholder="<p>&copy; 2026 Your Organization. All rights reserved.</p>"
-                  rows={4}
-                  className="font-mono text-sm"
+                  placeholder="Design your email footer..."
                 />
                 <p className="text-sm text-muted-foreground">
                   Custom footer shown at the bottom of all event emails. Leave blank for the default footer.
                 </p>
-                {brandingSettings.emailFooterHtml && (
-                  <div className="mt-4">
-                    <Label className="text-sm">Preview:</Label>
-                    <div
-                      className="mt-2 p-4 border rounded-lg bg-muted/50 text-center text-xs text-muted-foreground"
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(brandingSettings.emailFooterHtml) }}
-                    />
-                  </div>
-                )}
               </div>
 
               <div className="flex justify-end">

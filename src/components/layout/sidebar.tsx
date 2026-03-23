@@ -20,6 +20,7 @@ import {
   BookUser,
   Calendar,
   ScrollText,
+  ScanBarcode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ const eventNavigationSections = [
     items: [
       { name: "Registrations", href: "/registrations", icon: Users },
       { name: "Registration Types", href: "/tickets", icon: Ticket },
+      { name: "Check-In",     href: "/check-in",      icon: ScanBarcode },
       { name: "Speakers",      href: "/speakers",      icon: Mic },
       { name: "Schedule",      href: "/schedule",      icon: Clock },
       { name: "Accommodation", href: "/accommodation", icon: Building2 },

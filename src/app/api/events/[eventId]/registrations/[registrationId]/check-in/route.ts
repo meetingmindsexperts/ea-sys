@@ -127,13 +127,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const { qrCode } = body;
 
     if (!qrCode) {
-      return NextResponse.json({ error: "QR code required" }, { status: 400 });
+      return NextResponse.json({ error: "QR code or barcode required" }, { status: 400 });
     }
 
+    // Search by qrCode OR barcode
     const registration = await db.registration.findFirst({
       where: {
         eventId,
-        qrCode,
+        OR: [
+          { qrCode },
+          { barcode: qrCode },
+        ],
       },
       include: {
         attendee: true,
@@ -142,7 +146,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
-      return NextResponse.json({ error: "Invalid QR code" }, { status: 404 });
+      return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });
     }
 
     if (registration.status === "CANCELLED") {

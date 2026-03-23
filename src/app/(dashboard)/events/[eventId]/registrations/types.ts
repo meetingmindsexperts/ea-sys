@@ -53,6 +53,7 @@ export interface Registration {
   status: string;
   paymentStatus: string;
   qrCode: string | null;
+  barcode: string | null;
   checkedInAt: string | null;
   notes: string | null;
   createdAt: string;

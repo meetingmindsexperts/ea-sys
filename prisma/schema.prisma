@@ -223,6 +223,7 @@ model Registration {
   status        RegistrationStatus @default(PENDING)
   paymentStatus PaymentStatus      @default(UNPAID)
   qrCode        String?            @unique
+  barcode       String?            @unique
   checkedInAt   DateTime?
   notes         String?            @db.Text
   createdAt     DateTime           @default(now())

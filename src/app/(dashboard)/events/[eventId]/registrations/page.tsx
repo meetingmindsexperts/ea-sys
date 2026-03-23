@@ -53,6 +53,8 @@ import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { BarcodeImportDialog } from "./barcode-import-dialog";
+import { BadgeDialog } from "./badge-dialog";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -101,6 +103,7 @@ export default function RegistrationsPage() {
 
   const exportToCSV = () => {
     const headers = [
+      "Registration ID",
       "Title",
       "First Name",
       "Last Name",
@@ -117,11 +120,13 @@ export default function RegistrationsPage() {
       "Ticket Type",
       "Status",
       "Payment Status",
+      "Barcode",
       "Registered Date",
       "Checked In Date",
     ];
 
     const rows = filteredRegistrations.map((r) => [
+      r.id,
       r.attendee.title || "",
       r.attendee.firstName,
       r.attendee.lastName,
@@ -138,6 +143,7 @@ export default function RegistrationsPage() {
       r.ticketType.name,
       r.status,
       r.paymentStatus,
+      r.barcode || "",
       formatDate(r.createdAt),
       r.checkedInAt ? formatDate(r.checkedInAt) : "",
     ]);
@@ -287,6 +293,8 @@ export default function RegistrationsPage() {
                 </Button>
               )}
               <CSVImportButton eventId={eventId} entityType="registrations" />
+              <BarcodeImportDialog eventId={eventId} />
+              <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
               <ImportContactsButton eventId={eventId} mode="registration" />
               <Button asChild>
                 <Link href={`/events/${eventId}/registrations/new`}>
