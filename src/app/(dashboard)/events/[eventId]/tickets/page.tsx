@@ -35,7 +35,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import {
   useTickets,
   useCreateTicket,
@@ -99,9 +99,6 @@ export default function TicketsPage() {
     name: "",
     price: 0,
     currency: "USD",
-    quantity: 999999,
-    salesStart: "",
-    salesEnd: "",
     isActive: true,
     requiresApproval: false,
   });
@@ -172,7 +169,7 @@ export default function TicketsPage() {
   const openCreateTier = (ticketTypeId: string) => {
     setEditingTier(null);
     setTierParentId(ticketTypeId);
-    setTierForm({ name: "", price: 0, currency: "USD", quantity: 999999, salesStart: "", salesEnd: "", isActive: true, requiresApproval: false });
+    setTierForm({ name: "", price: 0, currency: "USD", isActive: true, requiresApproval: false });
     setTierDialogOpen(true);
   };
 
@@ -183,9 +180,6 @@ export default function TicketsPage() {
       name: tier.name,
       price: Number(tier.price),
       currency: tier.currency,
-      quantity: tier.quantity,
-      salesStart: tier.salesStart ? tier.salesStart.slice(0, 16) : "",
-      salesEnd: tier.salesEnd ? tier.salesEnd.slice(0, 16) : "",
       isActive: tier.isActive,
       requiresApproval: tier.requiresApproval,
     });
@@ -202,11 +196,7 @@ export default function TicketsPage() {
         const res = await fetch(`/api/events/${eventId}/tickets/${tierParentId}/tiers/${editingTier.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...tierForm,
-            salesStart: tierForm.salesStart || null,
-            salesEnd: tierForm.salesEnd || null,
-          }),
+          body: JSON.stringify(tierForm),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -217,11 +207,7 @@ export default function TicketsPage() {
         const res = await fetch(`/api/events/${eventId}/tickets/${tierParentId}/tiers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...tierForm,
-            salesStart: tierForm.salesStart || null,
-            salesEnd: tierForm.salesEnd || null,
-          }),
+          body: JSON.stringify(tierForm),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -414,9 +400,7 @@ export default function TicketsPage() {
                           <TableRow>
                             <TableHead>Pricing Tier</TableHead>
                             <TableHead>Price</TableHead>
-                            <TableHead>Capacity</TableHead>
-                            <TableHead>Sold</TableHead>
-                            <TableHead>Sales Period</TableHead>
+                            <TableHead>Registrations</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="w-24" />
                           </TableRow>
@@ -424,13 +408,13 @@ export default function TicketsPage() {
                         <TableBody>
                           {tt.pricingTiers.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                              <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
                                 No pricing tiers yet. Add one to enable registration.
                               </TableCell>
                             </TableRow>
                           ) : (
                             tt.pricingTiers.map((tier) => (
-                              <TableRow key={tier.id}>
+                              <TableRow key={tier.id} className={!tier.isActive ? "opacity-50" : ""}>
                                 <TableCell className="font-medium">{tier.name}</TableCell>
                                 <TableCell>
                                   <div className="flex items-center gap-1">
@@ -438,23 +422,37 @@ export default function TicketsPage() {
                                     {formatCurrency(Number(tier.price), tier.currency)}
                                   </div>
                                 </TableCell>
-                                <TableCell>{tier.quantity.toLocaleString()}</TableCell>
                                 <TableCell>
-                                  <span className={tier.soldCount > 0 ? "font-semibold text-green-600" : ""}>
-                                    {tier.soldCount}
+                                  <span className={tier._count.registrations > 0 ? "font-semibold text-green-600" : ""}>
+                                    {tier._count.registrations}
                                   </span>
                                 </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">
-                                  {tier.salesStart
-                                    ? `${formatDate(tier.salesStart)} - ${tier.salesEnd ? formatDate(tier.salesEnd) : "Open"}`
-                                    : "Always open"}
-                                </TableCell>
                                 <TableCell>
-                                  {tier.isActive ? (
-                                    <Badge className="bg-green-100 text-green-800" variant="outline">Active</Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-muted-foreground">Inactive</Badge>
-                                  )}
+                                  <button
+                                    type="button"
+                                    className="cursor-pointer"
+                                    title={tier.isActive ? "Click to deactivate" : "Click to activate"}
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(`/api/events/${eventId}/tickets/${tt.id}/tiers/${tier.id}`, {
+                                          method: "PUT",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ isActive: !tier.isActive }),
+                                        });
+                                        if (!res.ok) throw new Error("Failed");
+                                        toast.success(tier.isActive ? `"${tier.name}" deactivated` : `"${tier.name}" activated`);
+                                        refetch();
+                                      } catch {
+                                        toast.error("Failed to update");
+                                      }
+                                    }}
+                                  >
+                                    {tier.isActive ? (
+                                      <Badge className="bg-green-100 text-green-800 hover:bg-green-200" variant="outline">Active</Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-muted-foreground hover:bg-slate-100">Inactive</Badge>
+                                    )}
+                                  </button>
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex gap-1">
@@ -589,33 +587,6 @@ export default function TicketsPage() {
                 <Input
                   value={tierForm.currency}
                   onChange={(e) => setTierForm({ ...tierForm, currency: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Capacity</Label>
-              <Input
-                type="number"
-                min={1}
-                value={tierForm.quantity}
-                onChange={(e) => setTierForm({ ...tierForm, quantity: Number(e.target.value) })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Sales Start</Label>
-                <Input
-                  type="datetime-local"
-                  value={tierForm.salesStart}
-                  onChange={(e) => setTierForm({ ...tierForm, salesStart: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Sales End</Label>
-                <Input
-                  type="datetime-local"
-                  value={tierForm.salesEnd}
-                  onChange={(e) => setTierForm({ ...tierForm, salesEnd: e.target.value })}
                 />
               </div>
             </div>

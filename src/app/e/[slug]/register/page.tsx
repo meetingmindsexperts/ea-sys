@@ -306,9 +306,24 @@ export default function RegisterOverviewPage() {
           </div>
         )}
 
-        <p className="text-xs text-slate-400 text-center mt-6">
-          Deactivate pricing tiers in the dashboard to close a registration form.
-        </p>
+        {/* Instructions */}
+        <div className="mt-8 bg-slate-50 rounded-xl border border-slate-200 p-5">
+          <h3 className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">How it works</h3>
+          <ol className="space-y-2.5 text-sm text-slate-600">
+            <li className="flex gap-2.5">
+              <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">1</span>
+              <span>Copy a registration link and share it with attendees via email, website, or social media. Each link opens a separate form.</span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">2</span>
+              <span>To close a form (e.g., when Early Bird period ends), go to <strong>Registration Types</strong> in the dashboard and toggle the pricing tier to <strong>Inactive</strong>. The public link will show &quot;Registration closed&quot;.</span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">3</span>
+              <span>You can hide specific registration types (e.g., Student) from all forms by toggling the registration type itself to Inactive in the dashboard.</span>
+            </li>
+          </ol>
+        </div>
       </div>
 
       {/* Footer */}
