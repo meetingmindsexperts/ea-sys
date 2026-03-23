@@ -15,15 +15,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter } from "lucide-react";
+import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
-import { useSpeakers, useEvent } from "@/hooks/use-api";
+import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -59,6 +61,9 @@ export default function SpeakersPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+
+  const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -190,6 +195,14 @@ export default function SpeakersPage() {
             {selectedIds.size} speaker{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setTagDialogOpen(true)}
+            >
+              <Tag className="mr-2 h-4 w-4" />
+              Manage Tags
+            </Button>
             <Button
               size="sm"
               onClick={() => setBulkEmailOpen(true)}
@@ -457,6 +470,30 @@ export default function SpeakersPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Tag Dialog */}
+      <BulkTagDialog
+        open={tagDialogOpen}
+        onOpenChange={setTagDialogOpen}
+        selectedCount={selectedIds.size}
+        entityLabel="speaker"
+        existingTags={(() => {
+          const allTags = new Set<string>();
+          speakers.forEach((s) => s.tags?.forEach((t: string) => allTags.add(t)));
+          return [...allTags].sort();
+        })()}
+        isPending={bulkTagSpeakers.isPending}
+        onSubmit={async (tags, mode) => {
+          await bulkTagSpeakers.mutateAsync({
+            speakerIds: [...selectedIds],
+            tags,
+            mode,
+          });
+          const verb = mode === "add" ? "added to" : mode === "remove" ? "removed from" : "replaced on";
+          toast.success(`Tags ${verb} ${selectedIds.size} speaker${selectedIds.size !== 1 ? "s" : ""}`);
+          setSelectedIds(new Set());
+        }}
+      />
 
       {/* Bulk Email Dialog */}
       <BulkEmailDialog

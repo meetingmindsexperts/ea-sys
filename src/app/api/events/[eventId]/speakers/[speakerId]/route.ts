@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { deletePhoto } from "@/lib/storage";
 
 const updateSpeakerSchema = z.object({
   title: titleEnum.optional().nullable(),
@@ -295,6 +296,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     await db.speaker.delete({
       where: { id: speakerId },
     });
+
+    // Clean up photo file if present
+    if (speaker.photo) {
+      deletePhoto(speaker.photo).catch((err) =>
+        apiLogger.warn({ msg: "Failed to delete speaker photo", photo: speaker.photo, err })
+      );
+    }
 
     // Log the action
     await db.auditLog.create({

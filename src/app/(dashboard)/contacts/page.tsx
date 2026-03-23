@@ -37,6 +37,7 @@ import {
   Download,
   FileDown,
   Search,
+  Eye,
   Pencil,
   Trash2,
   ChevronLeft,
@@ -48,6 +49,7 @@ import {
   Cloud,
 } from "lucide-react";
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
+import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { formatDate, formatPersonName } from "@/lib/utils";
 
 interface Contact {
@@ -108,6 +110,8 @@ export default function ContactsPage() {
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sheetContactId, setSheetContactId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [tagDialogMode, setTagDialogMode] = useState<TagMode>("add");
@@ -562,12 +566,13 @@ export default function ContactsPage() {
                             {initials}
                           </div>
                           <div className="min-w-0">
-                            <Link
-                              href={`/contacts/${contact.id}`}
-                              className="font-medium text-gray-900 hover:text-[#00aade] transition-colors truncate block leading-snug"
+                            <button
+                              type="button"
+                              onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
+                              className="font-medium text-gray-900 hover:text-[#00aade] transition-colors truncate block leading-snug text-left cursor-pointer"
                             >
                               {formatPersonName(contact.title, contact.firstName, contact.lastName)}
-                            </Link>
+                            </button>
                             <span className="text-xs text-gray-400 truncate block">{contact.email}</span>
                           </div>
                         </div>
@@ -613,6 +618,15 @@ export default function ContactsPage() {
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-gray-400 hover:text-[#00aade] hover:bg-[#00aade]/5"
+                            title="View"
+                            onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -814,6 +828,13 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Contact Detail Sheet */}
+      <ContactDetailSheet
+        contactId={sheetContactId}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+      />
 
       {/* EventsAir Import */}
       <EventsAirContactsImportDialog open={eventsAirOpen} onOpenChange={setEventsAirOpen} />

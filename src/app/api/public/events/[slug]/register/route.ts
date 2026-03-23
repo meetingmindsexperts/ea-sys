@@ -20,7 +20,6 @@ const registrationSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
-  registrationType: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
 });
 
@@ -70,7 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, title, firstName, lastName, organization, jobTitle, phone, city, country, specialty, registrationType, dietaryReqs } =
+    const { ticketTypeId, title, firstName, lastName, organization, jobTitle, phone, city, country, specialty, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -144,6 +143,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Tickets sold out" }, { status: 400 });
     }
 
+    // Derive registrationType from the selected ticket type name
+    const registrationType = ticketType.name;
+
     // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
     const result = await db.$transaction(async (tx) => {
       // Upsert attendee -- unique constraint on email prevents duplicates under concurrency
@@ -159,7 +161,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: city || null,
           country: country || null,
           specialty: specialty || null,
-          registrationType: registrationType || null,
+          registrationType,
           dietaryReqs: dietaryReqs || null,
         },
         create: {
@@ -173,7 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           city: city || null,
           country: country || null,
           specialty: specialty || null,
-          registrationType: registrationType || null,
+          registrationType,
           dietaryReqs: dietaryReqs || null,
         },
       });
@@ -236,7 +238,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       city: city || null,
       country: country || null,
       specialty: specialty || null,
-      registrationType: registrationType || null,
+      registrationType,
     });
 
     // Send confirmation email

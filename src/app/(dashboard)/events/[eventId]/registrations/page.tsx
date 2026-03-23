@@ -40,9 +40,10 @@ import {
   ChevronRight,
   Send,
   X,
+  Tag,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { useRegistrations, useTickets, useEvent } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -53,6 +54,7 @@ import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { BadgeDialog } from "./badge-dialog";
 
@@ -95,6 +97,9 @@ export default function RegistrationsPage() {
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+
+  const bulkTagRegistrations = useBulkTagRegistrations(eventId);
 
   const handleRowClick = (registration: Registration) => {
     setSelectedRegistration(registration);
@@ -314,6 +319,14 @@ export default function RegistrationsPage() {
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setTagDialogOpen(true)}
+            >
+              <Tag className="mr-2 h-4 w-4" />
+              Manage Tags
+            </Button>
             <Button
               size="sm"
               onClick={() => setBulkEmailOpen(true)}
@@ -620,6 +633,30 @@ export default function RegistrationsPage() {
         registration={selectedRegistration}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      {/* Bulk Tag Dialog */}
+      <BulkTagDialog
+        open={tagDialogOpen}
+        onOpenChange={setTagDialogOpen}
+        selectedCount={selectedIds.size}
+        entityLabel="registration"
+        existingTags={(() => {
+          const allTags = new Set<string>();
+          registrations.forEach((r) => r.attendee.tags?.forEach((t: string) => allTags.add(t)));
+          return [...allTags].sort();
+        })()}
+        isPending={bulkTagRegistrations.isPending}
+        onSubmit={async (tags, mode) => {
+          await bulkTagRegistrations.mutateAsync({
+            registrationIds: [...selectedIds],
+            tags,
+            mode,
+          });
+          const verb = mode === "add" ? "added to" : mode === "remove" ? "removed from" : "replaced on";
+          toast.success(`Tags ${verb} ${selectedIds.size} registration${selectedIds.size !== 1 ? "s" : ""}`);
+          setSelectedIds(new Set());
+        }}
       />
 
       {/* Bulk Email Dialog */}

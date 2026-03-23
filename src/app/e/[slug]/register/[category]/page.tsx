@@ -102,7 +102,6 @@ const registrationSchema = z.object({
   city: z.string().optional(),
   country: z.string().optional(),
   specialty: z.string().optional(),
-  registrationType: z.string().optional(),
   dietaryReqs: z.string().optional(),
 });
 
@@ -134,7 +133,6 @@ export default function CategoryRegistrationPage() {
       city: "",
       country: "",
       specialty: "",
-      registrationType: "",
       dietaryReqs: "",
     },
   });
@@ -589,36 +587,19 @@ export default function CategoryRegistrationPage() {
                             />
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name="specialty"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <Stethoscope className="h-3 w-3" /> Specialty
-                                  </FormLabel>
-                                  <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="registrationType"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                                    <FileText className="h-3 w-3" /> Registration Type
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input placeholder="e.g. Delegate, Speaker" className="rounded-lg border-slate-200 focus-visible:ring-primary/30" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
+                          <FormField
+                            control={form.control}
+                            name="specialty"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                  <Stethoscope className="h-3 w-3" /> Specialty
+                                </FormLabel>
+                                <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
                           <FormField
                             control={form.control}

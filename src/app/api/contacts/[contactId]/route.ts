@@ -6,6 +6,7 @@ import { getOrgContext } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum } from "@/lib/schemas";
+import { deletePhoto } from "@/lib/storage";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
@@ -187,7 +188,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
-      select: { id: true, email: true },
+      select: { id: true, email: true, photo: true },
     });
 
     if (!contact) {
@@ -201,6 +202,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     await db.contact.delete({ where: { id: contactId } });
+
+    // Clean up photo file if present
+    if (contact.photo) {
+      deletePhoto(contact.photo).catch((err) =>
+        apiLogger.warn({ msg: "Failed to delete contact photo", photo: contact.photo, err })
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

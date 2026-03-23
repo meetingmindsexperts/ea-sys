@@ -330,6 +330,37 @@ export function useBulkTagContacts() {
   });
 }
 
+// ============ BULK TAGS (Registrations & Speakers) ============
+export function useBulkTagRegistrations(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { registrationIds: string[]; tags: string[]; mode: "add" | "remove" | "replace" }) =>
+      fetchApi(`/api/events/${eventId}/registrations/bulk-tags`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+    },
+  });
+}
+
+export function useBulkTagSpeakers(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { speakerIds: string[]; tags: string[]; mode: "add" | "remove" | "replace" }) =>
+      fetchApi(`/api/events/${eventId}/speakers/bulk-tags`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+    },
+  });
+}
+
 export function useImportContactsToSpeakers(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

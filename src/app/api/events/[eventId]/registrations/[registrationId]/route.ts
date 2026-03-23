@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { deletePhoto } from "@/lib/storage";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
@@ -294,6 +295,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         id: registrationId,
         eventId,
       },
+      include: { attendee: { select: { photo: true } } },
     });
 
     if (!registration) {
@@ -312,6 +314,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         where: { id: registrationId },
       });
     });
+
+    // Clean up photo file if present
+    if (registration.attendee?.photo) {
+      deletePhoto(registration.attendee.photo).catch((err) =>
+        apiLogger.warn({ msg: "Failed to delete attendee photo", photo: registration.attendee?.photo, err })
+      );
+    }
 
     // Log the action
     await db.auditLog.create({
