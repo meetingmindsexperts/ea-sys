@@ -8,6 +8,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
+import { DEFAULT_REG_TYPES } from "@/app/api/events/[eventId]/tickets/route";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -142,6 +143,17 @@ export async function POST(req: Request) {
         textContent: t.textContent,
       })),
     }).catch((err) => apiLogger.error({ err, msg: "Failed to seed email templates" }));
+
+    // Seed default registration types (non-blocking)
+    db.ticketType.createMany({
+      data: DEFAULT_REG_TYPES.map((rt) => ({
+        eventId: event.id,
+        name: rt.name,
+        isDefault: true,
+        isActive: true,
+        sortOrder: rt.sortOrder,
+      })),
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
 
     return NextResponse.json(event, { status: 201 });
   } catch (error) {

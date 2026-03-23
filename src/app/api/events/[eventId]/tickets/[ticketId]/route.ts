@@ -9,15 +9,8 @@ import { getClientIp } from "@/lib/security";
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
-  category: z.string().max(100).optional(),
-  price: z.number().min(0).optional(),
-  currency: z.string().max(10).optional(),
-  quantity: z.number().min(1).optional(),
-  maxPerOrder: z.number().min(1).optional(),
-  salesStart: z.string().datetime().nullable().optional(),
-  salesEnd: z.string().datetime().nullable().optional(),
   isActive: z.boolean().optional(),
-  requiresApproval: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 interface RouteParams {
@@ -26,46 +19,42 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, ticketId } = await params;
-    const session = await auth();
+    const [{ eventId, ticketId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-      select: { id: true },
-    });
+    const [event, ticketType] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true },
+      }),
+      db.ticketType.findFirst({
+        where: { id: ticketId, eventId },
+        include: {
+          pricingTiers: {
+            orderBy: { sortOrder: "asc" },
+            include: { _count: { select: { registrations: true } } },
+          },
+          _count: { select: { registrations: true } },
+        },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const ticketType = await db.ticketType.findFirst({
-      where: {
-        id: ticketId,
-        eventId,
-      },
-      include: {
-        _count: {
-          select: { registrations: true },
-        },
-      },
-    });
-
     if (!ticketType) {
-      return NextResponse.json({ error: "Ticket type not found" }, { status: 404 });
+      return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
     return NextResponse.json(ticketType);
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error fetching ticket type" });
+    apiLogger.error({ err: error, msg: "Error fetching registration type" });
     return NextResponse.json(
-      { error: "Failed to fetch ticket type" },
+      { error: "Failed to fetch registration type" },
       { status: 500 }
     );
   }
@@ -73,8 +62,11 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, ticketId } = await params;
-    const session = await auth();
+    const [{ eventId, ticketId }, session, body] = await Promise.all([
+      params,
+      auth(),
+      req.json(),
+    ]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -83,32 +75,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-      select: { id: true },
-    });
+    const [event, existing] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true },
+      }),
+      db.ticketType.findFirst({
+        where: { id: ticketId, eventId },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const existingTicketType = await db.ticketType.findFirst({
-      where: {
-        id: ticketId,
-        eventId,
-      },
-    });
-
-    if (!existingTicketType) {
-      return NextResponse.json({ error: "Ticket type not found" }, { status: 404 });
+    if (!existing) {
+      return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    const body = await req.json();
     const validated = updateTicketTypeSchema.safeParse(body);
-
     if (!validated.success) {
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
@@ -118,12 +103,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Ensure quantity is not less than soldCount
-    if (data.quantity !== undefined && data.quantity < existingTicketType.soldCount) {
-      return NextResponse.json(
-        { error: `Quantity cannot be less than sold count (${existingTicketType.soldCount})` },
-        { status: 400 }
-      );
+    // Check uniqueness if name is changing
+    if (data.name && data.name !== existing.name) {
+      const dup = await db.ticketType.findFirst({
+        where: { eventId, name: data.name, id: { not: ticketId } },
+        select: { id: true },
+      });
+      if (dup) {
+        return NextResponse.json(
+          { error: `Registration type "${data.name}" already exists` },
+          { status: 409 }
+        );
+      }
     }
 
     const ticketType = await db.ticketType.update({
@@ -131,25 +122,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
       data: {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description || null }),
-        ...(data.category && { category: data.category }),
-        ...(data.price !== undefined && { price: data.price }),
-        ...(data.currency && { currency: data.currency }),
-        ...(data.quantity !== undefined && { quantity: data.quantity }),
-        ...(data.maxPerOrder !== undefined && { maxPerOrder: data.maxPerOrder }),
-        ...(data.salesStart !== undefined && {
-          salesStart: data.salesStart ? new Date(data.salesStart) : null,
-        }),
-        ...(data.salesEnd !== undefined && {
-          salesEnd: data.salesEnd ? new Date(data.salesEnd) : null,
-        }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
-        ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
+        ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+      },
+      include: {
+        pricingTiers: {
+          orderBy: { sortOrder: "asc" },
+          include: { _count: { select: { registrations: true } } },
+        },
+        _count: { select: { registrations: true } },
       },
     });
 
-    apiLogger.info({ msg: "Ticket type updated", eventId, ticketTypeId: ticketId, userId: session.user.id, changes: data });
+    apiLogger.info({ msg: "Registration type updated", eventId, ticketTypeId: ticketId, userId: session.user.id, changes: data });
 
-    // Log the action
     await db.auditLog.create({
       data: {
         eventId,
@@ -157,19 +143,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "TicketType",
         entityId: ticketType.id,
-        changes: {
-          before: existingTicketType,
-          after: ticketType,
-          ip: getClientIp(req),
-        },
+        changes: { before: existing, after: ticketType, ip: getClientIp(req) },
       },
     });
 
     return NextResponse.json(ticketType);
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error updating ticket type" });
+    apiLogger.error({ err: error, msg: "Error updating registration type" });
     return NextResponse.json(
-      { error: "Failed to update ticket type" },
+      { error: "Failed to update registration type" },
       { status: 500 }
     );
   }
@@ -177,8 +159,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const { eventId, ticketId } = await params;
-    const session = await auth();
+    const [{ eventId, ticketId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -187,49 +168,37 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-      select: { id: true },
-    });
+    const [event, ticketType] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true },
+      }),
+      db.ticketType.findFirst({
+        where: { id: ticketId, eventId },
+        include: { _count: { select: { registrations: true } } },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const ticketType = await db.ticketType.findFirst({
-      where: {
-        id: ticketId,
-        eventId,
-      },
-      include: {
-        _count: {
-          select: { registrations: true },
-        },
-      },
-    });
-
     if (!ticketType) {
-      return NextResponse.json({ error: "Ticket type not found" }, { status: 404 });
+      return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    // Don't allow deletion if there are registrations
     if (ticketType._count.registrations > 0) {
       return NextResponse.json(
-        { error: "Cannot delete ticket type with existing registrations" },
+        { error: "Cannot delete registration type with existing registrations" },
         { status: 400 }
       );
     }
 
-    await db.ticketType.delete({
-      where: { id: ticketId },
-    });
+    // Cascade deletes pricing tiers via schema
+    await db.ticketType.delete({ where: { id: ticketId } });
 
-    apiLogger.info({ msg: "Ticket type deleted", eventId, ticketTypeId: ticketId, name: ticketType.name, userId: session.user.id });
+    apiLogger.info({ msg: "Registration type deleted", eventId, ticketTypeId: ticketId, name: ticketType.name, userId: session.user.id });
 
-    // Log the action
     await db.auditLog.create({
       data: {
         eventId,
@@ -243,9 +212,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error deleting ticket type" });
+    apiLogger.error({ err: error, msg: "Error deleting registration type" });
     return NextResponse.json(
-      { error: "Failed to delete ticket type" },
+      { error: "Failed to delete registration type" },
       { status: 500 }
     );
   }

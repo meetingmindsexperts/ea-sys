@@ -181,23 +181,54 @@ model TicketType {
   eventId          String
   name             String
   description      String?  @db.Text
-  category         String   @default("Standard")
-  price            Decimal   @db.Decimal(10, 2)
+  isDefault        Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Deprecated: kept for migration backward compat, will be removed
+  category         String    @default("Standard")
+  price            Decimal   @default(0) @db.Decimal(10, 2)
   currency         String    @default("USD")
-  quantity         Int
+  quantity         Int       @default(999999)
+  soldCount        Int       @default(0)
+  maxPerOrder      Int       @default(10)
+  salesStart       DateTime?
+  salesEnd         DateTime?
+  requiresApproval Boolean   @default(false)
+
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pricingTiers  PricingTier[]
+  registrations Registration[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+  @@index([isActive])
+}
+
+model PricingTier {
+  id               String    @id @default(cuid())
+  ticketTypeId     String
+  name             String
+  price            Decimal   @default(0) @db.Decimal(10, 2)
+  currency         String    @default("USD")
+  quantity         Int       @default(999999)
   soldCount        Int       @default(0)
   maxPerOrder      Int       @default(10)
   salesStart       DateTime?
   salesEnd         DateTime?
   isActive         Boolean   @default(true)
   requiresApproval Boolean   @default(false)
+  sortOrder        Int       @default(0)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
   registrations Registration[]
 
-  @@index([eventId])
+  @@unique([ticketTypeId, name])
+  @@index([ticketTypeId])
   @@index([isActive])
 }
 
@@ -230,21 +261,23 @@ model Attendee {
 }
 
 model Registration {
-  id            String             @id @default(cuid())
-  eventId       String
-  ticketTypeId  String
-  attendeeId    String
-  status        RegistrationStatus @default(PENDING)
-  paymentStatus PaymentStatus      @default(UNPAID)
-  qrCode        String?            @unique
-  barcode       String?            @unique
-  checkedInAt   DateTime?
-  notes         String?            @db.Text
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id             String             @id @default(cuid())
+  eventId        String
+  ticketTypeId   String
+  pricingTierId  String?
+  attendeeId     String
+  status         RegistrationStatus @default(PENDING)
+  paymentStatus  PaymentStatus      @default(UNPAID)
+  qrCode         String?            @unique
+  barcode        String?            @unique
+  checkedInAt    DateTime?
+  notes          String?            @db.Text
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id])
+  pricingTier   PricingTier?   @relation(fields: [pricingTierId], references: [id])
   attendee      Attendee       @relation(fields: [attendeeId], references: [id])
   payments      Payment[]
   accommodation Accommodation?
@@ -252,6 +285,7 @@ model Registration {
   @@index([eventId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])
+  @@index([pricingTierId])
   @@index([attendeeId])
   @@index([status])
   @@index([qrCode])

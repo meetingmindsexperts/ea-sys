@@ -23,7 +23,7 @@ export async function POST(
     const source = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
       include: {
-        ticketTypes: true,
+        ticketTypes: { include: { pricingTiers: true } },
         speakers: true,
         tracks: true,
         hotels: { include: { roomTypes: true } },
@@ -80,7 +80,7 @@ export async function POST(
           },
         });
 
-        // 2. Clone ticket types (old ID → new ID map)
+        // 2. Clone ticket types + pricing tiers (old ID → new ID map)
         const ticketMap = new Map<string, string>();
         for (const tt of source.ticketTypes) {
           const created = await tx.ticketType.create({
@@ -88,6 +88,9 @@ export async function POST(
               eventId: event.id,
               name: tt.name,
               description: tt.description,
+              isDefault: tt.isDefault,
+              isActive: tt.isActive,
+              sortOrder: tt.sortOrder,
               price: tt.price,
               currency: tt.currency,
               quantity: tt.quantity,
@@ -95,8 +98,22 @@ export async function POST(
               maxPerOrder: tt.maxPerOrder,
               salesStart: tt.salesStart,
               salesEnd: tt.salesEnd,
-              isActive: tt.isActive,
               requiresApproval: tt.requiresApproval,
+              pricingTiers: {
+                create: tt.pricingTiers.map((tier) => ({
+                  name: tier.name,
+                  price: tier.price,
+                  currency: tier.currency,
+                  quantity: tier.quantity,
+                  soldCount: 0,
+                  maxPerOrder: tier.maxPerOrder,
+                  salesStart: tier.salesStart,
+                  salesEnd: tier.salesEnd,
+                  isActive: tier.isActive,
+                  requiresApproval: tier.requiresApproval,
+                  sortOrder: tier.sortOrder,
+                })),
+              },
             },
           });
           ticketMap.set(tt.id, created.id);

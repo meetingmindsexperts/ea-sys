@@ -6,18 +6,35 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 
+export const DEFAULT_REG_TYPES = [
+  { name: "Physician", sortOrder: 0 },
+  { name: "Allied Health", sortOrder: 1 },
+  { name: "Student", sortOrder: 2 },
+  { name: "Resident", sortOrder: 3 },
+];
+
 const createTicketTypeSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).optional(),
-  category: z.string().max(100).default("Standard"),
-  price: z.number().min(0),
-  currency: z.string().max(10).default("USD"),
-  quantity: z.number().min(1),
-  maxPerOrder: z.number().min(1).default(10),
-  salesStart: z.string().datetime().optional(),
-  salesEnd: z.string().datetime().optional(),
   isActive: z.boolean().default(true),
-  requiresApproval: z.boolean().default(false),
+  sortOrder: z.number().int().optional(),
+  // Optional: create initial pricing tiers alongside the registration type
+  pricingTiers: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(100),
+        price: z.number().min(0),
+        currency: z.string().max(10).default("USD"),
+        quantity: z.number().min(1).default(999999),
+        maxPerOrder: z.number().min(1).default(10),
+        salesStart: z.string().datetime().optional(),
+        salesEnd: z.string().datetime().optional(),
+        isActive: z.boolean().default(true),
+        requiresApproval: z.boolean().default(false),
+        sortOrder: z.number().int().optional(),
+      })
+    )
+    .optional(),
 });
 
 interface RouteParams {
@@ -26,14 +43,12 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    // Parallelize params and auth for faster response
     const [{ eventId }, session] = await Promise.all([params, auth()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parallelize event validation and tickets fetch
     const [event, ticketTypes] = await Promise.all([
       db.event.findFirst({
         where: {
@@ -45,11 +60,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.ticketType.findMany({
         where: { eventId },
         include: {
+          pricingTiers: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              _count: { select: { registrations: true } },
+            },
+          },
           _count: {
             select: { registrations: true },
           },
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: { sortOrder: "asc" },
       }),
     ]);
 
@@ -57,7 +78,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Add cache headers for better performance
     const response = NextResponse.json(ticketTypes);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
@@ -72,7 +92,6 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
-    // Parallelize params, auth, and body parsing
     const [{ eventId }, session, body] = await Promise.all([
       params,
       auth(),
@@ -86,7 +105,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    // Use select for minimal data fetch
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -108,40 +126,57 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const {
-      name,
-      description,
-      category,
-      price,
-      currency,
-      quantity,
-      maxPerOrder,
-      salesStart,
-      salesEnd,
-      isActive,
-      requiresApproval,
-    } = validated.data;
+    const { name, description, isActive, sortOrder, pricingTiers } = validated.data;
+
+    // Check for duplicate name within the event
+    const existing = await db.ticketType.findFirst({
+      where: { eventId, name },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json(
+        { error: `Registration type "${name}" already exists for this event` },
+        { status: 409 }
+      );
+    }
 
     const ticketType = await db.ticketType.create({
       data: {
         eventId,
         name,
         description: description || null,
-        category,
-        price,
-        currency,
-        quantity,
-        maxPerOrder,
-        salesStart: salesStart ? new Date(salesStart) : null,
-        salesEnd: salesEnd ? new Date(salesEnd) : null,
         isActive,
-        requiresApproval,
+        sortOrder: sortOrder ?? 99,
+        ...(pricingTiers && pricingTiers.length > 0
+          ? {
+              pricingTiers: {
+                create: pricingTiers.map((tier, i) => ({
+                  name: tier.name,
+                  price: tier.price,
+                  currency: tier.currency,
+                  quantity: tier.quantity,
+                  maxPerOrder: tier.maxPerOrder,
+                  salesStart: tier.salesStart ? new Date(tier.salesStart) : null,
+                  salesEnd: tier.salesEnd ? new Date(tier.salesEnd) : null,
+                  isActive: tier.isActive,
+                  requiresApproval: tier.requiresApproval,
+                  sortOrder: tier.sortOrder ?? i,
+                })),
+              },
+            }
+          : {}),
+      },
+      include: {
+        pricingTiers: {
+          orderBy: { sortOrder: "asc" },
+          include: { _count: { select: { registrations: true } } },
+        },
+        _count: { select: { registrations: true } },
       },
     });
 
-    apiLogger.info({ msg: "Ticket type created", eventId, ticketTypeId: ticketType.id, category, name, userId: session.user.id });
+    apiLogger.info({ msg: "Registration type created", eventId, ticketTypeId: ticketType.id, name, userId: session.user.id });
 
-    // Log the action (non-blocking for better response time)
     db.auditLog.create({
       data: {
         eventId,
@@ -155,9 +190,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(ticketType, { status: 201 });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error creating ticket type" });
+    apiLogger.error({ err: error, msg: "Error creating registration type" });
     return NextResponse.json(
-      { error: "Failed to create ticket type" },
+      { error: "Failed to create registration type" },
       { status: 500 }
     );
   }

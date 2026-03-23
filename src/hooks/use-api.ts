@@ -141,6 +141,50 @@ export function useDeleteTicket(eventId: string) {
   });
 }
 
+// ============ PRICING TIERS ============
+export function useCreatePricingTier(eventId: string, ticketTypeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetchApi(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+    },
+  });
+}
+
+export function useUpdatePricingTier(eventId: string, ticketTypeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tierId, data }: { tierId: string; data: any }) =>
+      fetchApi(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers/${tierId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+    },
+  });
+}
+
+export function useDeletePricingTier(eventId: string, ticketTypeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tierId: string) =>
+      fetchApi(`/api/events/${eventId}/tickets/${ticketTypeId}/tiers/${tierId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+    },
+  });
+}
+
 // ============ REGISTRATIONS ============
 export function useRegistrations(eventId: string, filters?: Record<string, string>) {
   return useEventListQuery<any[]>(eventId, queryKeys.registrations(eventId), "registrations", filters);

@@ -18,6 +18,13 @@ export interface Attendee {
   customFields?: Record<string, unknown>;
 }
 
+export interface PricingTier {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+}
+
 export interface TicketType {
   id: string;
   name: string;
@@ -59,6 +66,7 @@ export interface Registration {
   createdAt: string;
   attendee: Attendee;
   ticketType: TicketType;
+  pricingTier?: PricingTier | null;
   payments?: Payment[];
   accommodation?: Accommodation | null;
 }

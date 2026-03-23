@@ -61,6 +61,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             id: true,
             name: true,
             description: true,
+            isDefault: true,
+            sortOrder: true,
+            // Legacy fields for backward compat
             category: true,
             price: true,
             currency: true,
@@ -69,8 +72,26 @@ export async function GET(req: Request, { params }: RouteParams) {
             maxPerOrder: true,
             salesStart: true,
             salesEnd: true,
+            // New pricing tiers
+            pricingTiers: {
+              where: { isActive: true },
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                currency: true,
+                quantity: true,
+                soldCount: true,
+                maxPerOrder: true,
+                salesStart: true,
+                salesEnd: true,
+                requiresApproval: true,
+                sortOrder: true,
+              },
+              orderBy: { sortOrder: "asc" },
+            },
           },
-          orderBy: { price: "asc" },
+          orderBy: { sortOrder: "asc" },
         },
         tracks: {
           select: {
@@ -87,20 +108,39 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Calculate ticket availability
+    const now = new Date();
+
+    // Calculate availability for each registration type and its pricing tiers
     const ticketTypes = event.ticketTypes.map((ticket) => {
-      const now = new Date();
-      const available = ticket.quantity - ticket.soldCount;
-      const salesStarted = !ticket.salesStart || new Date(ticket.salesStart) <= now;
-      const salesEnded = ticket.salesEnd && new Date(ticket.salesEnd) < now;
+      // Compute availability per pricing tier
+      const pricingTiers = ticket.pricingTiers.map((tier) => {
+        const available = tier.quantity - tier.soldCount;
+        const salesStarted = !tier.salesStart || new Date(tier.salesStart) <= now;
+        const salesEnded = tier.salesEnd ? new Date(tier.salesEnd) < now : false;
+        return {
+          ...tier,
+          available,
+          soldOut: available <= 0,
+          salesStarted,
+          salesEnded,
+          canPurchase: available > 0 && salesStarted && !salesEnded,
+        };
+      });
+
+      // Legacy: compute from old fields for backward compat (pre-migration data)
+      const legacyAvailable = ticket.quantity - ticket.soldCount;
+      const legacySalesStarted = !ticket.salesStart || new Date(ticket.salesStart) <= now;
+      const legacySalesEnded = ticket.salesEnd ? new Date(ticket.salesEnd) < now : false;
 
       return {
         ...ticket,
-        available,
-        soldOut: available <= 0,
-        salesStarted,
-        salesEnded,
-        canPurchase: available > 0 && salesStarted && !salesEnded,
+        pricingTiers,
+        // Legacy availability fields
+        available: legacyAvailable,
+        soldOut: legacyAvailable <= 0,
+        salesStarted: legacySalesStarted,
+        salesEnded: legacySalesEnded,
+        canPurchase: legacyAvailable > 0 && legacySalesStarted && !legacySalesEnded,
       };
     });
 

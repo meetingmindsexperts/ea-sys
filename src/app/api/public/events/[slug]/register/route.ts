@@ -10,6 +10,7 @@ import { syncToContact } from "@/lib/contact-sync";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
+  pricingTierId: z.string().min(1).max(100).optional(),
   title: titleEnum,
   role: attendeeRoleEnum,
   firstName: z.string().min(1, "First name is required").max(100),
@@ -72,7 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -121,29 +122,44 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!ticketType) {
       return NextResponse.json(
-        { error: "Ticket type not found or inactive" },
+        { error: "Registration type not found or inactive" },
         { status: 404 }
       );
     }
 
-    // Check sales period
+    // Resolve pricing tier (new flow) or fall back to legacy ticketType fields
+    let pricingTier: { id: string; name: string; price: number | unknown; currency: string; quantity: number; soldCount: number; requiresApproval: boolean; salesStart: Date | null; salesEnd: Date | null } | null = null;
+
+    if (pricingTierId) {
+      const tier = await db.pricingTier.findFirst({
+        where: { id: pricingTierId, ticketTypeId, isActive: true },
+      });
+      if (!tier) {
+        return NextResponse.json({ error: "Pricing tier not found or inactive" }, { status: 404 });
+      }
+      pricingTier = tier;
+    }
+
+    // Use pricing tier for capacity/sales checks if available, otherwise fall back to ticket type
+    const capacitySource = pricingTier || ticketType;
+
     const now = new Date();
-    if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
+    if (capacitySource.salesStart && new Date(capacitySource.salesStart) > now) {
       return NextResponse.json(
-        { error: "Ticket sales have not started" },
+        { error: "Registration sales have not started" },
         { status: 400 }
       );
     }
-    if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
+    if (capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
       return NextResponse.json(
-        { error: "Ticket sales have ended" },
+        { error: "Registration sales have ended" },
         { status: 400 }
       );
     }
 
     // Early check (non-authoritative — the real check is inside the transaction)
-    if (ticketType.soldCount >= ticketType.quantity) {
-      return NextResponse.json({ error: "Tickets sold out" }, { status: 400 });
+    if (capacitySource.soldCount >= capacitySource.quantity) {
+      return NextResponse.json({ error: "Sold out" }, { status: 400 });
     }
 
     // Derive registrationType from the selected ticket type name
@@ -201,26 +217,36 @@ export async function POST(req: Request, { params }: RouteParams) {
         throw new Error("ALREADY_REGISTERED");
       }
 
-      // Atomically increment soldCount only if tickets are still available
-      const updated = await tx.ticketType.updateMany({
-        where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-        data: { soldCount: { increment: 1 } },
-      });
-      if (updated.count === 0) {
-        throw new Error("SOLD_OUT");
+      // Atomically increment soldCount on the correct capacity source
+      if (pricingTier) {
+        const updated = await tx.pricingTier.updateMany({
+          where: { id: pricingTier.id, soldCount: { lt: pricingTier.quantity } },
+          data: { soldCount: { increment: 1 } },
+        });
+        if (updated.count === 0) throw new Error("SOLD_OUT");
+      } else {
+        const updated = await tx.ticketType.updateMany({
+          where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
+          data: { soldCount: { increment: 1 } },
+        });
+        if (updated.count === 0) throw new Error("SOLD_OUT");
       }
+
+      const effectivePrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
+      const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
 
       // Create registration
       const registration = await tx.registration.create({
         data: {
           eventId: event.id,
           ticketTypeId,
+          pricingTierId: pricingTier?.id || null,
           attendeeId: attendee.id,
-          status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
+          status: effectiveApproval ? "PENDING" : "CONFIRMED",
+          paymentStatus: effectivePrice === 0 ? "PAID" : "UNPAID",
           qrCode: generateQRCode(),
         },
-        include: { attendee: true, ticketType: true },
+        include: { attendee: true, ticketType: true, pricingTier: true },
       });
 
       return registration;
@@ -253,6 +279,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       registrationType,
     });
 
+    const finalPrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
+    const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;
+    const tierLabel = pricingTier ? `${ticketType.name} (${pricingTier.name})` : ticketType.name;
+
     // Send confirmation email
     try {
       await sendRegistrationConfirmation({
@@ -262,17 +292,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventDate: event.startDate,
         eventVenue: event.venue || "",
         eventCity: event.city || "",
-        ticketType: ticketType.name,
+        ticketType: tierLabel,
         registrationId: registration.id,
         qrCode: registration.qrCode || "",
         eventId: event.id,
         eventSlug: slug,
-        ticketPrice: Number(ticketType.price),
-        ticketCurrency: ticketType.currency,
+        ticketPrice: finalPrice,
+        ticketCurrency: finalCurrency,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });
-      // Don't fail the registration if email fails
     }
 
     return NextResponse.json(
@@ -284,8 +313,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           paymentStatus: registration.paymentStatus,
           qrCode: registration.qrCode,
           ticketType: ticketType.name,
-          ticketPrice: Number(ticketType.price),
-          ticketCurrency: ticketType.currency,
+          pricingTier: pricingTier ? pricingTier.name : null,
+          ticketPrice: finalPrice,
+          ticketCurrency: finalCurrency,
           attendee: {
             firstName,
             lastName,

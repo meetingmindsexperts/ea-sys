@@ -87,6 +87,14 @@ export async function GET(req: Request, { params }: RouteParams) {
               soldCount: true,
             },
           },
+          pricingTier: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              currency: true,
+            },
+          },
           payments: {
             select: {
               id: true,

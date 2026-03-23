@@ -53,6 +53,20 @@ function toSlug(category: string): string {
     .replace(/^-|-$/g, "");
 }
 
+interface PricingTierData {
+  id: string;
+  name: string;
+  price: string;
+  currency: string;
+  quantity: number;
+  soldCount: number;
+  available: number;
+  soldOut: boolean;
+  canPurchase: boolean;
+  salesStarted: boolean;
+  salesEnded: boolean;
+}
+
 interface TicketType {
   id: string;
   name: string;
@@ -67,6 +81,7 @@ interface TicketType {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
+  pricingTiers?: PricingTierData[];
 }
 
 interface Event {
@@ -96,6 +111,7 @@ interface Event {
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a registration type"),
+  pricingTierId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   role: z.string().min(1, "Role is required"),
   firstName: z.string().min(1, "First name is required"),
@@ -130,6 +146,7 @@ export default function CategoryRegistrationPage() {
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       ticketTypeId: "",
+      pricingTierId: "",
       title: "",
       role: "",
       firstName: "",
@@ -158,23 +175,39 @@ export default function CategoryRegistrationPage() {
         const data: Event = await res.json();
         setEvent(data);
 
-        // Find the category that matches this URL slug
-        const matchedCategory = data.ticketTypes.find(
-          (t) => toSlug(t.category || "Standard") === categorySlug
-        )?.category;
+        // Match by registration type name slug (new) or category slug (legacy)
+        const matchedType = data.ticketTypes.find(
+          (t) => toSlug(t.name) === categorySlug
+        );
+        const matchedCategory = matchedType
+          ? matchedType.name
+          : data.ticketTypes.find(
+              (t) => toSlug(t.category || "Standard") === categorySlug
+            )?.category;
 
-        if (!matchedCategory) {
+        if (!matchedCategory && !matchedType) {
           setError("Invalid registration category");
           return;
         }
 
-        setCategoryLabel(matchedCategory);
+        const label = matchedType ? matchedType.name : matchedCategory!;
+        setCategoryLabel(label);
 
-        const categoryTickets = data.ticketTypes.filter(
-          (t) => t.canPurchase && (t.category || "Standard") === matchedCategory
-        );
-        if (categoryTickets.length === 1) {
-          form.setValue("ticketTypeId", categoryTickets[0].id);
+        if (matchedType) {
+          // New flow: set ticketTypeId and let user pick pricing tier
+          form.setValue("ticketTypeId", matchedType.id);
+          const tiers = matchedType.pricingTiers?.filter((t) => t.canPurchase) ?? [];
+          if (tiers.length === 1) {
+            form.setValue("pricingTierId", tiers[0].id);
+          }
+        } else {
+          // Legacy flow: filter by category
+          const categoryTickets = data.ticketTypes.filter(
+            (t) => t.canPurchase && (t.category || "Standard") === matchedCategory
+          );
+          if (categoryTickets.length === 1) {
+            form.setValue("ticketTypeId", categoryTickets[0].id);
+          }
         }
       } catch {
         setError("Failed to load event");
@@ -255,14 +288,28 @@ export default function CategoryRegistrationPage() {
     );
   }
 
-  const availableTickets = event.ticketTypes.filter(
-    (t) => t.canPurchase && (t.category || "Standard") === categoryLabel
-  );
-  const allCategoryTickets = event.ticketTypes.filter(
-    (t) => (t.category || "Standard") === categoryLabel
-  );
+  // New flow: find the matched registration type and its pricing tiers
+  const matchedRegType = event.ticketTypes.find((t) => t.name === categoryLabel);
+  const hasPricingTiers = matchedRegType && matchedRegType.pricingTiers && matchedRegType.pricingTiers.length > 0;
+
+  // Legacy flow: filter by category
+  const availableTickets = hasPricingTiers
+    ? []
+    : event.ticketTypes.filter(
+        (t) => t.canPurchase && (t.category || "Standard") === categoryLabel
+      );
+  const allCategoryTickets = hasPricingTiers
+    ? []
+    : event.ticketTypes.filter(
+        (t) => (t.category || "Standard") === categoryLabel
+      );
+
+  const availableTiers = matchedRegType?.pricingTiers?.filter((t) => t.canPurchase) ?? [];
+
   const selectedTicketId = form.watch("ticketTypeId");
+  const selectedPricingTierId = form.watch("pricingTierId");
   const selectedTicket = event.ticketTypes.find((t) => t.id === selectedTicketId);
+  const selectedTier = matchedRegType?.pricingTiers?.find((t) => t.id === selectedPricingTierId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
