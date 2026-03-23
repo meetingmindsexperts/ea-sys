@@ -46,6 +46,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         country: true,
         bannerImage: true,
         footerHtml: true,
+        supportEmail: true,
         settings: true,
         organization: {
           select: {

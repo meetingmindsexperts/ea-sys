@@ -86,6 +86,7 @@ interface Event {
   footerHtml: string | null;
   emailHeaderImage: string | null;
   emailFooterHtml: string | null;
+  supportEmail: string | null;
   settings: {
     registrationOpen?: boolean;
     waitlistEnabled?: boolean;
@@ -146,6 +147,7 @@ export default function EventSettingsPage() {
     city: "",
     country: "",
     status: "DRAFT",
+    supportEmail: "",
   });
 
   const [registrationSettings, setRegistrationSettings] = useState({
@@ -199,6 +201,7 @@ export default function EventSettingsPage() {
           city: data.city || "",
           country: data.country || "",
           status: data.status,
+          supportEmail: data.supportEmail || "",
         });
 
         const settings = data.settings || {};
@@ -259,6 +262,7 @@ export default function EventSettingsPage() {
           address: generalFormData.address || null,
           city: generalFormData.city || null,
           country: generalFormData.country || null,
+          supportEmail: generalFormData.supportEmail || null,
           description: generalFormData.description || null,
           startDate: new Date(generalFormData.startDate).toISOString(),
           endDate: new Date(generalFormData.endDate).toISOString(),
@@ -638,6 +642,20 @@ export default function EventSettingsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="supportEmail">Support Email</Label>
+                <Input
+                  id="supportEmail"
+                  type="email"
+                  placeholder="support@yourorganization.com"
+                  value={generalFormData.supportEmail}
+                  onChange={(e) =>
+                    setGeneralFormData({ ...generalFormData, supportEmail: e.target.value })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">Shown on public registration forms for attendee inquiries</p>
               </div>
 
               <div className="flex justify-end">

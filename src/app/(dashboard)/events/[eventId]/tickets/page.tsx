@@ -23,6 +23,9 @@ import {
   Pencil,
   Trash2,
   RefreshCw,
+  Copy,
+  Check,
+  ExternalLink,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -30,6 +33,7 @@ import {
   useCreateTicket,
   useUpdateTicket,
   useDeleteTicket,
+  useEvent,
   queryKeys,
 } from "@/hooks/use-api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -66,6 +70,10 @@ interface TicketType {
 
 const DEFAULT_TIER_NAMES = ["Early Bird", "Standard", "Onsite", "Presenter"];
 
+function toSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 export default function TicketsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
@@ -76,6 +84,8 @@ export default function TicketsPage() {
   const createTicket = useCreateTicket(eventId);
   const updateTicket = useUpdateTicket(eventId);
   const deleteTicket = useDeleteTicket(eventId);
+  const { data: event } = useEvent(eventId);
+  const [copiedTier, setCopiedTier] = useState<string | null>(null);
 
   const invalidateAndRefetch = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
@@ -244,6 +254,26 @@ export default function TicketsPage() {
         </div>
       </div>
 
+      {/* Registration form overview link */}
+      {event?.slug && (
+        <div className="flex items-center gap-2 bg-slate-50 rounded-lg border border-slate-200 p-3">
+          <span className="text-xs font-medium text-slate-500 shrink-0">Forms overview:</span>
+          <code className="flex-1 text-xs text-slate-500 truncate">/e/{event.slug}/register</code>
+          <Button variant="outline" size="sm" className="h-7 text-xs shrink-0"
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/e/${event.slug}/register`);
+              toast.success("Overview link copied");
+            }}>
+            <Copy className="h-3 w-3 mr-1" /> Copy
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" asChild>
+            <a href={`/e/${event.slug}/register`} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-3 w-3 mr-1" /> Open
+            </a>
+          </Button>
+        </div>
+      )}
+
       {/* 3-column grid */}
       {ticketTypes.length === 0 ? (
         <Card>
@@ -324,6 +354,21 @@ export default function TicketsPage() {
                           <span className="text-sm font-semibold text-slate-700 shrink-0">
                             {formatCurrency(Number(tier.price), tier.currency)}
                           </span>
+
+                          {/* Copy form link */}
+                          {event?.slug && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
+                              title="Copy registration form link"
+                              onClick={() => {
+                                const url = `${window.location.origin}/e/${event.slug}/register/${toSlug(tier.name)}`;
+                                navigator.clipboard.writeText(url);
+                                setCopiedTier(tier.id);
+                                toast.success(`Copied ${tier.name} form link`);
+                                setTimeout(() => setCopiedTier(null), 2000);
+                              }}>
+                              {copiedTier === tier.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                            </Button>
+                          )}
 
                           {/* Edit */}
                           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"

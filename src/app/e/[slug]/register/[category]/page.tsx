@@ -99,6 +99,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
+  supportEmail: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
@@ -488,11 +489,9 @@ export default function CategoryRegistrationPage() {
                                       <div>
                                         <p className="font-semibold text-slate-900">{opt.regTypeName}</p>
                                         {opt.description && <p className="text-xs text-slate-500 mt-0.5">{opt.description}</p>}
-                                        <p className="text-xs text-slate-400 mt-1">
-                                          {opt.available > 0
-                                            ? `${opt.available} spot${opt.available !== 1 ? "s" : ""} remaining`
-                                            : "Sold out"}
-                                        </p>
+                                        {opt.available <= 0 && (
+                                          <p className="text-xs text-red-500 mt-1">Sold out</p>
+                                        )}
                                       </div>
                                       <div className="flex items-center gap-3">
                                         <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
@@ -686,6 +685,14 @@ export default function CategoryRegistrationPage() {
                   <p className="text-center text-xs text-slate-400">
                     By registering, you agree to the event terms and conditions.
                   </p>
+                  {event.supportEmail && (
+                    <p className="text-center text-xs text-slate-400">
+                      Need help?{" "}
+                      <a href={`mailto:${event.supportEmail}`} className="text-primary hover:underline">
+                        {event.supportEmail}
+                      </a>
+                    </p>
+                  )}
                 </form>
               </Form>
             )}

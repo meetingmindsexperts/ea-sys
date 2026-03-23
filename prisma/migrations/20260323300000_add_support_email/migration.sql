@@ -1,0 +1,1 @@
+ALTER TABLE "Event" ADD COLUMN IF NOT EXISTS "supportEmail" TEXT;
