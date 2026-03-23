@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 import type Stripe from "stripe";
 
@@ -63,8 +63,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      const amount = session.amount_total ? session.amount_total / 100 : Number(registration.ticketType.price);
-      const currency = (session.currency || registration.ticketType.currency).toUpperCase();
+      const sessionCurrency = (session.currency || registration.ticketType.currency).toUpperCase();
+      const amount = session.amount_total
+        ? fromStripeAmount(session.amount_total, sessionCurrency)
+        : Number(registration.ticketType.price);
+      const currency = sessionCurrency;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
 
@@ -86,13 +89,21 @@ export async function POST(req: Request) {
         }
       }
 
-      // Update registration and create payment record in transaction
-      await db.$transaction([
-        db.registration.update({
+      // Interactive transaction with optimistic lock to prevent duplicate Payment records
+      // from concurrent webhook retries
+      await db.$transaction(async (tx) => {
+        // Re-check inside transaction to prevent race condition
+        const current = await tx.registration.findUnique({
+          where: { id: registrationId },
+          select: { paymentStatus: true },
+        });
+        if (current?.paymentStatus === "PAID") return;
+
+        await tx.registration.update({
           where: { id: registrationId },
           data: { paymentStatus: "PAID" },
-        }),
-        db.payment.create({
+        });
+        await tx.payment.create({
           data: {
             registrationId,
             amount,
@@ -103,8 +114,8 @@ export async function POST(req: Request) {
             receiptUrl,
             metadata: { checkoutSessionId: session.id },
           },
-        }),
-      ]);
+        });
+      });
 
       apiLogger.info({
         msg: "Payment completed via Stripe",

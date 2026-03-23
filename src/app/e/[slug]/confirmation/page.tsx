@@ -38,8 +38,6 @@ function ConfirmationContent() {
   const registrationId = searchParams.get("id");
   const firstName = searchParams.get("name");
   const paymentParam = searchParams.get("payment"); // "success" | "cancelled" | null
-  const priceParam = searchParams.get("price");
-  const currencyParam = searchParams.get("currency");
 
   const [branding, setBranding] = useState<EventBranding | null>(null);
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
@@ -63,7 +61,7 @@ function ConfirmationContent() {
       .catch(() => {});
   }, [slug]);
 
-  // Fetch payment status
+  // Fetch payment status — always fetch from server for paid tickets
   const fetchPaymentStatus = useCallback(async () => {
     if (!slug || !registrationId) return null;
     try {
@@ -79,12 +77,13 @@ function ConfirmationContent() {
     return null;
   }, [slug, registrationId]);
 
+  // Always fetch payment info when we have a registrationId — server is the source of truth
   useEffect(() => {
-    if (registrationId && (priceParam || paymentParam)) {
+    if (registrationId) {
       setLoadingPayment(true);
       fetchPaymentStatus().finally(() => setLoadingPayment(false));
     }
-  }, [registrationId, priceParam, paymentParam, fetchPaymentStatus]);
+  }, [registrationId, fetchPaymentStatus]);
 
   // Poll for payment completion after returning from Stripe
   useEffect(() => {
@@ -133,9 +132,10 @@ function ConfirmationContent() {
   };
 
   const isPaid = paymentInfo?.paymentStatus === "PAID";
-  const ticketPrice = paymentInfo?.ticketPrice ?? (priceParam ? Number(priceParam) : 0);
-  const ticketCurrency = paymentInfo?.ticketCurrency ?? currencyParam ?? "USD";
-  const hasPaidTicket = ticketPrice > 0;
+  // Derive payment display from server-fetched data only — URL params are not trusted
+  const ticketPrice = paymentInfo?.ticketPrice ?? 0;
+  const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";
+  const hasPaidTicket = paymentInfo ? ticketPrice > 0 : false;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">

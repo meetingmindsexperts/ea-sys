@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const checkoutSchema = z.object({
@@ -92,19 +92,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     const cancelUrl = `${appUrl}/e/${eventSlug}/confirmation?id=${registrationId}&name=${encodeURIComponent(firstName)}&payment=cancelled`;
 
     // Create Stripe Checkout Session
-    // Note: Stripe uses smallest currency unit (cents for USD/EUR/AED).
-    // Zero-decimal currencies (JPY, KRW) don't need multiplication — not handled here for MVP.
+    const currencyCode = registration.ticketType.currency.toLowerCase();
+    const unitAmount = isZeroDecimalCurrency(currencyCode)
+      ? Math.round(ticketPrice)
+      : Math.round(ticketPrice * 100);
+
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [
         {
           price_data: {
-            currency: registration.ticketType.currency.toLowerCase(),
+            currency: currencyCode,
             product_data: {
               name: `${registration.event.name} — ${registration.ticketType.name}`,
             },
-            unit_amount: Math.round(ticketPrice * 100),
+            unit_amount: unitAmount,
           },
           quantity: 1,
         },
