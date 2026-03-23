@@ -27,6 +27,12 @@ import {
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Mail,
   Phone,
   Building,
@@ -44,6 +50,7 @@ import {
   Save,
   X,
   MapPin,
+  ChevronDown,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { queryKeys } from "@/hooks/use-api";
@@ -140,9 +147,11 @@ export function RegistrationDetailSheet({
   });
 
   const sendEmail = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, type }: { id: string; type: string }) => {
       const res = await fetch(`/api/events/${eventId}/registrations/${id}/email`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -151,7 +160,7 @@ export function RegistrationDetailSheet({
       return res.json();
     },
     onSuccess: () => {
-      toast.success("Confirmation email sent");
+      toast.success("Email sent");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -274,15 +283,26 @@ export function RegistrationDetailSheet({
                           Check In
                         </Button>
                       )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => sendEmail.mutate(selectedRegistration.id)}
-                      disabled={sendEmail.isPending}
-                    >
-                      <Send className="mr-2 h-4 w-4" />
-                      Send Email
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" disabled={sendEmail.isPending}>
+                          <Send className="mr-2 h-4 w-4" />
+                          {sendEmail.isPending ? "Sending..." : "Send Email"}
+                          <ChevronDown className="ml-1 h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "confirmation" })}>
+                          Registration Confirmation
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "reminder" })}>
+                          Event Reminder
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "custom" })}>
+                          Custom Notification
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       size="sm"
                       variant="outline"

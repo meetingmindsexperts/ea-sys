@@ -8,7 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
 const sendEmailSchema = z.object({
-  type: z.enum(["confirmation", "reminder", "custom"]),
+  type: z.enum(["confirmation", "reminder", "custom"]).default("confirmation"),
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   daysUntilEvent: z.number().optional(),
@@ -62,7 +62,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const body = await req.json();
+    let body: unknown = {};
+    try {
+      body = await req.json();
+    } catch {
+      // No body — default to confirmation email
+    }
     const validated = sendEmailSchema.safeParse(body);
 
     if (!validated.success) {
