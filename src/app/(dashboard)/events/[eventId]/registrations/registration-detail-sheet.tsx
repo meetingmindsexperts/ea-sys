@@ -298,6 +298,9 @@ export function RegistrationDetailSheet({
                         <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "reminder" })}>
                           Event Reminder
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "payment-reminder" })}>
+                          Payment Reminder
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "custom" })}>
                           Custom Notification
                         </DropdownMenuItem>

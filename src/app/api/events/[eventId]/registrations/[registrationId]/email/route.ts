@@ -8,7 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
 const sendEmailSchema = z.object({
-  type: z.enum(["confirmation", "reminder", "custom"]).default("confirmation"),
+  type: z.enum(["confirmation", "reminder", "payment-reminder", "custom"]).default("confirmation"),
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   daysUntilEvent: z.number().optional(),
@@ -99,11 +99,26 @@ export async function POST(req: Request, { params }: RouteParams) {
     const slugMap: Record<string, string> = {
       confirmation: "registration-confirmation",
       reminder: "event-reminder",
+      "payment-reminder": "payment-reminder",
       custom: "custom-notification",
     };
 
     if (type === "reminder") {
       vars.daysUntilEvent = daysUntilEvent ?? 1;
+    }
+
+    if (type === "payment-reminder") {
+      const price = Number(registration.ticketType?.price || 0);
+      const currency = registration.ticketType?.currency || "USD";
+      vars.amount = `${currency} ${price.toFixed(2)}`;
+
+      // Build payment link
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
+      const eventSlug = event.slug || event.id;
+      const paymentLink = `${appUrl}/e/${eventSlug}/confirmation?id=${registration.id}&name=${encodeURIComponent(String(vars.firstName))}&price=${price}&currency=${currency}`;
+      vars.paymentBlock = `<div style="text-align: center; margin: 20px 0;">
+        <a href="${paymentLink}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">Pay Now</a>
+      </div>`;
     }
 
     if (type === "custom") {

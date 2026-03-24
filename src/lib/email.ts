@@ -666,6 +666,43 @@ Payment Date: {{paymentDate}}
 
 Please save this email for your records.`,
   },
+  {
+    slug: "payment-reminder",
+    name: "Payment Reminder",
+    subject: "Payment Reminder — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="display: inline-block; width: 56px; height: 56px; border-radius: 50%; background: #fef3c7; text-align: center; line-height: 56px; font-size: 28px;">&#9888;</div>
+    </div>
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Payment Reminder</h1>
+    <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>This is a friendly reminder that your registration payment is still pending. Please complete your payment to secure your spot.</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
+      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Date</td><td style="padding: 10px 16px; text-align: right;">{{eventDate}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration Type</td><td style="padding: 10px 16px; text-align: right;">{{ticketType}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Amount Due</td><td style="padding: 10px 16px; font-weight: 700; font-size: 16px; text-align: right; color: #dc2626;">{{amount}}</td></tr>
+    </table>
+    {{paymentBlock}}
+    <p style="color: #6b7280; font-size: 13px;">If you have already made the payment, please disregard this email. For any questions, contact the event organizer.</p>
+  </div>`,
+    textContent: `Payment Reminder — {{eventName}}
+
+Dear {{firstName}},
+
+This is a friendly reminder that your registration payment is still pending. Please complete your payment to secure your spot.
+
+Event: {{eventName}}
+Date: {{eventDate}}
+Registration Type: {{ticketType}}
+Amount Due: {{amount}}
+
+{{paymentBlock}}
+
+If you have already made the payment, please disregard this email.`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────
