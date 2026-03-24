@@ -497,16 +497,15 @@ export default function ContactsPage() {
                 </th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell">Organization</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Specialty</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
-                <th className="w-24 px-4 py-3" />
+                <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16">
+                  <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center gap-2 text-gray-400">
                       <RefreshCw className="h-5 w-5 animate-spin" />
                       <span className="text-xs">Loading contacts…</span>
@@ -515,7 +514,7 @@ export default function ContactsPage() {
                 </tr>
               ) : contacts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-16">
+                  <td colSpan={6} className="text-center py-16">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center">
                         <Users className="h-6 w-6 text-gray-300" />
@@ -588,15 +587,6 @@ export default function ContactsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3.5 hidden lg:table-cell">
-                        {contact.specialty ? (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md font-medium">
-                            {contact.specialty}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 text-sm">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3.5 hidden lg:table-cell">
                         <div className="flex flex-wrap gap-1">
                           {(contact.tags || []).slice(0, 3).map((tag: string) => (
                             <span
@@ -617,43 +607,35 @@ export default function ContactsPage() {
                         {formatDate(contact.createdAt)}
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="flex gap-0.5 justify-end">
+                        <div className="flex gap-1 justify-end">
                           <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-gray-400 hover:text-[#00aade] hover:bg-[#00aade]/5"
-                            title="View"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 text-xs text-gray-600"
                             onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
                           >
-                            <Eye className="h-3.5 w-3.5" />
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
                           </Button>
                           <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-gray-400 hover:text-[#00aade] hover:bg-[#00aade]/5"
-                            title="Manage tags"
-                            onClick={() => openTagDialog(contact.id, "add")}
-                          >
-                            <Tag className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 text-xs text-gray-600"
                             asChild
                           >
-                            <Link href={`/contacts/${contact.id}/edit`} title="Edit">
-                              <Pencil className="h-3.5 w-3.5" />
+                            <Link href={`/contacts/${contact.id}/edit`}>
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Edit
                             </Link>
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-gray-400 hover:text-rose-500 hover:bg-rose-50"
+                            className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:bg-rose-50"
                             title="Delete"
                             onClick={() => setDeleteId(contact.id)}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
