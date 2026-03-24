@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Mic, Plus, Mail, MapPin, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
-import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
+import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
@@ -176,7 +176,7 @@ export default function SpeakersPage() {
                 </Button>
               )}
               <CSVImportButton eventId={eventId} entityType="speakers" />
-              <ImportContactsButton eventId={eventId} mode="speaker" />
+              <ImportRegistrationsButton eventId={eventId} />
               <Button asChild>
                 <Link href={`/events/${eventId}/speakers/new`}>
                   <Plus className="mr-2 h-4 w-4" />

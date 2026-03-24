@@ -617,7 +617,7 @@ export default function ContactsPage() {
                         {formatDate(contact.createdAt)}
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex gap-0.5 justify-end">
                           <Button
                             variant="ghost"
                             size="icon"

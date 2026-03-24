@@ -420,6 +420,21 @@ export function useImportContactsToSpeakers(eventId: string) {
   });
 }
 
+export function useImportRegistrationsToSpeakers(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registrationIds: string[]) =>
+      fetchApi(`/api/events/${eventId}/speakers/import-registrations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationIds }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+    },
+  });
+}
+
 export function useImportContactsToRegistrations(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
