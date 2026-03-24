@@ -9,6 +9,7 @@ import {
   useBulkTagContacts,
 } from "@/hooks/use-api";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,6 +103,9 @@ function getAvatarBg(name: string): string {
 type TagMode = "add" | "remove" | "replace";
 
 export default function ContactsPage() {
+  const { data: userSession } = useSession();
+  const isAdmin = userSession?.user?.role === "SUPER_ADMIN" || userSession?.user?.role === "ADMIN";
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
@@ -628,15 +632,17 @@ export default function ContactsPage() {
                               <Pencil className="h-4 w-4" />
                             </Link>
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:border-rose-200"
-                            title="Delete contact"
-                            onClick={() => setDeleteId(contact.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:border-rose-200"
+                              title="Delete contact"
+                              onClick={() => setDeleteId(contact.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
