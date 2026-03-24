@@ -483,8 +483,8 @@ export default function ContactsPage() {
         )}
 
         {/* Contacts table */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 <th className="w-10 px-4 py-3">
@@ -496,7 +496,7 @@ export default function ContactsPage() {
                   />
                 </th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell">Organization</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Organization</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
@@ -576,7 +576,7 @@ export default function ContactsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 hidden md:table-cell">
+                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[160px]">
                         <div className="min-w-0">
                           <span className="text-sm text-gray-700 truncate block">
                             {contact.organization || <span className="text-gray-300">—</span>}
@@ -610,29 +610,29 @@ export default function ContactsPage() {
                         <div className="flex gap-1 justify-end">
                           <Button
                             variant="outline"
-                            size="sm"
-                            className="h-8 px-2.5 text-xs text-gray-600"
+                            size="icon"
+                            className="h-8 w-8 text-gray-600"
+                            title="View contact"
                             onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
                           >
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
+                            <Eye className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="outline"
-                            size="sm"
-                            className="h-8 px-2.5 text-xs text-gray-600"
+                            size="icon"
+                            className="h-8 w-8 text-gray-600"
+                            title="Edit contact"
                             asChild
                           >
                             <Link href={`/contacts/${contact.id}/edit`}>
-                              <Pencil className="h-4 w-4 mr-1" />
-                              Edit
+                              <Pencil className="h-4 w-4" />
                             </Link>
                           </Button>
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
-                            className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:bg-rose-50"
-                            title="Delete"
+                            className="h-8 w-8 text-gray-400 hover:text-rose-500 hover:border-rose-200"
+                            title="Delete contact"
                             onClick={() => setDeleteId(contact.id)}
                           >
                             <Trash2 className="h-4 w-4" />
