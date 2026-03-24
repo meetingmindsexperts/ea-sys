@@ -128,6 +128,10 @@ export default function RegistrationsPage() {
       "Barcode",
       "Registered Date",
       "Checked In Date",
+      "Source",
+      "Medium",
+      "Campaign",
+      "Referrer",
     ];
 
     const rows = filteredRegistrations.map((r) => [
@@ -151,6 +155,10 @@ export default function RegistrationsPage() {
       r.barcode || "",
       formatDate(r.createdAt),
       r.checkedInAt ? formatDate(r.checkedInAt) : "",
+      r.utmSource || "",
+      r.utmMedium || "",
+      r.utmCampaign || "",
+      r.referrer || "",
     ]);
 
     const csvContent = [

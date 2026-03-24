@@ -94,6 +94,9 @@ src/
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
 - `src/app/uploads/[...path]/route.ts` - Static file handler for uploaded photos (streams from public/uploads/)
 - `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
+- `src/lib/stripe.ts` - Stripe SDK singleton, zero-decimal currency helpers (`isZeroDecimalCurrency`, `toStripeAmount`, `fromStripeAmount`)
+- `src/components/speakers/import-registrations-dialog.tsx` - Dialog to import event registrations as speakers
+- `src/components/speakers/import-registrations-button.tsx` - Button trigger for import-registrations dialog
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
@@ -104,12 +107,13 @@ src/
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
 - **Registration** - Event registrations
 - **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
-- **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard
+- **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard; speakers can be added manually, via CSV import, or imported from the event's registrations
 - **EventSession** - Schedule sessions
 - **Track** - Session tracks
 - **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
 - **Hotel/RoomType/Accommodation** - Lodging management
 - **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `country`, and `registrationType` fields
+- **Payment** - Stripe payment records linked to Registration; stores amount, currency, stripePaymentId (unique), stripeCustomerId, status, receiptUrl, metadata (JSON)
 - **AuditLog** - Action logging
 - **SystemLog** - Pino log entries persisted to DB (level, module, message, timestamp); used by `/logs` viewer on Vercel
 
@@ -331,7 +335,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 
 **Available hooks:**
 - `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket` (for registration types)
-- `useRegistrations`, `useSpeakers`, `useSessions`, `useTracks`
+- `useRegistrations`, `useSpeakers`, `useImportRegistrationsToSpeakers`, `useSessions`, `useTracks`
 - `useAbstracts`, `useHotels`, `useAccommodations`
 - `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
 - `useEvents`, `useEvent`
@@ -367,6 +371,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **API query optimization (March 2026)** - `select: { id: true }` on event existence checks across 25+ route files; parallelized independent queries in speaker/abstract detail routes; reduced over-fetching in registration list
 - **WYSIWYG footer editor** - Event footer HTML now edited via TiptapEditor in settings (replaced textarea)
 - **Registration detail edit** - Slide-out panel with full CRUD for registration details; registration type editable via dropdown
+- **Import speakers from registrations** - Replaced "Import from Contacts" on the speakers page with "Import from Registrations"; dialog (`src/components/speakers/import-registrations-dialog.tsx`) lists the event's own registrations (excluding cancelled) with search, multi-select, name/email/org/type/status columns; API route (`src/app/api/events/[eventId]/speakers/import-registrations/route.ts`) maps attendee data to speaker records, deduplicates by email, skips existing speakers; React Query hook `useImportRegistrationsToSpeakers` in `use-api.ts`
+- **Stripe payment integration** - Stripe Checkout for paid event registrations; checkout route at `/api/public/events/[slug]/checkout` creates Stripe sessions with rate limiting (3/60s per IP); webhook at `/api/webhooks/stripe` handles `checkout.session.completed` with signature verification, idempotent processing (interactive transaction to prevent duplicate Payment records), receipt URL fetching, and payment confirmation email; payment status polling endpoint at `/api/public/events/[slug]/payment-status/[registrationId]`; confirmation page (`/e/[slug]/confirmation`) shows Pay Now button for paid tickets, polls for webhook completion, displays payment status from server (not URL params); `src/lib/stripe.ts` provides lazy-init Stripe SDK singleton and zero-decimal currency helpers (`isZeroDecimalCurrency`, `toStripeAmount`, `fromStripeAmount`) for correct handling of JPY, KRW, etc.; `Payment` model stores amount, currency, stripePaymentId, receiptUrl; env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - **React Query caching** for instant page navigation (registration types, registrations, schedule, abstracts, reviewers)
 - Public event registration at `/e/[slug]` (no auth required)
 - User invitation system with email tokens

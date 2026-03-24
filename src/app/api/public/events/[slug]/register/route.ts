@@ -25,6 +25,11 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required").max(255),
   customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
+  // Tracking
+  referrer: z.string().max(2000).optional(),
+  utmSource: z.string().max(255).optional(),
+  utmMedium: z.string().max(255).optional(),
+  utmCampaign: z.string().max(255).optional(),
 });
 
 interface RouteParams {
@@ -73,7 +78,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -245,6 +250,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           paymentStatus: effectivePrice === 0 ? "PAID" : "UNPAID",
           qrCode: generateQRCode(),
+          referrer: referrer || null,
+          utmSource: utmSource || null,
+          utmMedium: utmMedium || null,
+          utmCampaign: utmCampaign || null,
         },
         include: { attendee: true, ticketType: true, pricingTier: true },
       });

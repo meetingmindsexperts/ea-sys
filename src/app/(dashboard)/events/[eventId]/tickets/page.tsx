@@ -18,6 +18,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ClipboardList,
   Plus,
   Pencil,
@@ -26,6 +33,7 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Link2,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -86,6 +94,11 @@ export default function TicketsPage() {
   const deleteTicket = useDeleteTicket(eventId);
   const { data: event } = useEvent(eventId);
   const [copiedTier, setCopiedTier] = useState<string | null>(null);
+  const [utmDialogOpen, setUtmDialogOpen] = useState(false);
+  const [utmTier, setUtmTier] = useState("");
+  const [utmSource, setUtmSource] = useState("");
+  const [utmMedium, setUtmMedium] = useState("");
+  const [utmCampaign, setUtmCampaign] = useState("");
 
   const invalidateAndRefetch = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
@@ -246,6 +259,10 @@ export default function TicketsPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button variant="outline" onClick={() => { setUtmDialogOpen(true); setUtmTier(""); setUtmSource(""); setUtmMedium(""); setUtmCampaign(""); }}>
+            <Link2 className="mr-2 h-4 w-4" />
+            UTM Link Builder
           </Button>
           <Button onClick={openCreateType}>
             <Plus className="mr-2 h-4 w-4" />
@@ -499,6 +516,99 @@ export default function TicketsPage() {
             <Button variant="outline" onClick={() => setTierDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveTier}>{editingTier ? "Update" : "Create"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* UTM Link Builder Dialog */}
+      <Dialog open={utmDialogOpen} onOpenChange={setUtmDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>UTM Link Builder</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Generate a tracked registration link for sharing on websites, social media, or email campaigns.
+            </p>
+
+            <div className="space-y-2">
+              <Label>Registration Form *</Label>
+              <Select value={utmTier} onValueChange={setUtmTier}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a form" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(() => {
+                    const tierNames = new Set<string>();
+                    ticketTypes.forEach((tt) => tt.pricingTiers.forEach((t) => tierNames.add(t.name)));
+                    return [...tierNames].map((name) => (
+                      <SelectItem key={name} value={toSlug(name)}>{name}</SelectItem>
+                    ));
+                  })()}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Source *</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {["linkedin", "instagram", "facebook", "twitter", "mailchimp", "website"].map((s) => (
+                  <Button key={s} size="sm" variant={utmSource === s ? "default" : "outline"}
+                    onClick={() => setUtmSource(s)} className="text-xs h-7 capitalize">{s}</Button>
+                ))}
+              </div>
+              <Input placeholder="Or enter custom source" value={utmSource}
+                onChange={(e) => setUtmSource(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Medium *</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {["social", "email", "website", "paid", "referral"].map((m) => (
+                  <Button key={m} size="sm" variant={utmMedium === m ? "default" : "outline"}
+                    onClick={() => setUtmMedium(m)} className="text-xs h-7 capitalize">{m}</Button>
+                ))}
+              </div>
+              <Input placeholder="Or enter custom medium" value={utmMedium}
+                onChange={(e) => setUtmMedium(e.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Campaign</Label>
+              <Input placeholder="e.g., ehc2026-launch, early-bird-promo" value={utmCampaign}
+                onChange={(e) => setUtmCampaign(e.target.value)} />
+            </div>
+
+            {/* Generated URL preview */}
+            {utmTier && utmSource && utmMedium && event?.slug && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Generated Link</Label>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-3">
+                  <code className="text-xs text-slate-700 break-all">
+                    {(() => {
+                      const base = `${typeof window !== "undefined" ? window.location.origin : ""}/e/${event.slug}/register/${utmTier}`;
+                      const params = new URLSearchParams();
+                      params.set("utm_source", utmSource);
+                      params.set("utm_medium", utmMedium);
+                      if (utmCampaign) params.set("utm_campaign", utmCampaign);
+                      return `${base}?${params.toString()}`;
+                    })()}
+                  </code>
+                </div>
+                <Button className="w-full" onClick={() => {
+                  const base = `${window.location.origin}/e/${event.slug}/register/${utmTier}`;
+                  const params = new URLSearchParams();
+                  params.set("utm_source", utmSource);
+                  params.set("utm_medium", utmMedium);
+                  if (utmCampaign) params.set("utm_campaign", utmCampaign);
+                  navigator.clipboard.writeText(`${base}?${params.toString()}`);
+                  toast.success("Link copied to clipboard");
+                }}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy Link
+                </Button>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

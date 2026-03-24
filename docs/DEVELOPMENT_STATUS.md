@@ -391,9 +391,10 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 | CSV bulk import (skip duplicates) | ✅ | ✅ | Complete |
 | CSV export (all org contacts) | ✅ | ✅ | Complete |
 | Contact detail + event history | ✅ | ✅ | Complete |
-| Import contacts → Event Speakers | ✅ | ✅ | Complete |
+| Import contacts → Event Speakers | ✅ | ✅ | Replaced by Import from Registrations |
 | Import contacts → Event Registrations | ✅ | ✅ | Complete |
-| "Import from Contacts" button on Speakers page | N/A | ✅ | Complete |
+| Import registrations → Event Speakers | ✅ | ✅ | Complete |
+| "Import from Registrations" button on Speakers page | N/A | ✅ | Complete |
 | "Import from Contacts" button on Registrations page | N/A | ✅ | Complete |
 
 **API Endpoints:**
@@ -404,7 +405,8 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 - `DELETE /api/contacts/[contactId]` — Delete contact
 - `POST /api/contacts/import` — CSV bulk import via multipart/form-data; returns `{ created, skipped, errors[] }`
 - `GET /api/contacts/export` — Downloads CSV attachment with all org contacts
-- `POST /api/events/[eventId]/speakers/import-contacts` — `{ contactIds }` → creates speakers skipping duplicates
+- `POST /api/events/[eventId]/speakers/import-contacts` — `{ contactIds }` → creates speakers skipping duplicates (legacy, replaced by import-registrations on UI)
+- `POST /api/events/[eventId]/speakers/import-registrations` — `{ registrationIds }` → imports event registrations as speakers, deduplicates by email
 - `POST /api/events/[eventId]/registrations/import-contacts` — `{ contactIds, ticketTypeId }` → creates attendees + registrations in transaction
 
 **Key Design Decisions:**
@@ -431,7 +433,10 @@ Org-wide contact repository holding up to 100k contacts, with CSV import/export,
 **Modified Files:**
 - `src/hooks/use-api.ts` — 7 new hooks + `contacts`/`contact` query keys
 - `src/components/layout/sidebar.tsx` — Contacts nav item (after Events, hidden for REVIEWER/SUBMITTER)
-- `src/app/(dashboard)/events/[eventId]/speakers/page.tsx` — Import from Contacts button
+- `src/app/api/events/[eventId]/speakers/import-registrations/route.ts`
+- `src/components/speakers/import-registrations-dialog.tsx`
+- `src/components/speakers/import-registrations-button.tsx`
+- `src/app/(dashboard)/events/[eventId]/speakers/page.tsx` — Import from Registrations button (replaced Import from Contacts)
 - `src/app/(dashboard)/events/[eventId]/registrations/page.tsx` — Import from Contacts button
 
 ---

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -158,6 +158,8 @@ export default function CategoryRegistrationPage() {
   const slug = params.slug as string;
   const categorySlug = params.category as string;
 
+  const searchParams = useSearchParams();
+
   const [event, setEvent] = useState<Event | null>(null);
   const [formLabel, setFormLabel] = useState<string | null>(null);
   const [regTypeOptions, setRegTypeOptions] = useState<RegTypeOption[]>([]);
@@ -166,6 +168,20 @@ export default function CategoryRegistrationPage() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [skipTypeStep, setSkipTypeStep] = useState(false);
+
+  // Capture referral tracking on first load
+  const trackingRef = useRef({
+    referrer: typeof document !== "undefined" ? document.referrer || null : null,
+    utmSource: null as string | null,
+    utmMedium: null as string | null,
+    utmCampaign: null as string | null,
+  });
+
+  useEffect(() => {
+    trackingRef.current.utmSource = searchParams.get("utm_source");
+    trackingRef.current.utmMedium = searchParams.get("utm_medium");
+    trackingRef.current.utmCampaign = searchParams.get("utm_campaign");
+  }, [searchParams]);
 
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
@@ -302,7 +318,13 @@ export default function CategoryRegistrationPage() {
       const res = await fetch(`/api/public/events/${slug}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          referrer: trackingRef.current.referrer || undefined,
+          utmSource: trackingRef.current.utmSource || undefined,
+          utmMedium: trackingRef.current.utmMedium || undefined,
+          utmCampaign: trackingRef.current.utmCampaign || undefined,
+        }),
       });
       let result;
       try {

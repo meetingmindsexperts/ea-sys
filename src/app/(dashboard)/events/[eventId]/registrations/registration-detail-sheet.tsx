@@ -717,6 +717,39 @@ export function RegistrationDetailSheet({
                 </div>
               )}
 
+              {/* Source / Tracking */}
+              {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-sm">Source</h3>
+                  <div className="bg-muted rounded-lg p-3 space-y-1.5 text-sm">
+                    {selectedRegistration.utmSource && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Source</span>
+                        <span className="font-medium">{selectedRegistration.utmSource}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.utmMedium && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Medium</span>
+                        <span className="font-medium">{selectedRegistration.utmMedium}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.utmCampaign && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Campaign</span>
+                        <span className="font-medium">{selectedRegistration.utmCampaign}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.referrer && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Referrer</span>
+                        <span className="font-medium text-xs truncate max-w-[200px]">{selectedRegistration.referrer}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Timeline */}
               <div className="space-y-4">
                 <h3 className="font-semibold flex items-center gap-2">

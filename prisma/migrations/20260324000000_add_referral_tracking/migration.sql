@@ -1,0 +1,4 @@
+ALTER TABLE "Registration" ADD COLUMN IF NOT EXISTS "referrer" TEXT;
+ALTER TABLE "Registration" ADD COLUMN IF NOT EXISTS "utmSource" TEXT;
+ALTER TABLE "Registration" ADD COLUMN IF NOT EXISTS "utmMedium" TEXT;
+ALTER TABLE "Registration" ADD COLUMN IF NOT EXISTS "utmCampaign" TEXT;

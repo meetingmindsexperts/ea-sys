@@ -62,6 +62,10 @@ export interface Registration {
   qrCode: string | null;
   barcode: string | null;
   badgeType: string | null;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
   checkedInAt: string | null;
   notes: string | null;
   createdAt: string;
