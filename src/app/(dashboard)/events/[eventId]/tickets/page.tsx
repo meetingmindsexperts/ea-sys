@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -48,6 +48,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { useMutation } from "@tanstack/react-query";
+
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
+  { ssr: false, loading: () => <div className="h-[200px] border rounded-md animate-pulse bg-muted/50" /> }
+);
 
 interface PricingTier {
   id: string;
@@ -121,6 +127,38 @@ export default function TicketsPage() {
   });
 
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
+
+  // Terms & conditions WYSIWYG state
+  const [termsHtml, setTermsHtml] = useState<string>("");
+  const [termsLoaded, setTermsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (event && !termsLoaded) {
+      setTermsHtml((event as Record<string, unknown>).registrationTermsHtml as string || "");
+      setTermsLoaded(true);
+    }
+  }, [event, termsLoaded]);
+
+  const saveTerms = useMutation({
+    mutationFn: async (html: string) => {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationTermsHtml: html || null }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+      toast.success("Terms & conditions saved");
+    },
+    onError: () => toast.error("Failed to save terms"),
+  });
+
+  const handleSaveTerms = useCallback(() => {
+    saveTerms.mutate(termsHtml);
+  }, [termsHtml, saveTerms]);
 
   // Registration type CRUD
   const openCreateType = () => {
@@ -489,6 +527,22 @@ export default function TicketsPage() {
         </ul>
       </div>
 
+      {/* Terms & Conditions Editor */}
+      <Card>
+        <CardContent className="pt-5 pb-4 px-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Terms & Conditions</h3>
+              <p className="text-xs text-muted-foreground">Shown on the public registration form. Registrants must agree before submitting.</p>
+            </div>
+            <Button size="sm" onClick={handleSaveTerms} disabled={saveTerms.isPending}>
+              {saveTerms.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+          <TiptapEditor content={termsHtml} onChange={setTermsHtml} />
+        </CardContent>
+      </Card>
+
       {/* Registration Type Dialog */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
         <DialogContent>
@@ -503,8 +557,7 @@ export default function TicketsPage() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea placeholder="Optional description" value={typeDesc}
-                onChange={(e) => setTypeDesc(e.target.value)} />
+              <TiptapEditor content={typeDesc} onChange={setTypeDesc} />
             </div>
           </div>
           <DialogFooter>

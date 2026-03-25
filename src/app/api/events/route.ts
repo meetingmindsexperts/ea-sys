@@ -9,6 +9,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
+import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -129,6 +130,7 @@ export async function POST(req: Request) {
         eventType: eventType || null,
         tag: tag || null,
         specialty: specialty || null,
+        registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
       },
     });
 

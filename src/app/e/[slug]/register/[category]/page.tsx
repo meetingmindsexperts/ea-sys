@@ -16,18 +16,7 @@ import {
   Loader2,
   FileText,
   ChevronRight,
-  ChevronLeft,
-  User,
-  Building2,
-  Phone,
-  Globe,
-  Utensils,
-  Stethoscope,
   AlertCircle,
-  Mail,
-  Shield,
-  PenLine,
-  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,12 +28,14 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 
 function toSlug(name: string): string {
   return name
@@ -99,6 +90,7 @@ interface Event {
   bannerImage: string | null;
   footerHtml: string | null;
   supportEmail: string | null;
+  registrationTermsHtml: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
@@ -120,7 +112,7 @@ interface RegTypeOption {
 }
 
 const registrationSchema = z.object({
-  ticketTypeId: z.string().min(1, "Please select a registration type"),
+  ticketTypeId: z.string().min(1, "Please select a category"),
   pricingTierId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   role: z.string().min(1, "Role is required"),
@@ -136,21 +128,10 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
+  agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
 });
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
-
-const STEPS = [
-  { id: "type", label: "Registration Type" },
-  { id: "personal", label: "Personal Info" },
-  { id: "details", label: "Details" },
-] as const;
-
-const STEP_FIELDS: Record<string, (keyof RegistrationForm)[]> = {
-  type: ["ticketTypeId"],
-  personal: ["title", "firstName", "lastName", "email", "role"],
-  details: ["country", "specialty"],
-};
 
 export default function CategoryRegistrationPage() {
   const params = useParams();
@@ -166,8 +147,6 @@ export default function CategoryRegistrationPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0);
-  const [skipTypeStep, setSkipTypeStep] = useState(false);
 
   // Capture referral tracking on first load
   const trackingRef = useRef({
@@ -190,6 +169,7 @@ export default function CategoryRegistrationPage() {
       firstName: "", lastName: "", email: "", additionalEmail: "",
       organization: "", jobTitle: "", phone: "", city: "",
       country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
+      agreeTerms: undefined as unknown as true,
     },
   });
 
@@ -207,10 +187,7 @@ export default function CategoryRegistrationPage() {
         const hasPricingTiers = data.ticketTypes.some((tt) => tt.pricingTiers && tt.pricingTiers.length > 0);
 
         if (hasPricingTiers) {
-          // New flow: [category] = pricing tier name slug (e.g., "early-bird")
-          // Build options: all registration types that have this tier
           const options: RegTypeOption[] = [];
-
           for (const tt of data.ticketTypes) {
             const tier = tt.pricingTiers?.find((t) => toSlug(t.name) === categorySlug);
             if (tier) {
@@ -232,7 +209,6 @@ export default function CategoryRegistrationPage() {
             return;
           }
 
-          // Get the tier name from the first match
           const tierName = data.ticketTypes
             .flatMap((tt) => tt.pricingTiers ?? [])
             .find((t) => toSlug(t.name) === categorySlug)?.name ?? categorySlug;
@@ -240,15 +216,14 @@ export default function CategoryRegistrationPage() {
           setFormLabel(tierName);
           setRegTypeOptions(options);
 
+          // Auto-select if only one purchasable
           const purchasable = options.filter((o) => o.canPurchase);
           if (purchasable.length === 1) {
             form.setValue("ticketTypeId", purchasable[0].ticketTypeId);
             form.setValue("pricingTierId", purchasable[0].pricingTierId);
-            setSkipTypeStep(true);
-            setStep(1);
           }
         } else {
-          // Legacy: [category] = old category slug
+          // Legacy flow
           const matchedCategory = data.ticketTypes.find(
             (t) => toSlug(t.category || "Standard") === categorySlug
           )?.category;
@@ -278,8 +253,6 @@ export default function CategoryRegistrationPage() {
           const purchasable = options.filter((o) => o.canPurchase);
           if (purchasable.length === 1) {
             form.setValue("ticketTypeId", purchasable[0].ticketTypeId);
-            setSkipTypeStep(true);
-            setStep(1);
           }
         }
       } catch (err) {
@@ -291,26 +264,6 @@ export default function CategoryRegistrationPage() {
     }
     if (slug) fetchEvent();
   }, [slug, categorySlug, form]);
-
-  const activeSteps = skipTypeStep ? STEPS.filter((s) => s.id !== "type") : [...STEPS];
-  const activeStepIndex = activeSteps.findIndex((s) => s.id === STEPS[step].id);
-  const isLastStep = activeStepIndex === activeSteps.length - 1;
-
-  async function handleNext() {
-    const currentStepId = STEPS[step].id;
-    const fieldsToValidate = STEP_FIELDS[currentStepId] || [];
-    const isValid = await form.trigger(fieldsToValidate);
-    if (!isValid) return;
-    if (isLastStep) {
-      form.handleSubmit(onSubmit)();
-    } else {
-      setStep((s) => s + 1);
-    }
-  }
-
-  function handleBack() {
-    if (step > (skipTypeStep ? 1 : 0)) setStep((s) => s - 1);
-  }
 
   async function onSubmit(data: RegistrationForm) {
     setSubmitting(true);
@@ -379,7 +332,7 @@ export default function CategoryRegistrationPage() {
           <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Registration not available"}</h2>
           <p className="text-slate-500 text-sm mb-4">Please check the link and try again.</p>
           <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
-            ← View all registration forms
+            View all registration forms
           </Link>
         </div>
       </div>
@@ -388,7 +341,6 @@ export default function CategoryRegistrationPage() {
 
   const purchasableOptions = regTypeOptions.filter((o) => o.canPurchase);
   const selectedTicketId = form.watch("ticketTypeId");
-  const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   const isClosed = purchasableOptions.length === 0;
 
@@ -434,34 +386,10 @@ export default function CategoryRegistrationPage() {
       {/* Main Content */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-6">
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-          {/* Header + steps */}
+          {/* Header */}
           <div className="px-6 py-5 border-b border-slate-100">
             <h2 className="text-lg font-semibold text-slate-900">{formLabel} Registration</h2>
-            <div className="flex items-center gap-2 mt-4">
-              {activeSteps.map((s, i) => {
-                const isCurrent = i === activeStepIndex;
-                const isCompleted = i < activeStepIndex;
-                return (
-                  <div key={s.id} className="flex items-center gap-2">
-                    {i > 0 && <div className={cn("h-px w-6 sm:w-10", isCompleted ? "bg-primary" : "bg-slate-200")} />}
-                    <div className="flex items-center gap-1.5">
-                      <div className={cn(
-                        "h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors",
-                        isCompleted ? "bg-primary text-white" :
-                        isCurrent ? "bg-primary/10 text-primary border-2 border-primary" :
-                        "bg-slate-100 text-slate-400"
-                      )}>
-                        {isCompleted ? <Check className="h-3.5 w-3.5" /> : i + 1}
-                      </div>
-                      <span className={cn(
-                        "text-xs font-medium hidden sm:inline",
-                        isCurrent ? "text-slate-800" : isCompleted ? "text-primary" : "text-slate-400"
-                      )}>{s.label}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <p className="text-sm text-slate-500 mt-1">Fill in the details below to complete your registration.</p>
           </div>
 
           <div className="p-6">
@@ -475,232 +403,245 @@ export default function CategoryRegistrationPage() {
               </div>
             ) : (
               <Form {...form}>
-                <form onSubmit={(e) => { e.preventDefault(); handleNext(); }} className="space-y-5">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
 
-                  {/* Step: Registration Type Selection */}
-                  {STEPS[step].id === "type" && (
-                    <div className="space-y-4">
-                      <p className="text-sm text-slate-600">Select your registration type:</p>
-                      <FormField control={form.control} name="ticketTypeId"
+                  {/* Section: Contact Details */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Contact Details</h3>
+
+                    <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                      <FormField control={form.control} name="title"
                         render={({ field }) => (
                           <FormItem>
-                            <div className="grid gap-3">
-                              {purchasableOptions.map((opt) => {
-                                const isSelected = field.value === opt.ticketTypeId;
-                                return (
-                                  <button key={opt.ticketTypeId} type="button"
-                                    onClick={() => {
-                                      field.onChange(opt.ticketTypeId);
-                                      if (opt.pricingTierId) {
-                                        form.setValue("pricingTierId", opt.pricingTierId);
-                                      }
-                                    }}
-                                    className={cn(
-                                      "w-full text-left rounded-xl border-2 p-5 transition-all duration-150",
-                                      isSelected
-                                        ? "border-primary bg-primary/[0.03] shadow-sm"
-                                        : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
-                                    )}>
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <p className="font-semibold text-slate-900">{opt.regTypeName}</p>
-                                        {opt.description && <p className="text-xs text-slate-500 mt-0.5">{opt.description}</p>}
-                                        {opt.available <= 0 && (
-                                          <p className="text-xs text-red-500 mt-1">Sold out</p>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-3">
-                                        <span className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
-                                          {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price}`}
-                                        </span>
-                                        <div className={cn(
-                                          "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                          isSelected ? "border-primary bg-primary" : "border-slate-300"
-                                        )}>
-                                          {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <FormMessage className="mt-2" />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-
-                  {/* Step: Personal Information */}
-                  {STEPS[step].id === "personal" && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
-                        <FormField control={form.control} name="title"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
-                              <TitleSelect value={field.value} onChange={field.onChange} />
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                        <FormField control={form.control} name="firstName"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                        <FormField control={form.control} name="lastName"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                      </div>
-                      <FormField control={form.control} name="email"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Mail className="h-3 w-3" /> Email <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-xs font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                            <TitleSelect value={field.value} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
                         )} />
-                      <FormField control={form.control} name="additionalEmail"
+                      <FormField control={form.control} name="firstName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Mail className="h-3 w-3" /> Additional Email</FormLabel>
-                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-xs font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="lastName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="jobTitle"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Position</FormLabel>
+                            <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="organization"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Organization</FormLabel>
+                            <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+
+                    <FormField control={form.control} name="phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Mobile Number</FormLabel>
+                          <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                    <FormField control={form.control} name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                    <FormField control={form.control} name="additionalEmail"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Additional Email</FormLabel>
+                          <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="country"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
+                            <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="city"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">City</FormLabel>
+                            <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="specialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
                         )} />
                       <FormField control={form.control} name="role"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Shield className="h-3 w-3" /> Role <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-xs font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
                             <RoleSelect value={field.value} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
                         )} />
                     </div>
-                  )}
 
-                  {/* Step: Professional & Location Details */}
-                  {STEPS[step].id === "details" && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={form.control} name="organization"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Building2 className="h-3 w-3" /> Organization</FormLabel>
-                              <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                        <FormField control={form.control} name="jobTitle"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><User className="h-3 w-3" /> Job Title</FormLabel>
-                              <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                      </div>
-                      <FormField control={form.control} name="phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</FormLabel>
-                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={form.control} name="city"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><MapPin className="h-3 w-3" /> City</FormLabel>
-                              <FormControl><Input placeholder="New York" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                        <FormField control={form.control} name="country"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span></FormLabel>
-                              <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-                      </div>
-                      <FormField control={form.control} name="specialty"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span></FormLabel>
-                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                      <FormField control={form.control} name="customSpecialty"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><PenLine className="h-3 w-3" /> Specialty (Specific)</FormLabel>
-                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                      <FormField control={form.control} name="dietaryReqs"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Utensils className="h-3 w-3" /> Dietary Requirements</FormLabel>
-                            <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                    <FormField control={form.control} name="customSpecialty"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Specialty (Specific)</FormLabel>
+                          <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
 
-                      {/* Summary */}
-                      {selectedOption && (
-                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <span className="text-sm text-slate-600">{selectedOption.regTypeName}</span>
-                              <span className="text-xs text-slate-400 ml-2">({formLabel})</span>
-                            </div>
-                            <span className="text-lg font-bold text-slate-900">
-                              {selectedOption.price === 0 ? "Free" : `${selectedOption.currency} ${selectedOption.price}`}
-                            </span>
+                    <FormField control={form.control} name="dietaryReqs"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Dietary Requirements</FormLabel>
+                          <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                  </div>
+
+                  {/* Section: Select Your Category */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Select Your Category</h3>
+                    <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
+
+                    <FormField control={form.control} name="ticketTypeId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="space-y-3">
+                            {purchasableOptions.map((opt) => {
+                              const isSelected = field.value === opt.ticketTypeId;
+                              return (
+                                <button key={opt.ticketTypeId} type="button"
+                                  onClick={() => {
+                                    field.onChange(opt.ticketTypeId);
+                                    if (opt.pricingTierId) {
+                                      form.setValue("pricingTierId", opt.pricingTierId);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "w-full text-left rounded-xl border-2 p-4 transition-all duration-150",
+                                    isSelected
+                                      ? "border-primary bg-primary/[0.03] shadow-sm"
+                                      : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
+                                  )}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                      <div className={cn(
+                                        "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
+                                        isSelected ? "border-primary bg-primary" : "border-slate-300"
+                                      )}>
+                                        {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                                      </div>
+                                      <div>
+                                        <p className="font-semibold text-slate-900">{opt.regTypeName}</p>
+                                        {opt.description && (
+                                          <div className="text-xs text-slate-500 mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeHtml(opt.description) }} />
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0 ml-4">
+                                      <div className="text-[10px] uppercase text-slate-400 font-medium">Amount</div>
+                                      <div className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
+                                        {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price.toFixed(2)}`}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {opt.available <= 0 && (
+                                    <p className="text-xs text-red-500 mt-1 ml-8">Sold out</p>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
-                        </div>
+                          <FormMessage className="mt-2" />
+                        </FormItem>
                       )}
-                    </div>
-                  )}
+                    />
 
-                  {/* Navigation */}
-                  <div className="flex items-center justify-between pt-2">
-                    {activeStepIndex > 0 ? (
-                      <Button type="button" variant="outline" onClick={handleBack} className="rounded-lg">
-                        <ChevronLeft className="mr-1 h-4 w-4" /> Back
-                      </Button>
-                    ) : (
-                      <div />
+                    {selectedTicketId && (
+                      <p className="text-xs text-slate-500 italic">
+                        Your professional ID may be required at the time of check-in. Always carry your ID to avoid inconvenience.
+                      </p>
                     )}
-                    <Button type="submit" disabled={submitting}
-                      className={cn("rounded-lg font-semibold", isLastStep ? "btn-gradient px-8" : "px-6")}>
+                  </div>
+
+                  {/* Section: Terms & Conditions */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Terms and Conditions</h3>
+                    <div className="max-h-[300px] overflow-y-auto bg-slate-50 rounded-lg border border-slate-200 p-4">
+                      <div className="prose prose-sm prose-slate max-w-none text-xs leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationTermsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
+                    </div>
+
+                    <FormField control={form.control} name="agreeTerms"
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={field.value === true}
+                              onCheckedChange={(checked) => field.onChange(checked === true ? true : undefined)}
+                              className="mt-0.5"
+                            />
+                            <FormLabel className="text-sm text-slate-700 font-normal cursor-pointer leading-snug">
+                              I agree to the terms and conditions
+                            </FormLabel>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                  </div>
+
+                  {/* Submit */}
+                  <div className="pt-2">
+                    <Button type="submit" disabled={submitting} className="w-full rounded-lg font-semibold btn-gradient py-3 text-base">
                       {submitting ? (
-                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Registering…</>
-                      ) : isLastStep ? (
-                        <>Complete Registration <ChevronRight className="ml-1 h-4 w-4" /></>
+                        <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Registering…</>
                       ) : (
-                        <>Continue <ChevronRight className="ml-1 h-4 w-4" /></>
+                        <>Complete Registration <ChevronRight className="ml-1 h-5 w-5" /></>
                       )}
                     </Button>
                   </div>
 
-                  <p className="text-center text-xs text-slate-400">
-                    By registering, you agree to the event terms and conditions.
-                  </p>
                   {event.supportEmail && (
                     <p className="text-center text-xs text-slate-400">
                       Need help?{" "}

@@ -27,6 +27,7 @@ const updateEventSchema = z.object({
   footerHtml: z.string().max(10000).nullable().optional(),
   emailHeaderImage: z.string().max(500).nullable().optional(),
   emailFooterHtml: z.string().max(10000).nullable().optional(),
+  registrationTermsHtml: z.string().max(50000).nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -127,6 +128,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       footerHtml,
       emailHeaderImage,
       emailFooterHtml,
+      registrationTermsHtml,
       settings,
     } = validated.data;
 
@@ -178,6 +180,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(footerHtml !== undefined && { footerHtml }),
         ...(emailHeaderImage !== undefined && { emailHeaderImage }),
         ...(emailFooterHtml !== undefined && { emailFooterHtml }),
+        ...(registrationTermsHtml !== undefined && { registrationTermsHtml }),
         settings: updatedSettings,
       },
     });
