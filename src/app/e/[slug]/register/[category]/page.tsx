@@ -16,7 +16,9 @@ import {
   Loader2,
   FileText,
   ChevronRight,
+  ChevronLeft,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +93,7 @@ interface Event {
   footerHtml: string | null;
   supportEmail: string | null;
   registrationTermsHtml: string | null;
+  registrationWelcomeHtml: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
@@ -152,6 +155,7 @@ export default function CategoryRegistrationPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<1 | 2>(1);
 
   // Capture referral tracking on first load
   const trackingRef = useRef({
@@ -395,7 +399,21 @@ export default function CategoryRegistrationPage() {
           {/* Header */}
           <div className="px-6 py-5 border-b border-slate-100">
             <h2 className="text-lg font-semibold text-slate-900">{formLabel} Registration</h2>
-            <p className="text-sm text-slate-500 mt-1">Fill in the details below to complete your registration.</p>
+            <p className="text-sm text-slate-500 mt-1">
+              {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
+            </p>
+            {/* Step indicator */}
+            <div className="flex items-center gap-2 mt-3">
+              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                step === 1 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-primary text-white"
+              )}>{step > 1 ? "✓" : "1"}</div>
+              <span className={cn("text-xs font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
+              <div className={cn("h-px w-8", step > 1 ? "bg-primary" : "bg-slate-200")} />
+              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                step === 2 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-slate-100 text-slate-400"
+              )}>2</div>
+              <span className={cn("text-xs font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
+            </div>
           </div>
 
           <div className="p-6">
@@ -411,6 +429,70 @@ export default function CategoryRegistrationPage() {
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
 
+                  {/* ── STEP 1: Create Account ── */}
+                  {step === 1 && (
+                    <div className="space-y-5">
+                      {/* Welcome text from organizer */}
+                      {event.registrationWelcomeHtml && (
+                        <div className="prose prose-sm prose-slate max-w-none"
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
+                      )}
+
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Lock className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-800">Create your account</h3>
+                          <p className="text-xs text-slate-500">You&apos;ll use these credentials to sign in, manage your registration, and make payments.</p>
+                        </div>
+                      </div>
+
+                      <FormField control={form.control} name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+
+                      <FormField control={form.control} name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+
+                      <FormField control={form.control} name="confirmPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+
+                      <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                        onClick={async () => {
+                          const valid = await form.trigger(["email", "password", "confirmPassword"]);
+                          if (valid) setStep(2);
+                        }}>
+                        Continue <ChevronRight className="ml-1 h-5 w-5" />
+                      </Button>
+
+                      <p className="text-center text-xs text-slate-400">
+                        Already have an account?{" "}
+                        <a href="/login" className="text-primary hover:underline font-medium">Sign in</a>
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ── STEP 2: Personal Details + Category + Terms ── */}
+                  {step === 2 && (
+                  <>
                   {/* Section: Contact Details */}
                   <div className="space-y-4">
                     <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Contact Details</h3>
@@ -466,15 +548,6 @@ export default function CategoryRegistrationPage() {
                         <FormItem>
                           <FormLabel className="text-xs font-medium text-slate-600">Mobile Number</FormLabel>
                           <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-
-                    <FormField control={form.control} name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -540,30 +613,6 @@ export default function CategoryRegistrationPage() {
                         <FormItem>
                           <FormLabel className="text-xs font-medium text-slate-600">Dietary Requirements</FormLabel>
                           <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                  </div>
-
-                  {/* Section: Create Account */}
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Create Account</h3>
-                    <p className="text-xs text-slate-500">Create an account to view your registration, edit details, and manage payments.</p>
-
-                    <FormField control={form.control} name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-
-                    <FormField control={form.control} name="confirmPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -661,9 +710,12 @@ export default function CategoryRegistrationPage() {
                       )} />
                   </div>
 
-                  {/* Submit */}
-                  <div className="pt-2">
-                    <Button type="submit" disabled={submitting} className="w-full rounded-lg font-semibold btn-gradient py-3 text-base">
+                  {/* Navigation */}
+                  <div className="flex items-center justify-between pt-2">
+                    <Button type="button" variant="outline" className="rounded-lg" onClick={() => setStep(1)}>
+                      <ChevronLeft className="mr-1 h-4 w-4" /> Back
+                    </Button>
+                    <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 py-3 text-base">
                       {submitting ? (
                         <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Registering…</>
                       ) : (
@@ -679,6 +731,8 @@ export default function CategoryRegistrationPage() {
                         {event.supportEmail}
                       </a>
                     </p>
+                  )}
+                  </>
                   )}
                 </form>
               </Form>

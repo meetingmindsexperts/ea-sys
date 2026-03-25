@@ -160,6 +160,38 @@ export default function TicketsPage() {
     saveTerms.mutate(termsHtml);
   }, [termsHtml, saveTerms]);
 
+  // Welcome text WYSIWYG state
+  const [welcomeHtml, setWelcomeHtml] = useState<string>("");
+  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
+
+  useEffect(() => {
+    if (event && !welcomeLoaded) {
+      setWelcomeHtml((event as Record<string, unknown>).registrationWelcomeHtml as string || "");
+      setWelcomeLoaded(true);
+    }
+  }, [event, welcomeLoaded]);
+
+  const saveWelcome = useMutation({
+    mutationFn: async (html: string) => {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationWelcomeHtml: html || null }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+      toast.success("Welcome text saved");
+    },
+    onError: () => toast.error("Failed to save welcome text"),
+  });
+
+  const handleSaveWelcome = useCallback(() => {
+    saveWelcome.mutate(welcomeHtml);
+  }, [welcomeHtml, saveWelcome]);
+
   // Registration type CRUD
   const openCreateType = () => {
     setEditingType(null);
@@ -526,6 +558,22 @@ export default function TicketsPage() {
           </li>
         </ul>
       </div>
+
+      {/* Registration Welcome Text Editor */}
+      <Card>
+        <CardContent className="pt-5 pb-4 px-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Registration Welcome Text</h3>
+              <p className="text-xs text-muted-foreground">Shown on step 1 of the public registration form, above the account creation fields.</p>
+            </div>
+            <Button size="sm" onClick={handleSaveWelcome} disabled={saveWelcome.isPending}>
+              {saveWelcome.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+          <TiptapEditor content={welcomeHtml} onChange={setWelcomeHtml} />
+        </CardContent>
+      </Card>
 
       {/* Terms & Conditions Editor */}
       <Card>

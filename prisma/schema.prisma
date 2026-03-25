@@ -137,7 +137,8 @@ model Event {
   emailHeaderImage String?
   emailFooterHtml  String?   @db.Text
   supportEmail           String?
-  registrationTermsHtml  String?   @db.Text
+  registrationTermsHtml    String?   @db.Text
+  registrationWelcomeHtml  String?   @db.Text
   externalId     String?
   externalSource String?
   createdAt      DateTime    @default(now())
