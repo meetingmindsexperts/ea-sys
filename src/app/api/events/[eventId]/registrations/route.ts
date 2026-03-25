@@ -30,7 +30,6 @@ const createRegistrationSchema = z.object({
     country: z.string().max(255).optional(),
     bio: z.string().max(5000).optional(),
     specialty: z.string().max(255).optional(),
-    registrationType: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
     customFields: z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).optional(),
@@ -186,6 +185,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         select: {
           id: true,
+          name: true,
           price: true,
           currency: true,
           quantity: true,
@@ -248,7 +248,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: attendee.country || null,
           bio: attendee.bio || null,
           specialty: attendee.specialty || null,
-          registrationType: attendee.registrationType || null,
+          registrationType: ticketType.name,
           tags: attendee.tags || [],
           dietaryReqs: attendee.dietaryReqs || null,
           customFields: attendee.customFields || {},
@@ -266,7 +266,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: attendee.country || null,
           bio: attendee.bio || null,
           specialty: attendee.specialty || null,
-          registrationType: attendee.registrationType || null,
+          registrationType: ticketType.name,
           tags: attendee.tags || [],
           dietaryReqs: attendee.dietaryReqs || null,
           customFields: attendee.customFields || {},
@@ -328,7 +328,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       country: attendee.country || null,
       bio: attendee.bio || null,
       specialty: attendee.specialty || null,
-      registrationType: attendee.registrationType || null,
+      registrationType: ticketType.name,
     });
 
     // Log the action (non-blocking for better response time)

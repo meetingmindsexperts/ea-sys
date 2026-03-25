@@ -28,7 +28,6 @@ const updateRegistrationSchema = z.object({
     country: z.string().max(255).optional(),
     bio: z.string().max(5000).optional(),
     specialty: z.string().max(255).optional(),
-    registrationType: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
     customFields: z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).optional(),
@@ -169,7 +168,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.country !== undefined && { country: attendee.country || null }),
           ...(attendee.bio !== undefined && { bio: attendee.bio || null }),
           ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
-          ...(attendee.registrationType !== undefined && { registrationType: attendee.registrationType || null }),
           ...(attendee.tags !== undefined && { tags: attendee.tags }),
           ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
           ...(attendee.customFields && { customFields: attendee.customFields }),
@@ -193,7 +191,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         country: attendee.country !== undefined ? (attendee.country || null) : a.country,
         bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
         specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
-        registrationType: attendee.registrationType !== undefined ? (attendee.registrationType || null) : a.registrationType,
+        registrationType: a.registrationType,
       });
     }
 
@@ -230,7 +228,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         });
         const newTicket = await tx.ticketType.findUnique({
           where: { id: ticketTypeId },
-          select: { quantity: true, soldCount: true },
+          select: { quantity: true, soldCount: true, name: true },
         });
         if (newTicket && newTicket.soldCount >= newTicket.quantity) {
           throw new Error("CAPACITY_EXCEEDED");
@@ -238,6 +236,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
         await tx.ticketType.update({
           where: { id: ticketTypeId },
           data: { soldCount: { increment: 1 } },
+        });
+        // Sync attendee.registrationType to match the new ticket type name
+        await tx.attendee.update({
+          where: { id: existingRegistration.attendeeId },
+          data: { registrationType: newTicket!.name },
         });
       }
 

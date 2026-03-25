@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
-import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { TagInput } from "@/components/ui/tag-input";
 import {
@@ -91,7 +90,6 @@ export function RegistrationDetailSheet({
     country: "",
     bio: "",
     specialty: "",
-    registrationType: "",
     tags: [] as string[],
     dietaryReqs: "",
     notes: "",
@@ -204,7 +202,6 @@ export function RegistrationDetailSheet({
         country: selectedRegistration.attendee.country || "",
         bio: selectedRegistration.attendee.bio || "",
         specialty: selectedRegistration.attendee.specialty || "",
-        registrationType: selectedRegistration.attendee.registrationType || "",
         tags: selectedRegistration.attendee.tags || [],
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
@@ -231,7 +228,6 @@ export function RegistrationDetailSheet({
             country: editData.country || undefined,
             bio: editData.bio || undefined,
             specialty: editData.specialty || undefined,
-            registrationType: editData.registrationType || undefined,
             tags: editData.tags,
             dietaryReqs: editData.dietaryReqs || undefined,
           },
@@ -457,14 +453,6 @@ export function RegistrationDetailSheet({
                       <SpecialtySelect
                         value={editData.specialty}
                         onChange={(specialty) => setEditData({ ...editData, specialty })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-registrationType">Registration Type</Label>
-                      <RegistrationTypeSelect
-                        value={editData.registrationType}
-                        onChange={(registrationType) => setEditData({ ...editData, registrationType })}
-                        eventId={eventId}
                       />
                     </div>
                     {!isReviewer && (
