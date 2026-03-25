@@ -31,10 +31,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       orderBy: { createdAt: "asc" },
     });
 
-    // If no templates exist for this event, seed defaults
-    if (templates.length === 0) {
-      const seeded = await db.emailTemplate.createManyAndReturn({
-        data: DEFAULT_TEMPLATES.map((t) => ({
+    // Seed missing templates — covers both fresh events and newly added templates
+    const existingSlugs = new Set(templates.map((t) => t.slug));
+    const missing = DEFAULT_TEMPLATES.filter((t) => !existingSlugs.has(t.slug));
+
+    if (missing.length > 0) {
+      await db.emailTemplate.createMany({
+        data: missing.map((t) => ({
           eventId,
           slug: t.slug,
           name: t.name,
@@ -42,10 +45,17 @@ export async function GET(_req: Request, { params }: RouteParams) {
           htmlContent: t.htmlContent,
           textContent: t.textContent,
         })),
+        skipDuplicates: true,
+      });
+
+      // Re-fetch with the newly added templates
+      const allTemplates = await db.emailTemplate.findMany({
+        where: { eventId },
+        orderBy: { createdAt: "asc" },
       });
 
       return NextResponse.json({
-        templates: seeded,
+        templates: allTemplates,
         variables: TEMPLATE_VARIABLES,
       });
     }

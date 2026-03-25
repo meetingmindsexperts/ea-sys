@@ -337,6 +337,16 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "paymentDate", description: "Payment date (formatted)" },
     { key: "receiptUrl", description: "Stripe receipt URL (auto-generated)" },
   ],
+  "payment-reminder": [
+    { key: "firstName", description: "Attendee first name" },
+    { key: "lastName", description: "Attendee last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDate", description: "Event date (formatted)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "ticketType", description: "Registration/ticket type" },
+    { key: "amount", description: "Amount due (e.g. USD 100.00)" },
+    { key: "paymentBlock", description: "Pay Now button (auto-generated)" },
+  ],
 };
 
 // ── Default template HTML (body fragments only — wrapped at render time) ──────
