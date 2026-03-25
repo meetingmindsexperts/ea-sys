@@ -239,7 +239,7 @@ export function RegistrationDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-6 w-full sm:max-w-[750px]">
+      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[650px]">
         {selectedRegistration ? (
           <>
             <SheetHeader className="pr-8">

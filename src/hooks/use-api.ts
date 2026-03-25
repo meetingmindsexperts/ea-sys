@@ -390,6 +390,22 @@ export function useBulkTagRegistrations(eventId: string) {
   });
 }
 
+export function useBulkUpdateRegistrationType(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { registrationIds: string[]; ticketTypeId: string }) =>
+      fetchApi(`/api/events/${eventId}/registrations/bulk-type`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
+    },
+  });
+}
+
 export function useBulkTagSpeakers(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

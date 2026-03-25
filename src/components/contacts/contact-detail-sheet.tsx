@@ -173,7 +173,7 @@ export function ContactDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent className="overflow-y-auto p-6 w-full sm:max-w-[650px]">
+      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[650px]">
         <SheetHeader className="pr-8">
           <SheetTitle className="flex items-center gap-3">
             {contact.photo ? (

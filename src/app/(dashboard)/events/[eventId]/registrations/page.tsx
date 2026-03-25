@@ -41,9 +41,10 @@ import {
   Send,
   X,
   Tag,
+  ArrowRightLeft,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -55,6 +56,13 @@ import { ImportContactsButton } from "@/components/contacts/import-contacts-butt
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { BadgeDialog } from "./badge-dialog";
 
@@ -100,6 +108,9 @@ export default function RegistrationsPage() {
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
 
   const bulkTagRegistrations = useBulkTagRegistrations(eventId);
+  const bulkUpdateType = useBulkUpdateRegistrationType(eventId);
+  const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
+  const [targetTypeId, setTargetTypeId] = useState<string>("");
 
   const handleRowClick = (registration: Registration) => {
     setSelectedRegistration(registration);
@@ -325,6 +336,14 @@ export default function RegistrationsPage() {
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
           </span>
           <div className="flex gap-2 ml-auto">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setTargetTypeId(""); setChangeTypeDialogOpen(true); }}
+            >
+              <ArrowRightLeft className="mr-2 h-4 w-4" />
+              Change Type
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -664,6 +683,52 @@ export default function RegistrationsPage() {
           setSelectedIds(new Set());
         }}
       />
+
+      {/* Bulk Change Type Dialog */}
+      <Dialog open={changeTypeDialogOpen} onOpenChange={setChangeTypeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Registration Type</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Move {selectedIds.size} selected registration{selectedIds.size !== 1 ? "s" : ""} to a new type. Cancelled registrations will be skipped.
+            </p>
+            <Select value={targetTypeId} onValueChange={setTargetTypeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select target type" />
+              </SelectTrigger>
+              <SelectContent>
+                {(ticketTypes as TicketType[]).map((rt) => (
+                  <SelectItem key={rt.id} value={rt.id}>{rt.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChangeTypeDialogOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!targetTypeId || bulkUpdateType.isPending}
+              onClick={async () => {
+                try {
+                  const result = await bulkUpdateType.mutateAsync({
+                    registrationIds: [...selectedIds],
+                    ticketTypeId: targetTypeId,
+                  }) as { updated: number };
+                  const typeName = (ticketTypes as TicketType[]).find((t) => t.id === targetTypeId)?.name;
+                  toast.success(`${result.updated} registration${result.updated !== 1 ? "s" : ""} moved to "${typeName}"`);
+                  setChangeTypeDialogOpen(false);
+                  setSelectedIds(new Set());
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Failed to update");
+                }
+              }}
+            >
+              {bulkUpdateType.isPending ? "Updating..." : "Update"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Email Dialog */}
       <BulkEmailDialog
