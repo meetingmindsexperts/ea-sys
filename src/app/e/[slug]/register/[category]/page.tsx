@@ -128,7 +128,12 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(1, "Please confirm your password"),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
 });
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
@@ -169,6 +174,7 @@ export default function CategoryRegistrationPage() {
       firstName: "", lastName: "", email: "", additionalEmail: "",
       organization: "", jobTitle: "", phone: "", city: "",
       country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
+      password: "", confirmPassword: "",
       agreeTerms: undefined as unknown as true,
     },
   });
@@ -534,6 +540,30 @@ export default function CategoryRegistrationPage() {
                         <FormItem>
                           <FormLabel className="text-xs font-medium text-slate-600">Dietary Requirements</FormLabel>
                           <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                  </div>
+
+                  {/* Section: Create Account */}
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Create Account</h3>
+                    <p className="text-xs text-slate-500">Create an account to view your registration, edit details, and manage payments.</p>
+
+                    <FormField control={form.control} name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+
+                    <FormField control={form.control} name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />

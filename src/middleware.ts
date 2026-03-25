@@ -80,6 +80,17 @@ export default auth((req) => {
 
   // ── RBAC: Restricted role redirects ──
   const role = req.auth?.user?.role;
+
+  // REGISTRANT: redirect everything to /my-registration
+  if (role === "REGISTRANT") {
+    if (pathname.startsWith("/my-registration") || pathname.startsWith("/api/")) {
+      return NextResponse.next();
+    }
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/my-registration";
+    return NextResponse.redirect(redirectUrl);
+  }
+
   const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
   if (!isRestricted) {
@@ -131,6 +142,7 @@ export const config = {
     "/dashboard/:path*",
     "/settings/:path*",
     "/logs/:path*",
+    "/my-registration/:path*",
     "/api/:path*",
   ],
 };

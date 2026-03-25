@@ -39,11 +39,12 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  speakers     Speaker[]
-  auditLogs    AuditLog[]
-  accounts     Account[]
-  sessions     AuthSession[]
+  organization  Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  speakers      Speaker[]
+  registrations Registration[]
+  auditLogs     AuditLog[]
+  accounts      Account[]
+  sessions      AuthSession[]
 
   @@index([organizationId])
   @@index([email])
@@ -90,6 +91,7 @@ enum UserRole {
   ORGANIZER
   REVIEWER
   SUBMITTER
+  REGISTRANT
 }
 
 enum Title {
@@ -267,6 +269,7 @@ model Registration {
   ticketTypeId   String
   pricingTierId  String?
   attendeeId     String
+  userId         String?
   status         RegistrationStatus @default(PENDING)
   paymentStatus  PaymentStatus      @default(UNPAID)
   qrCode         String?            @unique
@@ -285,6 +288,7 @@ model Registration {
   ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id])
   pricingTier   PricingTier?   @relation(fields: [pricingTierId], references: [id])
   attendee      Attendee       @relation(fields: [attendeeId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
   payments      Payment[]
   accommodation Accommodation?
 
@@ -293,6 +297,7 @@ model Registration {
   @@index([eventId, ticketTypeId])
   @@index([pricingTierId])
   @@index([attendeeId])
+  @@index([userId])
   @@index([status])
   @@index([qrCode])
 }

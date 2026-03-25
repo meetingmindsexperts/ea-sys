@@ -81,10 +81,14 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
-  const isReviewer  = session?.user?.role === "REVIEWER";
-  const isSubmitter = session?.user?.role === "SUBMITTER";
-  const isRestricted = isReviewer || isSubmitter;
+  const isSuperAdmin  = session?.user?.role === "SUPER_ADMIN";
+  const isReviewer    = session?.user?.role === "REVIEWER";
+  const isSubmitter   = session?.user?.role === "SUBMITTER";
+  const isRegistrant  = session?.user?.role === "REGISTRANT";
+  const isRestricted  = isReviewer || isSubmitter;
+
+  // REGISTRANT sees no sidebar — only the portal page
+  if (isRegistrant) return null;
 
   const eventMatch = pathname.match(/^\/events\/([^/]+)/);
   const eventId    = eventMatch ? eventMatch[1] : null;

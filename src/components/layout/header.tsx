@@ -18,6 +18,7 @@ import {
   FileText,
   Check,
   X,
+  Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,6 +102,18 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "Edit own abstracts",       allowed: true },
       { label: "Review & approve abstracts", allowed: false },
       { label: "Delete abstracts",          allowed: false },
+    ],
+  },
+  REGISTRANT: {
+    label: "Registrant",
+    description: "Registration management",
+    color: "bg-teal-100 text-teal-700",
+    icon: Ticket,
+    permissions: [
+      { label: "View own registration",   allowed: true },
+      { label: "Edit personal details",   allowed: true },
+      { label: "Make payment",            allowed: true },
+      { label: "Manage events",           allowed: false },
     ],
   },
 };
@@ -203,7 +216,9 @@ export function Header() {
                 ? "Reviewer Portal"
                 : role === "SUBMITTER"
                   ? "Submitter Portal"
-                  : "Dashboard")}
+                  : role === "REGISTRANT"
+                    ? "Registration Portal"
+                    : "Dashboard")}
           </h1>
         )}
       </div>

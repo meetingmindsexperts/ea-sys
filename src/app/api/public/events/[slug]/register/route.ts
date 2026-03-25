@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { generateQRCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
@@ -25,6 +26,8 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required").max(255),
   customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
+  // Account creation
+  password: z.string().min(6).max(128).optional(),
   // Tracking
   referrer: z.string().max(2000).optional(),
   utmSource: z.string().max(255).optional(),
@@ -78,7 +81,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs, password, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -287,6 +290,48 @@ export async function POST(req: Request, { params }: RouteParams) {
       customSpecialty: customSpecialty || null,
       registrationType,
     });
+
+    // Account creation: create or link user to registration
+    if (password) {
+      try {
+        const existingUser = await db.user.findUnique({ where: { email }, select: { id: true, role: true } });
+
+        if (existingUser) {
+          // Link registration to existing user
+          await db.registration.update({
+            where: { id: registration.id },
+            data: { userId: existingUser.id },
+          });
+          // Also link any other unlinked registrations by this email
+          await db.registration.updateMany({
+            where: { attendee: { email }, userId: null },
+            data: { userId: existingUser.id },
+          });
+        } else {
+          // Create new REGISTRANT user
+          const passwordHash = await bcrypt.hash(password, 10);
+          const newUser = await db.user.create({
+            data: {
+              email,
+              passwordHash,
+              firstName,
+              lastName,
+              role: "REGISTRANT",
+              organizationId: null,
+              specialty: specialty || null,
+            },
+          });
+          // Link this registration + any other unlinked registrations by this email
+          await db.registration.updateMany({
+            where: { attendee: { email }, userId: null },
+            data: { userId: newUser.id },
+          });
+        }
+      } catch (accountError) {
+        // Account creation failure should not block the registration
+        apiLogger.error({ err: accountError, msg: "Failed to create/link user account during registration" });
+      }
+    }
 
     const finalPrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
     const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;

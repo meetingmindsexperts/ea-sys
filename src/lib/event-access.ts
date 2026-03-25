@@ -29,6 +29,14 @@ export function buildEventAccessWhere(
     };
   }
 
+  if (user.role === "REGISTRANT") {
+    // Registrants are org-independent — scoped by Registration.userId linkage
+    return {
+      ...(eventId && { id: eventId }),
+      registrations: { some: { userId: user.id } },
+    };
+  }
+
   return {
     ...(eventId && { id: eventId }),
     organizationId: user.organizationId!,
