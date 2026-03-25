@@ -16,6 +16,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Activity feed is internal-only (SUPER_ADMIN, ADMIN, ORGANIZER)
+    const internalRoles = ["SUPER_ADMIN", "ADMIN", "ORGANIZER"];
+    if (!internalRoles.includes(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // Verify event access
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
