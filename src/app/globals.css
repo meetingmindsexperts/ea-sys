@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Safelist: classes used in database-stored HTML (Tiptap editor content) */
+/* These won't be found by Tailwind's source scanner, so force-include them */
+@source inline("text-xs text-sm text-base text-lg text-xl text-2xl text-3xl text-center text-left text-right font-bold font-semibold font-medium font-normal italic underline line-through uppercase lowercase capitalize text-primary text-slate-500 text-slate-600 text-slate-700 text-slate-800 text-slate-900 text-red-500 text-green-500 text-blue-500 text-amber-500 text-white bg-primary bg-slate-50 bg-slate-100 bg-white p-1 p-2 p-3 p-4 m-1 m-2 m-3 m-4 mt-1 mt-2 mt-4 mb-1 mb-2 mb-4 mx-auto rounded rounded-lg border border-slate-200 leading-relaxed leading-tight space-y-1 space-y-2 gap-1 gap-2 flex items-center justify-center");
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

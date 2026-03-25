@@ -328,8 +328,10 @@ export default function RegisterOverviewPage() {
 
       {/* Footer */}
       {event?.footerHtml && (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
+        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
+          <div className="prose prose-sm prose-slate max-w-none mx-auto [&_a]:text-primary [&_a]:underline"
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
+        </div>
       )}
     </div>
   );
