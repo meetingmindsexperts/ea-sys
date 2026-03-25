@@ -16,6 +16,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { EventActions } from "./event-actions";
+import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
 
 const statusConfig: Record<string, { label: string; cls: string }> = {
@@ -219,14 +220,28 @@ export default async function EventPage({ params }: EventPageProps) {
         </div>
       </div>
 
-      {/* ── Registration Link (organizers/admins only) ──────────────────────── */}
-      {!isRestricted && event.slug && (
-        <CopyLinkCard
-          label="Public Registration Link"
-          description="Share this link with attendees so they can register for your event."
-          slug={event.slug}
-          path="register"
-        />
+      {/* ── Activity Feed + Registration Link ──────────────────────────────── */}
+      {!isRestricted && (
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div>
+            {event.slug && (
+              <CopyLinkCard
+                label="Public Registration Link"
+                description="Share this link with attendees so they can register for your event."
+                slug={event.slug}
+                path="register"
+              />
+            )}
+          </div>
+          <Card>
+            <CardContent className="p-5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
+                Recent Activity
+              </h3>
+              <ActivityFeed eventId={eventId} />
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

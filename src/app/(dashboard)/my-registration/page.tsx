@@ -269,16 +269,14 @@ export default function MyRegistrationPage() {
                 </div>
               )}
 
-              {/* QR Code */}
-              {reg.qrCode && (
-                <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
-                  <QrCode className="h-5 w-5 text-slate-500" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Registration QR Code</p>
-                    <p className="font-mono text-sm">{reg.qrCode}</p>
-                  </div>
+              {/* Confirmation Number */}
+              <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
+                <QrCode className="h-5 w-5 text-slate-500" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Confirmation Number</p>
+                  <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
                 </div>
-              )}
+              </div>
 
               {/* Personal Details */}
               <div className="space-y-4">

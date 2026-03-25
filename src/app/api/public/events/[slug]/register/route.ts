@@ -271,6 +271,25 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const registration = result;
 
+    // Log audit entry (non-blocking)
+    db.auditLog.create({
+      data: {
+        eventId: event.id,
+        action: "CREATE",
+        entityType: "Registration",
+        entityId: registration.id,
+        changes: {
+          source: "public_registration",
+          confirmationNumber: registration.id,
+          attendee: { firstName, lastName, email },
+          ticketType: registrationType,
+          pricingTier: pricingTier ? pricingTier.name : null,
+          status: registration.status,
+          ip: getClientIp(req),
+        },
+      },
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for public registration" }));
+
     // Sync to org contact store (awaited — errors caught internally)
     await syncToContact({
       organizationId: event.organizationId,

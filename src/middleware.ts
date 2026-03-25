@@ -141,6 +141,8 @@ export const config = {
     "/events/:path*",
     "/dashboard/:path*",
     "/settings/:path*",
+    "/contacts/:path*",
+    "/profile/:path*",
     "/logs/:path*",
     "/my-registration/:path*",
     "/api/:path*",
