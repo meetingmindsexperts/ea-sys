@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AbstractStatus } from "@prisma/client";
+import { AbstractStatus, PresentationType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -11,11 +11,14 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
+const presentationTypeSchema = z.nativeEnum(PresentationType);
+
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1).max(100),
   title: z.string().min(1).max(500),
   content: z.string().min(1).max(50000),
   specialty: z.string().max(255).optional(),
+  presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
 });
@@ -113,7 +116,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId, title, content, specialty, trackId, status } = validated.data;
+    const { speakerId, title, content, specialty, presentationType, trackId, status } = validated.data;
 
     // SUBMITTER can only submit for their own speaker record
     const speakerWhere = session.user.role === "SUBMITTER"
@@ -160,6 +163,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         title,
         content,
         specialty: specialty || null,
+        presentationType: presentationType || null,
         trackId: trackId || null,
         status,
         managementToken: crypto.randomBytes(32).toString("hex"),

@@ -386,14 +386,15 @@ enum SpeakerStatus {
 }
 
 model Abstract {
-  id              String         @id @default(cuid())
-  eventId         String
-  speakerId       String
-  title           String
-  content         String         @db.Text
-  trackId         String?
-  specialty       String?
-  status          AbstractStatus @default(SUBMITTED)
+  id               String             @id @default(cuid())
+  eventId          String
+  speakerId        String
+  title            String
+  content          String             @db.Text
+  trackId          String?
+  specialty        String?
+  presentationType PresentationType?
+  status           AbstractStatus     @default(SUBMITTED)
   reviewNotes     String?        @db.Text
   reviewScore     Int?
   managementToken String?        @unique
@@ -419,6 +420,11 @@ enum AbstractStatus {
   ACCEPTED
   REJECTED
   REVISION_REQUESTED
+}
+
+enum PresentationType {
+  ORAL
+  POSTER
 }
 
 // ==================== SESSIONS & SCHEDULE ====================

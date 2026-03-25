@@ -68,6 +68,7 @@ interface Abstract {
   title: string;
   content: string;
   specialty: string | null;
+  presentationType: string | null;
   status: string;
   reviewNotes: string | null;
   reviewScore: number | null;
@@ -114,6 +115,7 @@ export default function AbstractsPage() {
     title: "",
     content: "",
     specialty: "",
+    presentationType: "" as string,
     trackId: "",
     status: "SUBMITTED",
   });
@@ -121,6 +123,7 @@ export default function AbstractsPage() {
     title: "",
     content: "",
     specialty: "",
+    presentationType: "" as string,
     trackId: "",
   });
   const [reviewData, setReviewData] = useState({
@@ -165,6 +168,7 @@ export default function AbstractsPage() {
           title: data.title,
           content: data.content,
           specialty: data.specialty || undefined,
+          presentationType: data.presentationType || undefined,
           trackId: data.trackId || undefined,
         }),
       });
@@ -250,6 +254,7 @@ export default function AbstractsPage() {
       title: abstract.title,
       content: abstract.content,
       specialty: abstract.specialty || "",
+      presentationType: abstract.presentationType || "",
       trackId: abstract.track?.id || "",
     });
     setIsEditDialogOpen(true);
@@ -271,6 +276,7 @@ export default function AbstractsPage() {
       title: "",
       content: "",
       specialty: "",
+      presentationType: "",
       trackId: "",
       status: "SUBMITTED",
     });
@@ -409,6 +415,23 @@ export default function AbstractsPage() {
                     setFormData({ ...formData, specialty })
                   }
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Presentation Type</Label>
+                <Select
+                  value={formData.presentationType}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, presentationType: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ORAL">Oral Presentation</SelectItem>
+                    <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className={isSubmitter ? "" : "grid grid-cols-2 gap-4"}>
                 <div className="space-y-2">
@@ -549,7 +572,7 @@ export default function AbstractsPage() {
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono truncate select-all">
-                {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/register
+                {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/abstract/register
               </code>
               <Button
                 type="button"
@@ -557,7 +580,7 @@ export default function AbstractsPage() {
                 size="sm"
                 className="shrink-0"
                 onClick={() => {
-                  const url = `${window.location.origin}/e/${event.slug}/register`;
+                  const url = `${window.location.origin}/e/${event.slug}/abstract/register`;
                   navigator.clipboard.writeText(url).then(() => {
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2000);
@@ -718,6 +741,23 @@ export default function AbstractsPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label>Presentation Type</Label>
+                  <Select
+                    value={editData.presentationType}
+                    onValueChange={(value) =>
+                      setEditData({ ...editData, presentationType: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ORAL">Oral Presentation</SelectItem>
+                      <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="editTrack">Track</Label>
                   <Select
                     value={editData.trackId}
@@ -796,6 +836,11 @@ export default function AbstractsPage() {
                         >
                           {abstract.status.replace("_", " ")}
                         </Badge>
+                        {abstract.presentationType && (
+                          <Badge variant="secondary" className="text-xs">
+                            {abstract.presentationType === "ORAL" ? "Oral" : "Poster"}
+                          </Badge>
+                        )}
                         {abstract.track && (
                           <Badge
                             variant="outline"
