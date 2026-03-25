@@ -104,7 +104,10 @@ export default function MyRegistrationPage() {
       setEditingId(null);
       toast.success("Details updated");
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      console.error("[MyRegistration] Update failed:", err.message);
+      toast.error(err.message);
+    },
   });
 
   const startEdit = (reg: Registration) => {

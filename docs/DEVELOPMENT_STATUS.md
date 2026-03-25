@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** March 23, 2026
+**Last Updated:** March 25, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -90,6 +90,13 @@ This document outlines the current development status of the Event Administratio
 | Search/Filter Registrations | ✅ | ✅ | Complete |
 | Export to CSV | N/A | ✅ | Complete |
 | Import from Contact Store | ✅ | ✅ | Complete |
+| Bulk Update Registration Type | ✅ | ✅ | Complete |
+| 2-Step Public Registration (Account + Details) | ✅ | ✅ | Complete |
+| Registrant Account Creation (Email+Password) | ✅ | ✅ | Complete |
+| Registrant Self-Service Portal (/my-registration) | ✅ | ✅ | Complete |
+| Registrant Self-Edit Attendee Details | ✅ | ✅ | Complete |
+| Registrant Pay Now (Stripe) | ✅ | ✅ | Complete |
+| Registration Welcome & Terms HTML (WYSIWYG) | ✅ | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/registrations` - List registrations (with filters)
@@ -97,6 +104,9 @@ This document outlines the current development status of the Event Administratio
 - `GET /api/events/[eventId]/registrations/[id]` - Get registration details
 - `PUT /api/events/[eventId]/registrations/[id]` - Update registration
 - `DELETE /api/events/[eventId]/registrations/[id]` - Delete registration
+- `PATCH /api/events/[eventId]/registrations/bulk-type` - Bulk update registration type
+- `GET /api/registrant/registrations` - List registrant's own registrations
+- `PUT /api/registrant/registrations` - Registrant self-edit attendee details
 - `POST /api/events/[eventId]/registrations/[id]/check-in` - Check-in by ID
 - `PUT /api/events/[eventId]/registrations/[id]/check-in` - Check-in by QR/barcode
 - `POST /api/events/[eventId]/import/barcodes` - Import barcodes from CSV
@@ -167,6 +177,7 @@ This document outlines the current development status of the Event Administratio
 | Submit Abstract (Dashboard) | ✅ | ✅ | Complete |
 | Submitter Account Registration | ✅ | ✅ | Complete |
 | SUBMITTER Role (abstracts-only access) | ✅ | ✅ | Complete |
+| REGISTRANT Role (self-service portal) | ✅ | ✅ | Complete |
 | List Abstracts | ✅ | ✅ | Complete |
 | View Abstract | ✅ | ✅ | Complete |
 | Edit Own Abstract (Submitter) | ✅ | ✅ | Complete |

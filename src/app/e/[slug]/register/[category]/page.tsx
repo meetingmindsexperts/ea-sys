@@ -485,7 +485,7 @@ export default function CategoryRegistrationPage() {
 
                       <p className="text-center text-xs text-slate-400">
                         Already have an account?{" "}
-                        <a href="/login" className="text-primary hover:underline font-medium">Sign in</a>
+                        <a href={`/login?callbackUrl=${encodeURIComponent(`/my-registration`)}`} className="text-primary hover:underline font-medium">Sign in</a>
                       </p>
                     </div>
                   )}

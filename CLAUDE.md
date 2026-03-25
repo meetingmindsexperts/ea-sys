@@ -97,15 +97,19 @@ src/
 - `src/lib/stripe.ts` - Stripe SDK singleton, zero-decimal currency helpers (`isZeroDecimalCurrency`, `toStripeAmount`, `fromStripeAmount`)
 - `src/components/speakers/import-registrations-dialog.tsx` - Dialog to import event registrations as speakers
 - `src/components/speakers/import-registrations-button.tsx` - Button trigger for import-registrations dialog
+- `src/app/(dashboard)/my-registration/page.tsx` - Registrant self-service portal (view/edit registrations, payment status)
+- `src/app/api/registrant/registrations/route.ts` - Registrant self-edit API (GET list, PUT attendee details with ownership check)
+- `src/app/api/events/[eventId]/registrations/bulk-type/route.ts` - Bulk update registration type (PATCH, adjusts soldCounts + syncs attendee.registrationType)
+- `src/lib/default-terms.ts` - Default registration terms & conditions HTML
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
 
 - **Organization** - Organization entity (currently single-org mode)
-- **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER)
-- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields for classification
-- **TicketType** - Registration type configurations (displayed as "Registration Types" in UI)
-- **Registration** - Event registrations
+- **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER, REGISTRANT)
+- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content
+- **TicketType** - Registration type configurations (displayed as "Registration Types" in UI); `ticketTypeId` is the single source of truth — `attendee.registrationType` is auto-synced
+- **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service
 - **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
 - **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard; speakers can be added manually, via CSV import, or imported from the event's registrations
 - **EventSession** - Schedule sessions
@@ -187,23 +191,25 @@ npx tsc --noEmit     # Type check
 - **ORGANIZER** - Full access to assigned events (org-bound)
 - **REVIEWER** - Abstracts-only access to assigned events (org-independent, scoped by `event.settings.reviewerUserIds`)
 - **SUBMITTER** - Abstracts-only access to own submissions (org-independent, scoped by `Speaker.userId`)
+- **REGISTRANT** - Self-service access to own registrations only (org-independent, scoped by `Registration.userId`); can edit personal details, view payment status, make payments via Stripe; no dashboard/events access
 
 ### Architecture: Org-bound vs. Org-independent Users
 - **Team members** (ADMIN, ORGANIZER) have a required `organizationId` and are scoped to their organization
-- **Reviewers** and **Submitters** have `organizationId: null` — they are independent entities scoped only by event assignment
-- This allows one reviewer to review events across multiple organizations; submitters self-register per event
+- **Reviewers**, **Submitters**, and **Registrants** have `organizationId: null` — they are independent entities scoped only by event assignment
+- This allows one reviewer to review events across multiple organizations; submitters self-register per event; registrants create accounts during public registration
 - `User.organizationId` is nullable in the schema; non-null assertion (`!`) is used in admin-only code paths
 
-### Restricted Role Enforcement (3-layer, applies to REVIEWER and SUBMITTER)
-1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations) returns 403 for both REVIEWER and SUBMITTER
-2. **Middleware Layer:** `src/middleware.ts` redirects restricted roles from non-abstract event routes to `/events/[eventId]/abstracts`, `/events/new` to `/events`, and `/dashboard`/`/settings` to `/events`
-3. **UI Layer:** Write-action buttons hidden; sidebar shows only "Events" (global) and "Abstracts" (event context); header shows "Reviewer Portal" or "Submitter Portal"
+### Restricted Role Enforcement (3-layer, applies to REVIEWER, SUBMITTER, and REGISTRANT)
+1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations and `/api/registrant/registrations` self-edit) returns 403 for REVIEWER, SUBMITTER, and REGISTRANT
+2. **Middleware Layer:** `src/middleware.ts` redirects REVIEWER/SUBMITTER from non-abstract event routes; REGISTRANT is redirected to `/my-registration` from all dashboard routes
+3. **UI Layer:** Write-action buttons hidden; sidebar hidden for REGISTRANT; header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
 
 ### Event Scoping
 - `buildEventAccessWhere(session.user)` from `src/lib/event-access.ts` scopes event queries by role
 - Admins/Organizers see all org events
 - Reviewers see only events where their userId is in `event.settings.reviewerUserIds` (no org filter)
 - Submitters see only events where they have a linked Speaker record (`speakers.some.userId`)
+- Registrants see only events where they have a linked Registration record (`registrations.some.userId`)
 
 ### Reviewer Assignment
 - Reviewers are assigned per-event via `Event.settings.reviewerUserIds` (JSON array of User IDs)
@@ -216,6 +222,14 @@ npx tsc --noEmit     # Type check
 - Registration creates User (role=SUBMITTER, organizationId=null) + finds-or-creates Speaker linked to event
 - After login, submitters see only the event they registered for, with access to Abstracts only
 - Submitters can submit abstracts (auto-linked to their speaker record), edit own abstracts (DRAFT/SUBMITTED/REVISION_REQUESTED), and view review feedback
+
+### Registrant Registration
+- Registrants create an account during public registration at `/e/[slug]/register/[category]` (2-step form: email+password → personal details)
+- Registration creates User (role=REGISTRANT, organizationId=null) and links Registration via `Registration.userId`
+- Existing unlinked registrations by the same email are auto-linked to the new user account
+- After login, registrants see only `/my-registration` portal with their registration details, edit form, and payment status
+- If a registrant later registers as a submitter, their role can upgrade from REGISTRANT to SUBMITTER
+- Self-edit API at `/api/registrant/registrations` (GET for list, PUT for attendee detail updates with ownership verification)
 
 ## Code Conventions
 
@@ -380,6 +394,10 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - Bulk email sending via Brevo
 - Session calendar view
 - File-based logging (`logs/app.log`, `logs/error.log`)
+- **REGISTRANT role and self-service portal** - New org-independent role for event attendees with account creation during public registration (email + password); `/my-registration` dashboard page shows all user's registrations with event headers, payment status (confirmed/complimentary/pay now), inline edit of attendee fields; self-edit API at `/api/registrant/registrations` with ownership verification; REGISTRANT redirected to portal from all dashboard routes (middleware); sidebar hidden, header shows "Registration Portal"
+- **2-step public registration form** - Step 1: email + password (account creation) with organizer-customizable welcome HTML content; Step 2: personal details + category selection + terms & conditions; `registrationWelcomeHtml` and `registrationTermsHtml` fields on Event model, both editable via TiptapEditor on registration types settings page; default terms auto-seeded on event creation
+- **Bulk registration type update** - PATCH at `/api/events/[eventId]/registrations/bulk-type`; bulk select registrations → change type via dialog; atomically adjusts soldCounts (decrement old types, increment new) and syncs `attendee.registrationType`; "Change Type" button in bulk selection toolbar on registrations page
+- **Single source of truth for registration type** - `ticketTypeId` is the canonical reference for registration type; `attendee.registrationType` text field auto-synced from `ticketType.name` on create and type change; removed `registrationType` from registration edit forms and Zod schemas; CSV export uses `ticketType.name`; speakers/contacts retain `registrationType` as independent field (no `ticketTypeId` on those models)
 
 ## Current Mode
 
@@ -388,6 +406,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - Team members (Admin/Organizer) must be invited by an admin via Settings → Users
 - Reviewers are org-independent (`User.organizationId = null`) — invited per-event via the Reviewers page
 - Submitters are org-independent (`User.organizationId = null`) — self-register per event via `/e/[slug]/register`
+- Registrants are org-independent (`User.organizationId = null`) — create accounts during public event registration, see only `/my-registration` portal
 - Public event registration is open to all at `/e/[event-slug]`
 
 ## Logging
