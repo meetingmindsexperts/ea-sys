@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -40,9 +41,10 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const [{ eventId }, orgCtx] = await Promise.all([params, getOrgContext(req)]);
+    const [{ eventId }, orgCtx, session] = await Promise.all([params, getOrgContext(req), auth()]);
 
-    if (!orgCtx) {
+    // Support both API key auth (orgCtx) and session auth (for SUBMITTER/REGISTRANT)
+    if (!orgCtx && !session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -50,12 +52,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
 
     // Fetch event validation and speakers in parallel
+    const eventWhere = orgCtx
+      ? { id: eventId, organizationId: orgCtx.organizationId }
+      : buildEventAccessWhere(session!.user, eventId);
+
     const [event, speakers] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: orgCtx.organizationId,
-        },
+        where: eventWhere,
         select: { id: true },
       }),
       db.speaker.findMany({

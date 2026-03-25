@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,11 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
+  { ssr: false, loading: () => <div className="h-[200px] border rounded-md animate-pulse bg-muted/50" /> }
+);
 
 interface Track {
   id: string;
@@ -396,16 +402,13 @@ export default function AbstractsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="content">Abstract Content</Label>
-                <Textarea
-                  id="content"
-                  value={formData.content}
-                  onChange={(e) =>
-                    setFormData({ ...formData, content: e.target.value })
-                  }
-                  rows={6}
-                  required
-                />
+                <Label>Abstract Content</Label>
+                <div className="min-h-[250px]">
+                  <TiptapEditor
+                    content={formData.content}
+                    onChange={(html) => setFormData({ ...formData, content: html })}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Specialty</Label>
@@ -720,16 +723,13 @@ export default function AbstractsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="editContent">Abstract Content</Label>
-                  <Textarea
-                    id="editContent"
-                    value={editData.content}
-                    onChange={(e) =>
-                      setEditData({ ...editData, content: e.target.value })
-                    }
-                    rows={6}
-                    required
-                  />
+                  <Label>Abstract Content</Label>
+                  <div className="min-h-[250px]">
+                    <TiptapEditor
+                      content={editData.content}
+                      onChange={(html) => setEditData({ ...editData, content: html })}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Specialty</Label>
