@@ -8,7 +8,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
-import { DEFAULT_REG_TYPES } from "@/app/api/events/[eventId]/tickets/route";
+import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -144,16 +144,30 @@ export async function POST(req: Request) {
       })),
     }).catch((err) => apiLogger.error({ err, msg: "Failed to seed email templates" }));
 
-    // Seed default registration types (non-blocking)
-    db.ticketType.createMany({
-      data: DEFAULT_REG_TYPES.map((rt) => ({
-        eventId: event.id,
-        name: rt.name,
-        isDefault: true,
-        isActive: true,
-        sortOrder: rt.sortOrder,
-      })),
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
+    // Seed default registration types with pricing tiers (non-blocking)
+    // 5 types × 4 tiers = 20 combinations, all tiers inactive by default
+    Promise.all(
+      DEFAULT_REG_TYPES.map((rt) =>
+        db.ticketType.create({
+          data: {
+            eventId: event.id,
+            name: rt.name,
+            isDefault: true,
+            isActive: true,
+            sortOrder: rt.sortOrder,
+            pricingTiers: {
+              create: DEFAULT_TIER_NAMES.map((tierName, i) => ({
+                name: tierName,
+                price: 0,
+                currency: "USD",
+                isActive: false,
+                sortOrder: i,
+              })),
+            },
+          },
+        })
+      )
+    ).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
 
     return NextResponse.json(event, { status: 201 });
   } catch (error) {

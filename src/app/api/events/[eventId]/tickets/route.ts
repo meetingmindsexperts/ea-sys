@@ -11,7 +11,10 @@ export const DEFAULT_REG_TYPES = [
   { name: "Allied Health", sortOrder: 1 },
   { name: "Student", sortOrder: 2 },
   { name: "Resident", sortOrder: 3 },
+  { name: "Member", sortOrder: 4 },
 ];
+
+export const DEFAULT_TIER_NAMES = ["Early Bird", "Standard", "Onsite", "Presenter"];
 
 const createTicketTypeSchema = z.object({
   name: z.string().min(1).max(255),
