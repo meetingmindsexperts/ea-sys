@@ -53,11 +53,11 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
-import { queryKeys } from "@/hooks/use-api";
+import { queryKeys, useTickets } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import type { Registration } from "./types";
+import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
 
 interface RegistrationDetailSheetProps {
@@ -76,6 +76,7 @@ export function RegistrationDetailSheet({
   const queryClient = useQueryClient();
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  const { data: regTypes = [] } = useTickets(eventId);
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({
@@ -451,22 +452,20 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-specialty">Specialty</Label>
-                        <SpecialtySelect
-                          value={editData.specialty}
-                          onChange={(specialty) => setEditData({ ...editData, specialty })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-registrationType">Registration Type</Label>
-                        <RegistrationTypeSelect
-                          value={editData.registrationType}
-                          onChange={(registrationType) => setEditData({ ...editData, registrationType })}
-                          eventId={eventId}
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-specialty">Specialty</Label>
+                      <SpecialtySelect
+                        value={editData.specialty}
+                        onChange={(specialty) => setEditData({ ...editData, specialty })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-registrationType">Registration Type</Label>
+                      <RegistrationTypeSelect
+                        value={editData.registrationType}
+                        onChange={(registrationType) => setEditData({ ...editData, registrationType })}
+                        eventId={eventId}
+                      />
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">
@@ -576,15 +575,34 @@ export function RegistrationDetailSheet({
               {/* Registration Type Info */}
               <div className="space-y-4">
                 <h3 className="font-semibold">Registration Type</h3>
-                <div className="flex items-center gap-3">
-                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                  <div>
+                {!isReviewer ? (
+                  <Select
+                    value={selectedRegistration.ticketType.id}
+                    onValueChange={(value) =>
+                      updateRegistration.mutate({
+                        id: selectedRegistration.id,
+                        data: { ticketTypeId: value },
+                      })
+                    }
+                    disabled={updateRegistration.isPending}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(regTypes as TicketType[]).map((rt) => (
+                        <SelectItem key={rt.id} value={rt.id}>
+                          {rt.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <ClipboardList className="h-4 w-4 text-muted-foreground" />
                     <div className="font-medium">{selectedRegistration.ticketType.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {formatCurrency(Number(selectedRegistration.ticketType.price), selectedRegistration.ticketType.currency)}
-                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Status Management */}

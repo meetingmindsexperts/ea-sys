@@ -14,6 +14,7 @@ const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
   paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "REFUNDED", "FAILED"]).optional(),
   badgeType: z.enum(["Delegate", "Faculty", "Exhibitor"]).optional().nullable(),
+  ticketTypeId: z.string().cuid().optional(),
   notes: z.string().max(2000).optional(),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
@@ -150,7 +151,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { status, paymentStatus, badgeType, notes, attendee } = validated.data;
+    const { status, paymentStatus, badgeType, ticketTypeId, notes, attendee } = validated.data;
 
     // Update attendee if provided
     if (attendee) {
@@ -198,22 +199,44 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Wrap soldCount + registration update in a transaction to prevent race conditions
     const registration = await db.$transaction(async (tx) => {
-      if (status === "CANCELLED" && existingRegistration.status !== "CANCELLED") {
+      const effectiveStatus = status || existingRegistration.status;
+      const isBecomingCancelled = effectiveStatus === "CANCELLED" && existingRegistration.status !== "CANCELLED";
+      const isReactivating = effectiveStatus !== "CANCELLED" && existingRegistration.status === "CANCELLED";
+      const isChangingType = ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId;
+
+      if (isBecomingCancelled) {
         await tx.ticketType.update({
           where: { id: existingRegistration.ticketTypeId },
           data: { soldCount: { decrement: 1 } },
         });
-      } else if (status !== "CANCELLED" && existingRegistration.status === "CANCELLED") {
-        // Check capacity before reactivating
+      } else if (isReactivating) {
+        const targetTypeId = ticketTypeId || existingRegistration.ticketTypeId;
         const ticket = await tx.ticketType.findUnique({
-          where: { id: existingRegistration.ticketTypeId },
+          where: { id: targetTypeId },
           select: { quantity: true, soldCount: true },
         });
         if (ticket && ticket.soldCount >= ticket.quantity) {
           throw new Error("CAPACITY_EXCEEDED");
         }
         await tx.ticketType.update({
+          where: { id: targetTypeId },
+          data: { soldCount: { increment: 1 } },
+        });
+      } else if (isChangingType && effectiveStatus !== "CANCELLED") {
+        // Moving between types: decrement old, increment new
+        await tx.ticketType.update({
           where: { id: existingRegistration.ticketTypeId },
+          data: { soldCount: { decrement: 1 } },
+        });
+        const newTicket = await tx.ticketType.findUnique({
+          where: { id: ticketTypeId },
+          select: { quantity: true, soldCount: true },
+        });
+        if (newTicket && newTicket.soldCount >= newTicket.quantity) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
+        await tx.ticketType.update({
+          where: { id: ticketTypeId },
           data: { soldCount: { increment: 1 } },
         });
       }
@@ -224,11 +247,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
           ...(badgeType !== undefined && { badgeType }),
+          ...(ticketTypeId && { ticketTypeId }),
           ...(notes !== undefined && { notes: notes || null }),
         },
         include: {
           attendee: true,
           ticketType: true,
+          pricingTier: true,
+          payments: {
+            select: { id: true, amount: true, currency: true, status: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+          },
+          accommodation: {
+            select: {
+              id: true, checkIn: true, checkOut: true, status: true,
+              roomType: { select: { name: true, hotel: { select: { name: true } } } },
+            },
+          },
         },
       });
     });

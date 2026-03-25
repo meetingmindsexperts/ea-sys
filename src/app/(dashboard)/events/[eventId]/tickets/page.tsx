@@ -232,6 +232,57 @@ export default function TicketsPage() {
 
   const totalRegs = ticketTypes.reduce((sum, tt) => sum + tt._count.registrations, 0);
 
+  const DEFAULT_TYPES = ["Physician", "Allied Health", "Student", "Resident", "Member"];
+  const DEFAULT_TIERS = ["Early Bird", "Standard", "Onsite", "Presenter"];
+
+  const handleSeedDefaults = async () => {
+    const existingNames = new Set(ticketTypes.map((tt) => tt.name));
+    const missing = DEFAULT_TYPES.filter((name) => !existingNames.has(name));
+
+    if (missing.length === 0) {
+      // Check if existing types are missing tiers
+      let tiersAdded = 0;
+      for (const tt of ticketTypes) {
+        const existingTierNames = new Set(tt.pricingTiers.map((t) => t.name));
+        const missingTiers = DEFAULT_TIERS.filter((n) => !existingTierNames.has(n));
+        for (const tierName of missingTiers) {
+          try {
+            const res = await fetch(`/api/events/${eventId}/tickets/${tt.id}/tiers`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: tierName, price: 0, isActive: false }),
+            });
+            if (res.ok) tiersAdded++;
+          } catch { /* skip */ }
+        }
+      }
+      if (tiersAdded > 0) {
+        toast.success(`Added ${tiersAdded} missing pricing tiers`);
+      } else {
+        toast.info("All default types and tiers already exist");
+      }
+      invalidateAndRefetch();
+      return;
+    }
+
+    try {
+      for (const name of missing) {
+        await createTicket.mutateAsync({
+          name,
+          pricingTiers: DEFAULT_TIERS.map((tierName, i) => ({
+            name: tierName,
+            price: 0,
+            isActive: false,
+            sortOrder: i,
+          })),
+        });
+      }
+      toast.success(`Added ${missing.length} registration types with pricing tiers`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to seed defaults");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -259,6 +310,10 @@ export default function TicketsPage() {
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button variant="outline" onClick={handleSeedDefaults}>
+            <Plus className="mr-2 h-4 w-4" />
+            Seed Defaults
           </Button>
           <Button variant="outline" onClick={() => { setUtmDialogOpen(true); setUtmTier(""); setUtmSource(""); setUtmMedium(""); setUtmCampaign(""); }}>
             <Link2 className="mr-2 h-4 w-4" />
