@@ -87,6 +87,9 @@ interface Event {
   emailHeaderImage: string | null;
   emailFooterHtml: string | null;
   supportEmail: string | null;
+  taxRate: number | null;
+  taxLabel: string | null;
+  bankDetails: string | null;
   settings: {
     registrationOpen?: boolean;
     waitlistEnabled?: boolean;
@@ -148,6 +151,9 @@ export default function EventSettingsPage() {
     country: "",
     status: "DRAFT",
     supportEmail: "",
+    taxRate: "",
+    taxLabel: "VAT",
+    bankDetails: "",
   });
 
   const [registrationSettings, setRegistrationSettings] = useState({
@@ -202,6 +208,9 @@ export default function EventSettingsPage() {
           country: data.country || "",
           status: data.status,
           supportEmail: data.supportEmail || "",
+          taxRate: data.taxRate != null ? String(data.taxRate) : "",
+          taxLabel: data.taxLabel || "VAT",
+          bankDetails: data.bankDetails || "",
         });
 
         const settings = data.settings || {};
@@ -263,6 +272,9 @@ export default function EventSettingsPage() {
           city: generalFormData.city || null,
           country: generalFormData.country || null,
           supportEmail: generalFormData.supportEmail || null,
+          taxRate: generalFormData.taxRate ? Number(generalFormData.taxRate) : null,
+          taxLabel: generalFormData.taxLabel || null,
+          bankDetails: generalFormData.bankDetails || null,
           description: generalFormData.description || null,
           startDate: new Date(generalFormData.startDate).toISOString(),
           endDate: new Date(generalFormData.endDate).toISOString(),
@@ -432,6 +444,10 @@ export default function EventSettingsPage() {
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <ImageIcon className="h-4 w-4" />
             Branding
+          </TabsTrigger>
+          <TabsTrigger value="email-branding" className="flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email Branding
           </TabsTrigger>
           <TabsTrigger value="email-templates" className="flex items-center gap-2">
             <Mail className="h-4 w-4" />
@@ -803,6 +819,69 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="border-t pt-6">
+                <h3 className="text-lg font-medium mb-4">Tax & Payment</h3>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                      <Input
+                        id="taxRate"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={generalFormData.taxRate}
+                        onChange={(e) =>
+                          setGeneralFormData({ ...generalFormData, taxRate: e.target.value })
+                        }
+                        placeholder="e.g. 5"
+                        className="w-full"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty for no tax. UAE: 5%, KSA: 15%
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="taxLabel">Tax Label</Label>
+                      <Input
+                        id="taxLabel"
+                        value={generalFormData.taxLabel}
+                        onChange={(e) =>
+                          setGeneralFormData({ ...generalFormData, taxLabel: e.target.value })
+                        }
+                        placeholder="VAT"
+                        className="w-full"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Label shown on invoices and quotes (e.g. VAT, GST, Tax)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bankDetails">Bank Transfer Details</Label>
+                    <textarea
+                      id="bankDetails"
+                      value={generalFormData.bankDetails}
+                      onChange={(e) =>
+                        setGeneralFormData({ ...generalFormData, bankDetails: e.target.value })
+                      }
+                      placeholder="Bank Name: ...&#10;Account Name: ...&#10;IBAN: ...&#10;SWIFT: ..."
+                      className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown on quotes for bank transfer payments. Leave empty to hide.
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={handleSaveGeneral} disabled={saving}>
+                      <Save className="mr-2 h-4 w-4" />
+                      {saving ? "Saving..." : "Save Tax & Payment"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-6">
                 <h3 className="text-lg font-medium mb-4">Programme</h3>
 
                 <div className="flex items-center justify-between">
@@ -997,9 +1076,11 @@ export default function EventSettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* Email Branding */}
-          <Card className="mt-6">
+        {/* Email Branding */}
+        <TabsContent value="email-branding">
+          <Card>
             <CardHeader>
               <CardTitle>Email Branding</CardTitle>
               <CardDescription>

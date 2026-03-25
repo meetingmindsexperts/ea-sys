@@ -139,6 +139,9 @@ model Event {
   supportEmail           String?
   registrationTermsHtml    String?   @db.Text
   registrationWelcomeHtml  String?   @db.Text
+  taxRate                  Decimal?  @db.Decimal(5, 2)
+  taxLabel                 String?   @default("VAT")
+  bankDetails              String?   @db.Text
   externalId     String?
   externalSource String?
   createdAt      DateTime    @default(now())

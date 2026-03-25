@@ -22,6 +22,7 @@ import {
   X,
   QrCode,
   ExternalLink,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
@@ -269,13 +270,22 @@ export default function MyRegistrationPage() {
                 </div>
               )}
 
-              {/* Confirmation Number */}
-              <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-3">
-                <QrCode className="h-5 w-5 text-slate-500" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Confirmation Number</p>
-                  <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
+              {/* Confirmation Number + Download Quote */}
+              <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
+                <div className="flex items-center gap-3">
+                  <QrCode className="h-5 w-5 text-slate-500" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Confirmation Number</p>
+                    <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
+                  </div>
                 </div>
+                {price > 0 && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
+                      <Download className="mr-2 h-3.5 w-3.5" /> Quote
+                    </a>
+                  </Button>
+                )}
               </div>
 
               {/* Personal Details */}

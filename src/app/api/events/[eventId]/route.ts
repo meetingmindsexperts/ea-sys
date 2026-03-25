@@ -29,6 +29,9 @@ const updateEventSchema = z.object({
   emailFooterHtml: z.string().max(10000).nullable().optional(),
   registrationTermsHtml: z.string().max(50000).nullable().optional(),
   registrationWelcomeHtml: z.string().max(50000).nullable().optional(),
+  taxRate: z.number().min(0).max(100).nullable().optional(),
+  taxLabel: z.string().max(50).nullable().optional(),
+  bankDetails: z.string().max(5000).nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -131,6 +134,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       emailFooterHtml,
       registrationTermsHtml,
       registrationWelcomeHtml,
+      taxRate,
+      taxLabel,
+      bankDetails,
       settings,
     } = validated.data;
 
@@ -184,6 +190,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(emailFooterHtml !== undefined && { emailFooterHtml }),
         ...(registrationTermsHtml !== undefined && { registrationTermsHtml }),
         ...(registrationWelcomeHtml !== undefined && { registrationWelcomeHtml }),
+        ...(taxRate !== undefined && { taxRate }),
+        ...(taxLabel !== undefined && { taxLabel }),
+        ...(bankDetails !== undefined && { bankDetails }),
         settings: updatedSettings,
       },
     });

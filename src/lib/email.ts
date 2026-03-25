@@ -906,17 +906,26 @@ export function renderAndWrap(
 export async function sendRegistrationConfirmation(params: {
   to: string;
   firstName: string;
+  lastName?: string;
+  title?: string | null;
+  organization?: string | null;
   eventName: string;
   eventDate: Date;
   eventVenue: string;
   eventCity: string;
   ticketType: string;
+  pricingTierName?: string | null;
   registrationId: string;
   qrCode: string;
   eventId?: string;
   eventSlug?: string;
   ticketPrice?: number;
   ticketCurrency?: string;
+  taxRate?: number | null;
+  taxLabel?: string | null;
+  bankDetails?: string | null;
+  supportEmail?: string | null;
+  organizationName?: string;
 }) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -981,10 +990,48 @@ export async function sendRegistrationConfirmation(params: {
   const textVars = { ...vars, paymentBlock: paymentBlockText };
   const textContent = renderTemplatePlain(template.textContent, textVars);
 
+  // Generate quote PDF attachment if price > 0
+  let attachments: SendEmailParams["attachments"];
+  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName) {
+    try {
+      const { generateQuotePDF } = await import("@/lib/quote-pdf");
+      const pdfBuffer = await generateQuotePDF({
+        quoteNumber: params.registrationId.toUpperCase().slice(-8),
+        date: new Date(),
+        eventName: params.eventName,
+        eventDate: params.eventDate,
+        eventVenue: params.eventVenue || null,
+        eventCity: params.eventCity || null,
+        firstName: params.firstName,
+        lastName: params.lastName || "",
+        email: params.to,
+        organization: params.organization || null,
+        title: params.title || null,
+        registrationType: params.ticketType,
+        pricingTier: params.pricingTierName || null,
+        price: params.ticketPrice,
+        currency: params.ticketCurrency || "USD",
+        taxRate: params.taxRate || null,
+        taxLabel: params.taxLabel || "VAT",
+        bankDetails: params.bankDetails || null,
+        supportEmail: params.supportEmail || null,
+        organizationName: params.organizationName,
+      });
+      attachments = [{
+        name: `quote-${params.registrationId.slice(-8)}.pdf`,
+        content: pdfBuffer.toString("base64"),
+        contentType: "application/pdf",
+      }];
+    } catch (err) {
+      apiLogger.error({ err, msg: "Failed to generate quote PDF for email attachment" });
+    }
+  }
+
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],
     subject,
     htmlContent,
     textContent,
+    attachments,
   });
 }

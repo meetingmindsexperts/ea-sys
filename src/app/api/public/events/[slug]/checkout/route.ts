@@ -118,6 +118,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventId: registration.event.id,
         eventSlug,
       },
+      automatic_tax: { enabled: true },
       success_url: successUrl,
       cancel_url: cancelUrl,
     });

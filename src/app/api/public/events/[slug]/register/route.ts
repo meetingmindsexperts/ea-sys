@@ -112,6 +112,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         venue: true,
         city: true,
         organizationId: true,
+        taxRate: true,
+        taxLabel: true,
+        bankDetails: true,
+        supportEmail: true,
+        organization: { select: { name: true } },
       },
     });
 
@@ -361,17 +366,26 @@ export async function POST(req: Request, { params }: RouteParams) {
       await sendRegistrationConfirmation({
         to: email,
         firstName,
+        lastName,
+        title: title || null,
+        organization: organization || null,
         eventName: event.name,
         eventDate: event.startDate,
         eventVenue: event.venue || "",
         eventCity: event.city || "",
         ticketType: tierLabel,
+        pricingTierName: pricingTier?.name || null,
         registrationId: registration.id,
         qrCode: registration.qrCode || "",
         eventId: event.id,
         eventSlug: slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+        bankDetails: event.bankDetails,
+        supportEmail: event.supportEmail,
+        organizationName: event.organization.name,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });

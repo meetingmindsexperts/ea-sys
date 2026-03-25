@@ -50,6 +50,7 @@ import {
   X,
   MapPin,
   ChevronDown,
+  Download,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { queryKeys, useTickets } from "@/hooks/use-api";
@@ -701,6 +702,15 @@ export function RegistrationDetailSheet({
                     <Badge variant="outline" className="mt-2">{selectedRegistration.accommodation.status}</Badge>
                   </div>
                 </div>
+              )}
+
+              {/* Download Quote */}
+              {!isReviewer && (
+                <Button variant="outline" size="sm" asChild className="w-fit">
+                  <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
+                    <Download className="mr-2 h-4 w-4" /> Download Quote
+                  </a>
+                </Button>
               )}
 
               {/* Payment History */}
