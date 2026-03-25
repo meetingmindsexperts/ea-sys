@@ -241,7 +241,7 @@ export function EventListClient({
                     {/* Event name + mobile meta */}
                     <td className="px-4 py-3.5">
                       <Link
-                        href={`/events/${event.id}`}
+                        href={isRestricted ? `/events/${event.id}/abstracts` : `/events/${event.id}`}
                         className="block group-hover:text-primary transition-colors"
                       >
                         <span className="font-medium text-sm leading-snug line-clamp-1">
@@ -312,7 +312,7 @@ export function EventListClient({
                     {/* Arrow */}
                     <td className="px-4 py-3.5">
                       <Link
-                        href={`/events/${event.id}`}
+                        href={isRestricted ? `/events/${event.id}/abstracts` : `/events/${event.id}`}
                         className="text-primary opacity-0 group-hover:opacity-100 transition-opacity"
                         tabIndex={-1}
                         aria-hidden

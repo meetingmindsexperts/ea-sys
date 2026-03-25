@@ -4,15 +4,17 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 
 const registerSchema = z.object({
   title: titleEnum.optional(),
+  role: attendeeRoleEnum.optional(),
   firstName: z.string().min(1, "First name is required").max(100),
   lastName: z.string().min(1, "Last name is required").max(100),
   email: z.string().email("Valid email is required").max(255),
+  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
   password: z.string().min(6, "Password must be at least 6 characters").max(128),
   organization: z.string().max(255).optional(),
   jobTitle: z.string().max(255).optional(),
@@ -20,6 +22,7 @@ const registerSchema = z.object({
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  customSpecialty: z.string().max(255).optional(),
   registrationType: z.string().max(255).optional(),
 });
 

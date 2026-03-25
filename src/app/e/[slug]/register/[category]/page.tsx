@@ -355,7 +355,7 @@ export default function CategoryRegistrationPage() {
   const isClosed = purchasableOptions.length === 0;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
@@ -451,8 +451,8 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="email"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="email" placeholder="john@example.com" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -460,8 +460,8 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="password"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -469,8 +469,8 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="confirmPassword"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -501,7 +501,7 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="title"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
                             <TitleSelect value={field.value} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
@@ -509,16 +509,16 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="firstName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input placeholder="John" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                       <FormField control={form.control} name="lastName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                            <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -528,16 +528,16 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="jobTitle"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Position</FormLabel>
-                            <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Position</FormLabel>
+                            <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                       <FormField control={form.control} name="organization"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Organization</FormLabel>
-                            <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Organization</FormLabel>
+                            <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -546,8 +546,8 @@ export default function CategoryRegistrationPage() {
                     <FormField control={form.control} name="phone"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Mobile Number</FormLabel>
-                          <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                          <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -555,8 +555,8 @@ export default function CategoryRegistrationPage() {
                     <FormField control={form.control} name="additionalEmail"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Additional Email</FormLabel>
-                          <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
+                          <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -565,7 +565,7 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="country"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
                             <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
@@ -573,8 +573,8 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="city"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">City</FormLabel>
-                            <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                            <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -584,7 +584,7 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="specialty"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
                             <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
@@ -592,7 +592,7 @@ export default function CategoryRegistrationPage() {
                       <FormField control={form.control} name="role"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
                             <RoleSelect value={field.value} onChange={field.onChange} />
                             <FormMessage />
                           </FormItem>
@@ -602,8 +602,8 @@ export default function CategoryRegistrationPage() {
                     <FormField control={form.control} name="customSpecialty"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Specialty (Specific)</FormLabel>
-                          <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Specialty (Specific)</FormLabel>
+                          <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -611,8 +611,8 @@ export default function CategoryRegistrationPage() {
                     <FormField control={form.control} name="dietaryReqs"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Dietary Requirements</FormLabel>
-                          <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Dietary Requirements</FormLabel>
+                          <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />

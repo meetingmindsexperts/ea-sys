@@ -17,11 +17,6 @@ import {
   CheckCircle2,
   FileText,
   Lock,
-  User,
-  Building2,
-  Phone,
-  Globe,
-  Stethoscope,
   ChevronRight,
   ChevronLeft,
   AlertCircle,
@@ -38,6 +33,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -65,14 +62,18 @@ const registerSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(1, "Please confirm your password"),
+  title: z.string().min(1, "Title is required"),
+  role: z.string().min(1, "Role is required"),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
+  additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
   organization: z.string().optional(),
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
   city: z.string().optional(),
-  country: z.string().optional(),
-  specialty: z.string().optional(),
+  country: z.string().min(1, "Country is required"),
+  specialty: z.string().min(1, "Specialty is required"),
+  customSpecialty: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -95,9 +96,10 @@ export default function AbstractRegisterPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       email: "", password: "", confirmPassword: "",
-      firstName: "", lastName: "",
-      organization: "", jobTitle: "", phone: "",
-      city: "", country: "", specialty: "",
+      title: "", role: "", firstName: "", lastName: "",
+      additionalEmail: "", organization: "", jobTitle: "",
+      phone: "", city: "", country: "",
+      specialty: "", customSpecialty: "",
     },
   });
 
@@ -139,9 +141,12 @@ export default function AbstractRegisterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          title: data.title || undefined,
+          role: data.role || undefined,
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
+          additionalEmail: data.additionalEmail || undefined,
           password: data.password,
           organization: data.organization || undefined,
           jobTitle: data.jobTitle || undefined,
@@ -149,6 +154,7 @@ export default function AbstractRegisterPage() {
           city: data.city || undefined,
           country: data.country || undefined,
           specialty: data.specialty || undefined,
+          customSpecialty: data.customSpecialty || undefined,
         }),
       });
 
@@ -185,7 +191,7 @@ export default function AbstractRegisterPage() {
             <div className="h-10 w-10 rounded-full border-2 border-primary/20" />
             <Loader2 className="h-10 w-10 animate-spin text-primary absolute inset-0" />
           </div>
-          <p className="text-slate-400 text-sm">Loading event…</p>
+          <p className="text-slate-400 text-base">Loading event…</p>
         </div>
       </div>
     );
@@ -199,7 +205,7 @@ export default function AbstractRegisterPage() {
             <AlertCircle className="h-7 w-7 text-red-500" />
           </div>
           <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
-          <p className="text-slate-500 text-sm">Please check the link or contact the event organizer.</p>
+          <p className="text-slate-500 text-base">Please check the link or contact the event organizer.</p>
         </div>
       </div>
     );
@@ -213,7 +219,7 @@ export default function AbstractRegisterPage() {
             <CheckCircle2 className="h-9 w-9 text-emerald-500" />
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Account Created!</h2>
-          <p className="text-slate-500 text-sm leading-relaxed mb-2">
+          <p className="text-slate-500 text-base leading-relaxed mb-2">
             Your speaker account has been created. Log in to submit your abstract for
           </p>
           <p className="font-semibold text-slate-800 mb-6">{event.name}</p>
@@ -222,7 +228,7 @@ export default function AbstractRegisterPage() {
             <ol className="space-y-2">
               {["Log in with your email and password", "Find this event in your dashboard", "Submit your abstract for review"].map(
                 (s, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
+                  <li key={i} className="flex items-start gap-2.5 text-base text-slate-600">
                     <span className="shrink-0 h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold mt-0.5">
                       {i + 1}
                     </span>
@@ -233,7 +239,7 @@ export default function AbstractRegisterPage() {
             </ol>
           </div>
           <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}>
-            <Button className="btn-gradient w-full h-11 font-semibold rounded-xl gap-2">
+            <Button className="btn-gradient w-full h-11 font-semibold rounded-xl gap-2 text-base">
               Log In to Continue <ChevronRight className="h-4 w-4" />
             </Button>
           </Link>
@@ -245,7 +251,7 @@ export default function AbstractRegisterPage() {
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
@@ -265,23 +271,23 @@ export default function AbstractRegisterPage() {
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
             <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
-            <div className="flex items-center gap-1.5 text-sm text-slate-500">
-              <Calendar className="h-3.5 w-3.5 text-primary/70" />
+            <div className="flex items-center gap-1.5 text-base text-slate-500">
+              <Calendar className="h-4 w-4 text-primary/70" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-slate-500">
-              <Clock className="h-3.5 w-3.5 text-primary/70" />
+            <div className="flex items-center gap-1.5 text-base text-slate-500">
+              <Clock className="h-4 w-4 text-primary/70" />
               <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
             {locationParts.length > 0 && (
-              <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                <MapPin className="h-3.5 w-3.5 text-primary/70" />
+              <div className="flex items-center gap-1.5 text-base text-slate-500">
+                <MapPin className="h-4 w-4 text-primary/70" />
                 <span>{locationParts.join(", ")}</span>
               </div>
             )}
             {event.abstractSettings?.abstractDeadline && (
-              <div className="flex items-center gap-1.5 text-sm text-amber-600 font-medium">
-                <FileText className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-1.5 text-base text-amber-600 font-medium">
+                <FileText className="h-4 w-4" />
                 <span>Deadline: {format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}</span>
               </div>
             )}
@@ -295,20 +301,19 @@ export default function AbstractRegisterPage() {
           {/* Header */}
           <div className="px-6 py-5 border-b border-slate-100">
             <h2 className="text-lg font-semibold text-slate-900">Abstract Submission — Speaker Registration</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              {step === 1 ? "Create your account to get started." : "Fill in your professional details."}
+            <p className="text-base text-slate-500 mt-1">
+              {step === 1 ? "Create your account to get started." : "Fill in your details to complete registration."}
             </p>
-            {/* Step indicator */}
             <div className="flex items-center gap-2 mt-3">
               <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 1 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-primary text-white"
               )}>{step > 1 ? "✓" : "1"}</div>
-              <span className={cn("text-xs font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
+              <span className={cn("text-sm font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
               <div className={cn("h-px w-8", step > 1 ? "bg-primary" : "bg-slate-200")} />
               <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 2 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-slate-100 text-slate-400"
               )}>2</div>
-              <span className={cn("text-xs font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
+              <span className={cn("text-sm font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
             </div>
           </div>
 
@@ -319,9 +324,8 @@ export default function AbstractRegisterPage() {
                 {/* ── STEP 1: Account ── */}
                 {step === 1 && (
                   <div className="space-y-5">
-                    {/* Welcome text from organizer */}
                     {event.registrationWelcomeHtml && (
-                      <div className="prose prose-sm prose-slate max-w-none"
+                      <div className="prose prose-base prose-slate max-w-none"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
                     )}
 
@@ -330,16 +334,16 @@ export default function AbstractRegisterPage() {
                         <Lock className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-800">Create your speaker account</h3>
-                        <p className="text-xs text-slate-500">You&apos;ll use these credentials to sign in and submit your abstract.</p>
+                        <h3 className="text-base font-semibold text-slate-800">Create your speaker account</h3>
+                        <p className="text-sm text-slate-500">You&apos;ll use these credentials to sign in and submit your abstract.</p>
                       </div>
                     </div>
 
                     <FormField control={form.control} name="email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -347,8 +351,8 @@ export default function AbstractRegisterPage() {
                     <FormField control={form.control} name="password"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -356,8 +360,8 @@ export default function AbstractRegisterPage() {
                     <FormField control={form.control} name="confirmPassword"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
+                          <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -370,52 +374,60 @@ export default function AbstractRegisterPage() {
                       Continue <ChevronRight className="ml-1 h-5 w-5" />
                     </Button>
 
-                    <p className="text-center text-xs text-slate-400">
+                    <p className="text-center text-sm text-slate-400">
                       Already have an account?{" "}
                       <a href={`/login?callbackUrl=${encodeURIComponent("/events")}`} className="text-primary hover:underline font-medium">Sign in</a>
                     </p>
                   </div>
                 )}
 
-                {/* ── STEP 2: Professional Details ── */}
+                {/* ── STEP 2: Contact Details ── */}
                 {step === 2 && (
                   <>
                     <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Professional Details</h3>
+                      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Contact Details</h3>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                        <FormField control={form.control} name="title"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Title <span className="text-red-400">*</span></FormLabel>
+                              <TitleSelect value={field.value} onChange={field.onChange} />
+                              <FormMessage />
+                            </FormItem>
+                          )} />
                         <FormField control={form.control} name="firstName"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="John" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
+                              <FormControl><Input placeholder="John" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
                         <FormField control={form.control} name="lastName"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
-                              <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
+                              <FormControl><Input placeholder="Doe" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
-                        <FormField control={form.control} name="organization"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Building2 className="h-3 w-3" /> Institution</FormLabel>
-                              <FormControl><Input placeholder="University of..." className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
                         <FormField control={form.control} name="jobTitle"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><User className="h-3 w-3" /> Position</FormLabel>
-                              <FormControl><Input placeholder="Professor, Researcher..." className="rounded-lg border-slate-200" {...field} /></FormControl>
+                              <FormLabel className="text-sm font-medium text-slate-600">Position</FormLabel>
+                              <FormControl><Input placeholder="Professor, Researcher..." className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <FormField control={form.control} name="organization"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Organization</FormLabel>
+                              <FormControl><Input placeholder="University of..." className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
                           )} />
@@ -424,44 +436,72 @@ export default function AbstractRegisterPage() {
                       <FormField control={form.control} name="phone"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</FormLabel>
-                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
 
-                      <FormField control={form.control} name="specialty"
+                      <FormField control={form.control} name="additionalEmail"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Stethoscope className="h-3 w-3" /> Specialty</FormLabel>
-                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
+                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
 
                       <div className="grid grid-cols-2 gap-3">
-                        <FormField control={form.control} name="city"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><MapPin className="h-3 w-3" /> City</FormLabel>
-                              <FormControl><Input placeholder="New York" className="rounded-lg border-slate-200" {...field} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
                         <FormField control={form.control} name="country"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1"><Globe className="h-3 w-3" /> Country</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
                               <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                               <FormMessage />
                             </FormItem>
                           )} />
+                        <FormField control={form.control} name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                              <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
                       </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={form.control} name="specialty"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Specialty <span className="text-red-400">*</span></FormLabel>
+                              <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <FormField control={form.control} name="role"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Role <span className="text-red-400">*</span></FormLabel>
+                              <RoleSelect value={field.value} onChange={field.onChange} />
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      </div>
+
+                      <FormField control={form.control} name="customSpecialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Specialty (Specific)</FormLabel>
+                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base h-11" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
                     </div>
 
                     {/* Navigation */}
                     <div className="flex items-center justify-between pt-2">
-                      <Button type="button" variant="outline" className="rounded-lg" onClick={() => setStep(1)}>
+                      <Button type="button" variant="outline" className="rounded-lg text-base" onClick={() => setStep(1)}>
                         <ChevronLeft className="mr-1 h-4 w-4" /> Back
                       </Button>
                       <Button type="submit" disabled={submitting} className="rounded-lg font-semibold btn-gradient px-8 py-3 text-base">
