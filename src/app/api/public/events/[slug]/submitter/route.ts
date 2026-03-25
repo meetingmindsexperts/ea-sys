@@ -133,9 +133,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Check if email is already taken
     const existingUser = await db.user.findUnique({
       where: { email: emailLower },
+      select: { id: true, role: true },
     });
 
-    if (existingUser) {
+    // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
+    if (existingUser && existingUser.role !== "REGISTRANT") {
       return NextResponse.json(
         { error: "An account with this email already exists. Please log in instead." },
         { status: 409 }
@@ -147,17 +149,29 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Create user + speaker in a transaction
     await db.$transaction(async (tx) => {
-      // Create SUBMITTER user (org-independent)
-      const user = await tx.user.create({
-        data: {
-          email: emailLower,
-          passwordHash,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          role: "SUBMITTER",
-          emailVerified: new Date(),
-        },
-      });
+      let user: { id: string };
+
+      if (existingUser) {
+        // Upgrade REGISTRANT → SUBMITTER
+        user = await tx.user.update({
+          where: { id: existingUser.id },
+          data: { role: "SUBMITTER", firstName: data.firstName, lastName: data.lastName },
+          select: { id: true },
+        });
+      } else {
+        // Create new SUBMITTER user (org-independent)
+        user = await tx.user.create({
+          data: {
+            email: emailLower,
+            passwordHash,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            role: "SUBMITTER",
+            emailVerified: new Date(),
+          },
+          select: { id: true },
+        });
+      }
 
       // Find or create speaker linked to this event
       const existingSpeaker = await tx.speaker.findUnique({

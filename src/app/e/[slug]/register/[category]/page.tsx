@@ -757,7 +757,7 @@ export default function CategoryRegistrationPage() {
             </div>
           </Link>
           {event.abstractSettings?.allowAbstractSubmissions && (
-            <Link href={`/e/${slug}/submitAbstract`} className="block group">
+            <Link href={`/e/${slug}/abstract/register`} className="block group">
               <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
