@@ -434,11 +434,11 @@ export default function CategoryRegistrationPage() {
                     <div className="space-y-5">
                       {/* Welcome text from organizer */}
                       {event.registrationWelcomeHtml && (
-                        <div className="prose prose-sm prose-slate max-w-none"
+                        <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
                           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
                       )}
 
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center gap-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Lock className="h-5 w-5 text-primary" />
                         </div>
@@ -494,10 +494,10 @@ export default function CategoryRegistrationPage() {
                   {step === 2 && (
                   <>
                   {/* Section: Contact Details */}
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
-                    <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
+                    <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
                       <FormField control={form.control} name="title"
                         render={({ field }) => (
                           <FormItem>
@@ -524,7 +524,7 @@ export default function CategoryRegistrationPage() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                       <FormField control={form.control} name="jobTitle"
                         render={({ field }) => (
                           <FormItem>
@@ -561,7 +561,7 @@ export default function CategoryRegistrationPage() {
                         </FormItem>
                       )} />
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                       <FormField control={form.control} name="country"
                         render={({ field }) => (
                           <FormItem>
@@ -580,7 +580,7 @@ export default function CategoryRegistrationPage() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                       <FormField control={form.control} name="specialty"
                         render={({ field }) => (
                           <FormItem>
@@ -619,7 +619,7 @@ export default function CategoryRegistrationPage() {
                   </div>
 
                   {/* Section: Select Your Category */}
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Select Your Category</h3>
                     <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
 
@@ -644,7 +644,7 @@ export default function CategoryRegistrationPage() {
                                       : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
                                   )}>
                                   <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-4">
                                       <div className={cn(
                                         "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0",
                                         isSelected ? "border-primary bg-primary" : "border-slate-300"
@@ -685,17 +685,17 @@ export default function CategoryRegistrationPage() {
                   </div>
 
                   {/* Section: Terms & Conditions */}
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Terms and Conditions</h3>
                     <div className="max-h-[300px] overflow-y-auto bg-slate-50 rounded-lg border border-slate-200 p-4">
-                      <div className="prose prose-sm prose-slate max-w-none text-xs leading-relaxed"
+                      <div className="prose prose-slate max-w-none text-sm leading-relaxed [&>*]:mb-4 [&>*:last-child]:mb-0"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationTermsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
                     </div>
 
                     <FormField control={form.control} name="agreeTerms"
                       render={({ field }) => (
                         <FormItem>
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-4">
                             <Checkbox
                               checked={field.value === true}
                               onCheckedChange={(checked) => field.onChange(checked === true ? true : undefined)}
@@ -741,10 +741,10 @@ export default function CategoryRegistrationPage() {
         </div>
 
         {/* Sidebar links */}
-        <div className="grid sm:grid-cols-2 gap-3 mt-4">
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
           <Link href={`/e/${slug}/schedule`} className="block group">
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
                   <Calendar className="h-4 w-4 text-amber-500" />
                 </div>
@@ -759,7 +759,7 @@ export default function CategoryRegistrationPage() {
           {event.abstractSettings?.allowAbstractSubmissions && (
             <Link href={`/e/${slug}/abstract/register`} className="block group">
               <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                   <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <FileText className="h-4 w-4 text-primary" />
                   </div>
@@ -782,7 +782,7 @@ export default function CategoryRegistrationPage() {
       {/* Footer */}
       {event.footerHtml && (
         <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
-          <div className="prose prose-sm prose-slate max-w-none mx-auto [&_a]:text-primary [&_a]:underline"
+          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
         </div>
       )}

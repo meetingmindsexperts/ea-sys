@@ -350,7 +350,7 @@ function ConfirmationContent() {
       {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {branding?.footerHtml && (
         <div className="w-full border-t border-slate-100 bg-white text-center px-4 py-6">
-          <div className="prose prose-sm prose-slate max-w-none mx-auto [&_a]:text-primary [&_a]:underline"
+          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.footerHtml) }} />
         </div>
       )}
