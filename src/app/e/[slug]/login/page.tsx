@@ -105,9 +105,9 @@ function EventLoginForm() {
       }
 
       toast.success("Welcome back!");
-      // Route based on context: registration → my-registration, abstracts → events
+      // Route based on context: registration → event-scoped my-registration, abstracts → events
       if (redirectParam === "registration") {
-        router.push("/my-registration");
+        router.push(`/e/${slug}/my-registration`);
       } else if (redirectParam === "abstracts") {
         router.push("/events");
       } else {
