@@ -39,7 +39,7 @@ export function CountrySelect({
       onValueChange={onChange}
       disabled={disabled}
     >
-      <SelectTrigger>
+      <SelectTrigger className="w-full">
         <SelectValue placeholder={placeholder}>
           {selectedCountry?.name || value}
         </SelectValue>

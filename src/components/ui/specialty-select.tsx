@@ -80,10 +80,10 @@ export function SpecialtySelect({
 
   return (
     <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="min-w-[300px] w-full">
+      <SelectTrigger className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent className="min-w-[300px]">
+      <SelectContent className="min-w-[250px]">
         <div className="flex items-center gap-2 px-2 pb-2 sticky top-0 bg-popover">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
