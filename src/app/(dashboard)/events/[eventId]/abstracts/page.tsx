@@ -358,12 +358,21 @@ export default function AbstractsPage() {
           {!isSubmitter && session?.user?.role !== "REVIEWER" && (
             <CSVImportButton eventId={eventId} entityType="abstracts" />
           )}
+        {/* Submitter: full page form. Admin: dialog. Reviewer: no button. */}
+        {isSubmitter && (
+          <Button asChild>
+            <Link href={`/events/${eventId}/abstracts/new`}>
+              <Plus className="mr-2 h-4 w-4" />
+              Submit Abstract
+            </Link>
+          </Button>
+        )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          {!isReviewer && (
+          {!isSubmitter && !isReviewer && (
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              {isSubmitter ? "Submit Abstract" : "Add Abstract"}
+              Add Abstract
             </Button>
           </DialogTrigger>
           )}
@@ -899,20 +908,30 @@ export default function AbstractsPage() {
 
                     <div className="flex gap-2">
                       {isSubmitter ? (
-                        // Submitter actions: Edit (if editable status)
-                        editableStatuses.includes(abstract.status) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openEditDialog(abstract)}
-                          >
+                        // Submitter actions: Edit/View via full page
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          asChild
+                        >
+                          <Link href={`/events/${eventId}/abstracts/${abstract.id}/edit`}>
                             <Pencil className="mr-1 h-4 w-4" />
-                            Edit
-                          </Button>
-                        )
+                            {editableStatuses.includes(abstract.status) ? "Edit" : "View"}
+                          </Link>
+                        </Button>
                       ) : canReview ? (
                         // Admin / Reviewer actions
                         <>
+                          {isAdmin && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditDialog(abstract)}
+                            >
+                              <Pencil className="mr-1 h-4 w-4" />
+                              Edit
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
