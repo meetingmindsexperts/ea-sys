@@ -372,7 +372,7 @@ export default function CategoryRegistrationPage() {
 
       {/* Event Info Strip */}
       <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
             <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
             <div className="flex items-center gap-1.5 text-sm text-slate-500">
@@ -394,10 +394,10 @@ export default function CategoryRegistrationPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-6">
+      <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
-          <div className="px-6 py-5 border-b border-slate-100">
+          <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
             <h2 className="text-2xl font-bold text-slate-900">{formLabel} Registration</h2>
             <p className="text-sm text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
@@ -416,7 +416,7 @@ export default function CategoryRegistrationPage() {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-6 sm:px-10">
             {isClosed ? (
               <div className="text-center py-12">
                 <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">

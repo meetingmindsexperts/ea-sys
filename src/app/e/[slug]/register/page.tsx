@@ -178,7 +178,7 @@ export default function RegisterOverviewPage() {
 
       {/* Event Info Strip */}
       <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
             <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
             <div className="flex items-center gap-1.5 text-sm text-slate-500">
@@ -200,7 +200,7 @@ export default function RegisterOverviewPage() {
       </div>
 
       {/* Main */}
-      <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
+      <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8">
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-1">
             <div className="h-5 w-5 rounded bg-amber-100 flex items-center justify-center">

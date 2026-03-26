@@ -298,7 +298,7 @@ export default function SubmitAbstractPage() {
             <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/70 to-slate-900" />
           </>
         )}
-        <div className={cn("relative max-w-3xl mx-auto px-4 sm:px-6", event.bannerImage ? "py-6 -mt-6" : "py-10")}>
+        <div className={cn("relative max-w-5xl mx-auto px-4 sm:px-6", event.bannerImage ? "py-6 -mt-6" : "py-10")}>
           <span className="text-xs font-medium tracking-widest uppercase text-primary/80">{event.organization.name}</span>
           <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 mt-2 leading-tight">{event.name}</h1>
           <p className="text-primary/80 text-sm font-medium mb-4">Abstract Submission Portal</p>
