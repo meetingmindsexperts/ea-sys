@@ -300,17 +300,17 @@ export default function AbstractRegisterPage() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-6 py-5 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900">Abstract Submission — Speaker Registration</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Abstract Submission — Speaker Registration</h2>
             <p className="text-base text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in your details to complete registration."}
             </p>
-            <div className="flex items-center gap-2 mt-3">
-              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+            <div className="flex items-center gap-2 mt-4">
+              <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 1 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-primary text-white"
               )}>{step > 1 ? "✓" : "1"}</div>
               <span className={cn("text-sm font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
               <div className={cn("h-px w-8", step > 1 ? "bg-primary" : "bg-slate-200")} />
-              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+              <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 2 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-slate-100 text-slate-400"
               )}>2</div>
               <span className={cn("text-sm font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
@@ -334,7 +334,7 @@ export default function AbstractRegisterPage() {
                         <Lock className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-base font-semibold text-slate-800">Create your speaker account</h3>
+                        <h3 className="text-lg font-bold text-slate-800">Create your speaker account</h3>
                         <p className="text-sm text-slate-500">You&apos;ll use these credentials to sign in and submit your abstract.</p>
                       </div>
                     </div>
@@ -385,7 +385,7 @@ export default function AbstractRegisterPage() {
                 {step === 2 && (
                   <>
                     <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Contact Details</h3>
+                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
                       <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
                         <FormField control={form.control} name="title"

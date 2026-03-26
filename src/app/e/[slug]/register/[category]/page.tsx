@@ -398,21 +398,21 @@ export default function CategoryRegistrationPage() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-6 py-5 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900">{formLabel} Registration</h2>
+            <h2 className="text-2xl font-bold text-slate-900">{formLabel} Registration</h2>
             <p className="text-sm text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in the details below to complete your registration."}
             </p>
             {/* Step indicator */}
-            <div className="flex items-center gap-2 mt-3">
-              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+            <div className="flex items-center gap-2 mt-4">
+              <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 1 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-primary text-white"
               )}>{step > 1 ? "✓" : "1"}</div>
-              <span className={cn("text-xs font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
+              <span className={cn("text-sm font-medium", step === 1 ? "text-slate-800" : "text-primary")}>Account</span>
               <div className={cn("h-px w-8", step > 1 ? "bg-primary" : "bg-slate-200")} />
-              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+              <div className={cn("h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold",
                 step === 2 ? "bg-primary/10 text-primary border-2 border-primary" : "bg-slate-100 text-slate-400"
               )}>2</div>
-              <span className={cn("text-xs font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
+              <span className={cn("text-sm font-medium", step === 2 ? "text-slate-800" : "text-slate-400")}>Details</span>
             </div>
           </div>
 
@@ -443,7 +443,7 @@ export default function CategoryRegistrationPage() {
                           <Lock className="h-5 w-5 text-primary" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-semibold text-slate-800">Create your account</h3>
+                          <h3 className="text-lg font-bold text-slate-800">Create your account</h3>
                           <p className="text-xs text-slate-500">You&apos;ll use these credentials to sign in, manage your registration, and make payments.</p>
                         </div>
                       </div>
@@ -495,7 +495,7 @@ export default function CategoryRegistrationPage() {
                   <>
                   {/* Section: Contact Details */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Contact Details</h3>
+                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Contact Details</h3>
 
                     <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
                       <FormField control={form.control} name="title"
@@ -620,7 +620,7 @@ export default function CategoryRegistrationPage() {
 
                   {/* Section: Select Your Category */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Select Your Category</h3>
+                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Select Your Category</h3>
                     <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
 
                     <FormField control={form.control} name="ticketTypeId"
@@ -686,7 +686,7 @@ export default function CategoryRegistrationPage() {
 
                   {/* Section: Terms & Conditions */}
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">Terms and Conditions</h3>
+                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Terms and Conditions</h3>
                     <div className="max-h-[300px] overflow-y-auto bg-slate-50 rounded-lg border border-slate-200 p-4">
                       <div className="prose prose-sm prose-slate max-w-none text-xs leading-relaxed"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationTermsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
