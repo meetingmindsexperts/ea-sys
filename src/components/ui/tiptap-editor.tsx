@@ -245,6 +245,31 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   );
 }
 
+/** Simple HTML formatter — adds line breaks and indentation for readability */
+function formatHtml(html: string): string {
+  let formatted = "";
+  let indent = 0;
+  // Split on tags while keeping the tags
+  const tokens = html.replace(/>\s*</g, ">\n<").split("\n");
+  for (const token of tokens) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    // Decrease indent for closing tags
+    if (trimmed.startsWith("</")) indent = Math.max(0, indent - 1);
+    formatted += "  ".repeat(indent) + trimmed + "\n";
+    // Increase indent for opening tags (not self-closing, not void elements)
+    if (
+      trimmed.startsWith("<") &&
+      !trimmed.startsWith("</") &&
+      !trimmed.endsWith("/>") &&
+      !/^<(br|hr|img|input|meta|link)\b/i.test(trimmed)
+    ) {
+      indent += 1;
+    }
+  }
+  return formatted.trim();
+}
+
 export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState("");
@@ -278,8 +303,8 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
       editor.commands.setContent(sourceHtml);
       onChange(sourceHtml);
     } else {
-      // Switching from visual to source
-      setSourceHtml(editor.getHTML());
+      // Switching from visual to source — format for readability
+      setSourceHtml(formatHtml(editor.getHTML()));
     }
     setSourceMode(!sourceMode);
   }, [editor, sourceMode, sourceHtml, onChange]);
