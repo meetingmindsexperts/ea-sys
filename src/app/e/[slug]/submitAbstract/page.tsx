@@ -275,7 +275,7 @@ export default function SubmitAbstractPage() {
               )}
             </ol>
           </div>
-          <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}>
+          <Link href={`/e/${slug}/login?redirect=abstracts`}>
             <Button className="btn-gradient w-full h-11 font-semibold rounded-xl gap-2">
               Log In to Continue <ChevronRight className="h-4 w-4" />
             </Button>
@@ -544,7 +544,7 @@ export default function SubmitAbstractPage() {
               <div className="px-6 pb-5 text-center">
                 <p className="text-xs text-slate-400">
                   Already have an account?{" "}
-                  <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}
+                  <Link href={`/e/${slug}/login?redirect=abstracts`}
                     className="text-primary hover:underline font-medium">Log in</Link>
                 </p>
               </div>

@@ -144,7 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true, name: true, settings: true },
+      select: { id: true, name: true, slug: true, settings: true },
     });
 
     if (!event) {
@@ -177,7 +177,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId = speaker.userId;
       } else {
         const result = await findOrCreateReviewerUser(
-          speaker.email, speaker.firstName, speaker.lastName, session
+          speaker.email, speaker.firstName, speaker.lastName, session, event.slug
         );
         if ("error" in result) {
           return NextResponse.json({ error: result.error }, { status: 400 });
@@ -196,7 +196,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const { email, firstName, lastName } = validated.data;
       reviewerEmail = email;
 
-      const result = await findOrCreateReviewerUser(email, firstName, lastName, session);
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
@@ -296,7 +296,8 @@ async function findOrCreateReviewerUser(
   email: string,
   firstName: string,
   lastName: string,
-  session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } }
+  session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
+  eventSlug: string
 ): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
@@ -344,7 +345,7 @@ async function findOrCreateReviewerUser(
 
   // Send invitation email
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}`;
+  const setupLink = `${appUrl}/accept-invitation?token=${invitationToken}&email=${encodeURIComponent(normalizedEmail)}&eventSlug=${encodeURIComponent(eventSlug)}`;
 
   const organization = session.user.organizationId
     ? await db.organization.findUnique({

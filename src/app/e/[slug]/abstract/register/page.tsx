@@ -238,7 +238,7 @@ export default function AbstractRegisterPage() {
               )}
             </ol>
           </div>
-          <Link href={`/login?callbackUrl=${encodeURIComponent("/events")}`}>
+          <Link href={`/e/${slug}/login?redirect=abstracts`}>
             <Button className="btn-gradient w-full h-11 font-semibold rounded-xl gap-2 text-base">
               Log In to Continue <ChevronRight className="h-4 w-4" />
             </Button>
@@ -376,7 +376,7 @@ export default function AbstractRegisterPage() {
 
                     <p className="text-center text-sm text-slate-400">
                       Already have an account?{" "}
-                      <a href={`/login?callbackUrl=${encodeURIComponent("/events")}`} className="text-primary hover:underline font-medium">Sign in</a>
+                      <a href={`/e/${slug}/login?redirect=abstracts`} className="text-primary hover:underline font-medium">Sign in</a>
                     </p>
                   </div>
                 )}

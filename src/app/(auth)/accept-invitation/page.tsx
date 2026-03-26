@@ -51,6 +51,7 @@ function AcceptInvitationForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const email = searchParams.get("email");
+  const eventSlug = searchParams.get("eventSlug");
 
   const [isValidating, setIsValidating] = useState(true);
   const [isValid, setIsValid] = useState(false);
@@ -126,7 +127,7 @@ function AcceptInvitationForm() {
 
       // Redirect to login after a short delay
       setTimeout(() => {
-        router.push("/login");
+        router.push(eventSlug ? `/e/${eventSlug}/login` : "/login");
       }, 2000);
     } catch {
       toast.error("Something went wrong. Please try again.");
