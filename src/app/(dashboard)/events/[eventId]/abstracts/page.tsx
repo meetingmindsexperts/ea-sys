@@ -92,8 +92,10 @@ export default function AbstractsPage() {
   const { data: session } = useSession();
 
   const isSubmitter  = session?.user?.role === "SUBMITTER";
+  const isReviewer   = session?.user?.role === "REVIEWER";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
+  const canReview    = isAdmin || isReviewer;
 
   const [copied, setCopied] = useState(false);
 
@@ -357,12 +359,14 @@ export default function AbstractsPage() {
             <CSVImportButton eventId={eventId} entityType="abstracts" />
           )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          {!isReviewer && (
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
               {isSubmitter ? "Submit Abstract" : "Add Abstract"}
             </Button>
           </DialogTrigger>
+          )}
           <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
             <DialogHeader>
               <DialogTitle>Submit Abstract</DialogTitle>
@@ -601,8 +605,8 @@ export default function AbstractsPage() {
         </Card>
       )}
 
-      {/* Review Dialog (admin only) */}
-      {isAdmin && (
+      {/* Review Dialog (admin + reviewer) */}
+      {canReview && (
         <Dialog
           open={isReviewDialogOpen}
           onOpenChange={(open) => {
@@ -906,8 +910,8 @@ export default function AbstractsPage() {
                             Edit
                           </Button>
                         )
-                      ) : isAdmin ? (
-                        // Admin / Super Admin actions
+                      ) : canReview ? (
+                        // Admin / Reviewer actions
                         <>
                           <Button
                             variant="outline"

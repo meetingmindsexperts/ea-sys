@@ -82,14 +82,14 @@ const ROLE_META: Record<string, RoleMeta> = {
   },
   REVIEWER: {
     label: "Reviewer",
-    description: "Abstract review only",
+    description: "Abstract review",
     color: "bg-amber-100 text-amber-700",
     icon: Eye,
     permissions: [
-      { label: "View assigned events",     allowed: true },
-      { label: "Read abstracts",           allowed: true },
-      { label: "Review & approve abstracts", allowed: false },
-      { label: "Delete abstracts",          allowed: false },
+      { label: "View assigned events",      allowed: true },
+      { label: "Review & score abstracts",  allowed: true },
+      { label: "Accept/reject abstracts",   allowed: true },
+      { label: "Manage events",             allowed: false },
     ],
   },
   SUBMITTER: {
