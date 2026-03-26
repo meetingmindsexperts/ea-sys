@@ -432,12 +432,14 @@ export default function CategoryRegistrationPage() {
                   {/* ── STEP 1: Create Account ── */}
                   {step === 1 && (
                     <div className="space-y-5">
-                      {/* Welcome text from organizer */}
+                      {/* Welcome text from organizer — full width */}
                       {event.registrationWelcomeHtml && (
                         <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
                           dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
                       )}
 
+                      {/* Account form — narrower centered */}
+                      <div className="max-w-md mx-auto space-y-5">
                       <div className="flex items-center gap-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Lock className="h-5 w-5 text-primary" />
@@ -487,6 +489,7 @@ export default function CategoryRegistrationPage() {
                         Already have an account?{" "}
                         <a href={`/e/${slug}/login?redirect=registration`} className="text-primary hover:underline font-medium">Sign in</a>
                       </p>
+                      </div>
                     </div>
                   )}
 

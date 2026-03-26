@@ -324,11 +324,14 @@ export default function AbstractRegisterPage() {
                 {/* ── STEP 1: Account ── */}
                 {step === 1 && (
                   <div className="space-y-5">
+                    {/* Welcome text — full width */}
                     {event.abstractWelcomeHtml && (
                       <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.abstractWelcomeHtml) }} />
                     )}
 
+                    {/* Account form — narrower centered */}
+                    <div className="max-w-md mx-auto space-y-5">
                     <div className="flex items-center gap-4">
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                         <Lock className="h-5 w-5 text-primary" />
@@ -378,6 +381,7 @@ export default function AbstractRegisterPage() {
                       Already have an account?{" "}
                       <a href={`/e/${slug}/login?redirect=abstracts`} className="text-primary hover:underline font-medium">Sign in</a>
                     </p>
+                    </div>
                   </div>
                 )}
 

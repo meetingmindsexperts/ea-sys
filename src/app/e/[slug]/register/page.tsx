@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { format } from "date-fns";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -16,7 +16,6 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Lock,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -82,6 +81,7 @@ interface TierGroup {
 
 export default function RegisterOverviewPage() {
   const params = useParams();
+  const router = useRouter();
   const slug = params.slug as string;
   const { data: session, status: sessionStatus } = useSession();
 
@@ -127,20 +127,46 @@ export default function RegisterOverviewPage() {
     );
   }
 
-  // Not logged in or not admin/organizer → show access denied
-  if (!isAuthorized) {
+  // Not logged in or not admin/organizer → auto-redirect to first active non-presenter tier
+  if (!isAuthorized && event) {
+    // Find first active tier by priority, excluding "Presenter" (presenter has its own direct link)
+    const activeTier = event.ticketTypes
+      ?.flatMap((tt: TicketType) => (tt.pricingTiers || []).filter((t: PricingTier) => t.canPurchase))
+      .filter((t: PricingTier) => toSlug(t.name) !== "presenter")
+      .sort((a: PricingTier, b: PricingTier) => {
+        const order = ["early-bird", "standard", "onsite"];
+        const ai = order.indexOf(toSlug(a.name));
+        const bi = order.indexOf(toSlug(b.name));
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      })[0];
+
+    if (activeTier) {
+      router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}`);
+      return (
+        <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      );
+    }
+
+    // No active non-presenter tiers → closed
     return (
       <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <Lock className="h-10 w-10 text-slate-300 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Registration Form Links</h2>
-          <p className="text-slate-500 text-sm mb-4">
-            This page is for event organizers. Please use a direct registration link provided by the organizer.
-          </p>
-          <p className="text-xs text-slate-400">
-            If you are an organizer, please log in first.
+          <AlertCircle className="h-10 w-10 text-slate-300 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Registration Closed</h2>
+          <p className="text-slate-500 text-sm">
+            Registration is not currently open for this event. Please contact the organizer for more information.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     );
   }

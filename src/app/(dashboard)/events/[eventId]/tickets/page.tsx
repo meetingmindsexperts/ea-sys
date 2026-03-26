@@ -588,6 +588,10 @@ export default function TicketsPage() {
             <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">3</span>
             <span>Use the <strong>checkbox</strong> next to each tier to activate or close it. Unchecking a tier (e.g., Early Bird) closes that form for all registration types at once.</span>
           </li>
+          <li className="flex gap-2.5">
+            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">4</span>
+            <span>The main registration link (<code className="text-xs bg-white px-1.5 py-0.5 rounded border">/e/slug/register</code>) auto-redirects to the active tier (Early Bird → Standard → Onsite). <strong>Presenter</strong> is separate — share its direct link manually via email or your website.</span>
+          </li>
         </ul>
       </div>
 
