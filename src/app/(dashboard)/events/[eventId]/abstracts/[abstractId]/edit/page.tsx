@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -30,11 +30,6 @@ import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
-  { ssr: false, loading: () => <div className="h-[300px] border rounded-md animate-pulse bg-muted/50" /> }
-);
-
 interface Track {
   id: string;
   name: string;
@@ -52,6 +47,11 @@ const statusColors: Record<string, string> = {
 
 const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
+/** Strip HTML tags for legacy content */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
 // Inner form component — only mounts after abstract data is loaded
 function EditForm({ abstract, eventId, abstractId, tracks }: {
   abstract: Record<string, unknown>;
@@ -64,13 +64,17 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
 
   const [editData, setEditData] = useState({
     title: (abstract.title as string) || "",
-    content: (abstract.content as string) || "",
+    content: stripHtml((abstract.content as string) || ""),
     specialty: (abstract.specialty as string) || "",
     presentationType: (abstract.presentationType as string) || "",
     trackId: (abstract.track as { id: string } | null)?.id || "",
   });
 
-  const canEdit = editableStatuses.includes(abstract.status as string);
+  const status = abstract.status as string;
+  const canEdit = editableStatuses.includes(status);
+  const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
+  const reviewNotes = abstract.reviewNotes as string | null;
+  const reviewScore = abstract.reviewScore as number | null;
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof editData & { status?: string }) => {
@@ -119,13 +123,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   });
 
   const isPending = updateMutation.isPending || deleteMutation.isPending;
-  const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
-  const reviewNotes = abstract.reviewNotes as string | null;
-  const reviewScore = abstract.reviewScore as number | null;
-  const status = abstract.status as string;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href={`/events/${eventId}/abstracts`}>
@@ -168,7 +168,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
       )}
 
       {/* Form */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
           <Card>
             <CardContent className="pt-6 space-y-4">
@@ -190,20 +190,17 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
 
           <Card>
             <CardContent className="pt-6 space-y-2">
-              <Label className="text-sm font-semibold">
+              <Label htmlFor="editContent" className="text-sm font-semibold">
                 Abstract Content <span className="text-red-400">*</span>
               </Label>
-              <div className="min-h-[350px]">
-                {canEdit ? (
-                  <TiptapEditor
-                    content={editData.content}
-                    onChange={(html) => setEditData({ ...editData, content: html })}
-                  />
-                ) : (
-                  <div className="prose prose-sm prose-slate max-w-none border rounded-md p-4 min-h-[200px]"
-                    dangerouslySetInnerHTML={{ __html: editData.content }} />
-                )}
-              </div>
+              <Textarea
+                id="editContent"
+                value={editData.content}
+                onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                rows={16}
+                className="resize-y min-h-[300px] text-base leading-relaxed"
+                disabled={!canEdit}
+              />
             </CardContent>
           </Card>
         </div>
@@ -281,7 +278,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 overflow-visible">
                 <Label className="text-xs font-medium">Specialty</Label>
                 <SpecialtySelect
                   value={editData.specialty}

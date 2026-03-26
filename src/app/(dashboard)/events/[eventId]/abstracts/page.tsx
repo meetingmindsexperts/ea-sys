@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,10 +49,10 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
-  { ssr: false, loading: () => <div className="h-[200px] border rounded-md animate-pulse bg-muted/50" /> }
-);
+/** Strip HTML tags for display (handles legacy HTML content) */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
 
 interface Track {
   id: string;
@@ -415,13 +414,16 @@ export default function AbstractsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Abstract Content</Label>
-                <div className="min-h-[250px]">
-                  <TiptapEditor
-                    content={formData.content}
-                    onChange={(html) => setFormData({ ...formData, content: html })}
-                  />
-                </div>
+                <Label htmlFor="content">Abstract Content</Label>
+                <Textarea
+                  id="content"
+                  value={formData.content}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  rows={10}
+                  placeholder="Enter your abstract content..."
+                  className="resize-y min-h-[200px]"
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label>Specialty</Label>
@@ -736,13 +738,15 @@ export default function AbstractsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Abstract Content</Label>
-                  <div className="min-h-[250px]">
-                    <TiptapEditor
-                      content={editData.content}
-                      onChange={(html) => setEditData({ ...editData, content: html })}
-                    />
-                  </div>
+                  <Label htmlFor="editContent">Abstract Content</Label>
+                  <Textarea
+                    id="editContent"
+                    value={editData.content}
+                    onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                    rows={10}
+                    className="resize-y min-h-[200px]"
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Specialty</Label>
@@ -884,8 +888,8 @@ export default function AbstractsPage() {
                         )}
                       </div>
 
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {abstract.content}
+                      <p className="text-sm text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                        {stripHtml(abstract.content)}
                       </p>
 
                       {abstract.reviewNotes && (

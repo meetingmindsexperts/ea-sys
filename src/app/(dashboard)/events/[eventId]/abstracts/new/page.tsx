@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -28,11 +28,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import Link from "next/link";
-
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
-  { ssr: false, loading: () => <div className="h-[300px] border rounded-md animate-pulse bg-muted/50" /> }
-);
 
 interface Speaker {
   id: string;
@@ -125,7 +120,7 @@ export default function NewAbstractPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href={`/events/${eventId}/abstracts`}>
@@ -145,7 +140,7 @@ export default function NewAbstractPage() {
       </div>
 
       {/* Form */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         {/* Main content */}
         <div className="space-y-6">
           {/* Title */}
@@ -169,18 +164,20 @@ export default function NewAbstractPage() {
           {/* Content */}
           <Card>
             <CardContent className="pt-6 space-y-2">
-              <Label className="text-sm font-semibold">
+              <Label htmlFor="abstractContent" className="text-sm font-semibold">
                 Abstract Content <span className="text-red-400">*</span>
               </Label>
-              <p className="text-xs text-muted-foreground mb-2">
-                Write your abstract using the rich text editor below. Use headings, lists, and bold/italic for structure.
+              <p className="text-xs text-muted-foreground">
+                Include your objective, methodology, results, and conclusions. Aim for 250–300 words.
               </p>
-              <div className="min-h-[350px]">
-                <TiptapEditor
-                  content={formData.content}
-                  onChange={(html) => setFormData({ ...formData, content: html })}
-                />
-              </div>
+              <Textarea
+                id="abstractContent"
+                value={formData.content}
+                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                rows={16}
+                placeholder="Enter your abstract content here..."
+                className="resize-y min-h-[300px] text-base leading-relaxed"
+              />
             </CardContent>
           </Card>
         </div>
@@ -260,7 +257,7 @@ export default function NewAbstractPage() {
               </div>
 
               {/* Specialty */}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 overflow-visible">
                 <Label className="text-xs font-medium">Specialty</Label>
                 <SpecialtySelect
                   value={formData.specialty}
@@ -324,7 +321,7 @@ export default function NewAbstractPage() {
                   <ul className="text-[11px] text-amber-700 space-y-1 leading-relaxed">
                     <li>• State your objective clearly in the first sentence</li>
                     <li>• Include methodology, results, and conclusions</li>
-                    <li>• Keep it concise — aim for 250-300 words</li>
+                    <li>• Keep it concise — aim for 250–300 words</li>
                     <li>• Avoid abbreviations without first defining them</li>
                   </ul>
                 </div>
