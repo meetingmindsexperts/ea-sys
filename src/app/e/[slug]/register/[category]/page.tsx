@@ -439,7 +439,7 @@ export default function CategoryRegistrationPage() {
                       )}
 
                       {/* Account form — narrower centered */}
-                      <div className="max-w-md mx-auto space-y-5">
+                      <div className="max-w-md mx-auto space-y-5 pt-4">
                       <div className="flex items-center gap-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Lock className="h-5 w-5 text-primary" />

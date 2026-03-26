@@ -238,7 +238,7 @@ function EventLoginForm() {
           </div>
 
           {/* Register links */}
-          <div className="bg-slate-50 border-t border-slate-100 px-8 py-5 space-y-2">
+          <div className="bg-slate-50 border-t border-slate-100 px-8 py-6 space-y-3 mt-2">
             <p className="text-sm text-slate-500 text-center mb-3">Don&apos;t have an account?</p>
             <div className="flex gap-3">
               <Link href={`/e/${slug}/register`} className="flex-1">

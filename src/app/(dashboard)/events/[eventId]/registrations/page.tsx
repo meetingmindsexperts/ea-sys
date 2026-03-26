@@ -271,9 +271,9 @@ export default function RegistrationsPage() {
             Manage attendee registrations
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="ps-4 pl-4 flex flex-wrap gap-2">
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
             onClick={handleRefresh}
             disabled={isFetching}
@@ -284,6 +284,7 @@ export default function RegistrationsPage() {
           {!isReviewer && (
             <Button
               variant="outline"
+              size="sm"
               onClick={() => {
                 if (event?.slug) {
                   const url = `${window.location.origin}/e/${event.slug}`;
@@ -299,15 +300,16 @@ export default function RegistrationsPage() {
               Share Link
             </Button>
           )}
-          <Button variant="outline" onClick={exportToCSV}>
+          <Button variant="outline" size="sm" onClick={exportToCSV}>
             <Download className="mr-2 h-4 w-4" />
-            Export CSV
+            Export
           </Button>
           {!isReviewer && (
             <>
               {registrations.length > 0 && (
                 <Button
-                  variant="outline"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setBulkEmailOpen(true)}
                 >
                   <Send className="mr-2 h-4 w-4" />
@@ -318,7 +320,7 @@ export default function RegistrationsPage() {
               <BarcodeImportDialog eventId={eventId} />
               <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
               <ImportContactsButton eventId={eventId} mode="registration" />
-              <Button asChild>
+              <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Registration
