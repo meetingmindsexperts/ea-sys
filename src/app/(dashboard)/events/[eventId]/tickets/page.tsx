@@ -192,6 +192,38 @@ export default function TicketsPage() {
     saveWelcome.mutate(welcomeHtml);
   }, [welcomeHtml, saveWelcome]);
 
+  // Abstract welcome text WYSIWYG state
+  const [abstractWelcomeHtml, setAbstractWelcomeHtml] = useState<string>("");
+  const [abstractWelcomeLoaded, setAbstractWelcomeLoaded] = useState(false);
+
+  useEffect(() => {
+    if (event && !abstractWelcomeLoaded) {
+      setAbstractWelcomeHtml((event as Record<string, unknown>).abstractWelcomeHtml as string || "");
+      setAbstractWelcomeLoaded(true);
+    }
+  }, [event, abstractWelcomeLoaded]);
+
+  const saveAbstractWelcome = useMutation({
+    mutationFn: async (html: string) => {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ abstractWelcomeHtml: html || null }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+      toast.success("Abstract welcome text saved");
+    },
+    onError: () => toast.error("Failed to save abstract welcome text"),
+  });
+
+  const handleSaveAbstractWelcome = useCallback(() => {
+    saveAbstractWelcome.mutate(abstractWelcomeHtml);
+  }, [abstractWelcomeHtml, saveAbstractWelcome]);
+
   // Registration type CRUD
   const openCreateType = () => {
     setEditingType(null);
@@ -572,6 +604,22 @@ export default function TicketsPage() {
             </Button>
           </div>
           <TiptapEditor content={welcomeHtml} onChange={setWelcomeHtml} />
+        </CardContent>
+      </Card>
+
+      {/* Abstract Welcome Text Editor */}
+      <Card>
+        <CardContent className="pt-5 pb-4 px-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Abstract Submission Welcome Text</h3>
+              <p className="text-xs text-muted-foreground">Shown on step 1 of the abstract submission registration form.</p>
+            </div>
+            <Button size="sm" onClick={handleSaveAbstractWelcome} disabled={saveAbstractWelcome.isPending}>
+              {saveAbstractWelcome.isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+          <TiptapEditor content={abstractWelcomeHtml} onChange={setAbstractWelcomeHtml} />
         </CardContent>
       </Card>
 

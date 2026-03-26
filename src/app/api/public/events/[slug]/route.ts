@@ -49,6 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         supportEmail: true,
         registrationTermsHtml: true,
         registrationWelcomeHtml: true,
+        abstractWelcomeHtml: true,
         settings: true,
         organization: {
           select: {

@@ -50,7 +50,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
-  registrationWelcomeHtml: string | null;
+  abstractWelcomeHtml: string | null;
   organization: { name: string; logo: string | null };
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
@@ -324,9 +324,9 @@ export default function AbstractRegisterPage() {
                 {/* ── STEP 1: Account ── */}
                 {step === 1 && (
                   <div className="space-y-5">
-                    {event.registrationWelcomeHtml && (
+                    {event.abstractWelcomeHtml && (
                       <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
-                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.abstractWelcomeHtml) }} />
                     )}
 
                     <div className="flex items-center gap-4">
