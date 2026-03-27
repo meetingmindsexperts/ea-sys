@@ -9,9 +9,9 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const bulkEmailSchema = z.object({
-  recipientType: z.enum(["speakers", "registrations", "reviewers"]),
+  recipientType: z.enum(["speakers", "registrations", "reviewers", "abstracts"]),
   recipientIds: z.array(z.string().max(100)).optional(),
-  emailType: z.enum(["invitation", "agreement", "confirmation", "reminder", "custom"]),
+  emailType: z.enum(["invitation", "agreement", "confirmation", "reminder", "custom", "abstract-accepted", "abstract-rejected", "abstract-revision", "abstract-reminder"]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
   attachments: z.array(z.object({
@@ -144,6 +144,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       recipients = speakers.map((s) => ({
         id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName,
       }));
+    } else if (recipientType === "abstracts") {
+      const abstracts = await db.abstract.findMany({
+        where: {
+          eventId,
+          ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
+          ...(filters?.status ? { status: filters.status as never } : {}),
+        },
+        include: { speaker: true },
+      });
+      // Deduplicate by speaker email
+      const seen = new Set<string>();
+      for (const a of abstracts) {
+        if (!seen.has(a.speaker.email)) {
+          seen.add(a.speaker.email);
+          recipients.push({
+            id: a.id,
+            email: a.speaker.email,
+            firstName: a.speaker.firstName,
+            lastName: a.speaker.lastName,
+          });
+        }
+      }
     } else {
       const parsedStatus = filters?.status ? registrationStatusSchema.safeParse(filters.status) : null;
       const status = parsedStatus?.success ? parsedStatus.data : undefined;

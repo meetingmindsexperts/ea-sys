@@ -619,6 +619,33 @@ Log In: {{loginLink}}`,
   },
 
   {
+    slug: "abstract-reminder",
+    name: "Abstract Submission Reminder",
+    subject: "Reminder: Submit Your Abstract for {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Submission Reminder</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>This is a friendly reminder to submit your abstract for <strong>{{eventName}}</strong>.</p>
+    <p>If you have already submitted, please check your dashboard for any updates or revision requests from the review committee.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstracts</a>
+    </div>
+    <p style="color: #6b7280; font-size: 14px;">If you have any questions, please contact the event organizer.</p>
+  </div>`,
+    textContent: `Abstract Submission Reminder - {{eventName}}
+
+Dear {{firstName}},
+
+This is a friendly reminder to submit your abstract for {{eventName}}.
+
+If you have already submitted, please check your dashboard for any updates or revision requests.
+
+View Your Abstracts: {{managementLink}}`,
+  },
+
+  {
     slug: "custom-notification",
     name: "Custom Notification",
     subject: "{{subject}}",

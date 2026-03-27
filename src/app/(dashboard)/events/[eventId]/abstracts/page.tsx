@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,8 @@ import {
   Check,
   Link2,
   RefreshCw,
+  Send,
+  X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
@@ -48,6 +51,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -117,6 +121,27 @@ export default function AbstractsPage() {
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
+
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === abstracts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(abstracts.map((a) => a.id)));
+    }
+  };
   const [formData, setFormData] = useState({
     speakerId: "",
     title: "",
@@ -354,8 +379,18 @@ export default function AbstractsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          {!isSubmitter && session?.user?.role !== "REVIEWER" && (
+          {!isSubmitter && !isReviewer && (
             <CSVImportButton eventId={eventId} entityType="abstracts" />
+          )}
+          {!isSubmitter && !isReviewer && abstracts.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setBulkEmailOpen(true)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
+            </Button>
           )}
         {/* Submitter: full page form. Admin: dialog. Reviewer: no button. */}
         {isSubmitter && (
@@ -837,13 +872,44 @@ export default function AbstractsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
+            {/* Bulk selection toolbar */}
+            {selectedIds.size > 0 && !isSubmitter && (
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
+                <Checkbox
+                  checked={selectedIds.size === abstracts.length}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all"
+                />
+                <span className="text-sm font-medium">
+                  {selectedIds.size} abstract{selectedIds.size !== 1 ? "s" : ""} selected
+                </span>
+                <div className="flex gap-2 ml-auto">
+                  <Button size="sm" onClick={() => setBulkEmailOpen(true)}>
+                    <Send className="mr-2 h-4 w-4" /> Send Email
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                    <X className="mr-2 h-4 w-4" /> Clear
+                  </Button>
+                </div>
+              </div>
+            )}
             {abstracts.map((abstract) => (
               <Card
                 key={abstract.id}
-                className="transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5"
+                className={`transition-all duration-200 hover:border-primary/50 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 ${selectedIds.has(abstract.id) ? "border-primary/30 bg-primary/[0.02]" : ""}`}
               >
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3 flex-1">
+                      {/* Selection checkbox (admin only) */}
+                      {!isSubmitter && !isReviewer && (
+                        <Checkbox
+                          checked={selectedIds.has(abstract.id)}
+                          onCheckedChange={() => toggleSelect(abstract.id)}
+                          className="mt-1"
+                          aria-label={`Select ${abstract.title}`}
+                        />
+                      )}
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">{abstract.title}</h3>
@@ -908,6 +974,7 @@ export default function AbstractsPage() {
                           </Badge>
                         </div>
                       )}
+                    </div>
                     </div>
 
                     <div className="flex gap-2">
@@ -1000,6 +1067,17 @@ export default function AbstractsPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Email Dialog */}
+      <BulkEmailDialog
+        open={bulkEmailOpen}
+        onOpenChange={setBulkEmailOpen}
+        eventId={eventId}
+        recipientType="abstracts"
+        recipientIds={Array.from(selectedIds)}
+        recipientCount={selectedIds.size > 0 ? selectedIds.size : abstracts.length}
+        selectionMode={selectedIds.size > 0 ? "selected" : "all"}
+      />
     </div>
   );
 }

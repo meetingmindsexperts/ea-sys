@@ -214,25 +214,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Send status notification email to speaker if this is a review action
-    if (isReview && abstract.speaker?.email && data.status) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
+    // Send notification email to speaker on review actions OR when feedback is added
+    const hasFeedbackUpdate = !isReview && (data.reviewNotes !== undefined || data.reviewScore !== undefined);
+    const shouldNotify = (isReview && data.status) || hasFeedbackUpdate;
 
-      const statusInfo = getAbstractStatusInfo(data.status);
-      const reviewNotesHtml = data.reviewNotes
-        ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${data.reviewNotes}</span></div>`
+    if (shouldNotify && abstract.speaker?.email) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const managementLink = abstract.event?.slug
+        ? `${appUrl}/e/${abstract.event.slug}/login?redirect=abstracts`
+        : `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
+
+      const effectiveStatus = data.status || abstract.status;
+      const statusInfo = getAbstractStatusInfo(effectiveStatus);
+      const reviewNotesHtml = (data.reviewNotes ?? abstract.reviewNotes)
+        ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${data.reviewNotes ?? abstract.reviewNotes}</span></div>`
         : "";
+      const effectiveScore = data.reviewScore ?? abstract.reviewScore;
       const vars: Record<string, string | number | undefined> = {
         firstName: abstract.speaker.firstName,
         lastName: abstract.speaker.lastName,
         eventName: event.name,
         abstractTitle: abstract.title,
-        newStatus: data.status.replace(/_/g, " "),
-        statusHeading: statusInfo.heading,
-        statusMessage: statusInfo.message,
+        newStatus: effectiveStatus.replace(/_/g, " "),
+        statusHeading: hasFeedbackUpdate ? "Reviewer Feedback Received" : statusInfo.heading,
+        statusMessage: hasFeedbackUpdate
+          ? "A reviewer has provided feedback on your abstract. Log in to view the details."
+          : statusInfo.message,
         reviewNotes: reviewNotesHtml,
-        reviewScore: data.reviewScore ?? undefined,
+        reviewScore: effectiveScore ?? undefined,
         managementLink,
       };
 
@@ -246,7 +255,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...rendered,
         });
       }).catch((err) => {
-        apiLogger.error({ err, msg: "Failed to send abstract status notification email" });
+        apiLogger.error({ err, msg: "Failed to send abstract notification email" });
       });
     }
 

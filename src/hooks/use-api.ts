@@ -700,9 +700,9 @@ export function usePreviewEmailTemplate(eventId: string) {
 export function useBulkEmail(eventId: string) {
   return useMutation({
     mutationFn: (data: {
-      recipientType: "speakers" | "registrations" | "reviewers";
+      recipientType: "speakers" | "registrations" | "reviewers" | "abstracts";
       recipientIds?: string[];
-      emailType: "invitation" | "agreement" | "confirmation" | "reminder" | "custom";
+      emailType: "invitation" | "agreement" | "confirmation" | "reminder" | "custom" | "abstract-accepted" | "abstract-rejected" | "abstract-revision" | "abstract-reminder";
       customSubject?: string;
       customMessage?: string;
       attachments?: Array<{ name: string; content: string; contentType?: string }>;

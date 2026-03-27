@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** March 25, 2026
+**Last Updated:** March 27, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -178,6 +178,19 @@ This document outlines the current development status of the Event Administratio
 | Submitter Account Registration | ✅ | ✅ | Complete |
 | SUBMITTER Role (abstracts-only access) | ✅ | ✅ | Complete |
 | REGISTRANT Role (self-service portal) | ✅ | ✅ | Complete |
+| Event-Scoped Login (/e/[slug]/login) | N/A | ✅ | Complete |
+| Event-Scoped My Registration (/e/[slug]/my-registration) | ✅ | ✅ | Complete |
+| Abstract Register (/e/[slug]/abstract/register) | ✅ | ✅ | Complete |
+| Presentation Type (Oral/Poster) | ✅ | ✅ | Complete |
+| Full-Page Abstract Submit/Edit (Submitter) | ✅ | ✅ | Complete |
+| Reviewer Portal (Review/Score/Accept/Reject) | ✅ | ✅ | Complete |
+| PDF Quote/Proforma with Tax | ✅ | ✅ | Complete |
+| Tax Configuration (taxRate/taxLabel/bankDetails) | ✅ | ✅ | Complete |
+| Stripe Automatic Tax | ✅ | N/A | Complete |
+| Bulk Email for Abstract Submitters | ✅ | ✅ | Complete |
+| Abstract Feedback Notification (notes/score) | ✅ | N/A | Complete |
+| Smart Register Redirect (active tier) | N/A | ✅ | Complete |
+| Settings: Branding/Email Branding Split | N/A | ✅ | Complete |
 | List Abstracts | ✅ | ✅ | Complete |
 | View Abstract | ✅ | ✅ | Complete |
 | Edit Own Abstract (Submitter) | ✅ | ✅ | Complete |

@@ -24,7 +24,7 @@ import { Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { useBulkEmail } from "@/hooks/use-api";
 
-type RecipientType = "speakers" | "registrations" | "reviewers";
+type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
 interface EmailTypeOption {
   value: string;
@@ -62,11 +62,20 @@ const registrationEmailTypes: EmailTypeOption[] = [
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
+const abstractEmailTypes: EmailTypeOption[] = [
+  { value: "abstract-accepted", label: "Abstract Accepted", description: "Notify that abstract has been accepted" },
+  { value: "abstract-rejected", label: "Abstract Rejected", description: "Notify that abstract has been rejected" },
+  { value: "abstract-revision", label: "Revision Requested", description: "Request revisions to abstract" },
+  { value: "abstract-reminder", label: "Submission Reminder", description: "Remind to submit or revise abstract" },
+  { value: "custom", label: "Custom Email", description: "Write a custom message" },
+];
+
 function getEmailTypes(recipientType: RecipientType): EmailTypeOption[] {
   switch (recipientType) {
     case "speakers": return speakerEmailTypes;
     case "reviewers": return reviewerEmailTypes;
     case "registrations": return registrationEmailTypes;
+    case "abstracts": return abstractEmailTypes;
   }
 }
 
@@ -75,6 +84,7 @@ function getDefaultEmailType(recipientType: RecipientType): string {
     case "speakers": return "invitation";
     case "reviewers": return "custom";
     case "registrations": return "confirmation";
+    case "abstracts": return "custom";
   }
 }
 
@@ -83,6 +93,7 @@ function getRecipientLabel(recipientType: RecipientType): string {
     case "speakers": return "speakers";
     case "reviewers": return "reviewers";
     case "registrations": return "registrations";
+    case "abstracts": return "abstract submitters";
   }
 }
 
