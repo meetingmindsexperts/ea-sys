@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 
 const updateTrackSchema = z.object({
@@ -55,9 +56,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
-    if (eventError) {
-      return eventError;
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const track = await db.track.findFirst({

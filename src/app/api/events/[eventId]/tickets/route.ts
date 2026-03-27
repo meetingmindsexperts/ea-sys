@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 
 export const DEFAULT_REG_TYPES = [
@@ -54,10 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const [event, ticketTypes] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.ticketType.findMany({
