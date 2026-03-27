@@ -3,6 +3,7 @@ import {
   TransactionalEmailsApiApiKeys,
   SendSmtpEmail,
 } from "@getbrevo/brevo";
+import sgMail from "@sendgrid/mail";
 import juice from "juice";
 import { apiLogger } from "./logger";
 
@@ -85,20 +86,59 @@ const brevoProvider: EmailProvider = {
   },
 };
 
+// ── SendGrid provider ─────────────────────────────────────────────────────────
+
+let sgInitialized = false;
+
+function initSendGrid() {
+  if (!sgInitialized && process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    sgInitialized = true;
+  }
+}
+
+const sendGridProvider: EmailProvider = {
+  async send(params) {
+    initSendGrid();
+
+    const msg: sgMail.MailDataRequired = {
+      to: params.to.map((r) => ({ email: r.email, name: r.name || r.email })),
+      from: { email: DEFAULT_FROM_EMAIL, name: DEFAULT_FROM_NAME },
+      subject: params.subject,
+      html: params.htmlContent,
+      ...(params.textContent && { text: params.textContent }),
+      ...(params.replyTo && { replyTo: { email: params.replyTo.email, name: params.replyTo.name } }),
+      ...(params.attachments?.length && {
+        attachments: params.attachments.map((att) => ({
+          filename: att.name,
+          content: att.content,
+          type: att.contentType || "application/pdf",
+          disposition: "attachment" as const,
+        })),
+      }),
+    };
+
+    const [response] = await sgMail.send(msg);
+    return {
+      success: true,
+      messageId: response.headers["x-message-id"] as string,
+    };
+  },
+};
+
 // ── Provider selection ─────────────────────────────────────────────────────────
-// To switch to SendGrid or Resend, implement EmailProvider and select it here
-// based on an environment variable like EMAIL_PROVIDER=sendgrid|resend|brevo.
 
 function getProvider(): EmailProvider {
-  // Future: check process.env.EMAIL_PROVIDER and return the right provider
+  const provider = process.env.EMAIL_PROVIDER || (process.env.SENDGRID_API_KEY ? "sendgrid" : "brevo");
+  if (provider === "sendgrid") return sendGridProvider;
   return brevoProvider;
 }
 
 // ── Main send function ─────────────────────────────────────────────────────────
 
 export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
-  if (!process.env.BREVO_API_KEY) {
-    apiLogger.warn({ msg: "BREVO_API_KEY not configured, skipping email send" });
+  if (!process.env.BREVO_API_KEY && !process.env.SENDGRID_API_KEY) {
+    apiLogger.warn({ msg: "No email provider configured (BREVO_API_KEY or SENDGRID_API_KEY), skipping email send" });
     return { success: false, error: "Email service not configured" };
   }
 
