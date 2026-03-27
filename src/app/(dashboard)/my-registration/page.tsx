@@ -60,7 +60,7 @@ interface Registration {
     specialty: string | null;
     dietaryReqs: string | null;
   };
-  ticketType: { id: string; name: string };
+  ticketType: { id: string; name: string; price?: string; currency?: string };
   pricingTier: { id: string; name: string; price: string; currency: string } | null;
   payments: { id: string; amount: string; currency: string; status: string; receiptUrl: string | null; createdAt: string }[];
 }
@@ -177,8 +177,8 @@ export default function MyRegistrationPage() {
 
       {registrations.map((reg) => {
         const isEditing = editingId === reg.id;
-        const price = reg.pricingTier ? Number(reg.pricingTier.price) : 0;
-        const currency = reg.pricingTier?.currency || "USD";
+        const price = Number(reg.pricingTier?.price ?? reg.ticketType?.price ?? 0);
+        const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
         const isPaid = reg.paymentStatus === "PAID";
         const isComplimentary = price === 0;
         const isConfirmed = reg.status === "CONFIRMED";

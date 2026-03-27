@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   CheckCircle2,
+  Clock,
   Mail,
   ArrowLeft,
   Calendar,
@@ -25,6 +26,7 @@ interface EventBranding {
 }
 
 interface PaymentInfo {
+  registrationStatus: string;
   paymentStatus: string;
   ticketName: string;
   ticketPrice: number;
@@ -38,6 +40,7 @@ function ConfirmationContent() {
   const registrationId = searchParams.get("id");
   const firstName = searchParams.get("name");
   const paymentParam = searchParams.get("payment"); // "success" | "cancelled" | null
+  const statusParam = searchParams.get("status"); // "PENDING" | "CONFIRMED" | null
 
   const [branding, setBranding] = useState<EventBranding | null>(null);
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
@@ -136,6 +139,9 @@ function ConfirmationContent() {
   const ticketPrice = paymentInfo?.ticketPrice ?? 0;
   const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";
   const hasPaidTicket = paymentInfo ? ticketPrice > 0 : false;
+  // Registration status: prefer server data, fall back to URL param
+  const registrationStatus = paymentInfo?.registrationStatus ?? statusParam;
+  const isPending = registrationStatus === "PENDING";
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
@@ -180,15 +186,23 @@ function ConfirmationContent() {
 
             <div className="px-8 pt-8 pb-6 text-center">
               {/* Animated check */}
-              <div className="mx-auto mb-5 h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center ring-8 ring-emerald-50/50">
-                <CheckCircle2 className="h-11 w-11 text-emerald-500" />
+              <div className={`mx-auto mb-5 h-20 w-20 rounded-full flex items-center justify-center ring-8 ${isPending ? "bg-amber-50 ring-amber-50/50" : "bg-emerald-50 ring-emerald-50/50"}`}>
+                {isPending ? (
+                  <Clock className="h-11 w-11 text-amber-500" />
+                ) : (
+                  <CheckCircle2 className="h-11 w-11 text-emerald-500" />
+                )}
               </div>
 
               <h1 className="text-2xl font-bold text-slate-900 mb-1">
-                {firstName ? `You're registered, ${firstName}!` : "Registration Confirmed!"}
+                {isPending
+                  ? (firstName ? `Registration submitted, ${firstName}!` : "Registration Submitted")
+                  : (firstName ? `You're registered, ${firstName}!` : "Registration Confirmed!")}
               </h1>
               <p className="text-slate-500 text-sm leading-relaxed">
-                Your spot has been secured. We look forward to seeing you there.
+                {isPending
+                  ? "Your registration is pending approval. You'll receive an email once it's confirmed."
+                  : "Your spot has been secured. We look forward to seeing you there."}
               </p>
             </div>
 

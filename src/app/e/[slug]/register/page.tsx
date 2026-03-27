@@ -127,6 +127,19 @@ export default function RegisterOverviewPage() {
     );
   }
 
+  // Not logged in or not admin/organizer with no event → show error
+  if (!isAuthorized && !event) {
+    return (
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
+          <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
+          <p className="text-slate-500 text-sm">Please check the link and try again.</p>
+        </div>
+      </div>
+    );
+  }
+
   // Not logged in or not admin/organizer → auto-redirect to first active non-presenter tier
   if (!isAuthorized && event) {
     // Find first active tier by priority, excluding "Presenter" (presenter has its own direct link)

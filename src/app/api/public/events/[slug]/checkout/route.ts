@@ -56,6 +56,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       include: {
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
+        pricingTier: { select: { id: true, price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
         event: { select: { id: true, name: true, slug: true } },
       },
@@ -66,7 +67,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const ticketPrice = Number(registration.ticketType.price);
+    const ticketPrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
 
     if (ticketPrice === 0) {
       apiLogger.warn({ msg: "Checkout attempted for free ticket", registrationId });
@@ -92,7 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const cancelUrl = `${appUrl}/e/${eventSlug}/confirmation?id=${registrationId}&name=${encodeURIComponent(firstName)}&payment=cancelled`;
 
     // Create Stripe Checkout Session
-    const currencyCode = registration.ticketType.currency.toLowerCase();
+    const currencyCode = (registration.pricingTier?.currency ?? registration.ticketType.currency).toLowerCase();
     const unitAmount = isZeroDecimalCurrency(currencyCode)
       ? Math.round(ticketPrice)
       : Math.round(ticketPrice * 100);
@@ -135,7 +136,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId: registration.event.id,
       sessionId: session.id,
       amount: ticketPrice,
-      currency: registration.ticketType.currency,
+      currency: registration.pricingTier?.currency ?? registration.ticketType.currency,
     });
 
     return NextResponse.json({ checkoutUrl: session.url });

@@ -178,28 +178,24 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Derive registrationType from the selected ticket type name
     const registrationType = ticketType.name;
 
-    // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
+    // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
     const result = await db.$transaction(async (tx) => {
-      // Upsert attendee -- unique constraint on email prevents duplicates under concurrency
-      const attendee = await tx.attendee.upsert({
-        where: { email },
-        update: {
-          title,
-          role,
-          firstName,
-          lastName,
-          additionalEmail: additionalEmail || null,
-          organization: organization || null,
-          jobTitle: jobTitle || null,
-          phone: phone || null,
-          city: city || null,
-          country,
-          specialty,
-          customSpecialty: customSpecialty || null,
-          registrationType,
-          dietaryReqs: dietaryReqs || null,
+      // Check if already registered (same email + same event)
+      const existingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId: event.id,
+          attendee: { email },
+          status: { notIn: ["CANCELLED"] },
         },
-        create: {
+        select: { id: true },
+      });
+      if (existingRegistration) {
+        throw new Error("ALREADY_REGISTERED");
+      }
+
+      // Create a new attendee record for this registration
+      const attendee = await tx.attendee.create({
+        data: {
           title,
           role,
           email,
@@ -217,18 +213,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           dietaryReqs: dietaryReqs || null,
         },
       });
-
-      // Check if already registered
-      const existingRegistration = await tx.registration.findFirst({
-        where: {
-          eventId: event.id,
-          attendeeId: attendee.id,
-          status: { notIn: ["CANCELLED"] },
-        },
-      });
-      if (existingRegistration) {
-        throw new Error("ALREADY_REGISTERED");
-      }
 
       // Atomically increment soldCount on the correct capacity source
       if (pricingTier) {

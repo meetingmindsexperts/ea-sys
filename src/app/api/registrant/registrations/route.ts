@@ -33,7 +33,7 @@ export async function GET() {
           },
         },
         attendee: true,
-        ticketType: { select: { id: true, name: true } },
+        ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
         payments: {
           select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },
@@ -128,7 +128,7 @@ export async function PUT(req: Request) {
           },
         },
         attendee: true,
-        ticketType: { select: { id: true, name: true } },
+        ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
         payments: {
           select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },

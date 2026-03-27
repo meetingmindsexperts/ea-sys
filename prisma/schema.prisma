@@ -244,7 +244,7 @@ model Attendee {
   id               String        @id @default(cuid())
   title            Title?
   role             AttendeeRole?
-  email            String        @unique
+  email            String
   additionalEmail  String?
   firstName        String
   lastName         String
@@ -266,6 +266,8 @@ model Attendee {
   updatedAt        DateTime      @updatedAt
 
   registrations Registration[]
+
+  @@index([email])
 }
 
 model Registration {

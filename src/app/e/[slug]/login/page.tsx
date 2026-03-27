@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 interface Event {
   id: string;
@@ -263,7 +264,7 @@ function EventLoginForm() {
       {event.footerHtml && (
         <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
           <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: event.footerHtml }} />
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
         </div>
       )}
     </div>

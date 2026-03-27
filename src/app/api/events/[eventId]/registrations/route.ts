@@ -231,29 +231,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Atomic transaction: attendee upsert + duplicate check + soldCount increment + registration create
+    // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
     const registration = await db.$transaction(async (tx) => {
-      // Upsert attendee -- unique constraint on email prevents duplicates under concurrency
-      const attendeeRecord = await tx.attendee.upsert({
-        where: { email: attendee.email },
-        update: {
-          title: attendee.title || null,
-          firstName: attendee.firstName,
-          lastName: attendee.lastName,
-          organization: attendee.organization || null,
-          jobTitle: attendee.jobTitle || null,
-          phone: attendee.phone || null,
-          photo: attendee.photo || null,
-          city: attendee.city || null,
-          country: attendee.country || null,
-          bio: attendee.bio || null,
-          specialty: attendee.specialty || null,
-          registrationType: ticketType.name,
-          tags: attendee.tags || [],
-          dietaryReqs: attendee.dietaryReqs || null,
-          customFields: attendee.customFields || {},
+      // Check if attendee already registered for this event (same email + same event)
+      const existingRegistration = await tx.registration.findFirst({
+        where: {
+          eventId,
+          attendee: { email: attendee.email },
+          status: { notIn: ["CANCELLED"] },
         },
-        create: {
+        select: { id: true },
+      });
+      if (existingRegistration) {
+        throw new Error("ALREADY_REGISTERED");
+      }
+
+      // Create a new attendee record for this registration
+      const attendeeRecord = await tx.attendee.create({
+        data: {
           title: attendee.title || null,
           email: attendee.email,
           firstName: attendee.firstName,
@@ -272,19 +267,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           customFields: attendee.customFields || {},
         },
       });
-
-      // Check if attendee already registered for this event
-      const existingRegistration = await tx.registration.findFirst({
-        where: {
-          eventId,
-          attendeeId: attendeeRecord.id,
-          status: { notIn: ["CANCELLED"] },
-        },
-        select: { id: true },
-      });
-      if (existingRegistration) {
-        throw new Error("ALREADY_REGISTERED");
-      }
 
       // Atomically increment soldCount only if tickets are still available
       const updated = await tx.ticketType.updateMany({

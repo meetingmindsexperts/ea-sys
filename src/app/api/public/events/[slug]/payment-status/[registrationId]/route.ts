@@ -18,10 +18,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
       },
       select: {
+        status: true,
         paymentStatus: true,
         ticketType: {
           select: {
             name: true,
+            price: true,
+            currency: true,
+          },
+        },
+        pricingTier: {
+          select: {
             price: true,
             currency: true,
           },
@@ -35,10 +42,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const response = NextResponse.json({
+      registrationStatus: registration.status,
       paymentStatus: registration.paymentStatus,
       ticketName: registration.ticketType.name,
-      ticketPrice: Number(registration.ticketType.price),
-      ticketCurrency: registration.ticketType.currency,
+      ticketPrice: Number(registration.pricingTier?.price ?? registration.ticketType.price),
+      ticketCurrency: registration.pricingTier?.currency ?? registration.ticketType.currency,
     });
 
     // Short cache to allow polling but reduce DB load

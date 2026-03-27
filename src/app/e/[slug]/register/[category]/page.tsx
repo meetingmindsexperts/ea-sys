@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -141,7 +141,7 @@ const registrationSchema = z.object({
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
 
-export default function CategoryRegistrationPage() {
+function CategoryRegistrationContent() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
@@ -308,6 +308,7 @@ export default function CategoryRegistrationPage() {
       const confirmParams = new URLSearchParams({
         id: reg.id,
         name: data.firstName,
+        ...(reg.status ? { status: reg.status } : {}),
         ...(reg.ticketPrice > 0 ? { price: String(reg.ticketPrice), currency: reg.ticketCurrency } : {}),
       });
       router.push(`/e/${slug}/confirmation?${confirmParams.toString()}`);
@@ -790,5 +791,22 @@ export default function CategoryRegistrationPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CategoryRegistrationPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-slate-500 text-sm">Loading registration form...</p>
+          </div>
+        </div>
+      }
+    >
+      <CategoryRegistrationContent />
+    </Suspense>
   );
 }

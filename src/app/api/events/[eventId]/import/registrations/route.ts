@@ -153,25 +153,18 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       try {
         await db.$transaction(async (tx) => {
-          // Upsert attendee
-          const attendee = await tx.attendee.upsert({
-            where: { email },
-            update: {
-              firstName,
-              lastName,
-              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
-              organization: getField(fields, idx.organization) || null,
-              jobTitle: getField(fields, idx.jobTitle) || null,
-              phone: getField(fields, idx.phone) || null,
-              city: getField(fields, idx.city) || null,
-              country: getField(fields, idx.country) || null,
-              bio: getField(fields, idx.bio) || null,
-              specialty: getField(fields, idx.specialty) || null,
-              registrationType: registrationType || null,
-              tags,
-              dietaryReqs: getField(fields, idx.dietaryReqs) || null,
-            },
-            create: {
+          // Check for duplicate registration (same email + same event)
+          const existing = await tx.registration.findFirst({
+            where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
+            select: { id: true },
+          });
+          if (existing) {
+            throw new Error("ALREADY_REGISTERED");
+          }
+
+          // Create a new attendee record for this registration
+          const attendee = await tx.attendee.create({
+            data: {
               email,
               firstName,
               lastName,
@@ -188,14 +181,6 @@ export async function POST(req: Request, { params }: RouteParams) {
               dietaryReqs: getField(fields, idx.dietaryReqs) || null,
             },
           });
-
-          // Check for duplicate registration
-          const existing = await tx.registration.findFirst({
-            where: { eventId, attendeeId: attendee.id, status: { notIn: ["CANCELLED"] } },
-          });
-          if (existing) {
-            throw new Error("ALREADY_REGISTERED");
-          }
 
           // Check capacity and increment soldCount
           const currentTicket = await tx.ticketType.findUnique({

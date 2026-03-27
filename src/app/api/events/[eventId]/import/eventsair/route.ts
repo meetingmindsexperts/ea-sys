@@ -113,23 +113,20 @@ export async function POST(req: Request, { params }: RouteParams) {
           : null;
 
         await db.$transaction(async (tx) => {
-          // Upsert attendee
           const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
-          const attendee = await tx.attendee.upsert({
-            where: { email },
-            update: {
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              organization: contact.organizationName || null,
-              jobTitle: contact.jobTitle || null,
-              phone,
-              city: contact.primaryAddress?.city || null,
-              country: contact.primaryAddress?.country || null,
-              bio: contact.biography || null,
-              photo,
-              externalId: contact.id,
-            },
-            create: {
+
+          // Check for duplicate registration (same email + same event)
+          const existing = await tx.registration.findFirst({
+            where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
+            select: { id: true },
+          });
+          if (existing) {
+            throw new Error("ALREADY_REGISTERED");
+          }
+
+          // Create a new attendee record for this registration
+          const attendee = await tx.attendee.create({
+            data: {
               email,
               firstName: contact.firstName,
               lastName: contact.lastName,
@@ -143,14 +140,6 @@ export async function POST(req: Request, { params }: RouteParams) {
               externalId: contact.id,
             },
           });
-
-          // Check for duplicate registration
-          const existing = await tx.registration.findFirst({
-            where: { eventId, attendeeId: attendee.id, status: { notIn: ["CANCELLED"] } },
-          });
-          if (existing) {
-            throw new Error("ALREADY_REGISTERED");
-          }
 
           // Check ticket capacity
           const freshTicket = await tx.ticketType.findUnique({
