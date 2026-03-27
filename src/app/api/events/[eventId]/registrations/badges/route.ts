@@ -224,7 +224,8 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
         fit: [BADGE_W - MARGIN * 2 - 40, 45],
         align: "center",
       });
-    } catch {
+    } catch (err) {
+      apiLogger.warn({ msg: "Barcode render failed, falling back to text", error: err instanceof Error ? err.message : "Unknown" });
       doc.font("Courier").fontSize(8).fillColor("#94a3b8");
       doc.text(reg.barcode, x + MARGIN, y + BADGE_H - 30, {
         width: BADGE_W - MARGIN * 2,

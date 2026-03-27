@@ -105,7 +105,8 @@ export default function NewEventPage() {
 
       toast.success("Event created successfully!");
       router.push(`/events/${result.id}`);
-    } catch {
+    } catch (err) {
+      console.error("[event-create] failed", err);
       toast.error("Something went wrong. Please try again.");
       setIsLoading(false);
     }

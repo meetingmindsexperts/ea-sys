@@ -270,7 +270,7 @@ export default function TicketsPage() {
     try {
       await updateTicket.mutateAsync({ ticketId: tt.id, data: { isActive: !tt.isActive } });
       toast.success(tt.isActive ? `"${tt.name}" hidden` : `"${tt.name}" visible`);
-    } catch { toast.error("Failed to update"); }
+    } catch (err) { console.error("[tickets] operation failed", err); toast.error("Failed to update"); }
   };
 
   // Pricing tier CRUD
@@ -318,7 +318,7 @@ export default function TicketsPage() {
       if (!res.ok) throw new Error("Failed");
       toast.success(tier.isActive ? `"${tier.name}" deactivated` : `"${tier.name}" activated`);
       invalidateAndRefetch();
-    } catch { toast.error("Failed to update"); }
+    } catch (err) { console.error("[tickets] operation failed", err); toast.error("Failed to update"); }
   };
 
   const handleDeleteTier = async (ticketTypeId: string, tier: PricingTier) => {
@@ -329,7 +329,7 @@ export default function TicketsPage() {
       if (!res.ok) throw new Error("Failed");
       toast.success("Pricing tier deleted");
       invalidateAndRefetch();
-    } catch { toast.error("Failed to delete"); }
+    } catch (err) { console.error("[tickets] operation failed", err); toast.error("Failed to delete"); }
   };
 
   const totalRegs = ticketTypes.reduce((sum, tt) => sum + tt._count.registrations, 0);
@@ -355,7 +355,7 @@ export default function TicketsPage() {
               body: JSON.stringify({ name: tierName, price: 0, isActive: false }),
             });
             if (res.ok) tiersAdded++;
-          } catch { /* skip */ }
+          } catch (err) { console.error("[tickets] operation failed", err); }
         }
       }
       if (tiersAdded > 0) {

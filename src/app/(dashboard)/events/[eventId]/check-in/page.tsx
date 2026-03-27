@@ -155,7 +155,8 @@ export default function CheckInPage() {
         setRecentScans((prev) => [result, ...prev.slice(0, 9)]);
         if (soundEnabled) playBeep(false);
       }
-    } catch {
+    } catch (err) {
+      console.error("[check-in] scan failed", err);
       toast.error("Network error");
     } finally {
       setScanning(false);

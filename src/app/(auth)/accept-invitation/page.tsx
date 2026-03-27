@@ -81,7 +81,8 @@ function AcceptInvitationForm() {
       } else {
         setError(data.error || "Invalid invitation link");
       }
-    } catch {
+    } catch (err) {
+      console.error("[accept-invitation] error", err);
       setError("Failed to validate invitation. Please try again.");
     } finally {
       setIsValidating(false);
@@ -129,7 +130,8 @@ function AcceptInvitationForm() {
       setTimeout(() => {
         router.push(eventSlug ? `/e/${eventSlug}/login` : "/login");
       }, 2000);
-    } catch {
+    } catch (err) {
+      console.error("[accept-invitation] error", err);
       toast.error("Something went wrong. Please try again.");
       setIsSubmitting(false);
     }

@@ -247,6 +247,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         } else if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
           errors.push(`Row ${rowNum}: registration type is at full capacity`);
         } else {
+          apiLogger.error({ msg: "Unexpected error importing registration row", rowNum, error: err instanceof Error ? err.message : "Unknown" });
           errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
         }
       }

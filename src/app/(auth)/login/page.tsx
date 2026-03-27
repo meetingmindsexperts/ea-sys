@@ -68,7 +68,8 @@ function LoginForm() {
       toast.success("Welcome back!");
       router.push(callbackUrl);
       router.refresh();
-    } catch {
+    } catch (err) {
+      console.error("[login] sign in failed", err);
       toast.error("Something went wrong. Please try again.");
       setIsLoading(false);
     }

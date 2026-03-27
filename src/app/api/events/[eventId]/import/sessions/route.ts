@@ -175,6 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         created++;
       } catch (err) {
+        apiLogger.error({ msg: "Unexpected error importing session row", rowNum, error: err instanceof Error ? err.message : "Unknown" });
         errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
     }

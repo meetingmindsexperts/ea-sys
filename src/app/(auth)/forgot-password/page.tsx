@@ -59,7 +59,8 @@ export default function ForgotPasswordPage() {
 
       toast.success("If an account exists, we sent a reset link to that email.");
       form.reset();
-    } catch {
+    } catch (err) {
+      console.error("[forgot-password] request failed", err);
       toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);

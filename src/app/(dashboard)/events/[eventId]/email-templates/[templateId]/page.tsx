@@ -108,7 +108,8 @@ export default function EmailTemplateEditorPage() {
       });
       setDirty(false);
       toast.success("Template saved");
-    } catch {
+    } catch (err) {
+      console.error("[email-template] operation failed", err);
       toast.error("Failed to save template");
     }
   }, [updateMutation, templateId, subject, htmlContent, textContent, isActive]);
@@ -117,7 +118,8 @@ export default function EmailTemplateEditorPage() {
     try {
       await resetMutation.mutateAsync(templateId);
       toast.success("Template reset to default");
-    } catch {
+    } catch (err) {
+      console.error("[email-template] operation failed", err);
       toast.error("Failed to reset template");
     }
   }, [resetMutation, templateId]);
@@ -127,7 +129,8 @@ export default function EmailTemplateEditorPage() {
       await deleteMutation.mutateAsync(templateId);
       toast.success("Template deleted");
       router.push(`/events/${eventId}/email-templates`);
-    } catch {
+    } catch (err) {
+      console.error("[email-template] operation failed", err);
       toast.error("Failed to delete template");
     }
   }, [deleteMutation, templateId, router, eventId]);
@@ -150,7 +153,8 @@ export default function EmailTemplateEditorPage() {
         setPreviewHtml(result.htmlContent);
         setPreviewOpen(true);
       }
-    } catch {
+    } catch (err) {
+      console.error("[email-template] operation failed", err);
       toast.error("Failed to generate preview");
     }
   }, [dirty, updateMutation, previewMutation, templateId, subject, htmlContent, textContent, isActive]);
@@ -173,7 +177,8 @@ export default function EmailTemplateEditorPage() {
       } else {
         toast.error(result.message || "Failed to send test email");
       }
-    } catch {
+    } catch (err) {
+      console.error("[email-template] operation failed", err);
       toast.error("Failed to send test email");
     }
   }, [dirty, updateMutation, previewMutation, templateId, subject, htmlContent, textContent, isActive]);

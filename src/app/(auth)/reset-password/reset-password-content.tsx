@@ -73,7 +73,8 @@ export function ResetPasswordContent({ token, email }: ResetPasswordContentProps
         );
 
         setIsLinkValid(res.ok);
-      } catch {
+      } catch (err) {
+        console.error("[reset-password] error", err);
         setIsLinkValid(false);
       } finally {
         setIsValidating(false);
@@ -111,7 +112,8 @@ export function ResetPasswordContent({ token, email }: ResetPasswordContentProps
 
       toast.success("Password reset successful. Please sign in.");
       router.push("/login");
-    } catch {
+    } catch (err) {
+      console.error("[reset-password] error", err);
       toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);

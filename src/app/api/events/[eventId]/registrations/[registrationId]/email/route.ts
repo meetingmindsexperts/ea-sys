@@ -65,8 +65,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     let body: unknown = {};
     try {
       body = await req.json();
-    } catch {
-      // No body — default to confirmation email
+    } catch (err) {
+      apiLogger.warn({ msg: "Failed to parse email request body, defaulting to confirmation", error: err instanceof Error ? err.message : "Unknown" });
     }
     const validated = sendEmailSchema.safeParse(body);
 

@@ -84,7 +84,8 @@ export default function NewRegistrationPage() {
         const data = await res.json();
         setError(data.error || "Failed to create registration");
       }
-    } catch {
+    } catch (err) {
+      console.error("[registration-create] failed", err);
       setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);

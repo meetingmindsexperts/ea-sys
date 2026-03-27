@@ -58,7 +58,7 @@ function ConfirmationContent() {
           organization: data.organization,
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error("[confirmation] branding fetch failed", err); });
   }, [slug]);
 
   // Fetch payment status — always fetch from server for paid tickets

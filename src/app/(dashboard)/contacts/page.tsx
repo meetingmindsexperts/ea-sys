@@ -217,7 +217,8 @@ export default function ContactsPage() {
       await deleteContact.mutateAsync(deleteId);
       toast.success("Contact deleted");
       setDeleteId(null);
-    } catch {
+    } catch (err) {
+      console.error("[contacts] delete failed", err);
       toast.error("Failed to delete contact");
     }
   };

@@ -163,6 +163,7 @@ export async function POST(req: Request) {
           created++;
         }
       } catch (err) {
+        apiLogger.error({ msg: "Unexpected error importing contact", email, error: err instanceof Error ? err.message : "Unknown" });
         errors.push(`${email}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
     }

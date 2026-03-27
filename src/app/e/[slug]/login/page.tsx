@@ -115,7 +115,8 @@ function EventLoginForm() {
         router.push("/dashboard");
       }
       router.refresh();
-    } catch {
+    } catch (err) {
+      console.error("[event-login] sign in failed", err);
       toast.error("Something went wrong. Please try again.");
       setIsSubmitting(false);
     }

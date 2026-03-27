@@ -162,7 +162,8 @@ export default function SpeakerDetailPage() {
       } else {
         setError("Speaker not found");
       }
-    } catch {
+    } catch (err) {
+      console.error("[speaker-detail] fetch failed", err);
       setError("Failed to load speaker");
     } finally {
       setLoading(false);
@@ -192,7 +193,8 @@ export default function SpeakerDetailPage() {
         const data = await res.json();
         setError(data.error || "Failed to save speaker");
       }
-    } catch {
+    } catch (err) {
+      console.error("[speaker-detail] save failed", err);
       setError("An error occurred. Please try again.");
     } finally {
       setSaving(false);
@@ -213,7 +215,8 @@ export default function SpeakerDetailPage() {
         const data = await res.json();
         setError(data.error || "Failed to delete speaker");
       }
-    } catch {
+    } catch (err) {
+      console.error("[speaker-detail] delete failed", err);
       setError("An error occurred. Please try again.");
     }
   };
