@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -89,6 +90,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Notify admins/organizers (non-blocking)
+    notifyEventAdmins(eventId, {
+      type: "CHECK_IN",
+      title: "Attendee Checked In",
+      message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
+      link: `/events/${eventId}/check-in`,
+    }).catch(() => {});
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {
@@ -197,6 +206,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Notify admins/organizers (non-blocking)
+    notifyEventAdmins(eventId, {
+      type: "CHECK_IN",
+      title: "Attendee Checked In",
+      message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
+      link: `/events/${eventId}/check-in`,
+    }).catch(() => {});
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {

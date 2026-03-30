@@ -45,6 +45,7 @@ model User {
   auditLogs     AuditLog[]
   accounts      Account[]
   sessions      AuthSession[]
+  notifications Notification[]
 
   @@index([organizationId])
   @@index([email])
@@ -161,6 +162,7 @@ model Event {
 
   importLogs     ImportLog[]
   emailTemplates EmailTemplate[]
+  notifications  Notification[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -681,6 +683,26 @@ model EmailTemplate {
 
   @@unique([eventId, slug])
   @@index([eventId])
+}
+
+// ==================== NOTIFICATIONS ====================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String?
+  type      String   // REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN
+  title     String
+  message   String
+  link      String?  // URL to navigate to when clicked
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 // ==================== API KEYS ====================

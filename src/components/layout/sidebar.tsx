@@ -21,6 +21,7 @@ import {
   Calendar,
   ScrollText,
   ScanBarcode,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -32,9 +33,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
+  { name: "Activity",  href: "/activity",  icon: Activity, adminOnly: true },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
@@ -97,9 +99,15 @@ export function Sidebar() {
   const restrictedNavigation = navigation.filter((item) => ["Events"].includes(item.name));
   const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
 
+  const isAdmin = session?.user?.role === "ADMIN" || isSuperAdmin;
+
   const baseNavigation = isRestricted
     ? restrictedNavigation
-    : navigation.filter((item) => !item.superAdminOnly || isSuperAdmin);
+    : navigation.filter((item) => {
+        if (item.superAdminOnly && !isSuperAdmin) return false;
+        if (item.adminOnly && !isAdmin) return false;
+        return true;
+      });
 
   // Build sections for event nav
   const visibleEventSections = isRestricted

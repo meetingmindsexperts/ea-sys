@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 import type Stripe from "stripe";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -126,6 +127,14 @@ export async function POST(req: Request) {
         currency,
         stripeSessionId: session.id,
       });
+
+      // Notify admins/organizers (non-blocking)
+      notifyEventAdmins(registration.event.id, {
+        type: "PAYMENT",
+        title: "Payment Received",
+        message: `${registration.attendee.firstName} ${registration.attendee.lastName} paid ${currency} ${amount.toFixed(2)}`,
+        link: `/events/${registration.event.id}/registrations`,
+      }).catch(() => {});
 
       // Send payment confirmation email (non-blocking)
       sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl).catch((err) =>

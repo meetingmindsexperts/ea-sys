@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbstractStatusInfo } from "@/lib/email";
 import { getClientIp } from "@/lib/security";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const updateAbstractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -257,6 +258,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }).catch((err) => {
         apiLogger.error({ err, msg: "Failed to send abstract notification email" });
       });
+    }
+
+    // Notify admins/organizers on review (non-blocking)
+    if (isReview || hasFeedbackUpdate) {
+      notifyEventAdmins(eventId, {
+        type: "REVIEW",
+        title: "Abstract Reviewed",
+        message: `Abstract "${abstract.title}" reviewed${data.reviewScore != null ? ` — Score: ${data.reviewScore}/100` : ""}`,
+        link: `/events/${eventId}/abstracts`,
+      }).catch(() => {});
     }
 
     apiLogger.info({ msg: "Abstract updated", eventId, abstractId, userId: session.user.id, changes: Object.keys(data) });

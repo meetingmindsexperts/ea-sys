@@ -238,7 +238,9 @@ export default async function EventPage({ params }: EventPageProps) {
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
                 Recent Activity
               </h3>
-              <ActivityFeed eventId={eventId} />
+              <div className="max-h-[400px] overflow-y-auto">
+                <ActivityFeed eventId={eventId} />
+              </div>
             </CardContent>
           </Card>
         </div>

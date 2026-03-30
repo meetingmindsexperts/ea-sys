@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -202,6 +203,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         })
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));
     }
+
+    // Notify admins/organizers (non-blocking)
+    notifyEventAdmins(eventId, {
+      type: "ABSTRACT",
+      title: "New Abstract Submitted",
+      message: `"${title}" submitted by ${abstract.speaker?.firstName} ${abstract.speaker?.lastName}`,
+      link: `/events/${eventId}/abstracts`,
+    }).catch(() => {});
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({

@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Bell,
   LogOut,
   User,
   ChevronDown,
@@ -32,6 +31,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatDate } from "@/lib/utils";
 import { useEvents, useEvent } from "@/hooks/use-api";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 // ── Role metadata ─────────────────────────────────────────────────────────────
 
@@ -225,10 +225,9 @@ export function Header() {
 
       {/* ── Right: Notifications + Profile ────────────────────────────────── */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-yellow" />
-        </Button>
+        {["SUPER_ADMIN", "ADMIN", "ORGANIZER"].includes(role) && (
+          <NotificationBell />
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -8,6 +8,7 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -259,6 +260,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const registration = result;
+
+    // Notify admins/organizers (non-blocking)
+    notifyEventAdmins(event.id, {
+      type: "REGISTRATION",
+      title: "New Registration",
+      message: `${firstName} ${lastName} registered as ${registrationType}`,
+      link: `/events/${event.id}/registrations`,
+    }).catch(() => {});
 
     // Log audit entry (non-blocking)
     db.auditLog.create({

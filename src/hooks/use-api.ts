@@ -61,6 +61,7 @@ export const queryKeys = {
   emailTemplates: (eventId: string) => ["events", eventId, "email-templates"] as const,
   emailTemplate: (eventId: string, templateId: string) => ["events", eventId, "email-templates", templateId] as const,
   registrationTypes: ["registration-types"] as const,
+  notifications: ["notifications"] as const,
 };
 
 // ============ EVENTS ============
@@ -739,6 +740,30 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
         abstracts: queryKeys.abstracts(eventId),
       };
       queryClient.invalidateQueries({ queryKey: keyMap[entityType] });
+    },
+  });
+}
+
+// ============ NOTIFICATIONS ============
+export function useNotifications() {
+  return useQuery<{ notifications: any[]; unreadCount: number }>({
+    queryKey: queryKeys.notifications,
+    queryFn: () => fetchApi("/api/notifications"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMarkNotificationsRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { ids?: string[]; all?: true }) =>
+      fetchApi("/api/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
     },
   });
 }
