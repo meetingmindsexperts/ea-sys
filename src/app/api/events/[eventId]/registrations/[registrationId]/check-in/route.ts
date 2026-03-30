@@ -58,7 +58,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Block check-in for unpaid registrations (unless complimentary)
-    const isComplimentary = Number(registration.ticketType.price) === 0 ||
+    const isComplimentary = registration.paymentStatus === "COMPLIMENTARY" ||
+      Number(registration.ticketType.price) === 0 ||
       (registration.pricingTier && Number(registration.pricingTier.price) === 0);
     if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
       return NextResponse.json(
@@ -180,7 +181,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Block check-in for unpaid registrations (unless complimentary)
-    const isComplimentary = Number(registration.ticketType.price) === 0 ||
+    const isComplimentary = registration.paymentStatus === "COMPLIMENTARY" ||
+      Number(registration.ticketType.price) === 0 ||
       (registration.pricingTier && Number(registration.pricingTier.price) === 0);
     if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
       return NextResponse.json(

@@ -45,25 +45,10 @@ const TAG_COLORS = [
   "bg-cyan-50 text-cyan-700 border-cyan-200",
 ];
 
-const AVATAR_BG = [
-  "bg-[#00aade]/10 text-[#007a9e]",
-  "bg-violet-100 text-violet-600",
-  "bg-emerald-100 text-emerald-600",
-  "bg-amber-100 text-amber-700",
-  "bg-rose-100 text-rose-600",
-  "bg-indigo-100 text-indigo-600",
-];
-
 function getTagColor(tag: string): string {
   let hash = 0;
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) % TAG_COLORS.length;
   return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
-
-function getAvatarBg(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) % AVATAR_BG.length;
-  return AVATAR_BG[Math.abs(hash) % AVATAR_BG.length];
 }
 
 interface ContactDetailSheetProps {
@@ -138,7 +123,7 @@ export function ContactDetailSheet({
         phone: editData.phone || undefined,
         organization: editData.organization || undefined,
         jobTitle: editData.jobTitle || undefined,
-        photo: editData.photo || undefined,
+        photo: editData.photo ?? null,
         city: editData.city || undefined,
         country: editData.country || undefined,
         bio: editData.bio || undefined,
@@ -169,54 +154,54 @@ export function ContactDetailSheet({
   if (!contact) return null;
 
   const initials = `${contact.firstName[0] ?? ""}${contact.lastName[0] ?? ""}`.toUpperCase();
-  const avatarBg = getAvatarBg(`${contact.firstName}${contact.lastName}`);
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[650px]">
-        <SheetHeader className="pr-8">
-          <SheetTitle className="flex items-center gap-3">
-            {contact.photo ? (
-              <Image
-                src={contact.photo}
-                alt=""
-                width={40}
-                height={40}
-                className="w-10 h-10 rounded-full object-cover ring-2 ring-gray-100 shrink-0"
-                unoptimized
-              />
-            ) : (
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 ${avatarBg}`}>
-                {initials}
-              </div>
-            )}
-            {formatPersonName(contact.title, contact.firstName, contact.lastName)}
-          </SheetTitle>
-          <SheetDescription>
-            {contact.tags && contact.tags.length > 0 && (
-              <span className="flex flex-wrap gap-1 mt-1">
-                {contact.tags.map((tag: string) => (
-                  <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
-                    {tag}
-                  </span>
-                ))}
-              </span>
-            )}
-          </SheetDescription>
-        </SheetHeader>
+      <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
+        {/* Header with actions */}
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
+          <SheetHeader className="pr-8">
+            <SheetTitle className="flex items-center gap-3 text-white text-lg">
+              {contact.photo ? (
+                <Image
+                  src={contact.photo}
+                  alt=""
+                  width={40}
+                  height={40}
+                  className="w-10 h-10 rounded-full object-cover ring-2 ring-white/30 shrink-0"
+                  unoptimized
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 bg-white/20 text-white">
+                  {initials}
+                </div>
+              )}
+              {formatPersonName(contact.title, contact.firstName, contact.lastName)}
+            </SheetTitle>
+            <SheetDescription>
+              {contact.tags && contact.tags.length > 0 && (
+                <span className="flex flex-wrap gap-1 mt-1">
+                  {contact.tags.map((tag: string) => (
+                    <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
+                      {tag}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </SheetDescription>
+          </SheetHeader>
 
-        <div className="mt-6 space-y-6">
-          {/* Quick Actions */}
-          <div className="flex flex-wrap gap-2">
+          {/* Quick Actions in header */}
+          <div className="flex flex-wrap gap-2 mt-3">
             {!isEditing ? (
               <>
-                <Button size="sm" variant="outline" onClick={startEditing}>
+                <Button size="sm" variant="secondary" onClick={startEditing}>
                   <Pencil className="mr-2 h-4 w-4" />
                   Edit
                 </Button>
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="secondary"
                   className="text-red-600 hover:text-red-700"
                   onClick={handleDelete}
                   disabled={deleteContact.isPending}
@@ -231,14 +216,14 @@ export function ContactDetailSheet({
                   size="sm"
                   onClick={saveEdits}
                   disabled={updateContact.isPending}
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-green-600 hover:bg-green-700 text-white"
                 >
                   <Save className="mr-2 h-4 w-4" />
                   {updateContact.isPending ? "Saving..." : "Save"}
                 </Button>
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="secondary"
                   onClick={() => setIsEditing(false)}
                   disabled={updateContact.isPending}
                 >
@@ -248,7 +233,9 @@ export function ContactDetailSheet({
               </>
             )}
           </div>
+        </div>
 
+        <div className="px-6 py-5 space-y-6">
           {/* Contact Info */}
           <div className="space-y-4">
             <h3 className="font-semibold">Contact Information</h3>
@@ -365,71 +352,69 @@ export function ContactDetailSheet({
                 </div>
               </div>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div className="flex items-center gap-3">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <a href={`mailto:${contact.email}`} className="text-sm hover:text-[#00aade] transition-colors">
+                  <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <a href={`mailto:${contact.email}`} className="text-sm hover:text-[#00aade] transition-colors truncate">
                     {contact.email}
                   </a>
                 </div>
-                {contact.phone && (
+                {contact.phone ? (
                   <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="text-sm">{contact.phone}</span>
                   </div>
-                )}
+                ) : <div />}
                 {contact.organization && (
                   <div className="flex items-center gap-3">
-                    <Building className="h-4 w-4 text-muted-foreground" />
+                    <Building className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="text-sm">{contact.organization}</span>
                   </div>
                 )}
                 {contact.jobTitle && (
                   <div className="flex items-center gap-3">
-                    <Briefcase className="h-4 w-4 text-muted-foreground" />
+                    <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="text-sm">{contact.jobTitle}</span>
+                  </div>
+                )}
+                {(contact.city || contact.country) && (
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm">
+                      {[contact.city, contact.country].filter(Boolean).join(", ")}
+                    </span>
                   </div>
                 )}
                 {contact.specialty && (
                   <div className="flex items-center gap-3">
-                    <Stethoscope className="h-4 w-4 text-muted-foreground" />
+                    <Stethoscope className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div>
                       <div className="text-xs text-muted-foreground">Specialty</div>
                       <div className="text-sm">{contact.specialty}</div>
                     </div>
                   </div>
                 )}
-                {(contact.city || contact.country) && (
-                  <div className="flex items-center gap-3">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">
-                      {[contact.city, contact.country].filter(Boolean).join(", ")}
-                    </span>
-                  </div>
-                )}
                 {contact.bio && (
-                  <div className="gap-1">
+                  <div className="col-span-2">
                     <div className="text-xs text-muted-foreground">Bio</div>
                     <div className="text-sm whitespace-pre-wrap">{contact.bio}</div>
                   </div>
                 )}
                 {contact.notes && (
-                  <div className="gap-1">
+                  <div className="col-span-2">
                     <div className="text-xs text-muted-foreground">Notes</div>
                     <div className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">{contact.notes}</div>
                   </div>
                 )}
                 {contact.tags && contact.tags.length > 0 && (
-                  <div className="flex items-start gap-3">
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">Tags</div>
-                      <div className="flex flex-wrap gap-1">
-                        {contact.tags.map((tag: string) => (
-                          <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                  <div className="col-span-2">
+                    <div className="text-xs text-muted-foreground mb-1">Tags</div>
+                    <div className="flex flex-wrap gap-1">
+                      {contact.tags.map((tag: string) => (
+                        <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
+                          {tag}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 )}

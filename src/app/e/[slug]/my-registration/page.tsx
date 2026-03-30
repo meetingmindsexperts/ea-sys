@@ -254,7 +254,7 @@ export default function EventMyRegistrationPage() {
               const price = Number(reg.pricingTier?.price ?? reg.ticketType?.price ?? 0);
               const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
               const isPaid = reg.paymentStatus === "PAID";
-              const isComplimentary = price === 0;
+              const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || price === 0;
               const isConfirmed = reg.status === "CONFIRMED";
               const showPayment = !isPaid && !isComplimentary && reg.status !== "CANCELLED";
               const regTaxRate = Number(reg.event.taxRate ?? 0);

@@ -1034,14 +1034,31 @@ export async function sendRegistrationConfirmation(params: {
   let paymentBlockText = "";
   if (params.ticketPrice && params.ticketPrice > 0) {
     const currency = params.ticketCurrency || "USD";
-    const amount = Number(params.ticketPrice).toFixed(2);
+    const baseAmount = Number(params.ticketPrice);
+    const taxRate = params.taxRate ? Number(params.taxRate) : 0;
+    const taxAmount = taxRate > 0 ? baseAmount * (taxRate / 100) : 0;
+    const totalAmount = baseAmount + taxAmount;
+    const taxLabel = params.taxLabel || "Tax";
+
+    let amountLine = "";
+    let amountLineText = "";
+    if (taxRate > 0) {
+      amountLine = `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">Subtotal: ${escapeHtml(currency)} ${baseAmount.toFixed(2)}</p>
+      <p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">${escapeHtml(taxLabel)} (${taxRate}%): ${escapeHtml(currency)} ${taxAmount.toFixed(2)}</p>
+      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;"><strong>Total: ${escapeHtml(currency)} ${totalAmount.toFixed(2)}</strong></p>`;
+      amountLineText = `Subtotal: ${currency} ${baseAmount.toFixed(2)}\n${taxLabel} (${taxRate}%): ${currency} ${taxAmount.toFixed(2)}\nTotal: ${currency} ${totalAmount.toFixed(2)}`;
+    } else {
+      amountLine = `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${baseAmount.toFixed(2)}</strong></p>`;
+      amountLineText = `Amount due: ${currency} ${baseAmount.toFixed(2)}`;
+    }
+
     paymentBlock = `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
       <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">Payment Pending</p>
-      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${amount}</strong></p>
+      ${amountLine}
       <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
       <p style="margin: 8px 0 0 0; font-size: 12px; color: #92400e;">You can also pay later using this link anytime.</p>
     </div>`;
-    paymentBlockText = `Payment Pending: ${currency} ${amount}\nPay Now: ${paymentLink}`;
+    paymentBlockText = `Payment Pending\n${amountLineText}\nPay Now: ${paymentLink}`;
   }
 
   const vars: Record<string, string | number | undefined> = {

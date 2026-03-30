@@ -326,6 +326,7 @@ enum PaymentStatus {
   UNPAID
   PENDING
   PAID
+  COMPLIMENTARY
   REFUNDED
   FAILED
 }

@@ -62,6 +62,10 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // Exclude pdfkit from bundling — it uses __dirname for font files (Helvetica.afm)
+  // which Turbopack rewrites to /ROOT/, breaking font resolution
+  serverExternalPackages: ["pdfkit"],
+
   // Transpile specific packages for better tree-shaking
   transpilePackages: ["@getbrevo/brevo"],
 

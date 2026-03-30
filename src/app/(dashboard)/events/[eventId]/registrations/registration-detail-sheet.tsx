@@ -227,7 +227,7 @@ export function RegistrationDetailSheet({
             phone: editData.phone || undefined,
             organization: editData.organization || undefined,
             jobTitle: editData.jobTitle || undefined,
-            photo: editData.photo || undefined,
+            photo: editData.photo ?? null,
             city: editData.city || undefined,
             country: editData.country || undefined,
             bio: editData.bio || undefined,
@@ -243,32 +243,33 @@ export function RegistrationDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[750px]">
+      <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
         {selectedRegistration ? (
           <>
-            <SheetHeader className="pr-8">
-              <SheetTitle className="flex items-center gap-2">
-                {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
-              </SheetTitle>
-              <SheetDescription>
-                <div className="flex gap-2 mt-2">
-                  <Badge className={registrationStatusColors[selectedRegistration.status]} variant="outline">
-                    {selectedRegistration.status}
-                  </Badge>
-                  <Badge className={paymentStatusColors[selectedRegistration.paymentStatus]} variant="outline">
-                    {selectedRegistration.paymentStatus}
-                  </Badge>
-                </div>
-              </SheetDescription>
-            </SheetHeader>
+            {/* Header with actions */}
+            <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
+              <SheetHeader className="pr-8">
+                <SheetTitle className="text-white text-lg">
+                  {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
+                </SheetTitle>
+                <SheetDescription>
+                  <div className="flex gap-2 mt-1">
+                    <Badge className={`${registrationStatusColors[selectedRegistration.status]} border-white/30`} variant="outline">
+                      {selectedRegistration.status}
+                    </Badge>
+                    <Badge className={`${paymentStatusColors[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
+                      {selectedRegistration.paymentStatus}
+                    </Badge>
+                  </div>
+                </SheetDescription>
+              </SheetHeader>
 
-            <div className="mt-6 space-y-5">
-              {/* Quick Actions */}
+              {/* Quick Actions in header */}
               {!isReviewer && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mt-3">
                   {!isEditing ? (
                     <>
-                      <Button size="sm" variant="outline" onClick={startEditing}>
+                      <Button size="sm" variant="secondary" onClick={startEditing}>
                         <Pencil className="mr-2 h-4 w-4" />
                         Edit
                       </Button>
@@ -278,7 +279,7 @@ export function RegistrationDetailSheet({
                             size="sm"
                             onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
                             disabled={checkInRegistration.isPending}
-                            className="bg-green-600 hover:bg-green-700"
+                            className="bg-green-600 hover:bg-green-700 text-white"
                           >
                             <CheckCircle className="mr-2 h-4 w-4" />
                             Check In
@@ -286,7 +287,7 @@ export function RegistrationDetailSheet({
                         )}
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="secondary"
                         className="text-red-600 hover:text-red-700"
                         onClick={() => {
                           if (confirm("Are you sure you want to delete this registration?")) {
@@ -305,14 +306,14 @@ export function RegistrationDetailSheet({
                         size="sm"
                         onClick={saveEdits}
                         disabled={updateRegistration.isPending}
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <Save className="mr-2 h-4 w-4" />
                         {updateRegistration.isPending ? "Saving..." : "Save"}
                       </Button>
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="secondary"
                         onClick={() => setIsEditing(false)}
                         disabled={updateRegistration.isPending}
                       >
@@ -323,7 +324,9 @@ export function RegistrationDetailSheet({
                   )}
                 </div>
               )}
+            </div>
 
+            <div className="px-6 py-5 space-y-5">
               {/* Attendee Info */}
               <div className="space-y-4">
                 <h3 className="font-semibold">Attendee Information</h3>
@@ -456,15 +459,52 @@ export function RegistrationDetailSheet({
                     </div>
                   </div>
                 ) : (
-                  <div className="grid gap-3">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                     <div className="flex items-center gap-3">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span>{selectedRegistration.attendee.email}</span>
+                      <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="truncate">{selectedRegistration.attendee.email}</span>
                     </div>
-                    {selectedRegistration.attendee.phone && (
+                    {selectedRegistration.attendee.phone ? (
                       <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span>{selectedRegistration.attendee.phone}</span>
+                      </div>
+                    ) : <div />}
+                    {selectedRegistration.attendee.organization && (
+                      <div className="flex items-center gap-3">
+                        <Building className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{selectedRegistration.attendee.organization}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.jobTitle && (
+                      <div className="flex items-center gap-3">
+                        <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{selectedRegistration.attendee.jobTitle}</span>
+                      </div>
+                    )}
+                    {(selectedRegistration.attendee.city || selectedRegistration.attendee.country) && (
+                      <div className="flex items-center gap-3">
+                        <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>
+                          {[selectedRegistration.attendee.city, selectedRegistration.attendee.country]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </span>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.specialty && (
+                      <div className="flex items-center gap-3">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div>
+                          <div className="text-xs text-muted-foreground">Specialty</div>
+                          <div>{selectedRegistration.attendee.specialty}</div>
+                        </div>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.dietaryReqs && (
+                      <div className="flex items-center gap-3">
+                        <Utensils className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span>{selectedRegistration.attendee.dietaryReqs}</span>
                       </div>
                     )}
                     {selectedRegistration.attendee.photo && (
@@ -479,52 +519,9 @@ export function RegistrationDetailSheet({
                         />
                       </div>
                     )}
-                    {selectedRegistration.attendee.organization && (
-                      <div className="flex items-center gap-3">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.organization}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.jobTitle && (
-                      <div className="flex items-center gap-3">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.jobTitle}</span>
-                      </div>
-                    )}
-                    {(selectedRegistration.attendee.city || selectedRegistration.attendee.country) && (
-                      <div className="flex items-center gap-3">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {[selectedRegistration.attendee.city, selectedRegistration.attendee.country]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.bio && (
-                      <div className="gap-1">
-                        <div className="text-xs text-muted-foreground">Bio</div>
-                        <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.dietaryReqs && (
-                      <div className="flex items-center gap-3">
-                        <Utensils className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.dietaryReqs}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.specialty && (
-                      <div className="flex items-center gap-3">
-                        <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="text-xs text-muted-foreground">Specialty</div>
-                          <div>{selectedRegistration.attendee.specialty}</div>
-                        </div>
-                      </div>
-                    )}
                     {selectedRegistration.attendee.tags && selectedRegistration.attendee.tags.length > 0 && (
-                      <div className="flex items-start gap-3">
-                        <ClipboardList className="h-4 w-4 text-muted-foreground mt-1" />
+                      <div className="flex items-start gap-3 col-span-2">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
                         <div>
                           <div className="text-xs text-muted-foreground mb-1">Tags</div>
                           <div className="flex flex-wrap gap-1">
@@ -535,6 +532,12 @@ export function RegistrationDetailSheet({
                             ))}
                           </div>
                         </div>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.bio && (
+                      <div className="col-span-2">
+                        <div className="text-xs text-muted-foreground">Bio</div>
+                        <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
                       </div>
                     )}
                   </div>
@@ -685,6 +688,7 @@ export function RegistrationDetailSheet({
                         <SelectItem value="UNPAID">Unpaid</SelectItem>
                         <SelectItem value="PENDING">Pending</SelectItem>
                         <SelectItem value="PAID">Paid</SelectItem>
+                        <SelectItem value="COMPLIMENTARY">Complimentary</SelectItem>
                         <SelectItem value="REFUNDED">Refunded</SelectItem>
                         <SelectItem value="FAILED">Failed</SelectItem>
                       </SelectContent>

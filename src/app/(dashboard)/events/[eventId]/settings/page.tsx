@@ -1303,14 +1303,10 @@ function EmailTemplatesTab({ eventId }: { eventId: string }) {
         slug,
         name,
         subject,
-        htmlContent: `<div style="background: linear-gradient(135deg, #00aade 0%, #7dd3fc 100%); padding: 30px; border-radius: 10px 10px 0 0;">
-    <h1 style="color: white; margin: 0; font-size: 24px;">${name}</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">{{eventName}}</p>
-  </div>
-  <div style="background: #f9fafb; padding: 30px; border: 1px solid #e5e7eb; border-top: none;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
-    <p>Your content here...</p>
-  </div>`,
+        htmlContent: `<h2 style="margin: 0 0 5px 0; font-size: 22px; color: #333;">${name}</h2>
+  <p style="color: #6b7280; margin: 0 0 20px 0;">{{eventName}}</p>
+  <p>Dear <strong>{{firstName}}</strong>,</p>
+  <p>Your content here...</p>`,
         textContent: `${name}\n\nDear {{firstName}},\n\nYour content here...`,
       });
       toast.success("Template created");

@@ -138,7 +138,7 @@ function ConfirmationContent() {
     }
   };
 
-  const isPaid = paymentInfo?.paymentStatus === "PAID";
+  const isPaid = paymentInfo?.paymentStatus === "PAID" || paymentInfo?.paymentStatus === "COMPLIMENTARY";
   // Derive payment display from server-fetched data only — URL params are not trusted
   const ticketPrice = paymentInfo?.ticketPrice ?? 0;
   const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";

@@ -77,7 +77,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (registration.paymentStatus === "PAID") {
+    if (registration.paymentStatus === "PAID" || registration.paymentStatus === "COMPLIMENTARY") {
       apiLogger.warn({ msg: "Checkout attempted for already-paid registration", registrationId });
       return NextResponse.json(
         { error: "Payment already completed" },

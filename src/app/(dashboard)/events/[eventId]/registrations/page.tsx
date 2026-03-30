@@ -215,7 +215,7 @@ export default function RegistrationsPage() {
     confirmed: registrations.filter((r) => r.status === "CONFIRMED").length,
     pending: registrations.filter((r) => r.status === "PENDING").length,
     checkedIn: registrations.filter((r) => r.status === "CHECKED_IN").length,
-    paid: registrations.filter((r) => r.paymentStatus === "PAID").length,
+    paid: registrations.filter((r) => r.paymentStatus === "PAID" || r.paymentStatus === "COMPLIMENTARY").length,
   };
 
   // Selection helpers

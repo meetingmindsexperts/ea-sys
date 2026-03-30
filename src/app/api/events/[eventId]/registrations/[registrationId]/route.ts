@@ -13,7 +13,7 @@ import { deletePhoto } from "@/lib/storage";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
-  paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "REFUNDED", "FAILED"]).optional(),
+  paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
   badgeType: z.string().max(50).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
   notes: z.string().max(2000).optional(),
