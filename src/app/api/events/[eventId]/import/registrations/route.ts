@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
-import { generateQRCode } from "@/lib/utils";
+import { generateBarcode } from "@/lib/utils";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncToContact } from "@/lib/contact-sync";
 
@@ -195,6 +195,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             data: { soldCount: { increment: 1 } },
           });
 
+          const generatedBarcode = generateBarcode();
           await tx.registration.create({
             data: {
               eventId,
@@ -202,7 +203,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               attendeeId: attendee.id,
               status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
               paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
-              qrCode: generateQRCode(),
+              qrCode: generatedBarcode,
               notes: getField(fields, idx.notes) || null,
             },
           });

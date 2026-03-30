@@ -60,7 +60,7 @@ export interface Registration {
   status: string;
   paymentStatus: string;
   qrCode: string | null;
-  barcode: string | null;
+  dtcmBarcode: string | null;
   badgeType: string | null;
   referrer: string | null;
   utmSource: string | null;

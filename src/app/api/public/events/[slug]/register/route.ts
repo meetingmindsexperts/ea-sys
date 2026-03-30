@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
-import { generateQRCode } from "@/lib/utils";
+import { generateBarcode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -234,6 +234,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
 
       // Create registration
+      const generatedBarcode = generateBarcode();
       const registration = await tx.registration.create({
         data: {
           eventId: event.id,
@@ -242,7 +243,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendee.id,
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           paymentStatus: effectivePrice === 0 ? "PAID" : "UNPAID",
-          qrCode: generateQRCode(),
+          qrCode: generatedBarcode,
           referrer: referrer || null,
           utmSource: utmSource || null,
           utmMedium: utmMedium || null,

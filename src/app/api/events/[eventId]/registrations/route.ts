@@ -3,9 +3,8 @@ import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { generateQRCode } from "@/lib/utils";
+import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
-import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
@@ -279,6 +278,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       // Create registration
+      const generatedBarcode = generateBarcode();
       const reg = await tx.registration.create({
         data: {
           eventId,
@@ -286,7 +286,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendeeRecord.id,
           status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
           paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
-          qrCode: generateQRCode(),
+          qrCode: generatedBarcode,
           notes: notes || null,
         },
         include: { attendee: true, ticketType: true },

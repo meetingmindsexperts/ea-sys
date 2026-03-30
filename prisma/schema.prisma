@@ -282,7 +282,7 @@ model Registration {
   status         RegistrationStatus @default(PENDING)
   paymentStatus  PaymentStatus      @default(UNPAID)
   qrCode         String?            @unique
-  barcode        String?            @unique
+  dtcmBarcode    String?            @unique
   badgeType      String?
   referrer       String?
   utmSource      String?

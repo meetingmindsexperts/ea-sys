@@ -37,7 +37,7 @@ import {
   Building,
   Briefcase,
   ClipboardList,
-  QrCode,
+  Barcode,
   CheckCircle,
   Calendar,
   CreditCard,
@@ -649,39 +649,91 @@ export function RegistrationDetailSheet({
                   </div>
                   <div className="space-y-2">
                     <Label>Badge Type</Label>
-                    <Select
-                      value={selectedRegistration.badgeType || "Delegate"}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { badgeType: value },
-                        })
-                      }
-                      disabled={updateRegistration.isPending}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Delegate">Delegate</SelectItem>
-                        <SelectItem value="Faculty">Faculty</SelectItem>
-                        <SelectItem value="Exhibitor">Exhibitor</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {(() => {
+                      const BADGE_TYPES = ["Delegate", "Faculty", "Exhibitor", "Committee", "Chairman", "Co-Chairman"];
+                      const currentBadge = selectedRegistration.badgeType || "Delegate";
+                      const isCustom = !BADGE_TYPES.includes(currentBadge) && currentBadge !== "Custom";
+                      return (
+                        <>
+                          <Select
+                            value={isCustom ? "Custom" : currentBadge}
+                            onValueChange={(value) => {
+                              if (value === "Custom") {
+                                updateRegistration.mutate({
+                                  id: selectedRegistration.id,
+                                  data: { badgeType: "" },
+                                });
+                              } else {
+                                updateRegistration.mutate({
+                                  id: selectedRegistration.id,
+                                  data: { badgeType: value },
+                                });
+                              }
+                            }}
+                            disabled={updateRegistration.isPending}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {BADGE_TYPES.map((bt) => (
+                                <SelectItem key={bt} value={bt}>{bt}</SelectItem>
+                              ))}
+                              <SelectItem value="Custom">Custom...</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {(isCustom || currentBadge === "" || currentBadge === "Custom") && (
+                            <Input
+                              placeholder="Enter custom badge type"
+                              defaultValue={isCustom ? currentBadge : ""}
+                              onBlur={(e) => {
+                                if (e.target.value.trim()) {
+                                  updateRegistration.mutate({
+                                    id: selectedRegistration.id,
+                                    data: { badgeType: e.target.value.trim() },
+                                  });
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                                  updateRegistration.mutate({
+                                    id: selectedRegistration.id,
+                                    data: { badgeType: (e.target as HTMLInputElement).value.trim() },
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
               )}
 
-              {/* QR Code */}
+              {/* Event Barcode */}
               {selectedRegistration.qrCode && (
                 <div className="space-y-4">
                   <h3 className="font-semibold flex items-center gap-2">
-                    <QrCode className="h-4 w-4" />
-                    QR Code
+                    <Barcode className="h-4 w-4" />
+                    Event Barcode
                   </h3>
                   <div className="bg-muted p-4 rounded-lg text-center">
                     <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* DTCM Barcode */}
+              {selectedRegistration.dtcmBarcode && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Barcode className="h-4 w-4" />
+                    DTCM Barcode
+                  </h3>
+                  <div className="bg-muted p-4 rounded-lg text-center">
+                    <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
                   </div>
                 </div>
               )}

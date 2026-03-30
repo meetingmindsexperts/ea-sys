@@ -335,7 +335,7 @@ function ConfirmationContent() {
               <div>
                 <p className="text-sm font-semibold text-slate-800">Check your inbox</p>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  A confirmation email with your registration details and QR code is on its way.
+                  A confirmation email with your registration details and barcode is on its way.
                 </p>
               </div>
             </div>
@@ -352,7 +352,7 @@ function ConfirmationContent() {
                 {[
                   "Save the date and add it to your calendar",
                   "Watch for updates from the organizer",
-                  "Bring your QR code for check-in",
+                  "Bring your barcode for check-in",
                 ].map((tip, i) => (
                   <div key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
                     <div className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">

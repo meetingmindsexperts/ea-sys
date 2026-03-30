@@ -11,6 +11,7 @@ import {
   formatDateLong,
   formatPersonName,
   getTitleLabel,
+  generateBarcode,
   generateQRCode,
 } from "@/lib/utils";
 
@@ -269,23 +270,31 @@ describe("getTitleLabel", () => {
   });
 });
 
-// ── generateQRCode ─────────────────────────────────────────────────────────
+// ── generateBarcode ────────────────────────────────────────────────────────
 
-describe("generateQRCode", () => {
-  it("starts with QR- prefix", () => {
-    expect(generateQRCode()).toMatch(/^QR-/);
+describe("generateBarcode", () => {
+  it("produces a numeric-only string", () => {
+    expect(generateBarcode()).toMatch(/^\d+$/);
   });
 
   it("contains a timestamp component", () => {
-    const qr = generateQRCode();
-    const parts = qr.split("-");
-    const timestamp = Number(parts[1]);
+    const code = generateBarcode();
+    // First 13 digits are Date.now()
+    const timestamp = Number(code.slice(0, 13));
     expect(timestamp).toBeGreaterThan(0);
     expect(timestamp).toBeLessThanOrEqual(Date.now());
   });
 
   it("generates unique codes", () => {
-    const codes = new Set(Array.from({ length: 10 }, () => generateQRCode()));
+    const codes = new Set(Array.from({ length: 10 }, () => generateBarcode()));
     expect(codes.size).toBe(10);
+  });
+});
+
+// ── generateQRCode (backward compat alias) ────────────────────────────────
+
+describe("generateQRCode (alias)", () => {
+  it("is the same function as generateBarcode", () => {
+    expect(generateQRCode).toBe(generateBarcode);
   });
 });

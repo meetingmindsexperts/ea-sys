@@ -42,6 +42,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       include: {
         attendee: true,
         ticketType: true,
+        pricingTier: { select: { price: true } },
       },
     });
 
@@ -52,6 +53,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (registration.status === "CANCELLED") {
       return NextResponse.json(
         { error: "Cannot check in a cancelled registration" },
+        { status: 400 }
+      );
+    }
+
+    // Block check-in for unpaid registrations (unless complimentary)
+    const isComplimentary = Number(registration.ticketType.price) === 0 ||
+      (registration.pricingTier && Number(registration.pricingTier.price) === 0);
+    if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
+      return NextResponse.json(
+        { error: "Cannot check in — payment required" },
         { status: 400 }
       );
     }
@@ -141,18 +152,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "QR code or barcode required" }, { status: 400 });
     }
 
-    // Search by qrCode OR barcode
+    // Search by qrCode OR dtcmBarcode
     const registration = await db.registration.findFirst({
       where: {
         eventId,
         OR: [
           { qrCode },
-          { barcode: qrCode },
+          { dtcmBarcode: qrCode },
         ],
       },
       include: {
         attendee: true,
-        ticketType: true,
+        ticketType: { select: { name: true, price: true } },
+        pricingTier: { select: { price: true } },
       },
     });
 
@@ -163,6 +175,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (registration.status === "CANCELLED") {
       return NextResponse.json(
         { error: "Registration is cancelled" },
+        { status: 400 }
+      );
+    }
+
+    // Block check-in for unpaid registrations (unless complimentary)
+    const isComplimentary = Number(registration.ticketType.price) === 0 ||
+      (registration.pricingTier && Number(registration.pricingTier.price) === 0);
+    if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
+      return NextResponse.json(
+        { error: "Cannot check in — payment required" },
         { status: 400 }
       );
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { titleEnum } from "@/lib/schemas";
-import { normalizeTag, generateQRCode } from "@/lib/utils";
+import { normalizeTag, generateBarcode } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 
 // ── Registration Zod schema (mirrors src/app/api/events/[eventId]/registrations/route.ts) ──
@@ -235,9 +235,9 @@ describe("Registration: status derivation", () => {
 
 // ── Business logic: QR code uniqueness ─────────────────────────────────────
 
-describe("Registration: QR code generation", () => {
-  it("generates unique QR codes for each registration", () => {
-    const codes = Array.from({ length: 50 }, () => generateQRCode());
+describe("Registration: barcode generation", () => {
+  it("generates unique barcodes for each registration", () => {
+    const codes = Array.from({ length: 50 }, () => generateBarcode());
     const unique = new Set(codes);
     expect(unique.size).toBe(50);
   });

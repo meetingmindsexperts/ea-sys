@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { generateQRCode } from "@/lib/utils";
+import { generateBarcode } from "@/lib/utils";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { syncToContact } from "@/lib/contact-sync";
 import { downloadExternalPhoto } from "@/lib/storage";
@@ -150,6 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             throw new Error("TICKET_CAPACITY_REACHED");
           }
 
+          const generatedBarcode = generateBarcode();
           await tx.registration.create({
             data: {
               eventId,
@@ -157,7 +158,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               attendeeId: attendee.id,
               status: defaultTicketType.requiresApproval ? "PENDING" : "CONFIRMED",
               paymentStatus: Number(defaultTicketType.price) === 0 ? "PAID" : "UNPAID",
-              qrCode: generateQRCode(),
+              qrCode: generatedBarcode,
             },
           });
 

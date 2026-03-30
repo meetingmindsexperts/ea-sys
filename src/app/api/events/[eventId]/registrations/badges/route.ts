@@ -25,12 +25,15 @@ const GAP = 12;
 
 // Badge type colors
 const BADGE_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  DELEGATE:  { bg: "#00aade", text: "#ffffff" },
-  FACULTY:   { bg: "#7c3aed", text: "#ffffff" },
-  EXHIBITOR: { bg: "#059669", text: "#ffffff" },
+  DELEGATE:       { bg: "#00aade", text: "#ffffff" },  // Blue
+  FACULTY:        { bg: "#7c3aed", text: "#ffffff" },  // Purple
+  EXHIBITOR:      { bg: "#059669", text: "#ffffff" },  // Green
+  COMMITTEE:      { bg: "#dc2626", text: "#ffffff" },  // Red
+  CHAIRMAN:       { bg: "#b45309", text: "#ffffff" },  // Amber/Gold
+  "CO-CHAIRMAN":  { bg: "#0369a1", text: "#ffffff" },  // Dark Blue
 };
 
-const DEFAULT_BADGE_COLOR = { bg: "#00aade", text: "#ffffff" };
+const DEFAULT_BADGE_COLOR = { bg: "#475569", text: "#ffffff" };
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -56,10 +59,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { registrationIds, all } = body as { registrationIds?: string[]; all?: boolean };
 
     const where = all
-      ? { eventId, status: { not: "CANCELLED" as const }, barcode: { not: null } }
-      : { eventId, id: { in: registrationIds || [] }, barcode: { not: null } };
+      ? { eventId, status: { not: "CANCELLED" as const } }
+      : { eventId, id: { in: registrationIds || [] } };
 
-    const registrations = await db.registration.findMany({
+    const allRegistrations = await db.registration.findMany({
       where,
       include: {
         attendee: {
@@ -70,14 +73,22 @@ export async function POST(req: Request, { params }: RouteParams) {
             organization: true,
           },
         },
-        ticketType: { select: { name: true } },
+        ticketType: { select: { name: true, price: true } },
+        pricingTier: { select: { price: true } },
       },
       orderBy: [{ attendee: { lastName: "asc" } }, { attendee: { firstName: "asc" } }],
     });
 
+    // Filter to only paid or complimentary registrations
+    const registrations = allRegistrations.filter((r) => {
+      const isComplimentary = Number(r.ticketType.price) === 0 ||
+        (r.pricingTier && Number(r.pricingTier.price) === 0);
+      return r.paymentStatus === "PAID" || isComplimentary;
+    });
+
     if (registrations.length === 0) {
       return NextResponse.json(
-        { error: "No registrations with barcodes found. Import barcodes first before generating badges." },
+        { error: "No paid or complimentary registrations found for badge generation." },
         { status: 400 }
       );
     }
@@ -98,7 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
 interface BadgeRegistration {
   id: string;
-  barcode: string | null;
+  qrCode: string | null;
   badgeType: string | null;
   attendee: {
     title: string | null;
@@ -106,7 +117,8 @@ interface BadgeRegistration {
     lastName: string;
     organization: string | null;
   };
-  ticketType: { name: string };
+  ticketType: { name: string; price: unknown };
+  pricingTier?: { price: unknown } | null;
 }
 
 interface BadgeEvent {
@@ -208,12 +220,12 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
     lineBreak: false,
   });
 
-  // Barcode at bottom (always present since we filter for barcode != null)
-  if (reg.barcode) {
+  // Barcode at bottom using qrCode (event barcode)
+  if (reg.qrCode) {
     try {
       const png = bwipjs.toBufferSync({
         bcid: "code128",
-        text: reg.barcode,
+        text: reg.qrCode,
         scale: 2,
         height: 12,
         includetext: true,
@@ -227,7 +239,7 @@ function drawBadge(doc: any, reg: BadgeRegistration, event: BadgeEvent, x: numbe
     } catch (err) {
       apiLogger.warn({ msg: "Barcode render failed, falling back to text", error: err instanceof Error ? err.message : "Unknown" });
       doc.font("Courier").fontSize(8).fillColor("#94a3b8");
-      doc.text(reg.barcode, x + MARGIN, y + BADGE_H - 30, {
+      doc.text(reg.qrCode, x + MARGIN, y + BADGE_H - 30, {
         width: BADGE_W - MARGIN * 2,
         align: "center",
         lineBreak: false,

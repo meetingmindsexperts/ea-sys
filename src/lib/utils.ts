@@ -101,9 +101,12 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function generateQRCode(): string {
-  return `QR-${Date.now()}-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
+export function generateBarcode(): string {
+  return `${Date.now()}${Math.random().toString().slice(2, 8)}`;
 }
+
+/** @deprecated Use generateBarcode() instead */
+export const generateQRCode = generateBarcode;
 
 /** Normalize a tag to Title Case and collapse whitespace. */
 export function normalizeTag(raw: string): string {

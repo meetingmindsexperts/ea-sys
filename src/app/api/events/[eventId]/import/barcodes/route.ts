@@ -108,7 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Check for duplicate barcode
       const existing = await db.registration.findFirst({
-        where: { barcode, NOT: { id: registration.id } },
+        where: { dtcmBarcode: barcode, NOT: { id: registration.id } },
         select: { id: true },
       });
 
@@ -119,7 +119,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       await db.registration.update({
         where: { id: registration.id },
-        data: { barcode },
+        data: { dtcmBarcode: barcode },
       });
 
       imported++;
