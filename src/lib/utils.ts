@@ -70,10 +70,10 @@ export function formatTime(date: Date | string): string {
 }
 
 const TITLE_LABELS: Record<string, string> = {
-  MR: "Mr.",
-  MS: "Ms.",
-  MRS: "Mrs.",
   DR: "Dr.",
+  MR: "Mr.",
+  MRS: "Mrs.",
+  MS: "Ms.",
   PROF: "Prof.",
 };
 

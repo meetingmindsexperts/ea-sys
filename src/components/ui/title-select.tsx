@@ -9,10 +9,10 @@ import {
 } from "./select";
 
 export const TITLE_OPTIONS = [
-  { value: "MR", label: "Mr" },
-  { value: "MS", label: "Ms" },
-  { value: "MRS", label: "Mrs" },
   { value: "DR", label: "Dr" },
+  { value: "MR", label: "Mr" },
+  { value: "MRS", label: "Mrs" },
+  { value: "MS", label: "Ms" },
   { value: "PROF", label: "Prof" },
 ] as const;
 

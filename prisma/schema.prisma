@@ -96,10 +96,10 @@ enum UserRole {
 }
 
 enum Title {
-  MR
-  MS
-  MRS
   DR
+  MR
+  MRS
+  MS
   PROF
 }
 
