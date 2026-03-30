@@ -75,7 +75,24 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(ticketTypeId && { ticketTypeId }),
         },
         include: {
-          attendee: true,
+          attendee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              title: true,
+              phone: true,
+              organization: true,
+              jobTitle: true,
+              city: true,
+              country: true,
+              photo: true,
+              tags: true,
+              dietaryReqs: true,
+              specialty: true,
+            },
+          },
           ticketType: {
             select: {
               id: true,
@@ -103,6 +120,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               createdAt: true,
             },
             orderBy: { createdAt: "desc" },
+            take: 1,
           },
           accommodation: {
             select: {

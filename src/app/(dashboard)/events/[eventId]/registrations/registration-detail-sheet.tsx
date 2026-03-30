@@ -51,6 +51,8 @@ import {
   MapPin,
   ChevronDown,
   Download,
+  IdCard,
+  Loader2,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { queryKeys, useTickets } from "@/hooks/use-api";
@@ -79,6 +81,7 @@ export function RegistrationDetailSheet({
   const { data: regTypes = [] } = useTickets(eventId);
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
+  const [printingBadge, setPrintingBadge] = useState(false);
   const [editData, setEditData] = useState({
     title: "" as string,
     firstName: "",
@@ -240,7 +243,7 @@ export function RegistrationDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[650px]">
+      <SheetContent className="overflow-y-auto p-6 w-full sm:w-[900px]">
         {selectedRegistration ? (
           <>
             <SheetHeader className="pr-8">
@@ -259,603 +262,652 @@ export function RegistrationDetailSheet({
               </SheetDescription>
             </SheetHeader>
 
-            <div className="mt-6 space-y-6">
-              {/* Quick Actions */}
-              {!isReviewer && (
-              <div className="flex flex-wrap gap-2">
-                {!isEditing ? (
-                  <>
-                    <Button size="sm" variant="outline" onClick={startEditing}>
-                      <Pencil className="mr-2 h-4 w-4" />
-                      Edit
-                    </Button>
-                    {selectedRegistration.status !== "CHECKED_IN" &&
-                      selectedRegistration.status !== "CANCELLED" && (
-                        <Button
-                          size="sm"
-                          onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
-                          disabled={checkInRegistration.isPending}
-                          className="bg-green-600 hover:bg-green-700"
-                        >
-                          <CheckCircle className="mr-2 h-4 w-4" />
-                          Check In
-                        </Button>
-                      )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="outline" disabled={sendEmail.isPending}>
-                          <Send className="mr-2 h-4 w-4" />
-                          {sendEmail.isPending ? "Sending..." : "Send Email"}
-                          <ChevronDown className="ml-1 h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "confirmation" })}>
-                          Registration Confirmation
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "reminder" })}>
-                          Event Reminder
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "payment-reminder" })}>
-                          Payment Reminder
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "custom" })}>
-                          Custom Notification
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => {
-                        if (confirm("Are you sure you want to delete this registration?")) {
-                          deleteRegistration.mutate(selectedRegistration.id);
-                        }
-                      }}
-                      disabled={deleteRegistration.isPending}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      size="sm"
-                      onClick={saveEdits}
-                      disabled={updateRegistration.isPending}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <Save className="mr-2 h-4 w-4" />
-                      {updateRegistration.isPending ? "Saving..." : "Save"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setIsEditing(false)}
-                      disabled={updateRegistration.isPending}
-                    >
-                      <X className="mr-2 h-4 w-4" />
-                      Cancel
-                    </Button>
-                  </>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mt-6 py-4">
+              {/* LEFT COLUMN */}
+              <div className="space-y-6">
+                {/* Quick Actions */}
+                {!isReviewer && (
+                <div className="flex flex-wrap gap-2">
+                  {!isEditing ? (
+                    <>
+                      <Button size="sm" variant="outline" onClick={startEditing}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </Button>
+                      {selectedRegistration.status !== "CHECKED_IN" &&
+                        selectedRegistration.status !== "CANCELLED" && (
+                          <Button
+                            size="sm"
+                            onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
+                            disabled={checkInRegistration.isPending}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Check In
+                          </Button>
+                        )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          if (confirm("Are you sure you want to delete this registration?")) {
+                            deleteRegistration.mutate(selectedRegistration.id);
+                          }
+                        }}
+                        disabled={deleteRegistration.isPending}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={saveEdits}
+                        disabled={updateRegistration.isPending}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Save className="mr-2 h-4 w-4" />
+                        {updateRegistration.isPending ? "Saving..." : "Save"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setIsEditing(false)}
+                        disabled={updateRegistration.isPending}
+                      >
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                </div>
                 )}
-              </div>
-              )}
 
-              {/* Attendee Info */}
-              <div className="space-y-4">
-                <h3 className="font-semibold">Attendee Information</h3>
-                {isEditing ? (
-                  <div className="grid gap-4">
-                    <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-title">Title</Label>
-                        <TitleSelect
-                          value={editData.title}
-                          onChange={(title) => setEditData({ ...editData, title })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-firstName">First Name *</Label>
-                        <Input
-                          id="edit-firstName"
-                          value={editData.firstName}
-                          onChange={(e) => setEditData({ ...editData, firstName: e.target.value })}
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-lastName">Last Name *</Label>
-                        <Input
-                          id="edit-lastName"
-                          value={editData.lastName}
-                          onChange={(e) => setEditData({ ...editData, lastName: e.target.value })}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Email</Label>
-                      <Input value={selectedRegistration.attendee.email} disabled className="bg-muted" />
-                      <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-phone">Phone</Label>
-                      <Input
-                        id="edit-phone"
-                        value={editData.phone}
-                        onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-organization">Organization</Label>
-                        <Input
-                          id="edit-organization"
-                          value={editData.organization}
-                          onChange={(e) => setEditData({ ...editData, organization: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-jobTitle">Job Title</Label>
-                        <Input
-                          id="edit-jobTitle"
-                          value={editData.jobTitle}
-                          onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Photo</Label>
-                      <PhotoUpload
-                        value={editData.photo}
-                        onChange={(photo) => setEditData({ ...editData, photo })}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-city">City</Label>
-                        <Input
-                          id="edit-city"
-                          value={editData.city}
-                          onChange={(e) => setEditData({ ...editData, city: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-country">Country</Label>
-                        <CountrySelect
-                          value={editData.country}
-                          onChange={(country) => setEditData({ ...editData, country })}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-bio">Bio</Label>
-                      <textarea
-                        id="edit-bio"
-                        placeholder="Short biography"
-                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        value={editData.bio}
-                        onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
-                      <Input
-                        id="edit-dietaryReqs"
-                        value={editData.dietaryReqs}
-                        onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-specialty">Specialty</Label>
-                      <SpecialtySelect
-                        value={editData.specialty}
-                        onChange={(specialty) => setEditData({ ...editData, specialty })}
-                      />
-                    </div>
-                    {!isReviewer && (
-                      <div className="space-y-2">
-                        <Label>Tags</Label>
-                        <TagInput
-                          value={editData.tags}
-                          onChange={(tags) => setEditData({ ...editData, tags })}
-                          placeholder="Type a tag and press Enter or comma"
-                        />
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-notes">Notes</Label>
-                      <Input
-                        id="edit-notes"
-                        value={editData.notes}
-                        onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid gap-3">
-                    <div className="flex items-center gap-3">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span>{selectedRegistration.attendee.email}</span>
-                    </div>
-                    {selectedRegistration.attendee.phone && (
-                      <div className="flex items-center gap-3">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.phone}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.photo && (
-                      <div className="flex items-center gap-3">
-                        <Image
-                          src={selectedRegistration.attendee.photo}
-                          alt="Photo"
-                          width={64}
-                          height={64}
-                          className="rounded-full object-cover border"
-                          unoptimized
-                        />
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.organization && (
-                      <div className="flex items-center gap-3">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.organization}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.jobTitle && (
-                      <div className="flex items-center gap-3">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.jobTitle}</span>
-                      </div>
-                    )}
-                    {(selectedRegistration.attendee.city || selectedRegistration.attendee.country) && (
-                      <div className="flex items-center gap-3">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {[selectedRegistration.attendee.city, selectedRegistration.attendee.country]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.bio && (
-                      <div className="gap-1">
-                        <div className="text-xs text-muted-foreground">Bio</div>
-                        <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.dietaryReqs && (
-                      <div className="flex items-center gap-3">
-                        <Utensils className="h-4 w-4 text-muted-foreground" />
-                        <span>{selectedRegistration.attendee.dietaryReqs}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.specialty && (
-                      <div className="flex items-center gap-3">
-                        <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="text-xs text-muted-foreground">Specialty</div>
-                          <div>{selectedRegistration.attendee.specialty}</div>
+                {/* Attendee Info */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Attendee Information</h3>
+                  {isEditing ? (
+                    <div className="grid gap-4">
+                      <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-title">Title</Label>
+                          <TitleSelect
+                            value={editData.title}
+                            onChange={(title) => setEditData({ ...editData, title })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-firstName">First Name *</Label>
+                          <Input
+                            id="edit-firstName"
+                            value={editData.firstName}
+                            onChange={(e) => setEditData({ ...editData, firstName: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-lastName">Last Name *</Label>
+                          <Input
+                            id="edit-lastName"
+                            value={editData.lastName}
+                            onChange={(e) => setEditData({ ...editData, lastName: e.target.value })}
+                            required
+                          />
                         </div>
                       </div>
-                    )}
-                    {selectedRegistration.attendee.tags && selectedRegistration.attendee.tags.length > 0 && (
-                      <div className="flex items-start gap-3">
-                        <ClipboardList className="h-4 w-4 text-muted-foreground mt-1" />
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Tags</div>
-                          <div className="flex flex-wrap gap-1">
-                            {selectedRegistration.attendee.tags.map((tag, index) => (
-                              <Badge key={index} variant="secondary" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))}
+                      <div className="space-y-2">
+                        <Label>Email</Label>
+                        <Input value={selectedRegistration.attendee.email} disabled className="bg-muted" />
+                        <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-phone">Phone</Label>
+                        <Input
+                          id="edit-phone"
+                          value={editData.phone}
+                          onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-organization">Organization</Label>
+                          <Input
+                            id="edit-organization"
+                            value={editData.organization}
+                            onChange={(e) => setEditData({ ...editData, organization: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-jobTitle">Job Title</Label>
+                          <Input
+                            id="edit-jobTitle"
+                            value={editData.jobTitle}
+                            onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Photo</Label>
+                        <PhotoUpload
+                          value={editData.photo}
+                          onChange={(photo) => setEditData({ ...editData, photo })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-city">City</Label>
+                          <Input
+                            id="edit-city"
+                            value={editData.city}
+                            onChange={(e) => setEditData({ ...editData, city: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-country">Country</Label>
+                          <CountrySelect
+                            value={editData.country}
+                            onChange={(country) => setEditData({ ...editData, country })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-bio">Bio</Label>
+                        <textarea
+                          id="edit-bio"
+                          placeholder="Short biography"
+                          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          value={editData.bio}
+                          onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
+                        <Input
+                          id="edit-dietaryReqs"
+                          value={editData.dietaryReqs}
+                          onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-specialty">Specialty</Label>
+                        <SpecialtySelect
+                          value={editData.specialty}
+                          onChange={(specialty) => setEditData({ ...editData, specialty })}
+                        />
+                      </div>
+                      {!isReviewer && (
+                        <div className="space-y-2">
+                          <Label>Tags</Label>
+                          <TagInput
+                            value={editData.tags}
+                            onChange={(tags) => setEditData({ ...editData, tags })}
+                            placeholder="Type a tag and press Enter or comma"
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-notes">Notes</Label>
+                        <Input
+                          id="edit-notes"
+                          value={editData.notes}
+                          onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      <div className="flex items-center gap-3">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span>{selectedRegistration.attendee.email}</span>
+                      </div>
+                      {selectedRegistration.attendee.phone && (
+                        <div className="flex items-center gap-3">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.phone}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.photo && (
+                        <div className="flex items-center gap-3">
+                          <Image
+                            src={selectedRegistration.attendee.photo}
+                            alt="Photo"
+                            width={64}
+                            height={64}
+                            className="rounded-full object-cover border"
+                            unoptimized
+                          />
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.organization && (
+                        <div className="flex items-center gap-3">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.organization}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.jobTitle && (
+                        <div className="flex items-center gap-3">
+                          <Briefcase className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.jobTitle}</span>
+                        </div>
+                      )}
+                      {(selectedRegistration.attendee.city || selectedRegistration.attendee.country) && (
+                        <div className="flex items-center gap-3">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span>
+                            {[selectedRegistration.attendee.city, selectedRegistration.attendee.country]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.bio && (
+                        <div className="gap-1">
+                          <div className="text-xs text-muted-foreground">Bio</div>
+                          <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.dietaryReqs && (
+                        <div className="flex items-center gap-3">
+                          <Utensils className="h-4 w-4 text-muted-foreground" />
+                          <span>{selectedRegistration.attendee.dietaryReqs}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.attendee.specialty && (
+                        <div className="flex items-center gap-3">
+                          <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <div className="text-xs text-muted-foreground">Specialty</div>
+                            <div>{selectedRegistration.attendee.specialty}</div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Registration Type Info */}
-              <div className="space-y-4">
-                <h3 className="font-semibold">Registration Type</h3>
-                {!isReviewer ? (
-                  <Select
-                    value={selectedRegistration.ticketType.id}
-                    onValueChange={(value) =>
-                      updateRegistration.mutate({
-                        id: selectedRegistration.id,
-                        data: { ticketTypeId: value },
-                      })
-                    }
-                    disabled={updateRegistration.isPending}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(regTypes as TicketType[]).map((rt) => (
-                        <SelectItem key={rt.id} value={rt.id}>
-                          {rt.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                    <div className="font-medium">{selectedRegistration.ticketType.name}</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Status Management */}
-              {!isReviewer && (
-              <div className="space-y-4">
-                <h3 className="font-semibold">Manage Status</h3>
-                <div className="grid gap-3">
-                  <div className="space-y-2">
-                    <Label>Registration Status</Label>
-                    <Select
-                      value={selectedRegistration.status}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { status: value },
-                        })
-                      }
-                      disabled={updateRegistration.isPending}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                        <SelectItem value="WAITLISTED">Waitlisted</SelectItem>
-                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                        <SelectItem value="CHECKED_IN">Checked In</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Payment Status</Label>
-                    <Select
-                      value={selectedRegistration.paymentStatus}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { paymentStatus: value },
-                        })
-                      }
-                      disabled={updateRegistration.isPending}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="UNPAID">Unpaid</SelectItem>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="PAID">Paid</SelectItem>
-                        <SelectItem value="REFUNDED">Refunded</SelectItem>
-                        <SelectItem value="FAILED">Failed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Badge Type</Label>
-                    {(() => {
-                      const BADGE_TYPES = ["Delegate", "Faculty", "Exhibitor", "Committee", "Chairman", "Co-Chairman"];
-                      const currentBadge = selectedRegistration.badgeType || "Delegate";
-                      const isCustom = !BADGE_TYPES.includes(currentBadge) && currentBadge !== "Custom";
-                      return (
-                        <>
-                          <Select
-                            value={isCustom ? "Custom" : currentBadge}
-                            onValueChange={(value) => {
-                              if (value === "Custom") {
-                                updateRegistration.mutate({
-                                  id: selectedRegistration.id,
-                                  data: { badgeType: "" },
-                                });
-                              } else {
-                                updateRegistration.mutate({
-                                  id: selectedRegistration.id,
-                                  data: { badgeType: value },
-                                });
-                              }
-                            }}
-                            disabled={updateRegistration.isPending}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {BADGE_TYPES.map((bt) => (
-                                <SelectItem key={bt} value={bt}>{bt}</SelectItem>
+                      )}
+                      {selectedRegistration.attendee.tags && selectedRegistration.attendee.tags.length > 0 && (
+                        <div className="flex items-start gap-3">
+                          <ClipboardList className="h-4 w-4 text-muted-foreground mt-1" />
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">Tags</div>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedRegistration.attendee.tags.map((tag, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {tag}
+                                </Badge>
                               ))}
-                              <SelectItem value="Custom">Custom...</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {(isCustom || currentBadge === "" || currentBadge === "Custom") && (
-                            <Input
-                              placeholder="Enter custom badge type"
-                              defaultValue={isCustom ? currentBadge : ""}
-                              onBlur={(e) => {
-                                if (e.target.value.trim()) {
-                                  updateRegistration.mutate({
-                                    id: selectedRegistration.id,
-                                    data: { badgeType: e.target.value.trim() },
-                                  });
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
-                                  updateRegistration.mutate({
-                                    id: selectedRegistration.id,
-                                    data: { badgeType: (e.target as HTMLInputElement).value.trim() },
-                                  });
-                                }
-                              }}
-                            />
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {/* Event Barcode */}
-              {selectedRegistration.qrCode && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Barcode className="h-4 w-4" />
-                    Event Barcode
-                  </h3>
-                  <div className="bg-muted p-4 rounded-lg text-center">
-                    <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* DTCM Barcode */}
-              {selectedRegistration.dtcmBarcode && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Barcode className="h-4 w-4" />
-                    DTCM Barcode
-                  </h3>
-                  <div className="bg-muted p-4 rounded-lg text-center">
-                    <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Accommodation */}
-              {selectedRegistration.accommodation && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Hotel className="h-4 w-4" />
-                    Accommodation
-                  </h3>
-                  <div className="bg-muted p-4 rounded-lg">
-                    <div className="font-medium">{selectedRegistration.accommodation.roomType.hotel.name}</div>
-                    <div className="text-sm text-muted-foreground">{selectedRegistration.accommodation.roomType.name}</div>
-                    <div className="text-sm text-muted-foreground mt-1">
-                      {formatDate(selectedRegistration.accommodation.checkIn)} - {formatDate(selectedRegistration.accommodation.checkOut)}
-                    </div>
-                    <Badge variant="outline" className="mt-2">{selectedRegistration.accommodation.status}</Badge>
-                  </div>
-                </div>
-              )}
-
-              {/* Download Quote */}
-              {!isReviewer && (
-                <Button variant="outline" size="sm" asChild className="w-fit">
-                  <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
-                    <Download className="mr-2 h-4 w-4" /> Download Quote
-                  </a>
-                </Button>
-              )}
-
-              {/* Payment History */}
-              {selectedRegistration.payments && selectedRegistration.payments.length > 0 && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    Payment History
-                  </h3>
-                  <div className="space-y-2">
-                    {selectedRegistration.payments.map((payment) => (
-                      <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                        <div>
-                          <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
-                          <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
+                            </div>
+                          </div>
                         </div>
-                        <Badge className={paymentStatusColors[payment.status]} variant="outline">
-                          {payment.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Source / Tracking */}
-              {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
-                <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Source</h3>
-                  <div className="bg-muted rounded-lg p-3 space-y-1.5 text-sm">
-                    {selectedRegistration.utmSource && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Source</span>
-                        <span className="font-medium">{selectedRegistration.utmSource}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.utmMedium && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Medium</span>
-                        <span className="font-medium">{selectedRegistration.utmMedium}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.utmCampaign && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Campaign</span>
-                        <span className="font-medium">{selectedRegistration.utmCampaign}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.referrer && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Referrer</span>
-                        <span className="font-medium text-xs truncate max-w-[200px]">{selectedRegistration.referrer}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Timeline */}
-              <div className="space-y-4">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Timeline
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-sm">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <div className="text-muted-foreground">Registered</div>
-                      <div className="font-medium">{formatDateTime(selectedRegistration.createdAt)}</div>
-                    </div>
-                  </div>
-                  {selectedRegistration.checkedInAt && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <div>
-                        <div className="text-muted-foreground">Checked In</div>
-                        <div className="font-medium">{formatDateTime(selectedRegistration.checkedInAt)}</div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Notes */}
-              {!isEditing && selectedRegistration.notes && (
+              {/* RIGHT COLUMN */}
+              <div className="space-y-6">
+                {/* Registration Type Info */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold">Notes</h3>
-                  <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">
-                    {selectedRegistration.notes}
-                  </p>
+                  <h3 className="font-semibold">Registration Type</h3>
+                  {!isReviewer ? (
+                    <Select
+                      value={selectedRegistration.ticketType.id}
+                      onValueChange={(value) =>
+                        updateRegistration.mutate({
+                          id: selectedRegistration.id,
+                          data: { ticketTypeId: value },
+                        })
+                      }
+                      disabled={updateRegistration.isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(regTypes as TicketType[]).map((rt) => (
+                          <SelectItem key={rt.id} value={rt.id}>
+                            {rt.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                      <div className="font-medium">{selectedRegistration.ticketType.name}</div>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Status Management */}
+                {!isReviewer && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Manage Status</h3>
+                  <div className="grid gap-3">
+                    <div className="space-y-2">
+                      <Label>Registration Status</Label>
+                      <Select
+                        value={selectedRegistration.status}
+                        onValueChange={(value) =>
+                          updateRegistration.mutate({
+                            id: selectedRegistration.id,
+                            data: { status: value },
+                          })
+                        }
+                        disabled={updateRegistration.isPending}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PENDING">Pending</SelectItem>
+                          <SelectItem value="CONFIRMED">Confirmed</SelectItem>
+                          <SelectItem value="WAITLISTED">Waitlisted</SelectItem>
+                          <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                          <SelectItem value="CHECKED_IN">Checked In</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment Status</Label>
+                      <Select
+                        value={selectedRegistration.paymentStatus}
+                        onValueChange={(value) =>
+                          updateRegistration.mutate({
+                            id: selectedRegistration.id,
+                            data: { paymentStatus: value },
+                          })
+                        }
+                        disabled={updateRegistration.isPending}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UNPAID">Unpaid</SelectItem>
+                          <SelectItem value="PENDING">Pending</SelectItem>
+                          <SelectItem value="PAID">Paid</SelectItem>
+                          <SelectItem value="REFUNDED">Refunded</SelectItem>
+                          <SelectItem value="FAILED">Failed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Badge Type</Label>
+                      {(() => {
+                        const BADGE_TYPES = ["Delegate", "Faculty", "Exhibitor", "Committee", "Chairman", "Co-Chairman"];
+                        const currentBadge = selectedRegistration.badgeType || "Delegate";
+                        const isCustom = !BADGE_TYPES.includes(currentBadge) && currentBadge !== "Custom";
+                        return (
+                          <>
+                            <Select
+                              value={isCustom ? "Custom" : currentBadge}
+                              onValueChange={(value) => {
+                                if (value === "Custom") {
+                                  updateRegistration.mutate({
+                                    id: selectedRegistration.id,
+                                    data: { badgeType: "" },
+                                  });
+                                } else {
+                                  updateRegistration.mutate({
+                                    id: selectedRegistration.id,
+                                    data: { badgeType: value },
+                                  });
+                                }
+                              }}
+                              disabled={updateRegistration.isPending}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {BADGE_TYPES.map((bt) => (
+                                  <SelectItem key={bt} value={bt}>{bt}</SelectItem>
+                                ))}
+                                <SelectItem value="Custom">Custom...</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {(isCustom || currentBadge === "" || currentBadge === "Custom") && (
+                              <Input
+                                placeholder="Enter custom badge type"
+                                defaultValue={isCustom ? currentBadge : ""}
+                                onBlur={(e) => {
+                                  if (e.target.value.trim()) {
+                                    updateRegistration.mutate({
+                                      id: selectedRegistration.id,
+                                      data: { badgeType: e.target.value.trim() },
+                                    });
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                                    updateRegistration.mutate({
+                                      id: selectedRegistration.id,
+                                      data: { badgeType: (e.target as HTMLInputElement).value.trim() },
+                                    });
+                                  }
+                                }}
+                              />
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+                )}
+
+                {/* Event Barcode */}
+                {selectedRegistration.qrCode && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Barcode className="h-4 w-4" />
+                      Event Barcode
+                    </h3>
+                    <div className="bg-muted p-4 rounded-lg text-center">
+                      <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* DTCM Barcode */}
+                {selectedRegistration.dtcmBarcode && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Barcode className="h-4 w-4" />
+                      DTCM Barcode
+                    </h3>
+                    <div className="bg-muted p-4 rounded-lg text-center">
+                      <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Print Badge */}
+                <div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={printingBadge}
+                    onClick={async () => {
+                      setPrintingBadge(true);
+                      try {
+                        const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ registrationIds: [selectedRegistration.id] }),
+                        });
+                        if (!res.ok) {
+                          const data = await res.json();
+                          toast.error(data.error || "Badge generation failed");
+                          return;
+                        }
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = `badge-${selectedRegistration.id.slice(-8)}.pdf`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                        toast.success("Badge downloaded");
+                      } catch {
+                        toast.error("Badge generation failed");
+                      } finally {
+                        setPrintingBadge(false);
+                      }
+                    }}
+                  >
+                    {printingBadge ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IdCard className="mr-2 h-4 w-4" />}
+                    Print Badge
+                  </Button>
+                </div>
+
+                {/* Accommodation */}
+                {selectedRegistration.accommodation && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Hotel className="h-4 w-4" />
+                      Accommodation
+                    </h3>
+                    <div className="bg-muted p-4 rounded-lg">
+                      <div className="font-medium">{selectedRegistration.accommodation.roomType.hotel.name}</div>
+                      <div className="text-sm text-muted-foreground">{selectedRegistration.accommodation.roomType.name}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {formatDate(selectedRegistration.accommodation.checkIn)} - {formatDate(selectedRegistration.accommodation.checkOut)}
+                      </div>
+                      <Badge variant="outline" className="mt-2">{selectedRegistration.accommodation.status}</Badge>
+                    </div>
+                  </div>
+                )}
+
+                {/* Send Email */}
+                {!isReviewer && !isEditing && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="outline" disabled={sendEmail.isPending} className="w-full">
+                        <Send className="mr-2 h-4 w-4" />
+                        {sendEmail.isPending ? "Sending..." : "Send Email"}
+                        <ChevronDown className="ml-1 h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "confirmation" })}>
+                        Registration Confirmation
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "reminder" })}>
+                        Event Reminder
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "payment-reminder" })}>
+                        Payment Reminder
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "custom" })}>
+                        Custom Notification
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {/* Download Quote */}
+                {!isReviewer && (
+                  <Button variant="outline" size="sm" asChild className="w-fit">
+                    <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
+                      <Download className="mr-2 h-4 w-4" /> Download Quote
+                    </a>
+                  </Button>
+                )}
+
+                {/* Source / Tracking */}
+                {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
+                  <div className="space-y-3">
+                    <h3 className="font-semibold text-sm">Source</h3>
+                    <div className="bg-muted rounded-lg p-3 space-y-1.5 text-sm">
+                      {selectedRegistration.utmSource && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Source</span>
+                          <span className="font-medium">{selectedRegistration.utmSource}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.utmMedium && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Medium</span>
+                          <span className="font-medium">{selectedRegistration.utmMedium}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.utmCampaign && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Campaign</span>
+                          <span className="font-medium">{selectedRegistration.utmCampaign}</span>
+                        </div>
+                      )}
+                      {selectedRegistration.referrer && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Referrer</span>
+                          <span className="font-medium text-xs truncate max-w-[200px]">{selectedRegistration.referrer}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Timeline */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Timeline
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <div className="text-muted-foreground">Registered</div>
+                        <div className="font-medium">{formatDateTime(selectedRegistration.createdAt)}</div>
+                      </div>
+                    </div>
+                    {selectedRegistration.checkedInAt && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <div>
+                          <div className="text-muted-foreground">Checked In</div>
+                          <div className="font-medium">{formatDateTime(selectedRegistration.checkedInAt)}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {!isEditing && selectedRegistration.notes && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold">Notes</h3>
+                    <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">
+                      {selectedRegistration.notes}
+                    </p>
+                  </div>
+                )}
+
+                {/* Payment History */}
+                {selectedRegistration.payments && selectedRegistration.payments.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Payment History
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedRegistration.payments.map((payment) => (
+                        <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div>
+                            <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
+                            <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
+                          </div>
+                          <Badge className={paymentStatusColors[payment.status]} variant="outline">
+                            {payment.status}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : null}

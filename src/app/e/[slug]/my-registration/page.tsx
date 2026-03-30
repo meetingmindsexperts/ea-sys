@@ -24,7 +24,7 @@ import {
   Pencil,
   Save,
   X,
-  QrCode,
+  Barcode,
   ExternalLink,
   Download,
   Loader2,
@@ -355,9 +355,9 @@ export default function EventMyRegistrationPage() {
                     {/* Confirmation Number + Quote */}
                     <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
                       <div className="flex items-center gap-3">
-                        <QrCode className="h-5 w-5 text-slate-500" />
+                        <Barcode className="h-5 w-5 text-slate-500" />
                         <div>
-                          <p className="text-xs text-muted-foreground">Confirmation Number</p>
+                          <p className="text-xs text-muted-foreground">Barcode</p>
                           <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
                         </div>
                       </div>
