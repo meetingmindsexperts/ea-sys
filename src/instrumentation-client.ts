@@ -12,3 +12,6 @@ Sentry.init({
   // Only enable if DSN is configured
   enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN,
 });
+
+// Required by Next.js 16+ for navigation instrumentation
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

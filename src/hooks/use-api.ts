@@ -72,6 +72,13 @@ export function useEvents() {
   });
 }
 
+export function useOrgUsers() {
+  return useQuery({
+    queryKey: ["org-users"],
+    queryFn: () => fetchApi<{ id: string; firstName: string; lastName: string; email: string; role: string }[]>("/api/organization/users"),
+  });
+}
+
 export function useEvent(eventId: string) {
   return useQuery({
     queryKey: queryKeys.event(eventId),
