@@ -23,6 +23,7 @@ import {
   QrCode,
   ExternalLink,
   Download,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
@@ -45,6 +46,8 @@ interface Registration {
     city: string | null;
     country: string | null;
     bannerImage: string | null;
+    taxRate?: string | null;
+    taxLabel?: string | null;
   };
   attendee: {
     title: string | null;
@@ -77,6 +80,7 @@ export default function MyRegistrationPage() {
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<Record<string, string | null>>({});
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
   const { data: registrations = [], isLoading } = useQuery<Registration[]>({
     queryKey: ["registrant", "registrations"],
@@ -183,6 +187,11 @@ export default function MyRegistrationPage() {
         const isComplimentary = price === 0;
         const isConfirmed = reg.status === "CONFIRMED";
         const showPayment = !isPaid && !isComplimentary && reg.status !== "CANCELLED";
+        const regTaxRate = Number(reg.event.taxRate ?? 0);
+        const regTaxAmount = regTaxRate > 0 ? price * regTaxRate / 100 : 0;
+        const regTotal = price + regTaxAmount;
+        const regHasTax = regTaxRate > 0;
+        const regTaxLabel = reg.event.taxLabel || "VAT";
 
         return (
           <Card key={reg.id} className="overflow-hidden">
@@ -229,14 +238,24 @@ export default function MyRegistrationPage() {
                       <CreditCard className="h-6 w-6 text-amber-600 shrink-0" />
                       <div>
                         <p className="font-semibold text-amber-800">Payment Required</p>
-                        <p className="text-sm text-amber-700">
-                          Amount due: {formatCurrency(price, currency)}
-                        </p>
+                        {regHasTax ? (
+                          <div className="text-sm text-amber-700 space-y-0.5">
+                            <p>Subtotal: {formatCurrency(price, currency)}</p>
+                            <p>{regTaxLabel} ({regTaxRate}%): {formatCurrency(regTaxAmount, currency)}</p>
+                            <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-amber-700">
+                            Amount due: {formatCurrency(price, currency)}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <Button
                       className="btn-gradient"
+                      disabled={checkoutLoading === reg.id}
                       onClick={async () => {
+                        setCheckoutLoading(reg.id);
                         try {
                           const res = await fetch(`/api/public/events/${reg.event.slug}/checkout`, {
                             method: "POST",
@@ -246,16 +265,18 @@ export default function MyRegistrationPage() {
                           const data = await res.json();
                           if (!res.ok) {
                             toast.error(data.error || "Failed to create checkout session");
+                            setCheckoutLoading(null);
                             return;
                           }
                           window.location.href = data.checkoutUrl;
                         } catch (err) {
                           console.error("[MyRegistration] Checkout failed:", err);
                           toast.error("Something went wrong. Please try again.");
+                          setCheckoutLoading(null);
                         }
                       }}
                     >
-                      <CreditCard className="mr-2 h-4 w-4" />
+                      {checkoutLoading === reg.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
                       Pay Now
                     </Button>
                   </div>

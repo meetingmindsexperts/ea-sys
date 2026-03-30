@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
-        event: { select: { id: true, name: true, slug: true } },
+        event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true } },
       },
     });
 
@@ -85,6 +85,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Calculate tax from event settings
+    const taxRate = Number(registration.event.taxRate || 0);
+    const taxLabel = registration.event.taxLabel || "VAT";
+    const taxAmount = ticketPrice * taxRate / 100;
+    const total = ticketPrice + taxAmount;
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const eventSlug = registration.event.slug;
     const firstName = registration.attendee.firstName;
@@ -94,32 +100,56 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Create Stripe Checkout Session
     const currencyCode = (registration.pricingTier?.currency ?? registration.ticketType.currency).toLowerCase();
-    const unitAmount = isZeroDecimalCurrency(currencyCode)
+    const ticketUnitAmount = isZeroDecimalCurrency(currencyCode)
       ? Math.round(ticketPrice)
       : Math.round(ticketPrice * 100);
+    const taxUnitAmount = isZeroDecimalCurrency(currencyCode)
+      ? Math.round(taxAmount)
+      : Math.round(taxAmount * 100);
+
+    const lineItems: {
+      price_data: {
+        currency: string;
+        product_data: { name: string };
+        unit_amount: number;
+      };
+      quantity: number;
+    }[] = [
+      {
+        price_data: {
+          currency: currencyCode,
+          product_data: {
+            name: `${registration.event.name} — ${registration.ticketType.name}`,
+          },
+          unit_amount: ticketUnitAmount,
+        },
+        quantity: 1,
+      },
+    ];
+
+    if (taxAmount > 0) {
+      lineItems.push({
+        price_data: {
+          currency: currencyCode,
+          product_data: {
+            name: `${taxLabel} (${taxRate}%)`,
+          },
+          unit_amount: taxUnitAmount,
+        },
+        quantity: 1,
+      });
+    }
 
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: [
-        {
-          price_data: {
-            currency: currencyCode,
-            product_data: {
-              name: `${registration.event.name} — ${registration.ticketType.name}`,
-            },
-            unit_amount: unitAmount,
-          },
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       customer_email: registration.attendee.email,
       metadata: {
         registrationId: registration.id,
         eventId: registration.event.id,
         eventSlug,
       },
-      automatic_tax: { enabled: true },
       success_url: successUrl,
       cancel_url: cancelUrl,
     });
@@ -136,6 +166,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId: registration.event.id,
       sessionId: session.id,
       amount: ticketPrice,
+      taxRate,
+      taxAmount,
+      total,
       currency: registration.pricingTier?.currency ?? registration.ticketType.currency,
     });
 

@@ -30,6 +30,8 @@ export async function GET() {
             city: true,
             country: true,
             bannerImage: true,
+            taxRate: true,
+            taxLabel: true,
           },
         },
         attendee: true,

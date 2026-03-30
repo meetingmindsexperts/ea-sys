@@ -48,7 +48,8 @@ export async function POST(req: Request) {
         include: {
           attendee: { select: { firstName: true, lastName: true, email: true } },
           ticketType: { select: { name: true, price: true, currency: true } },
-          event: { select: { id: true, name: true, slug: true, startDate: true, venue: true, city: true } },
+          pricingTier: { select: { price: true, currency: true } },
+          event: { select: { id: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
         },
       });
 
@@ -63,10 +64,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      const sessionCurrency = (session.currency || registration.ticketType.currency).toUpperCase();
+      const sessionCurrency = (session.currency || registration.pricingTier?.currency || registration.ticketType.currency).toUpperCase();
       const amount = session.amount_total
         ? fromStripeAmount(session.amount_total, sessionCurrency)
-        : Number(registration.ticketType.price);
+        : Number(registration.pricingTier?.price ?? registration.ticketType.price);
       const currency = sessionCurrency;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
@@ -145,7 +146,8 @@ async function sendPaymentConfirmationEmail(
     id: string;
     attendee: { firstName: string; lastName: string; email: string };
     ticketType: { name: string; price: unknown; currency: string };
-    event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null };
+    pricingTier: { price: unknown; currency: string } | null;
+    event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
   },
   amount: number,
   currency: string,
@@ -165,6 +167,19 @@ async function sendPaymentConfirmationEmail(
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
+
+  // Calculate tax from event settings
+  const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+  const taxRate = Number(registration.event.taxRate || 0);
+  const taxLabel = registration.event.taxLabel || "VAT";
+  const taxAmount = taxRate > 0 ? basePrice * taxRate / 100 : 0;
+  const subtotal = basePrice;
+  const total = basePrice + taxAmount;
+
+  // Build tax block — only shown when taxRate > 0
+  const taxBlock = taxRate > 0
+    ? `<tr><td style="padding: 4px 0; color: #555; font-size: 14px;">${taxLabel} (${taxRate}%)</td><td style="padding: 4px 0; text-align: right; font-size: 14px;">${currency} ${taxAmount.toFixed(2)}</td></tr>`
+    : "";
 
   // Build receipt block — only shown if Stripe provided a receipt URL
   const receiptBlock = receiptUrl
@@ -187,6 +202,12 @@ async function sendPaymentConfirmationEmail(
     paymentDate,
     receiptUrl: receiptUrl || undefined,
     receiptBlock,
+    subtotal: `${currency} ${subtotal.toFixed(2)}`,
+    taxRate: taxRate > 0 ? taxRate : undefined,
+    taxLabel: taxRate > 0 ? taxLabel : undefined,
+    taxAmount: taxRate > 0 ? `${currency} ${taxAmount.toFixed(2)}` : undefined,
+    total: `${currency} ${total.toFixed(2)}`,
+    taxBlock,
   };
 
   const tpl = await getEventTemplate(registration.event.id, "payment-confirmation");
@@ -198,7 +219,7 @@ async function sendPaymentConfirmationEmail(
   }
 
   const branding = tpl?.branding || { eventName: registration.event.name };
-  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock"]));
+  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock", "taxBlock"]));
 
   // Override text content with plain text receipt link
   const textVars = { ...vars, receiptBlock: receiptBlockText };

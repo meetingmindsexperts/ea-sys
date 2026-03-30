@@ -47,6 +47,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         bannerImage: true,
         footerHtml: true,
         supportEmail: true,
+        taxRate: true,
+        taxLabel: true,
         registrationTermsHtml: true,
         registrationWelcomeHtml: true,
         abstractWelcomeHtml: true,

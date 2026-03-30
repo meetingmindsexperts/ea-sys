@@ -20,6 +20,12 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: {
         status: true,
         paymentStatus: true,
+        event: {
+          select: {
+            taxRate: true,
+            taxLabel: true,
+          },
+        },
         ticketType: {
           select: {
             name: true,
@@ -47,6 +53,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       ticketName: registration.ticketType.name,
       ticketPrice: Number(registration.pricingTier?.price ?? registration.ticketType.price),
       ticketCurrency: registration.pricingTier?.currency ?? registration.ticketType.currency,
+      taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
+      taxLabel: registration.event.taxLabel,
     });
 
     // Short cache to allow polling but reduce DB load

@@ -94,6 +94,8 @@ interface Event {
   supportEmail: string | null;
   registrationTermsHtml: string | null;
   registrationWelcomeHtml: string | null;
+  taxRate: number | null;
+  taxLabel: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
   abstractSettings?: {
@@ -667,6 +669,21 @@ function CategoryRegistrationContent() {
                                       <div className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
                                         {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price.toFixed(2)}`}
                                       </div>
+                                      {opt.price > 0 && event.taxRate != null && event.taxRate > 0 && (() => {
+                                        const taxAmount = opt.price * event.taxRate / 100;
+                                        const total = opt.price + taxAmount;
+                                        const label = event.taxLabel || "VAT";
+                                        return (
+                                          <div className="mt-0.5 space-y-0.5">
+                                            <div className="text-[11px] text-slate-400">
+                                              {label} ({event.taxRate}%): {opt.currency} {taxAmount.toFixed(2)}
+                                            </div>
+                                            <div className="text-xs font-semibold text-slate-600">
+                                              Total: {opt.currency} {total.toFixed(2)}
+                                            </div>
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
                                   {opt.available <= 0 && (

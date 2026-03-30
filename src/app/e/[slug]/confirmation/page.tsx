@@ -31,6 +31,8 @@ interface PaymentInfo {
   ticketName: string;
   ticketPrice: number;
   ticketCurrency: string;
+  taxRate?: number | null;
+  taxLabel?: string | null;
 }
 
 function ConfirmationContent() {
@@ -139,6 +141,11 @@ function ConfirmationContent() {
   const ticketPrice = paymentInfo?.ticketPrice ?? 0;
   const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";
   const hasPaidTicket = paymentInfo ? ticketPrice > 0 : false;
+  const taxRate = paymentInfo?.taxRate ?? 0;
+  const taxAmount = taxRate > 0 ? ticketPrice * taxRate / 100 : 0;
+  const totalDue = ticketPrice + taxAmount;
+  const hasTax = taxRate > 0;
+  const taxLabel = paymentInfo?.taxLabel || "VAT";
   // Registration status: prefer server data, fall back to URL param
   const registrationStatus = paymentInfo?.registrationStatus ?? statusParam;
   const isPending = registrationStatus === "PENDING";
@@ -231,7 +238,7 @@ function ConfirmationContent() {
                       <div>
                         <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
                         <p className="text-xs text-emerald-600 mt-0.5">
-                          {ticketCurrency} {ticketPrice.toFixed(2)} — A receipt has been sent to your email.
+                          {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
                         </p>
                       </div>
                     </div>
@@ -260,15 +267,33 @@ function ConfirmationContent() {
                     )}
 
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4 text-slate-500" />
-                          <span className="text-sm font-medium text-slate-700">Payment Due</span>
-                        </div>
-                        <span className="text-sm font-bold text-slate-900">
-                          {ticketCurrency} {ticketPrice.toFixed(2)}
-                        </span>
+                      <div className="flex items-center gap-2 mb-3">
+                        <CreditCard className="h-4 w-4 text-slate-500" />
+                        <span className="text-sm font-medium text-slate-700">Payment Due</span>
                       </div>
+                      {hasTax ? (
+                        <div className="space-y-1.5 mb-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">Subtotal</span>
+                            <span className="text-slate-900">{ticketCurrency} {ticketPrice.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">{taxLabel} ({taxRate}%)</span>
+                            <span className="text-slate-900">{ticketCurrency} {taxAmount.toFixed(2)}</span>
+                          </div>
+                          <div className="border-t border-slate-200 pt-1.5 flex items-center justify-between text-sm">
+                            <span className="font-semibold text-slate-700">Total Due</span>
+                            <span className="font-bold text-slate-900">{ticketCurrency} {totalDue.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-sm text-slate-600">Amount</span>
+                          <span className="text-sm font-bold text-slate-900">
+                            {ticketCurrency} {ticketPrice.toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                       {paymentInfo?.ticketName && (
                         <p className="text-xs text-slate-500 mb-3">{paymentInfo.ticketName}</p>
                       )}
