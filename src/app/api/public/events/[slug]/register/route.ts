@@ -194,26 +194,40 @@ export async function POST(req: Request, { params }: RouteParams) {
         throw new Error("ALREADY_REGISTERED");
       }
 
-      // Create a new attendee record for this registration
-      const attendee = await tx.attendee.create({
-        data: {
-          title,
-          role,
+      // Reuse orphaned attendee (left behind after registration deletion) or create new
+      const attendeeData = {
+        title,
+        role,
+        email,
+        firstName,
+        lastName,
+        additionalEmail: additionalEmail || null,
+        organization: organization || null,
+        jobTitle: jobTitle || null,
+        phone: phone || null,
+        city: city || null,
+        country,
+        specialty,
+        customSpecialty: customSpecialty || null,
+        registrationType,
+        dietaryReqs: dietaryReqs || null,
+      };
+
+      // Look for an existing attendee with no active registration (orphaned)
+      const existingAttendee = await tx.attendee.findFirst({
+        where: {
           email,
-          firstName,
-          lastName,
-          additionalEmail: additionalEmail || null,
-          organization: organization || null,
-          jobTitle: jobTitle || null,
-          phone: phone || null,
-          city: city || null,
-          country,
-          specialty,
-          customSpecialty: customSpecialty || null,
-          registrationType,
-          dietaryReqs: dietaryReqs || null,
+          registrations: { none: {} },
         },
+        select: { id: true },
       });
+
+      const attendee = existingAttendee
+        ? await tx.attendee.update({
+            where: { id: existingAttendee.id },
+            data: attendeeData,
+          })
+        : await tx.attendee.create({ data: attendeeData });
 
       // Atomically increment soldCount on the correct capacity source
       if (pricingTier) {
@@ -426,6 +440,18 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 }
         );
       }
+    }
+    // Handle Prisma unique constraint on attendee email (P2002)
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "You are already registered for this event" },
+        { status: 400 }
+      );
     }
     apiLogger.error({ err: error, msg: "Error creating public registration" });
     return NextResponse.json(

@@ -333,7 +333,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         id: registrationId,
         eventId,
       },
-      include: { attendee: { select: { photo: true } } },
+      include: { attendee: { select: { id: true, photo: true } } },
     });
 
     if (!registration) {
@@ -351,6 +351,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       await tx.registration.delete({
         where: { id: registrationId },
       });
+      // Delete the attendee record (belongs to this registration only)
+      if (registration.attendeeId) {
+        await tx.attendee.delete({
+          where: { id: registration.attendeeId },
+        });
+      }
     });
 
     // Clean up photo file if present
