@@ -186,7 +186,7 @@ This document outlines the current development status of the Event Administratio
 | Reviewer Portal (Review/Score/Accept/Reject) | ✅ | ✅ | Complete |
 | PDF Quote/Proforma with Tax | ✅ | ✅ | Complete |
 | Tax Configuration (taxRate/taxLabel/bankDetails) | ✅ | ✅ | Complete |
-| Stripe Automatic Tax | ✅ | N/A | Complete |
+| Stripe Tax (manual line items) | ✅ | N/A | Complete |
 | Bulk Email for Abstract Submitters | ✅ | ✅ | Complete |
 | Abstract Feedback Notification (notes/score) | ✅ | N/A | Complete |
 | Smart Register Redirect (active tier) | N/A | ✅ | Complete |
@@ -267,6 +267,53 @@ This document outlines the current development status of the Event Administratio
 ---
 
 ## Recent Updates (January 29, 2026)
+
+### Recent Improvements (March 2026)
+
+#### Tax Calculation System
+- [x] `taxRate` (Decimal), `taxLabel` fields on Event model for per-event tax configuration
+- [x] Tax config UI in Settings → Registration tab
+- [x] Registration form shows price + VAT breakdown before checkout
+- [x] Stripe checkout sends base price + tax as separate line items (removed `automatic_tax`)
+- [x] PDF quote/proforma includes tax breakdown with configurable tax label
+- [x] Confirmation page, registrant portal, and admin detail sheet all display tax breakdown
+- [x] Payment confirmation email includes tax amount
+
+#### Stripe Payment Flow Fixes
+- [x] PricingTier fallback: checkout handles missing `pricingTier` gracefully instead of failing
+- [x] Double-click protection on Pay Now / checkout buttons
+- [x] Tax amount included in confirmation email (was previously omitted)
+- [x] Correct zero-decimal currency handling for tax calculations
+
+#### SendGrid as Alternative Email Provider
+- [x] Added `@sendgrid/mail` package as alternative to Brevo
+- [x] Auto-selected via `SENDGRID_API_KEY` env var; `EMAIL_PROVIDER` env var for explicit selection
+- [x] Both providers coexist in `src/lib/email.ts` with unified `sendEmail()` interface
+- [x] No code changes needed when switching providers — just change env vars
+
+#### Error Logging Audit
+- [x] Fixed 20 silent `catch` blocks across API routes that swallowed errors without logging
+- [x] All catch blocks now log via `apiLogger.error()` with context before returning error responses
+- [x] Improved debugging visibility for production issues
+
+#### organizationId Null Fixes for SUBMITTER/REGISTRANT
+- [x] Fixed API routes that assumed non-null `organizationId` for org-independent roles
+- [x] SUBMITTER and REGISTRANT users (with `organizationId: null`) no longer hit 500 errors on event-scoped operations
+- [x] Consistent null-safe handling across all role-scoped query paths
+
+#### registrationType Field Cleanup
+- [x] `ticketTypeId` confirmed as single source of truth for registration type
+- [x] `attendee.registrationType` text field auto-synced from `ticketType.name` on create and type change
+- [x] Removed `registrationType` from registration edit forms and Zod schemas to prevent drift
+- [x] CSV export uses `ticketType.name` directly
+
+#### Registration Flow Review Fixes
+- [x] XSS: sanitized user-provided HTML content in registration welcome/terms fields
+- [x] Attendee isolation: registration queries scoped to prevent cross-registration data leakage
+- [x] Pricing validation: server-side price verification against ticket type configuration
+- [x] Suspense boundaries: added proper loading states to registration flow pages
+
+---
 
 ### UI Theming & Branding
 - [x] New color scheme with Cerulean Blue (#00aade) as primary color

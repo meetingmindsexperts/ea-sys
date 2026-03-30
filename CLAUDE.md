@@ -14,7 +14,7 @@ This file provides context for AI assistants (like Claude) working on this codeb
 - **Authentication:** NextAuth.js v5 with JWT strategy
 - **Styling:** TailwindCSS + Shadcn/ui components
 - **State Management:** TanStack Query (React Query) for client-side caching
-- **Email:** Brevo (formerly Sendinblue)
+- **Email:** Brevo (formerly Sendinblue) or SendGrid (auto-detected via env var)
 - **Deployment:** AWS EC2 t3.large via Docker (events.meetingmindsgroup.com) — primary production; Vercel also connected but photo uploads are not supported there (no writable filesystem in serverless)
 
 ## Project Structure
@@ -107,7 +107,7 @@ src/
 
 - **Organization** - Organization entity (currently single-org mode)
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER, REGISTRANT)
-- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content
+- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content; `taxRate` (Decimal), `taxLabel`, and `bankDetails` for tax/payment configuration
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI); `ticketTypeId` is the single source of truth — `attendee.registrationType` is auto-synced
 - **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service
 - **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
@@ -166,7 +166,9 @@ DIRECT_URL="postgresql://..."         # Direct connection (migrations)
 NEXTAUTH_SECRET="..."                 # JWT secret
 NEXTAUTH_URL="http://localhost:3000"  # App URL
 NEXT_PUBLIC_APP_URL="..."             # Public app URL
-BREVO_API_KEY="..."                   # Email service
+BREVO_API_KEY="..."                   # Email service (Brevo)
+SENDGRID_API_KEY="..."                # Email service (SendGrid, alternative to Brevo)
+EMAIL_PROVIDER="..."                  # Optional: "sendgrid" or "brevo" (auto-detected from API keys if omitted)
 EMAIL_FROM="..."                      # Sender email
 EMAIL_FROM_NAME="..."                 # Sender name
 LOG_LEVEL="info"                      # debug, info, warn, error
@@ -405,12 +407,13 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Abstract register page** - `/e/[slug]/abstract/register` with 2-step flow (account → details), separate `abstractWelcomeHtml` field; REGISTRANT→SUBMITTER role upgrade supported
 - **Reviewer portal improvements** - Reviewers can now review, score (0-100), accept/reject abstracts; review dialog and buttons enabled for REVIEWER role; header permissions corrected; event list links go directly to `/abstracts`
 - **PDF quote/proforma** - Generated with pdfkit; includes event details, line items, tax calculation (taxRate + taxLabel), bank transfer details, branded layout; attached to confirmation email for paid registrations; downloadable from registrant portal and admin detail sheet
-- **Tax & payment** - `taxRate` (Decimal), `taxLabel`, `bankDetails` on Event model; tax config in Settings → Registration tab; Stripe `automatic_tax` enabled on checkout sessions
+- **Tax & payment** - `taxRate` (Decimal), `taxLabel`, `bankDetails` on Event model; tax config in Settings → Registration tab; registration form shows price + VAT breakdown; checkout sends base + tax as separate Stripe line items; Stripe `automatic_tax` removed; PDF quote, confirmation page, and registrant portals all show tax breakdown
 - **Abstract notification improvements** - Email sent when reviewer adds notes/score without status change (not just on status change); login link in notification uses event-scoped URL
 - **Bulk email for abstract submitters** - Select abstracts → send email; email types: Abstract Accepted, Rejected, Revision Requested, Submission Reminder, Custom; `abstract-reminder` template added to defaults; deduplicates by speaker email
 - **Smart /e/[slug]/register redirect** - Auto-redirects to first active tier (Early Bird → Standard → Onsite); skips Presenter (shared separately by organizer); shows "Registration Closed" if no active tiers
 - **Settings: branding split** - Branding (banner + footer) and Email Branding (header image + footer) separated into distinct tabs
 - **UI polish** - Public form widths increased to `max-w-5xl`; font sizes increased to 16px base; all select dropdowns use `w-full`; Tiptap source mode formats HTML with indentation; Tailwind safelist for DB-stored HTML classes; footer/welcome/terms rendered with `prose` + `[&>*]:mb-4`; sheet width fix (removed hardcoded 540px)
+- **SendGrid integration** - Added `@sendgrid/mail` as alternative email provider to Brevo; auto-selected via `SENDGRID_API_KEY` env var; both providers coexist in `src/lib/email.ts` with a unified `sendEmail()` interface; set `EMAIL_PROVIDER` to force a specific provider or omit to auto-detect from available API keys
 
 ## Current Mode
 
