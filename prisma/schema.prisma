@@ -137,10 +137,13 @@ model Event {
   footerHtml     String?     @db.Text
   emailHeaderImage String?
   emailFooterHtml  String?   @db.Text
+  emailFromAddress String?
+  emailFromName    String?
   supportEmail           String?
   registrationTermsHtml    String?   @db.Text
   registrationWelcomeHtml  String?   @db.Text
   abstractWelcomeHtml      String?   @db.Text
+  registrationConfirmationHtml String? @db.Text
   taxRate                  Decimal?  @db.Decimal(5, 2)
   taxLabel                 String?   @default("VAT")
   bankDetails              String?   @db.Text

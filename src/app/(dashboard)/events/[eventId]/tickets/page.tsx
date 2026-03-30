@@ -192,37 +192,37 @@ export default function TicketsPage() {
     saveWelcome.mutate(welcomeHtml);
   }, [welcomeHtml, saveWelcome]);
 
-  // Abstract welcome text WYSIWYG state
-  const [abstractWelcomeHtml, setAbstractWelcomeHtml] = useState<string>("");
-  const [abstractWelcomeLoaded, setAbstractWelcomeLoaded] = useState(false);
+  // Post-registration confirmation text WYSIWYG state
+  const [confirmationHtml, setConfirmationHtml] = useState<string>("");
+  const [confirmationLoaded, setConfirmationLoaded] = useState(false);
 
   useEffect(() => {
-    if (event && !abstractWelcomeLoaded) {
-      setAbstractWelcomeHtml((event as Record<string, unknown>).abstractWelcomeHtml as string || "");
-      setAbstractWelcomeLoaded(true);
+    if (event && !confirmationLoaded) {
+      setConfirmationHtml((event as Record<string, unknown>).registrationConfirmationHtml as string || "");
+      setConfirmationLoaded(true);
     }
-  }, [event, abstractWelcomeLoaded]);
+  }, [event, confirmationLoaded]);
 
-  const saveAbstractWelcome = useMutation({
+  const saveConfirmation = useMutation({
     mutationFn: async (html: string) => {
       const res = await fetch(`/api/events/${eventId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ abstractWelcomeHtml: html || null }),
+        body: JSON.stringify({ registrationConfirmationHtml: html || null }),
       });
       if (!res.ok) throw new Error("Failed to save");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
-      toast.success("Abstract welcome text saved");
+      toast.success("Confirmation text saved");
     },
-    onError: () => toast.error("Failed to save abstract welcome text"),
+    onError: () => toast.error("Failed to save confirmation text"),
   });
 
-  const handleSaveAbstractWelcome = useCallback(() => {
-    saveAbstractWelcome.mutate(abstractWelcomeHtml);
-  }, [abstractWelcomeHtml, saveAbstractWelcome]);
+  const handleSaveConfirmation = useCallback(() => {
+    saveConfirmation.mutate(confirmationHtml);
+  }, [confirmationHtml, saveConfirmation]);
 
   // Registration type CRUD
   const openCreateType = () => {
@@ -611,19 +611,19 @@ export default function TicketsPage() {
         </CardContent>
       </Card>
 
-      {/* Abstract Welcome Text Editor */}
+      {/* Post-Registration Confirmation Text Editor */}
       <Card>
         <CardContent className="pt-5 pb-4 px-5 space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Abstract Submission Welcome Text</h3>
-              <p className="text-xs text-muted-foreground">Shown on step 1 of the abstract submission registration form.</p>
+              <h3 className="text-sm font-semibold text-slate-900">Post-Registration Confirmation Text</h3>
+              <p className="text-xs text-muted-foreground">Shown on the confirmation page after a registrant completes registration.</p>
             </div>
-            <Button size="sm" onClick={handleSaveAbstractWelcome} disabled={saveAbstractWelcome.isPending}>
-              {saveAbstractWelcome.isPending ? "Saving..." : "Save"}
+            <Button size="sm" onClick={handleSaveConfirmation} disabled={saveConfirmation.isPending}>
+              {saveConfirmation.isPending ? "Saving..." : "Save"}
             </Button>
           </div>
-          <TiptapEditor content={abstractWelcomeHtml} onChange={setAbstractWelcomeHtml} />
+          <TiptapEditor content={confirmationHtml} onChange={setConfirmationHtml} />
         </CardContent>
       </Card>
 

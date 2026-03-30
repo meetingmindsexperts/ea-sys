@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbstractStatusInfo } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbstractStatusInfo, brandingFrom } from "@/lib/email";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 
@@ -254,6 +254,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         return sendEmail({
           to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
           ...rendered,
+          from: brandingFrom(branding),
         });
       }).catch((err) => {
         apiLogger.error({ err, msg: "Failed to send abstract notification email" });

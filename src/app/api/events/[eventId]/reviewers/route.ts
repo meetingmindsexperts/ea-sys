@@ -144,7 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true, name: true, slug: true, settings: true },
+      select: { id: true, name: true, slug: true, settings: true, emailFromAddress: true, emailFromName: true },
     });
 
     if (!event) {
@@ -176,8 +176,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (speaker.userId) {
         userId = speaker.userId;
       } else {
+        const eventFrom = event.emailFromAddress
+          ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
+          : undefined;
         const result = await findOrCreateReviewerUser(
-          speaker.email, speaker.firstName, speaker.lastName, session, event.slug
+          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventFrom
         );
         if ("error" in result) {
           return NextResponse.json({ error: result.error }, { status: 400 });
@@ -196,7 +199,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       const { email, firstName, lastName } = validated.data;
       reviewerEmail = email;
 
-      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug);
+      const eventFrom = event.emailFromAddress
+        ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
+        : undefined;
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventFrom);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
@@ -297,7 +303,8 @@ async function findOrCreateReviewerUser(
   firstName: string,
   lastName: string,
   session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
-  eventSlug: string
+  eventSlug: string,
+  emailFrom?: { email: string; name?: string }
 ): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
@@ -373,6 +380,7 @@ async function findOrCreateReviewerUser(
     subject: emailTemplate.subject,
     htmlContent: emailTemplate.htmlContent,
     textContent: emailTemplate.textContent,
+    from: emailFrom,
   });
 
   if (!emailResult.success) {

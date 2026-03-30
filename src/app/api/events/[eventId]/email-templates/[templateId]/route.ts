@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss } from "@/lib/email";
+import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom } from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ eventId: string; templateId: string }>;
@@ -121,7 +121,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.event.findFirst({
         where: { id: eventId },
-        select: { emailHeaderImage: true, emailFooterHtml: true, name: true },
+        select: { emailHeaderImage: true, emailFooterHtml: true, emailFromAddress: true, emailFromName: true, name: true },
       }),
     ]);
 
@@ -132,6 +132,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const branding = {
       emailHeaderImage: event?.emailHeaderImage,
       emailFooterHtml: event?.emailFooterHtml,
+      emailFromAddress: event?.emailFromAddress,
+      emailFromName: event?.emailFromName,
       eventName: event?.name,
     };
 
@@ -187,6 +189,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         to: [{ email: user.email, name: user.firstName || "Test" }],
         subject: `[TEST] ${renderedSubject}`,
         htmlContent: wrappedHtml,
+        from: brandingFrom(branding),
       });
 
       return NextResponse.json({

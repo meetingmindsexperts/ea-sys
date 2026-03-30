@@ -86,6 +86,8 @@ interface Event {
   footerHtml: string | null;
   emailHeaderImage: string | null;
   emailFooterHtml: string | null;
+  emailFromAddress: string | null;
+  emailFromName: string | null;
   supportEmail: string | null;
   taxRate: number | null;
   taxLabel: string | null;
@@ -183,6 +185,8 @@ export default function EventSettingsPage() {
     footerHtml: "",
     emailHeaderImage: "",
     emailFooterHtml: "",
+    emailFromAddress: "",
+    emailFromName: "",
   });
 
   const fetchEvent = useCallback(async () => {
@@ -243,6 +247,8 @@ export default function EventSettingsPage() {
           footerHtml: data.footerHtml || "",
           emailHeaderImage: data.emailHeaderImage || "",
           emailFooterHtml: data.emailFooterHtml || "",
+          emailFromAddress: data.emailFromAddress || "",
+          emailFromName: data.emailFromName || "",
         });
       }
     } catch (error) {
@@ -349,6 +355,8 @@ export default function EventSettingsPage() {
           footerHtml: brandingSettings.footerHtml || null,
           emailHeaderImage: brandingSettings.emailHeaderImage || null,
           emailFooterHtml: brandingSettings.emailFooterHtml || null,
+          emailFromAddress: brandingSettings.emailFromAddress || null,
+          emailFromName: brandingSettings.emailFromName || null,
         }),
       });
 
@@ -1088,6 +1096,41 @@ export default function EventSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="emailFromAddress">Sender Email Address</Label>
+                  <Input
+                    id="emailFromAddress"
+                    type="email"
+                    value={brandingSettings.emailFromAddress}
+                    onChange={(e) =>
+                      setBrandingSettings({
+                        ...brandingSettings,
+                        emailFromAddress: e.target.value,
+                      })
+                    }
+                    placeholder="events@yourdomain.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emailFromName">Sender Name</Label>
+                  <Input
+                    id="emailFromName"
+                    value={brandingSettings.emailFromName}
+                    onChange={(e) =>
+                      setBrandingSettings({
+                        ...brandingSettings,
+                        emailFromName: e.target.value,
+                      })
+                    }
+                    placeholder="Event Name Team"
+                  />
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Override the default sender for all emails from this event. The email domain must be verified in your email provider (Brevo/SendGrid). Leave blank to use the system default.
+              </p>
+
               <div className="space-y-2">
                 <Label htmlFor="emailHeaderImage">Email Header Image URL</Label>
                 <Input

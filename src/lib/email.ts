@@ -29,6 +29,7 @@ export interface SendEmailParams {
   htmlContent: string;
   textContent?: string;
   replyTo?: { email: string; name?: string };
+  from?: { email: string; name?: string };
   attachments?: Array<{
     name: string;
     content: string; // Base64 encoded
@@ -67,7 +68,10 @@ function getBrevoInstance(): TransactionalEmailsApi {
 const brevoProvider: EmailProvider = {
   async send(params) {
     const sendSmtpEmail = new SendSmtpEmail();
-    sendSmtpEmail.sender = { email: DEFAULT_FROM_EMAIL, name: DEFAULT_FROM_NAME };
+    sendSmtpEmail.sender = {
+      email: params.from?.email || DEFAULT_FROM_EMAIL,
+      name: params.from?.name || DEFAULT_FROM_NAME,
+    };
     sendSmtpEmail.to = params.to.map((r) => ({ email: r.email, name: r.name || r.email }));
     sendSmtpEmail.subject = params.subject;
     sendSmtpEmail.htmlContent = params.htmlContent;
@@ -103,7 +107,10 @@ const sendGridProvider: EmailProvider = {
 
     const msg: sgMail.MailDataRequired = {
       to: params.to.map((r) => ({ email: r.email, name: r.name || r.email })),
-      from: { email: DEFAULT_FROM_EMAIL, name: DEFAULT_FROM_NAME },
+      from: {
+        email: params.from?.email || DEFAULT_FROM_EMAIL,
+        name: params.from?.name || DEFAULT_FROM_NAME,
+      },
       subject: params.subject,
       html: params.htmlContent,
       ...(params.textContent && { text: params.textContent }),
@@ -205,6 +212,8 @@ export function renderTemplatePlain(
 export interface EmailBranding {
   emailHeaderImage?: string | null;
   emailFooterHtml?: string | null;
+  emailFromAddress?: string | null;
+  emailFromName?: string | null;
   eventName?: string;
 }
 
@@ -917,13 +926,15 @@ export async function getEventTemplate(
     }),
     db.event.findFirst({
       where: { id: eventId },
-      select: { emailHeaderImage: true, emailFooterHtml: true, name: true },
+      select: { emailHeaderImage: true, emailFooterHtml: true, emailFromAddress: true, emailFromName: true, name: true },
     }),
   ]);
 
   const branding: EmailBranding = {
     emailHeaderImage: event?.emailHeaderImage,
     emailFooterHtml: event?.emailFooterHtml,
+    emailFromAddress: event?.emailFromAddress,
+    emailFromName: event?.emailFromName,
     eventName: event?.name,
   };
 
@@ -966,6 +977,16 @@ export function renderAndWrap(
   const htmlContent = inlineCss(wrapped);
   const textContent = renderTemplatePlain(template.textContent, variables);
   return { subject, htmlContent, textContent };
+}
+
+/**
+ * Extract the `from` override from branding (if the event has a custom sender).
+ */
+export function brandingFrom(branding: EmailBranding): SendEmailParams["from"] {
+  if (branding.emailFromAddress) {
+    return { email: branding.emailFromAddress, name: branding.emailFromName || undefined };
+  }
+  return undefined;
 }
 
 // ── Helper function to send registration confirmation ──────────────────────────
@@ -1099,6 +1120,7 @@ export async function sendRegistrationConfirmation(params: {
     subject,
     htmlContent,
     textContent,
+    from: brandingFrom(branding),
     attachments,
   });
 }

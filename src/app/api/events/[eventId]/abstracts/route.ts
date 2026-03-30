@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
@@ -199,6 +199,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           return sendEmail({
             to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
             ...rendered,
+            from: brandingFrom(branding),
           });
         })
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 
@@ -238,6 +238,7 @@ async function sendPaymentConfirmationEmail(
   await sendEmail({
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
     ...rendered,
+    from: brandingFrom(branding),
   });
 
   apiLogger.info({ msg: "Payment confirmation email sent", registrationId: registration.id });

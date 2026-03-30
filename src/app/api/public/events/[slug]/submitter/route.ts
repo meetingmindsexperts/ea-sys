@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 
 const registerSchema = z.object({
   title: titleEnum.optional(),
@@ -264,6 +264,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
         ...rendered,
+        from: brandingFrom(branding),
       });
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send submitter welcome email" }));
 

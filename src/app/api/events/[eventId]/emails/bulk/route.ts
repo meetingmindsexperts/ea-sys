@@ -4,7 +4,7 @@ import { RegistrationStatus, SpeakerStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -252,6 +252,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               htmlContent: emailContent.htmlContent,
               textContent: emailContent.textContent,
               attachments,
+              from: brandingFrom(branding),
               replyTo:
                 (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
                   ? { email: organizerEmail, name: organizerName }

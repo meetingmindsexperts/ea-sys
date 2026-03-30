@@ -21,6 +21,7 @@ import { toast } from "sonner";
 interface EventBranding {
   bannerImage: string | null;
   footerHtml: string | null;
+  registrationConfirmationHtml: string | null;
   name: string | null;
   organization?: { name: string; logo: string | null } | null;
 }
@@ -59,6 +60,7 @@ function ConfirmationContent() {
         if (data) setBranding({
           bannerImage: data.bannerImage,
           footerHtml: data.footerHtml,
+          registrationConfirmationHtml: data.registrationConfirmationHtml || null,
           name: data.name,
           organization: data.organization,
         });
@@ -339,6 +341,16 @@ function ConfirmationContent() {
                 </p>
               </div>
             </div>
+
+            {/* Post-Registration Confirmation Text */}
+            {branding?.registrationConfirmationHtml && (
+              <div className="mx-6 mb-5">
+                <div
+                  className="prose prose-sm prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.registrationConfirmationHtml) }}
+                />
+              </div>
+            )}
 
             {/* Divider */}
             <div className="mx-6 mb-5 border-t border-slate-100" />
