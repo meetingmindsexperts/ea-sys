@@ -109,6 +109,28 @@ interface BadgeRegistration {
 async function generateBadgePDF(
   registrations: BadgeRegistration[],
 ): Promise<Buffer> {
+  // Pre-render all barcodes (async) before drawing
+  const barcodeBuffers = new Map<string, Buffer>();
+  await Promise.all(
+    registrations.map(async (reg) => {
+      const barcodeText = reg.qrCode || reg.dtcmBarcode;
+      if (barcodeText && !barcodeBuffers.has(barcodeText)) {
+        try {
+          const png = await bwipjs.toBuffer({
+            bcid: "code128",
+            text: barcodeText,
+            scale: 2,
+            height: 14,
+            includetext: false,
+          });
+          barcodeBuffers.set(barcodeText, png);
+        } catch (err) {
+          apiLogger.warn({ msg: "Barcode render failed", barcodeText, error: err instanceof Error ? err.message : "Unknown" });
+        }
+      }
+    })
+  );
+
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
     const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
@@ -131,7 +153,7 @@ async function generateBadgePDF(
       const x = PAGE_MARGIN + col * (BADGE_W + GAP);
       const y = PAGE_MARGIN + row * (BADGE_H + GAP);
 
-      drawBadge(doc, reg, x, y, i + 1);
+      drawBadge(doc, reg, x, y, i + 1, barcodeBuffers);
     }
 
     doc.end();
@@ -139,7 +161,7 @@ async function generateBadgePDF(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, regIndex: number) {
+function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, regIndex: number, barcodeBuffers: Map<string, Buffer>) {
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
 
   // Badge border (dashed for cutting guide)
@@ -172,23 +194,15 @@ function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, regIn
     });
   }
 
-  // ── Barcode (centered, using qrCode) ──
+  // ── Barcode (centered, using pre-rendered buffer) ──
   const barcodeText = reg.qrCode || reg.dtcmBarcode;
   if (barcodeText) {
-    try {
-      const png = bwipjs.toBufferSync({
-        bcid: "code128",
-        text: barcodeText,
-        scale: 2,
-        height: 14,
-        includetext: false,
-      });
+    const png = barcodeBuffers.get(barcodeText);
+    if (png) {
       doc.image(png, x + MARGIN + 10, y + 95, {
         fit: [contentW - 20, 40],
         align: "center",
       });
-    } catch (err) {
-      apiLogger.warn({ msg: "Barcode render failed", error: err instanceof Error ? err.message : "Unknown" });
     }
   }
 

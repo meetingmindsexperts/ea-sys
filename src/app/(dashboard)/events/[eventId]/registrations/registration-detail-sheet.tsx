@@ -270,15 +270,15 @@ export function RegistrationDetailSheet({
                   <SheetTitle className="text-white text-lg">
                     {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
                   </SheetTitle>
-                  <SheetDescription>
-                    <div className="flex gap-2 mt-1">
+                  <SheetDescription asChild>
+                    <span className="flex gap-2 mt-1">
                       <Badge className={`${registrationStatusColors[selectedRegistration.status]} border-white/30`} variant="outline">
                         {selectedRegistration.status}
                       </Badge>
                       <Badge className={`${paymentStatusColors[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
                         {selectedRegistration.paymentStatus}
                       </Badge>
-                    </div>
+                    </span>
                   </SheetDescription>
                 </SheetHeader>
                 {(() => {

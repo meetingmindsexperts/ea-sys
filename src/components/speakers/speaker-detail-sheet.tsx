@@ -324,12 +324,12 @@ export function SpeakerDetailSheet({
                     <SheetTitle className="text-white text-lg">
                       {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                     </SheetTitle>
-                    <SheetDescription>
-                      <div className="flex gap-2 mt-1">
+                    <SheetDescription asChild>
+                      <span className="flex gap-2 mt-1">
                         <Badge className={`${statusColors[speaker.status] || "bg-gray-100 text-gray-800"} border-white/30`} variant="outline">
                           {speaker.status}
                         </Badge>
-                      </div>
+                      </span>
                     </SheetDescription>
                   </SheetHeader>
                   {(() => {

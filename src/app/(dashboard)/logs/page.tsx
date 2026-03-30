@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Info,
   Zap,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,11 +47,11 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [levelFilter, setLevelFilter] = useState("all");
-  const [timeRange, setTimeRange] = useState("1h");
+  const [levelFilter, setLevelFilter] = useState("error");
+  const [timeRange, setTimeRange] = useState("10m");
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [logSource, setLogSource] = useState("database");
-  const [sourceLabel, setSourceLabel] = useState("database");
+  const [logSource, setLogSource] = useState("docker");
+  const [sourceLabel, setSourceLabel] = useState("docker");
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +93,7 @@ export default function LogsPage() {
 
     const interval = setInterval(() => {
       fetchLogs();
-    }, 5000); // Refresh every 5 seconds
+    }, 9000); // Refresh every 9 seconds
 
     return () => clearInterval(interval);
   }, [autoRefresh, fetchLogs]);
@@ -145,6 +146,66 @@ export default function LogsPage() {
     URL.revokeObjectURL(url);
 
     toast.success("Logs downloaded");
+  };
+
+  const downloadAllLogs = async () => {
+    try {
+      toast.info("Fetching all logs...");
+      const params = new URLSearchParams({
+        level: "all",
+        since: "all",
+        tail: "2000",
+        source: logSource,
+      });
+      const response = await fetch(`/api/logs?${params}`);
+      const data: LogResponse = await response.json();
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
+      const logText = data.logs
+        .map((log) => `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.message}`)
+        .join("\n");
+      const blob = new Blob([logText], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ea-sys-all-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${data.logs.length} log entries`);
+    } catch {
+      toast.error("Failed to download logs");
+    }
+  };
+
+  const [clearing, setClearing] = useState(false);
+
+  const clearLogs = async () => {
+    if (logSource !== "database") {
+      toast.error("Clear is only supported for database logs");
+      return;
+    }
+    const rangeLabel = timeRange === "all" ? "ALL" : `last ${timeRange}`;
+    if (!confirm(`Are you sure you want to delete ${rangeLabel} logs? This cannot be undone.`)) return;
+    setClearing(true);
+    try {
+      const params = new URLSearchParams({ since: timeRange, source: "database" });
+      const res = await fetch(`/api/logs?${params}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to clear logs");
+        return;
+      }
+      toast.success(`Cleared ${data.deletedCount} log entries`);
+      fetchLogs();
+    } catch {
+      toast.error("Failed to clear logs");
+    } finally {
+      setClearing(false);
+    }
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -290,7 +351,7 @@ export default function LogsPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 flex-wrap">
               <Button
                 onClick={() => {
                   setAutoRefresh(!autoRefresh);
@@ -317,6 +378,27 @@ export default function LogsPage() {
                 <Download className="w-4 h-4 mr-1.5" />
                 Export
               </Button>
+              <Button
+                onClick={downloadAllLogs}
+                variant="outline"
+                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 font-mono"
+                size="sm"
+              >
+                <Download className="w-4 h-4 mr-1.5" />
+                All
+              </Button>
+              {logSource === "database" && (
+                <Button
+                  onClick={clearLogs}
+                  disabled={clearing}
+                  variant="outline"
+                  className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-mono"
+                  size="sm"
+                >
+                  <Trash2 className="w-4 h-4 mr-1.5" />
+                  Clear
+                </Button>
+              )}
             </div>
           </div>
 

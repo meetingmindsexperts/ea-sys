@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -31,26 +31,34 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowLeft,
-  Mic,
   Save,
   Mail,
+  Phone,
   Building,
+  Briefcase,
   Globe,
+  MapPin,
   Trash2,
   Send,
   FileText,
   Loader2,
   ChevronDown,
+  Pencil,
+  X,
+  Stethoscope,
+  Calendar,
 } from "lucide-react";
-import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
+import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { formatPersonName } from "@/lib/utils";
+import { formatPersonName, formatDate } from "@/lib/utils";
+import { toast } from "sonner";
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   INVITED: "bg-yellow-100 text-yellow-800",
   CONFIRMED: "bg-green-100 text-green-800",
   DECLINED: "bg-red-100 text-red-800",
@@ -66,13 +74,16 @@ interface Speaker {
   bio: string | null;
   organization: string | null;
   jobTitle: string | null;
+  phone: string | null;
   website: string | null;
   photo: string | null;
   city: string | null;
   country: string | null;
+  specialty: string | null;
   registrationType: string | null;
   tags: string[];
   status: keyof typeof statusColors;
+  createdAt: string;
   socialLinks: {
     twitter?: string;
     linkedin?: string;
@@ -104,6 +115,7 @@ export default function SpeakerDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     title: "",
     email: "",
@@ -112,10 +124,12 @@ export default function SpeakerDetailPage() {
     bio: "",
     organization: "",
     jobTitle: "",
+    phone: "",
     website: "",
     photo: null as string | null,
     city: "",
     country: "",
+    specialty: "",
     registrationType: "",
     tags: [] as string[],
     status: "INVITED",
@@ -130,7 +144,6 @@ export default function SpeakerDetailPage() {
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
 
   const fetchSpeaker = useCallback(async () => {
     try {
@@ -146,10 +159,12 @@ export default function SpeakerDetailPage() {
           bio: data.bio || "",
           organization: data.organization || "",
           jobTitle: data.jobTitle || "",
+          phone: data.phone || "",
           website: data.website || "",
           photo: data.photo || null,
           city: data.city || "",
           country: data.country || "",
+          specialty: data.specialty || "",
           registrationType: data.registrationType || "",
           tags: data.tags || [],
           status: data.status,
@@ -174,28 +189,71 @@ export default function SpeakerDetailPage() {
     fetchSpeaker();
   }, [fetchSpeaker]);
 
+  const handleHeaderPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { toast.error("File size must be under 500KB"); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { toast.error("Only JPEG, PNG, and WebP allowed"); return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch("/api/upload/photo", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Upload failed"); return; }
+      setFormData((prev) => ({ ...prev, photo: data.url }));
+      toast.success("Photo uploaded");
+    } catch { toast.error("Upload failed"); }
+    if (headerPhotoRef.current) headerPhotoRef.current.value = "";
+  };
+
+  const startEditing = () => {
+    if (!speaker) return;
+    setFormData({
+      title: speaker.title || "",
+      email: speaker.email,
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      bio: speaker.bio || "",
+      organization: speaker.organization || "",
+      jobTitle: speaker.jobTitle || "",
+      phone: speaker.phone || "",
+      website: speaker.website || "",
+      photo: speaker.photo || null,
+      city: speaker.city || "",
+      country: speaker.country || "",
+      specialty: speaker.specialty || "",
+      registrationType: speaker.registrationType || "",
+      tags: speaker.tags || [],
+      status: speaker.status,
+      socialLinks: {
+        twitter: speaker.socialLinks?.twitter || "",
+        linkedin: speaker.socialLinks?.linkedin || "",
+        github: speaker.socialLinks?.github || "",
+      },
+    });
+    setIsEditing(true);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-
     try {
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, photo: formData.photo ?? null }),
       });
-
       if (res.ok) {
         const data = await res.json();
         setSpeaker({ ...speaker!, ...data });
         setIsEditing(false);
+        toast.success("Speaker updated");
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to save speaker");
+        toast.error(data.error || "Failed to save speaker");
       }
-    } catch (err) {
-      console.error("[speaker-detail] save failed", err);
-      setError("An error occurred. Please try again.");
+    } catch {
+      toast.error("An error occurred. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -203,36 +261,26 @@ export default function SpeakerDetailPage() {
 
   const handleDelete = async () => {
     if (!confirm("Are you sure you want to delete this speaker?")) return;
-
     try {
-      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
-        method: "DELETE",
-      });
-
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, { method: "DELETE" });
       if (res.ok) {
         router.push(`/events/${eventId}/speakers`);
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to delete speaker");
+        toast.error(data.error || "Failed to delete speaker");
       }
-    } catch (err) {
-      console.error("[speaker-detail] delete failed", err);
-      setError("An error occurred. Please try again.");
+    } catch {
+      toast.error("An error occurred. Please try again.");
     }
   };
 
   const handleSendEmail = async () => {
     if (sendingEmail) return;
-
     if (emailType === "custom" && (!customEmailSubject || !customEmailMessage)) {
-      setError("Please provide subject and message for custom email");
+      toast.error("Please provide subject and message");
       return;
     }
-
     setSendingEmail(true);
-    setError(null);
-    setEmailSuccess(null);
-
     try {
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/email`, {
         method: "POST",
@@ -244,19 +292,17 @@ export default function SpeakerDetailPage() {
           includeAgreementLink: emailType === "agreement",
         }),
       });
-
       const data = await res.json();
-
       if (res.ok) {
-        setEmailSuccess(data.message || "Email sent successfully!");
+        toast.success(data.message || "Email sent");
         setIsEmailDialogOpen(false);
         setCustomEmailSubject("");
         setCustomEmailMessage("");
       } else {
-        setError(data.error || "Failed to send email");
+        toast.error(data.error || "Failed to send email");
       }
     } catch {
-      setError("An error occurred while sending email");
+      toast.error("Failed to send email");
     } finally {
       setSendingEmail(false);
     }
@@ -285,275 +331,187 @@ export default function SpeakerDetailPage() {
 
   if (!speaker) return null;
 
+  const initials = `${speaker.firstName[0] ?? ""}${speaker.lastName[0] ?? ""}`.toUpperCase();
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Link
-              href={`/events/${eventId}/speakers`}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Mic className="h-8 w-8" />
+      {/* Gradient Header */}
+      <div className="rounded-xl bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-5 text-white">
+        <div className="flex items-center gap-2 mb-4">
+          <Link href={`/events/${eventId}/speakers`} className="text-white/80 hover:text-white">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <span className="text-white/60 text-sm font-medium">Back to Speakers</span>
+        </div>
+
+        <div className="flex items-start justify-between gap-4 pr-8">
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold">
               {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
             </h1>
-            <Badge className={statusColors[speaker.status]} variant="outline">
-              {speaker.status}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            {speaker.email && (
-              <div className="flex items-center gap-1">
-                <Mail className="h-4 w-4" />
-                {speaker.email}
-              </div>
-            )}
-            {speaker.organization && (
-              <div className="flex items-center gap-1">
-                <Building className="h-4 w-4" />
-                {speaker.organization}
-              </div>
-            )}
-            {speaker.website && (
-              <a
-                href={speaker.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 hover:text-foreground"
-              >
-                <Globe className="h-4 w-4" />
-                Website
-              </a>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          {!isEditing && (
-            <>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline">
-                    <Send className="mr-2 h-4 w-4" />
-                    Send Email
-                    <ChevronDown className="ml-2 h-4 w-4" />
+            <div className="flex gap-2 mt-2">
+              <Badge className={`${statusColors[speaker.status]} border-white/30`} variant="outline">
+                {speaker.status}
+              </Badge>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              {!isEditing ? (
+                <>
+                  <Button size="sm" variant="secondary" onClick={startEditing}>
+                    <Pencil className="mr-2 h-4 w-4" /> Edit
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setEmailType("invitation");
-                      setIsEmailDialogOpen(true);
-                    }}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="secondary">
+                        <Send className="mr-2 h-4 w-4" /> Send Email
+                        <ChevronDown className="ml-1 h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => { setEmailType("invitation"); setIsEmailDialogOpen(true); }}>
+                        <Mail className="mr-2 h-4 w-4" /> Speaker Invitation
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setEmailType("agreement"); setIsEmailDialogOpen(true); }}>
+                        <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setEmailType("custom"); setIsEmailDialogOpen(true); }}>
+                        <Send className="mr-2 h-4 w-4" /> Custom Email
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button size="sm" variant="secondary" className="text-red-600 hover:text-red-700" onClick={handleDelete}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" onClick={handleSave} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white">
+                    <Save className="mr-2 h-4 w-4" /> {saving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setIsEditing(false)} disabled={saving}>
+                    <X className="mr-2 h-4 w-4" /> Cancel
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Photo */}
+          {(() => {
+            const photoSrc = isEditing ? formData.photo : speaker.photo;
+            const avatar = photoSrc ? (
+              <Image src={photoSrc} alt="" width={112} height={112} className="w-28 h-28 rounded-full object-cover ring-2 ring-white/40 shrink-0" unoptimized />
+            ) : (
+              <div className="w-28 h-28 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-2xl shrink-0">
+                {initials}
+              </div>
+            );
+            if (!isEditing) return avatar;
+            return (
+              <div className="shrink-0 flex flex-col items-center">
+                <div className="relative group">
+                  <input ref={headerPhotoRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleHeaderPhotoChange} className="hidden" aria-label="Upload photo" />
+                  <button type="button" title="Change photo" onClick={() => headerPhotoRef.current?.click()} className="block rounded-full cursor-pointer">
+                    {avatar}
+                    <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Pencil className="h-5 w-5 text-white" />
+                    </div>
+                  </button>
+                </div>
+                {photoSrc && (
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, photo: null }))}
+                    className="mt-1.5 text-xs text-white/80 hover:text-white flex items-center gap-1"
                   >
-                    <Mail className="mr-2 h-4 w-4" />
-                    Speaker Invitation
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setEmailType("agreement");
-                      setIsEmailDialogOpen(true);
-                    }}
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    Speaker Agreement
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setEmailType("custom");
-                      setIsEmailDialogOpen(true);
-                    }}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    Custom Email
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button variant="outline" onClick={() => setIsEditing(true)}>
-                Edit
-              </Button>
-              <Button variant="destructive" onClick={handleDelete}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </>
-          )}
+                    <X className="h-3 w-3" /> Remove
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
-      {emailSuccess && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
-          {emailSuccess}
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-          {error}
-        </div>
-      )}
-
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Main Content */}
-        <div className="md:col-span-2 space-y-6">
+      {/* Content */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Speaker Information */}
           <Card>
             <CardHeader>
               <CardTitle>Speaker Information</CardTitle>
             </CardHeader>
             <CardContent>
               {isEditing ? (
-                <div className="space-y-4">
-                  <div className="grid gap-4 grid-cols-[100px_1fr_1fr]">
+                <div className="grid gap-4">
+                  <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="title">Title</Label>
-                      <TitleSelect
-                        value={formData.title}
-                        onChange={(title) =>
-                          setFormData({ ...formData, title })
-                        }
-                      />
+                      <Label>Title</Label>
+                      <TitleSelect value={formData.title} onChange={(title) => setFormData({ ...formData, title })} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="firstName">First Name</Label>
-                      <Input
-                        id="firstName"
-                        value={formData.firstName}
-                        onChange={(e) =>
-                          setFormData({ ...formData, firstName: e.target.value })
-                        }
-                      />
+                      <Label>First Name *</Label>
+                      <Input value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="lastName">Last Name</Label>
-                      <Input
-                        id="lastName"
-                        value={formData.lastName}
-                        onChange={(e) =>
-                          setFormData({ ...formData, lastName: e.target.value })
-                        }
-                      />
+                      <Label>Last Name *</Label>
+                      <Input value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) =>
-                        setFormData({ ...formData, email: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="organization">Organization</Label>
-                      <Input
-                        id="organization"
-                        value={formData.organization}
-                        onChange={(e) =>
-                          setFormData({ ...formData, organization: e.target.value })
-                        }
-                      />
+                      <Label>Email</Label>
+                      <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="jobTitle">Job Title</Label>
-                      <Input
-                        id="jobTitle"
-                        value={formData.jobTitle}
-                        onChange={(e) =>
-                          setFormData({ ...formData, jobTitle: e.target.value })
-                        }
-                      />
+                      <Label>Phone</Label>
+                      <Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Organization</Label>
+                      <Input value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Job Title</Label>
+                      <Input value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="bio">Bio</Label>
-                    <Textarea
-                      id="bio"
-                      value={formData.bio}
-                      onChange={(e) =>
-                        setFormData({ ...formData, bio: e.target.value })
-                      }
-                      rows={4}
-                    />
+                    <Label>Bio</Label>
+                    <Textarea value={formData.bio} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={4} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="website">Website</Label>
-                    <Input
-                      id="website"
-                      type="url"
-                      value={formData.website}
-                      onChange={(e) =>
-                        setFormData({ ...formData, website: e.target.value })
-                      }
-                      placeholder="https://..."
-                    />
+                    <Label>Website</Label>
+                    <Input type="url" value={formData.website} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Photo</Label>
-                    <PhotoUpload
-                      value={formData.photo}
-                      onChange={(photo) => setFormData({ ...formData, photo })}
-                    />
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="city">City</Label>
-                      <Input
-                        id="city"
-                        value={formData.city}
-                        onChange={(e) =>
-                          setFormData({ ...formData, city: e.target.value })
-                        }
-                      />
+                      <Label>City</Label>
+                      <Input value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="country">Country</Label>
-                      <CountrySelect
-                        value={formData.country}
-                        onChange={(country) => setFormData({ ...formData, country })}
-                      />
+                      <Label>Country</Label>
+                      <CountrySelect value={formData.country} onChange={(country) => setFormData({ ...formData, country })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Specialty</Label>
+                      <SpecialtySelect value={formData.specialty} onChange={(specialty) => setFormData({ ...formData, specialty })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Registration Type</Label>
+                      <RegistrationTypeSelect value={formData.registrationType} onChange={(rt) => setFormData({ ...formData, registrationType: rt })} eventId={eventId} />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="registrationType">Registration Type</Label>
-                    <RegistrationTypeSelect
-                      value={formData.registrationType}
-                      onChange={(registrationType) =>
-                        setFormData({ ...formData, registrationType })
-                      }
-                      eventId={eventId}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tags">Tags</Label>
-                    <Input
-                      id="tags"
-                      value={formData.tags.join(", ")}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          tags: e.target.value.split(",").map(t => t.trim()).filter(t => t)
-                        })
-                      }
-                      placeholder="e.g., Keynote, Panelist, VIP"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Add tags separated by commas
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, status: value })
-                      }
-                    >
-                      <SelectTrigger>
+                    <Label>Status</Label>
+                    <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                      <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -564,41 +522,79 @@ export default function SpeakerDetailPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsEditing(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button onClick={handleSave} disabled={saving}>
-                      <Save className="mr-2 h-4 w-4" />
-                      {saving ? "Saving..." : "Save Changes"}
-                    </Button>
+                  <div className="space-y-2">
+                    <Label>Tags</Label>
+                    <TagInput value={formData.tags} onChange={(tags) => setFormData({ ...formData, tags })} placeholder="Type a tag and press Enter or comma" />
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {speaker.bio && (
-                    <div>
-                      <h4 className="font-medium mb-1">Bio</h4>
-                      <p className="text-muted-foreground whitespace-pre-wrap">
-                        {speaker.bio}
-                      </p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm truncate">{speaker.email}</span>
+                  </div>
+                  {speaker.phone ? (
+                    <div className="flex items-center gap-3">
+                      <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm">{speaker.phone}</span>
+                    </div>
+                  ) : <div />}
+                  {speaker.organization && (
+                    <div className="flex items-center gap-3">
+                      <Building className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm">{speaker.organization}</span>
                     </div>
                   )}
                   {speaker.jobTitle && (
-                    <div>
-                      <h4 className="font-medium mb-1">Job Title</h4>
-                      <p className="text-muted-foreground">{speaker.jobTitle}</p>
+                    <div className="flex items-center gap-3">
+                      <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm">{speaker.jobTitle}</span>
+                    </div>
+                  )}
+                  {(speaker.city || speaker.country) && (
+                    <div className="flex items-center gap-3">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm">{[speaker.city, speaker.country].filter(Boolean).join(", ")}</span>
+                    </div>
+                  )}
+                  {speaker.specialty && (
+                    <div className="flex items-center gap-3">
+                      <Stethoscope className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Specialty</div>
+                        <div className="text-sm">{speaker.specialty}</div>
+                      </div>
+                    </div>
+                  )}
+                  {speaker.website && (
+                    <div className="flex items-center gap-3">
+                      <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <a href={speaker.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#00aade] hover:underline truncate">
+                        {speaker.website}
+                      </a>
+                    </div>
+                  )}
+                  {speaker.registrationType && (
+                    <div className="flex items-center gap-3">
+                      <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Registration Type</div>
+                        <div className="text-sm">{speaker.registrationType}</div>
+                      </div>
+                    </div>
+                  )}
+                  {speaker.bio && (
+                    <div className="col-span-2 mt-2">
+                      <div className="text-xs text-muted-foreground mb-1">Bio</div>
+                      <div className="text-sm whitespace-pre-wrap">{speaker.bio}</div>
                     </div>
                   )}
                   {speaker.tags && speaker.tags.length > 0 && (
-                    <div>
-                      <h4 className="font-medium mb-1">Tags</h4>
+                    <div className="col-span-2">
+                      <div className="text-xs text-muted-foreground mb-1">Tags</div>
                       <div className="flex flex-wrap gap-1">
-                        {speaker.tags.map((tag, index) => (
-                          <Badge key={index} variant="secondary">{tag}</Badge>
+                        {speaker.tags.map((tag, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs">{tag}</Badge>
                         ))}
                       </div>
                     </div>
@@ -615,19 +611,16 @@ export default function SpeakerDetailPage() {
             </CardHeader>
             <CardContent>
               {speaker.sessions.length === 0 ? (
-                <p className="text-muted-foreground">No sessions assigned yet.</p>
+                <p className="text-sm text-muted-foreground">No sessions assigned yet.</p>
               ) : (
                 <div className="space-y-2">
                   {speaker.sessions.map((s) => (
-                    <div
-                      key={s.session.id}
-                      className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                    >
+                    <div key={s.session.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                       <div>
-                        <p className="font-medium">{s.session.name}</p>
+                        <p className="font-medium text-sm">{s.session.name}</p>
                         <p className="text-sm text-muted-foreground">
                           {new Date(s.session.startTime).toLocaleString()}
-                          {s.session.track && ` • ${s.session.track.name}`}
+                          {s.session.track && ` · ${s.session.track.name}`}
                         </p>
                       </div>
                     </div>
@@ -644,19 +637,14 @@ export default function SpeakerDetailPage() {
             </CardHeader>
             <CardContent>
               {speaker.abstracts.length === 0 ? (
-                <p className="text-muted-foreground">No abstracts submitted yet.</p>
+                <p className="text-sm text-muted-foreground">No abstracts submitted yet.</p>
               ) : (
                 <div className="space-y-2">
                   {speaker.abstracts.map((abstract) => (
-                    <div
-                      key={abstract.id}
-                      className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                    >
+                    <div key={abstract.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                       <div>
-                        <p className="font-medium">{abstract.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {abstract.track?.name || "No track assigned"}
-                        </p>
+                        <p className="font-medium text-sm">{abstract.title}</p>
+                        <p className="text-sm text-muted-foreground">{abstract.track?.name || "No track assigned"}</p>
                       </div>
                       <Badge variant="outline">{abstract.status}</Badge>
                     </div>
@@ -669,21 +657,7 @@ export default function SpeakerDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {speaker.photo && (
-            <Card>
-              <CardContent className="pt-6">
-                <Image
-                  src={speaker.photo}
-                  alt={formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
-                  width={400}
-                  height={400}
-                  className="w-full rounded-lg"
-                  unoptimized
-                />
-              </CardContent>
-            </Card>
-          )}
-
+          {/* Social Links */}
           <Card>
             <CardHeader>
               <CardTitle>Social Links</CardTitle>
@@ -691,40 +665,36 @@ export default function SpeakerDetailPage() {
             <CardContent>
               <div className="space-y-2 text-sm">
                 {speaker.socialLinks?.twitter && (
-                  <a
-                    href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-blue-600 hover:underline"
-                  >
+                  <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
                     Twitter: {speaker.socialLinks.twitter}
                   </a>
                 )}
                 {speaker.socialLinks?.linkedin && (
-                  <a
-                    href={speaker.socialLinks.linkedin}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-blue-600 hover:underline"
-                  >
+                  <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
                     LinkedIn
                   </a>
                 )}
                 {speaker.socialLinks?.github && (
-                  <a
-                    href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-blue-600 hover:underline"
-                  >
+                  <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
                     GitHub: {speaker.socialLinks.github}
                   </a>
                 )}
-                {!speaker.socialLinks?.twitter &&
-                  !speaker.socialLinks?.linkedin &&
-                  !speaker.socialLinks?.github && (
-                    <p className="text-muted-foreground">No social links added.</p>
-                  )}
+                {!speaker.socialLinks?.twitter && !speaker.socialLinks?.linkedin && !speaker.socialLinks?.github && (
+                  <p className="text-muted-foreground">No social links added.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Timeline */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3 text-sm">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <div className="text-muted-foreground">Added</div>
+                  <div className="font-medium">{formatDate(speaker.createdAt)}</div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -747,51 +717,30 @@ export default function SpeakerDetailPage() {
                 <strong>To:</strong> {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)} ({speaker.email})
               </p>
             </div>
-
             {emailType === "invitation" && (
               <p className="text-sm text-muted-foreground">
                 This will send a speaker invitation email with event details and a request to confirm participation.
               </p>
             )}
-
             {emailType === "agreement" && (
               <p className="text-sm text-muted-foreground">
-                This will send a speaker agreement email with event details, session information (if assigned), and agreement terms.
+                This will send a speaker agreement email with event details, session information, and agreement terms.
               </p>
             )}
-
             {emailType === "custom" && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="emailSubject">Subject</Label>
-                  <Input
-                    id="emailSubject"
-                    value={customEmailSubject}
-                    onChange={(e) => setCustomEmailSubject(e.target.value)}
-                    placeholder="Email subject"
-                  />
+                  <Label>Subject</Label>
+                  <Input value={customEmailSubject} onChange={(e) => setCustomEmailSubject(e.target.value)} placeholder="Email subject" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="emailMessage">Message</Label>
-                  <Textarea
-                    id="emailMessage"
-                    value={customEmailMessage}
-                    onChange={(e) => setCustomEmailMessage(e.target.value)}
-                    placeholder="Your message to the speaker..."
-                    rows={6}
-                  />
+                  <Label>Message</Label>
+                  <Textarea value={customEmailMessage} onChange={(e) => setCustomEmailMessage(e.target.value)} placeholder="Your message to the speaker..." rows={6} />
                 </div>
               </>
             )}
-
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setIsEmailDialogOpen(false)}
-                disabled={sendingEmail}
-              >
-                Cancel
-              </Button>
+              <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>
               <Button onClick={handleSendEmail} disabled={sendingEmail}>
                 {sendingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {sendingEmail ? "Sending..." : "Send Email"}

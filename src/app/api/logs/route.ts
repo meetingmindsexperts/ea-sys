@@ -250,6 +250,47 @@ async function readDockerLogs(
   return { logs, source: `docker (${containerName})` };
 }
 
+// ── DELETE: Clear logs for a specific timeframe ──────────────────────
+export async function DELETE(req: Request) {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (session.user.role !== "SUPER_ADMIN") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const since = searchParams.get("since") || "24h";
+    const sourceParam = searchParams.get("source") || "database";
+
+    if (!ALLOWED_SINCE.has(since)) {
+      return NextResponse.json({ error: "Invalid 'since' parameter" }, { status: 400 });
+    }
+
+    if (sourceParam !== "database") {
+      return NextResponse.json({ error: "Clear is only supported for database logs" }, { status: 400 });
+    }
+
+    const sinceDate = sinceToDate(since);
+    const where: Record<string, unknown> = {};
+    if (sinceDate) {
+      where.timestamp = { gte: sinceDate };
+    }
+
+    const result = await db.systemLog.deleteMany({ where });
+
+    apiLogger.info({ msg: "Logs cleared", since, deletedCount: result.count, userId: session.user.id });
+
+    return NextResponse.json({ success: true, deletedCount: result.count });
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Failed to clear logs" });
+    return NextResponse.json({ error: "Failed to clear logs" }, { status: 500 });
+  }
+}
+
+// ── GET: Fetch logs ──────────────────────────────────────────────────
 export async function GET(req: Request) {
   try {
     const session = await auth();
@@ -267,8 +308,8 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
-    const level = searchParams.get("level") || "all";
-    const since = searchParams.get("since") || "1h";
+    const level = searchParams.get("level") || "error";
+    const since = searchParams.get("since") || "10m";
     const search = searchParams.get("search") || "";
     const tailParam = searchParams.get("tail") || "500";
     // Default to "database" on Vercel (no filesystem), "file" elsewhere
