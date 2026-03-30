@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const createSessionSchema = z.object({
   name: z.string().min(1).max(255),
@@ -236,6 +237,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify({ session: eventSession })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+
+    // Notify admins of new session
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Session Created",
+      message: `New session: "${name}"`,
+      link: `/events/${eventId}/schedule`,
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send session notification" }));
 
     return NextResponse.json(eventSession, { status: 201 });
   } catch (error) {

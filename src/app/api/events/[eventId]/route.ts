@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -99,7 +100,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Verify event belongs to user's organization (use select for minimal data)
     const existingEvent = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, slug: true, settings: true },
+      select: { id: true, slug: true, status: true, settings: true },
     });
 
     if (!existingEvent) {
@@ -213,6 +214,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify(validated.data)), ip: getClientIp(req) },
       },
     });
+
+    // Notify admins on status change
+    if (validated.data.status && validated.data.status !== existingEvent.status) {
+      notifyEventAdmins(eventId, {
+        type: "REGISTRATION",
+        title: "Event Status Updated",
+        message: `Event "${event.name}" is now ${validated.data.status}`,
+        link: `/events/${eventId}`,
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send event status notification" }));
+    }
 
     return NextResponse.json(event);
   } catch (error) {

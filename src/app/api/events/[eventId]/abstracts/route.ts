@@ -210,7 +210,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       title: "New Abstract Submitted",
       message: `"${title}" submitted by ${abstract.speaker?.firstName} ${abstract.speaker?.lastName}`,
       link: `/events/${eventId}/abstracts`,
-    }).catch(() => {});
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({

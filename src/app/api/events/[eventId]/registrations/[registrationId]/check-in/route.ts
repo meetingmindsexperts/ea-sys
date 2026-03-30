@@ -97,7 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       title: "Attendee Checked In",
       message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
       link: `/events/${eventId}/check-in`,
-    }).catch(() => {});
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send check-in notification" }));
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {
@@ -213,7 +213,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       title: "Attendee Checked In",
       message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
       link: `/events/${eventId}/check-in`,
-    }).catch(() => {});
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send check-in notification" }));
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {

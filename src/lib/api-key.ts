@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 const PREFIX = "mmg_";
 
@@ -40,7 +41,7 @@ export async function validateApiKey(rawKey: string): Promise<{ organizationId: 
   // Update lastUsedAt non-blocking
   db.apiKey
     .update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } })
-    .catch(() => {});
+    .catch((err) => apiLogger.error({ err, msg: "Failed to update API key lastUsedAt" }));
 
   return { organizationId: apiKey.organizationId };
 }

@@ -10,6 +10,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const createSpeakerSchema = z.object({
   title: titleEnum.optional(),
@@ -235,6 +236,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify({ speaker })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+
+    // Notify admins of new speaker
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Speaker Added",
+      message: `${firstName} ${lastName} added as speaker`,
+      link: `/events/${eventId}/speakers`,
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send speaker notification" }));
 
     return NextResponse.json(speaker, { status: 201 });
   } catch (error) {

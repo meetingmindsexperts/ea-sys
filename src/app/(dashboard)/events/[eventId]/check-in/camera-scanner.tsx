@@ -21,7 +21,7 @@ export default function CameraScanner({ onScan }: CameraScannerProps) {
     return () => {
       // Cleanup on unmount
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
+        scannerRef.current.stop().catch((err) => console.error("Failed to stop camera scanner", err));
         scannerRef.current.clear();
         scannerRef.current = null;
       }

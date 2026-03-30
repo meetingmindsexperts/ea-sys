@@ -267,7 +267,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       title: "New Registration",
       message: `${firstName} ${lastName} registered as ${registrationType}`,
       link: `/events/${event.id}/registrations`,
-    }).catch(() => {});
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send registration notification" }));
 
     // Log audit entry (non-blocking)
     db.auditLog.create({

@@ -267,7 +267,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         title: "Abstract Reviewed",
         message: `Abstract "${abstract.title}" reviewed${data.reviewScore != null ? ` — Score: ${data.reviewScore}/100` : ""}`,
         link: `/events/${eventId}/abstracts`,
-      }).catch(() => {});
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract review notification" }));
     }
 
     apiLogger.info({ msg: "Abstract updated", eventId, abstractId, userId: session.user.id, changes: Object.keys(data) });

@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         title: "Payment Received",
         message: `${registration.attendee.firstName} ${registration.attendee.lastName} paid ${currency} ${amount.toFixed(2)}`,
         link: `/events/${registration.event.id}/registrations`,
-      }).catch(() => {});
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send payment notification" }));
 
       // Send payment confirmation email (non-blocking)
       sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl).catch((err) =>

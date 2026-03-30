@@ -11,6 +11,7 @@ import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -324,6 +325,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify({ registration })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+
+    // Notify admins of new registration
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Registration Added",
+      message: `${attendee.firstName} ${attendee.lastName} added by ${session.user.firstName || "organizer"}`,
+      link: `/events/${eventId}/registrations`,
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send registration notification" }));
 
     return NextResponse.json(registration, { status: 201 });
   } catch (error) {

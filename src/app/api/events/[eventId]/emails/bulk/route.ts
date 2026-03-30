@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 const bulkEmailSchema = z.object({
   recipientType: z.enum(["speakers", "registrations", "reviewers", "abstracts"]),
@@ -297,6 +298,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Notify admins of bulk email sent
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Bulk Email Sent",
+      message: `Email sent to ${successCount} recipients`,
+      link: `/events/${eventId}/registrations`,
+    }).catch((err) => apiLogger.error({ err, msg: "Failed to send bulk email notification" }));
 
     return NextResponse.json({
       success: true,
