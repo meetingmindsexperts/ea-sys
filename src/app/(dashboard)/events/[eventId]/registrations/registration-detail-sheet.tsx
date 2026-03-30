@@ -782,12 +782,14 @@ export function RegistrationDetailSheet({
                         }
                         const blob = await res.blob();
                         const url = URL.createObjectURL(blob);
-                        const link = document.createElement("a");
-                        link.href = url;
-                        link.download = `badge-${selectedRegistration.id.slice(-8)}.pdf`;
-                        link.click();
-                        URL.revokeObjectURL(url);
-                        toast.success("Badge downloaded");
+                        const printWindow = window.open(url);
+                        if (printWindow) {
+                          printWindow.addEventListener("load", () => {
+                            printWindow.print();
+                          });
+                        }
+                        // Clean up after a delay to allow print dialog
+                        setTimeout(() => URL.revokeObjectURL(url), 60000);
                       } catch {
                         toast.error("Badge generation failed");
                       } finally {

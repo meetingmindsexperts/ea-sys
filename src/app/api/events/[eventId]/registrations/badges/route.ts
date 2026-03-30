@@ -16,11 +16,10 @@ interface RouteParams {
 const BADGE_W = 288; // 4 inches
 const BADGE_H = 216; // 3 inches
 const MARGIN = 20;
-const BADGES_PER_ROW = 2;
-const BADGES_PER_COL = 3;
-const BADGES_PER_PAGE = BADGES_PER_ROW * BADGES_PER_COL;
-const PAGE_MARGIN = 36; // 0.5 inch page margins
-const GAP = 12;
+
+// A4 page dimensions
+const A4_W = 595.28;
+const A4_H = 841.89;
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -43,7 +42,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const body = await req.json();
-    const { registrationIds, all } = body as { registrationIds?: string[]; all?: boolean };
+    const { registrationIds, all, verticalOffset = 0 } = body as {
+      registrationIds?: string[];
+      all?: boolean;
+      verticalOffset?: number;
+    };
 
     const where = all
       ? { eventId, status: { not: "CANCELLED" as const } }
@@ -80,7 +83,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const pdfBuffer = await generateBadgePDF(registrations);
+    // Clamp vertical offset to reasonable range (-200 to 200 points)
+    const vOffset = Math.max(-200, Math.min(200, Number(verticalOffset) || 0));
+    const pdfBuffer = await generateBadgePDF(registrations, vOffset);
 
     return new Response(new Uint8Array(pdfBuffer), {
       headers: {
@@ -108,6 +113,7 @@ interface BadgeRegistration {
 
 async function generateBadgePDF(
   registrations: BadgeRegistration[],
+  verticalOffset: number,
 ): Promise<Buffer> {
   // Pre-render all barcodes (async) before drawing
   const barcodeBuffers = new Map<string, Buffer>();
@@ -133,27 +139,19 @@ async function generateBadgePDF(
 
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
-    const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN });
+    const doc = new PDFDocument({ size: "A4", margin: 0 });
 
     doc.on("data", (chunk: Uint8Array) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
+    // One badge per page: horizontally centered, vertically at top + offset
+    const x = (A4_W - BADGE_W) / 2;
+    const baseY = 36 + verticalOffset; // 0.5 inch default top margin + organizer adjustment
+
     for (let i = 0; i < registrations.length; i++) {
-      const reg = registrations[i];
-      const posOnPage = i % BADGES_PER_PAGE;
-
-      if (i > 0 && posOnPage === 0) {
-        doc.addPage();
-      }
-
-      const col = posOnPage % BADGES_PER_ROW;
-      const row = Math.floor(posOnPage / BADGES_PER_ROW);
-
-      const x = PAGE_MARGIN + col * (BADGE_W + GAP);
-      const y = PAGE_MARGIN + row * (BADGE_H + GAP);
-
-      drawBadge(doc, reg, x, y, i + 1, barcodeBuffers);
+      if (i > 0) doc.addPage();
+      drawBadge(doc, registrations[i], x, baseY, i + 1, barcodeBuffers);
     }
 
     doc.end();

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -21,13 +23,14 @@ interface BadgeDialogProps {
 export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [verticalOffset, setVerticalOffset] = useState(0);
 
   const handleGenerate = async (mode: "selected" | "all") => {
     setLoading(true);
     try {
       const body = mode === "all"
-        ? { all: true }
-        : { registrationIds: Array.from(selectedIds) };
+        ? { all: true, verticalOffset }
+        : { registrationIds: Array.from(selectedIds), verticalOffset };
 
       const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
         method: "POST",
@@ -41,16 +44,18 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
         return;
       }
 
-      // Download PDF
+      // Open PDF in new window for printing
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `badges-${eventId}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const printWindow = window.open(url);
+      if (printWindow) {
+        printWindow.addEventListener("load", () => {
+          printWindow.print();
+        });
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-      toast.success("Badges downloaded");
+      toast.success("Badges ready to print");
       setOpen(false);
     } catch {
       toast.error("Badge generation failed");
@@ -74,8 +79,23 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Generate printable badge PDFs with attendee name, organization, registration type, and barcode.
+            Generate printable badges — one per page, centered horizontally.
           </p>
+
+          <div className="space-y-2">
+            <Label htmlFor="verticalOffset" className="text-sm">Vertical Offset (points)</Label>
+            <Input
+              id="verticalOffset"
+              type="number"
+              value={verticalOffset}
+              onChange={(e) => setVerticalOffset(Number(e.target.value) || 0)}
+              placeholder="0"
+              className="w-full"
+            />
+            <p className="text-xs text-muted-foreground">
+              Adjust badge position: positive = move down, negative = move up. 72 points = 1 inch.
+            </p>
+          </div>
 
           <div className="space-y-2">
             {selectedIds.size > 0 && (
