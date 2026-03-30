@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
   DropdownMenu,
@@ -82,6 +81,24 @@ export function RegistrationDetailSheet({
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [printingBadge, setPrintingBadge] = useState(false);
+  const headerPhotoRef = useRef<HTMLInputElement>(null);
+
+  const handleHeaderPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { toast.error("File size must be under 500KB"); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { toast.error("Only JPEG, PNG, and WebP allowed"); return; }
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/upload/photo", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Upload failed"); return; }
+      setEditData((prev) => ({ ...prev, photo: data.url }));
+      toast.success("Photo uploaded");
+    } catch { toast.error("Upload failed"); }
+    if (headerPhotoRef.current) headerPhotoRef.current.value = "";
+  };
   const [editData, setEditData] = useState({
     title: "" as string,
     firstName: "",
@@ -248,21 +265,56 @@ export function RegistrationDetailSheet({
           <>
             {/* Header with actions */}
             <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
-              <SheetHeader className="pr-8">
-                <SheetTitle className="text-white text-lg">
-                  {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
-                </SheetTitle>
-                <SheetDescription>
-                  <div className="flex gap-2 mt-1">
-                    <Badge className={`${registrationStatusColors[selectedRegistration.status]} border-white/30`} variant="outline">
-                      {selectedRegistration.status}
-                    </Badge>
-                    <Badge className={`${paymentStatusColors[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
-                      {selectedRegistration.paymentStatus}
-                    </Badge>
-                  </div>
-                </SheetDescription>
-              </SheetHeader>
+              <div className="flex items-start justify-between gap-4 pr-8">
+                <SheetHeader className="flex-1">
+                  <SheetTitle className="text-white text-lg">
+                    {formatPersonName(selectedRegistration.attendee.title, selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName)}
+                  </SheetTitle>
+                  <SheetDescription>
+                    <div className="flex gap-2 mt-1">
+                      <Badge className={`${registrationStatusColors[selectedRegistration.status]} border-white/30`} variant="outline">
+                        {selectedRegistration.status}
+                      </Badge>
+                      <Badge className={`${paymentStatusColors[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
+                        {selectedRegistration.paymentStatus}
+                      </Badge>
+                    </div>
+                  </SheetDescription>
+                </SheetHeader>
+                {(() => {
+                  const photoSrc = isEditing ? editData.photo : selectedRegistration.attendee.photo;
+                  const avatar = photoSrc ? (
+                    <Image src={photoSrc} alt="" width={112} height={112} className="w-28 h-28 rounded-full object-cover ring-2 ring-white/40 shrink-0" unoptimized />
+                  ) : (
+                    <div className="w-28 h-28 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-2xl shrink-0">
+                      {selectedRegistration.attendee.firstName[0]}{selectedRegistration.attendee.lastName[0]}
+                    </div>
+                  );
+                  if (!isEditing) return avatar;
+                  return (
+                    <div className="shrink-0 flex flex-col items-center">
+                      <div className="relative group">
+                        <input ref={headerPhotoRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleHeaderPhotoChange} className="hidden" aria-label="Upload photo" />
+                        <button type="button" title="Change photo" onClick={() => headerPhotoRef.current?.click()} className="block rounded-full cursor-pointer">
+                          {avatar}
+                          <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Pencil className="h-5 w-5 text-white" />
+                          </div>
+                        </button>
+                      </div>
+                      {photoSrc && (
+                        <button
+                          type="button"
+                          onClick={() => setEditData((prev) => ({ ...prev, photo: null }))}
+                          className="mt-1.5 text-xs text-white/80 hover:text-white flex items-center gap-1"
+                        >
+                          <X className="h-3 w-3" /> Remove
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
 
               {/* Quick Actions in header */}
               {!isReviewer && (
@@ -390,13 +442,6 @@ export function RegistrationDetailSheet({
                         />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Photo</Label>
-                      <PhotoUpload
-                        value={editData.photo}
-                        onChange={(photo) => setEditData({ ...editData, photo })}
-                      />
-                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="edit-city">City</Label>
@@ -505,18 +550,6 @@ export function RegistrationDetailSheet({
                       <div className="flex items-center gap-3">
                         <Utensils className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span>{selectedRegistration.attendee.dietaryReqs}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.attendee.photo && (
-                      <div className="flex items-center gap-3">
-                        <Image
-                          src={selectedRegistration.attendee.photo}
-                          alt="Photo"
-                          width={64}
-                          height={64}
-                          className="rounded-full object-cover border"
-                          unoptimized
-                        />
                       </div>
                     )}
                     {selectedRegistration.attendee.tags && selectedRegistration.attendee.tags.length > 0 && (

@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import { SpeakerDetailSheet } from "@/components/speakers/speaker-detail-sheet";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -62,6 +63,7 @@ export default function SpeakersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [detailSpeakerId, setDetailSpeakerId] = useState<string | null>(null);
 
   const bulkTagSpeakers = useBulkTagSpeakers(eventId);
   const [searchQuery, setSearchQuery] = useState("");
@@ -408,10 +410,8 @@ export default function SpeakersPage() {
                       </div>
                     </div>
 
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/events/${eventId}/speakers/${speaker.id}`}>
-                        View Details
-                      </Link>
+                    <Button variant="outline" size="sm" onClick={() => setDetailSpeakerId(speaker.id)}>
+                      View Details
                     </Button>
                   </div>
                 </CardContent>
@@ -505,6 +505,14 @@ export default function SpeakersPage() {
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredSpeakers.length}
         selectionMode={selectedIds.size > 0 ? "selected" : "all"}
         statusFilter={statusFilter}
+      />
+
+      {/* Speaker Detail Sheet */}
+      <SpeakerDetailSheet
+        eventId={eventId}
+        speakerId={detailSpeakerId}
+        open={!!detailSpeakerId}
+        onOpenChange={(open) => { if (!open) setDetailSpeakerId(null); }}
       />
     </div>
   );

@@ -21,7 +21,7 @@ const updateSpeakerSchema = z.object({
   jobTitle: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
   website: z.string().url().max(500).optional().or(z.literal("")),
-  photo: z.string().max(500).optional().or(z.literal("")),
+  photo: z.string().max(500).optional().nullable().or(z.literal("")),
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
@@ -139,6 +139,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const validated = updateSpeakerSchema.safeParse(body);
 
     if (!validated.success) {
+      apiLogger.warn({ msg: "Speaker update validation failed", speakerId, errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

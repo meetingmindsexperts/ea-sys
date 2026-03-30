@@ -24,7 +24,7 @@ const updateRegistrationSchema = z.object({
     organization: z.string().max(255).optional(),
     jobTitle: z.string().max(255).optional(),
     phone: z.string().max(50).optional(),
-    photo: z.string().max(500).optional().or(z.literal("")),
+    photo: z.string().max(500).optional().nullable().or(z.literal("")),
     city: z.string().max(255).optional(),
     country: z.string().max(255).optional(),
     bio: z.string().max(5000).optional(),
@@ -142,6 +142,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const validated = updateRegistrationSchema.safeParse(body);
 
     if (!validated.success) {
+      apiLogger.warn({ msg: "Registration update validation failed", registrationId, errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

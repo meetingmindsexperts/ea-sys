@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { TagInput } from "@/components/ui/tag-input";
-import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
   Sheet,
@@ -70,6 +69,7 @@ export function ContactDetailSheet({
   const deleteContact = useDeleteContact();
 
   const [isEditing, setIsEditing] = useState(false);
+  const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [editData, setEditData] = useState({
     title: "" as string,
     firstName: "",
@@ -86,6 +86,23 @@ export function ContactDetailSheet({
     tags: [] as string[],
     notes: "",
   });
+
+  const handleHeaderPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { toast.error("File size must be under 500KB"); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { toast.error("Only JPEG, PNG, and WebP allowed"); return; }
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/upload/photo", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Upload failed"); return; }
+      setEditData((prev) => ({ ...prev, photo: data.url }));
+      toast.success("Photo uploaded");
+    } catch { toast.error("Upload failed"); }
+    if (headerPhotoRef.current) headerPhotoRef.current.value = "";
+  };
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) setIsEditing(false);
@@ -160,36 +177,57 @@ export function ContactDetailSheet({
       <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
         {/* Header with actions */}
         <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
-          <SheetHeader className="pr-8">
-            <SheetTitle className="flex items-center gap-3 text-white text-lg">
-              {contact.photo ? (
-                <Image
-                  src={contact.photo}
-                  alt=""
-                  width={40}
-                  height={40}
-                  className="w-10 h-10 rounded-full object-cover ring-2 ring-white/30 shrink-0"
-                  unoptimized
-                />
+          <div className="flex items-start justify-between gap-4 pr-8">
+            <SheetHeader className="flex-1">
+              <SheetTitle className="text-white text-lg">
+                {formatPersonName(contact.title, contact.firstName, contact.lastName)}
+              </SheetTitle>
+              <SheetDescription>
+                {contact.tags && contact.tags.length > 0 && (
+                  <span className="flex flex-wrap gap-1 mt-1">
+                    {contact.tags.map((tag: string) => (
+                      <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </SheetDescription>
+            </SheetHeader>
+            {(() => {
+              const photoSrc = isEditing ? editData.photo : contact.photo;
+              const avatar = photoSrc ? (
+                <Image src={photoSrc} alt="" width={112} height={112} className="w-28 h-28 rounded-full object-cover ring-2 ring-white/40 shrink-0" unoptimized />
               ) : (
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 bg-white/20 text-white">
+                <div className="w-28 h-28 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-2xl shrink-0">
                   {initials}
                 </div>
-              )}
-              {formatPersonName(contact.title, contact.firstName, contact.lastName)}
-            </SheetTitle>
-            <SheetDescription>
-              {contact.tags && contact.tags.length > 0 && (
-                <span className="flex flex-wrap gap-1 mt-1">
-                  {contact.tags.map((tag: string) => (
-                    <span key={tag} className={`text-xs px-2 py-0.5 rounded-full font-medium border ${getTagColor(tag)}`}>
-                      {tag}
-                    </span>
-                  ))}
-                </span>
-              )}
-            </SheetDescription>
-          </SheetHeader>
+              );
+              if (!isEditing) return avatar;
+              return (
+                <div className="shrink-0 flex flex-col items-center">
+                  <div className="relative group">
+                    <input ref={headerPhotoRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleHeaderPhotoChange} className="hidden" aria-label="Upload photo" />
+                    <button type="button" title="Change photo" onClick={() => headerPhotoRef.current?.click()} className="block rounded-full cursor-pointer">
+                      {avatar}
+                      <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Pencil className="h-5 w-5 text-white" />
+                      </div>
+                    </button>
+                  </div>
+                  {photoSrc && (
+                    <button
+                      type="button"
+                      onClick={() => setEditData((prev) => ({ ...prev, photo: null }))}
+                      className="mt-1.5 text-xs text-white/80 hover:text-white flex items-center gap-1"
+                    >
+                      <X className="h-3 w-3" /> Remove
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Quick Actions in header */}
           <div className="flex flex-wrap gap-2 mt-3">
@@ -293,13 +331,6 @@ export function ContactDetailSheet({
                       onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })}
                     />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Photo</Label>
-                  <PhotoUpload
-                    value={editData.photo}
-                    onChange={(photo) => setEditData({ ...editData, photo })}
-                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
