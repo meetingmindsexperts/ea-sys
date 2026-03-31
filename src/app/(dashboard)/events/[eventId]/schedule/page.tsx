@@ -77,6 +77,20 @@ interface Speaker {
   status: string;
 }
 
+interface SessionSpeakerEntry {
+  role: string;
+  speaker: Speaker;
+}
+
+interface TopicEntry {
+  id: string;
+  title: string;
+  sortOrder: number;
+  duration: number | null;
+  abstract: { id: string; title: string } | null;
+  speakers: Array<{ speaker: Speaker }>;
+}
+
 interface Session {
   id: string;
   name: string;
@@ -87,7 +101,19 @@ interface Session {
   capacity: number | null;
   status: string;
   track: Track | null;
-  speakers: Array<{ speaker: Speaker }>;
+  speakers: SessionSpeakerEntry[];
+  topics: TopicEntry[];
+}
+
+interface TopicForm {
+  title: string;
+  speakerIds: string[];
+  duration: string;
+}
+
+interface SessionRoleForm {
+  speakerId: string;
+  role: "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST";
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -129,7 +155,16 @@ const DEFAULT_SESSION_FORM = {
   capacity: "",
   status: "SCHEDULED",
   speakerIds: [] as string[],
+  sessionRoles: [] as SessionRoleForm[],
+  topics: [] as TopicForm[],
 };
+
+const SESSION_ROLE_OPTIONS = [
+  { value: "MODERATOR", label: "Moderator" },
+  { value: "CHAIRPERSON", label: "Chairperson" },
+  { value: "PANELIST", label: "Panelist" },
+  { value: "SPEAKER", label: "Speaker" },
+] as const;
 
 const DEFAULT_TRACK_FORM = { name: "", description: "", color: "#3B82F6" };
 
@@ -299,13 +334,35 @@ export default function SchedulePage() {
 
   const handleSessionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const { sessionRoles, topics, speakerIds, ...rest } = sessionForm;
+
+    // Use sessionRoles if any exist; otherwise fall back to legacy speakerIds
+    const hasRoles = sessionRoles.length > 0;
+    const hasLegacySpeakers = speakerIds.length > 0;
+
     sessionMutation.mutate({
       data: {
-        ...sessionForm,
-        trackId: sessionForm.trackId || undefined,
-        capacity: sessionForm.capacity ? parseInt(sessionForm.capacity) : undefined,
-        startTime: new Date(sessionForm.startTime).toISOString(),
-        endTime: new Date(sessionForm.endTime).toISOString(),
+        name: rest.name,
+        description: rest.description || undefined,
+        trackId: rest.trackId || undefined,
+        capacity: rest.capacity ? parseInt(rest.capacity) : undefined,
+        startTime: new Date(rest.startTime).toISOString(),
+        endTime: new Date(rest.endTime).toISOString(),
+        location: rest.location || undefined,
+        status: rest.status,
+        ...(hasRoles
+          ? { sessionRoles }
+          : hasLegacySpeakers
+            ? { speakerIds }
+            : { sessionRoles: [] }),
+        topics: topics.length > 0
+          ? topics.map((t, i) => ({
+              title: t.title,
+              duration: t.duration ? parseInt(t.duration) : undefined,
+              sortOrder: i,
+              speakerIds: t.speakerIds,
+            }))
+          : [],
       },
       sessionId: editingSession?.id,
     });
@@ -345,7 +402,16 @@ export default function SchedulePage() {
       location: s.location || "",
       capacity: s.capacity?.toString() || "",
       status: s.status,
-      speakerIds: s.speakers.map((sp) => sp.speaker.id),
+      speakerIds: [],
+      sessionRoles: s.speakers.map((sp) => ({
+        speakerId: sp.speaker.id,
+        role: sp.role as SessionRoleForm["role"],
+      })),
+      topics: (s.topics || []).map((t) => ({
+        title: t.title,
+        speakerIds: t.speakers.map((ts) => ts.speaker.id),
+        duration: t.duration?.toString() || "",
+      })),
     });
     setIsSessionDialogOpen(true);
   };
@@ -968,45 +1034,191 @@ export default function SchedulePage() {
                 </div>
               </div>
 
+              {/* Session Roles (Moderator, Chairperson, Panelist, Speaker) */}
               {(speakers as Speaker[]).length > 0 && (
-                <div className="space-y-1.5">
-                  <Label>Speakers</Label>
-                  <div className="border rounded-md divide-y max-h-36 overflow-y-auto">
-                    {(speakers as Speaker[]).map((sp) => (
-                      <label
-                        key={sp.id}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50"
-                      >
-                        <Checkbox
-                          checked={sessionForm.speakerIds.includes(sp.id)}
-                          onCheckedChange={(checked: boolean) =>
-                            setSessionForm({
-                              ...sessionForm,
-                              speakerIds: checked
-                                ? [...sessionForm.speakerIds, sp.id]
-                                : sessionForm.speakerIds.filter((id) => id !== sp.id),
-                            })
-                          }
-                        />
-                        <span className="flex-1 text-sm">
-                          {sp.firstName} {sp.lastName}
-                        </span>
-                        <span
-                          className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                            SPEAKER_STATUS_COLORS[sp.status] ?? "bg-gray-100 text-gray-700"
-                          }`}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Session Roles</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setSessionForm({
+                          ...sessionForm,
+                          sessionRoles: [
+                            ...sessionForm.sessionRoles,
+                            { speakerId: "", role: "SPEAKER" },
+                          ],
+                        })
+                      }
+                    >
+                      <Plus className="mr-1 h-3 w-3" /> Add Role
+                    </Button>
+                  </div>
+                  {sessionForm.sessionRoles.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No session roles assigned. Add moderators, chairpersons, panelists, or speakers.</p>
+                  )}
+                  <div className="space-y-2">
+                    {sessionForm.sessionRoles.map((sr, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <Select
+                          value={sr.role}
+                          onValueChange={(v) => {
+                            const updated = [...sessionForm.sessionRoles];
+                            updated[idx] = { ...updated[idx], role: v as SessionRoleForm["role"] };
+                            setSessionForm({ ...sessionForm, sessionRoles: updated });
+                          }}
                         >
-                          {sp.status}
-                        </span>
-                      </label>
+                          <SelectTrigger className="w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SESSION_ROLE_OPTIONS.map((r) => (
+                              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={sr.speakerId}
+                          onValueChange={(v) => {
+                            const updated = [...sessionForm.sessionRoles];
+                            updated[idx] = { ...updated[idx], speakerId: v };
+                            setSessionForm({ ...sessionForm, sessionRoles: updated });
+                          }}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select speaker" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(speakers as Speaker[]).map((sp) => (
+                              <SelectItem key={sp.id} value={sp.id}>
+                                {sp.firstName} {sp.lastName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-red-500 hover:text-red-600 shrink-0"
+                          onClick={() => {
+                            const updated = sessionForm.sessionRoles.filter((_, i) => i !== idx);
+                            setSessionForm({ ...sessionForm, sessionRoles: updated });
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
-                  {sessionForm.speakerIds.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {sessionForm.speakerIds.length} speaker
-                      {sessionForm.speakerIds.length !== 1 ? "s" : ""} selected
-                    </p>
+                </div>
+              )}
+
+              {/* Topics (optional) */}
+              {(speakers as Speaker[]).length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Topics</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setSessionForm({
+                          ...sessionForm,
+                          topics: [
+                            ...sessionForm.topics,
+                            { title: "", speakerIds: [], duration: "" },
+                          ],
+                        })
+                      }
+                    >
+                      <Plus className="mr-1 h-3 w-3" /> Add Topic
+                    </Button>
+                  </div>
+                  {sessionForm.topics.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No topics. Add topics to assign speakers per presentation.</p>
                   )}
+                  <div className="space-y-3">
+                    {sessionForm.topics.map((topic, idx) => (
+                      <div key={idx} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground w-5 shrink-0">#{idx + 1}</span>
+                          <Input
+                            value={topic.title}
+                            onChange={(e) => {
+                              const updated = [...sessionForm.topics];
+                              updated[idx] = { ...updated[idx], title: e.target.value };
+                              setSessionForm({ ...sessionForm, topics: updated });
+                            }}
+                            placeholder="Topic title"
+                            className="flex-1"
+                          />
+                          <Input
+                            type="number"
+                            value={topic.duration}
+                            onChange={(e) => {
+                              const updated = [...sessionForm.topics];
+                              updated[idx] = { ...updated[idx], duration: e.target.value };
+                              setSessionForm({ ...sessionForm, topics: updated });
+                            }}
+                            placeholder="Min"
+                            className="w-16"
+                            min={1}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-500 hover:text-red-600 shrink-0"
+                            onClick={() => {
+                              const updated = sessionForm.topics.filter((_, i) => i !== idx);
+                              setSessionForm({ ...sessionForm, topics: updated });
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <div className="pl-5">
+                          <div className="border rounded-md divide-y max-h-28 overflow-y-auto">
+                            {(speakers as Speaker[]).map((sp) => (
+                              <label
+                                key={sp.id}
+                                className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/50 text-xs"
+                              >
+                                <Checkbox
+                                  checked={topic.speakerIds.includes(sp.id)}
+                                  onCheckedChange={(checked: boolean) => {
+                                    const updated = [...sessionForm.topics];
+                                    updated[idx] = {
+                                      ...updated[idx],
+                                      speakerIds: checked
+                                        ? [...updated[idx].speakerIds, sp.id]
+                                        : updated[idx].speakerIds.filter((id) => id !== sp.id),
+                                    };
+                                    setSessionForm({ ...sessionForm, topics: updated });
+                                  }}
+                                />
+                                <span className="flex-1">{sp.firstName} {sp.lastName}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${SPEAKER_STATUS_COLORS[sp.status] ?? "bg-gray-100 text-gray-700"}`}>
+                                  {sp.status}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          {topic.speakerIds.length > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {topic.speakerIds.length} speaker{topic.speakerIds.length !== 1 ? "s" : ""}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1304,10 +1516,25 @@ function SessionCard({
               </div>
             )}
             {session.speakers.length > 0 && (
-              <div>
-                {session.speakers
-                  .map((s) => `${s.speaker.firstName} ${s.speaker.lastName}`)
-                  .join(", ")}
+              <div className="space-y-0.5">
+                {session.speakers.map((s, i) => (
+                  <div key={i}>
+                    <span className="font-medium text-foreground/80">{s.role !== "SPEAKER" ? `${s.role}: ` : ""}</span>
+                    {s.speaker.firstName} {s.speaker.lastName}
+                  </div>
+                ))}
+              </div>
+            )}
+            {session.topics?.length > 0 && (
+              <div className="border-t border-border/50 pt-1 mt-1 space-y-0.5">
+                {session.topics.map((t) => (
+                  <div key={t.id} className="text-xs">
+                    <span className="font-medium text-foreground/80">{t.title}</span>
+                    {t.speakers.length > 0 && (
+                      <span> — {t.speakers.map((ts) => `${ts.speaker.firstName} ${ts.speaker.lastName}`).join(", ")}</span>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

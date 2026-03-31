@@ -8,6 +8,19 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 
+const topicSchema = z.object({
+  title: z.string().min(1).max(255),
+  abstractId: z.string().max(100).optional(),
+  duration: z.number().min(1).optional(),
+  sortOrder: z.number().int().optional(),
+  speakerIds: z.array(z.string().max(100)).optional(),
+});
+
+const sessionSpeakerSchema = z.object({
+  speakerId: z.string().max(100),
+  role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]),
+});
+
 const createSessionSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).optional(),
@@ -18,7 +31,12 @@ const createSessionSchema = z.object({
   location: z.string().max(255).optional(),
   capacity: z.number().min(1).optional(),
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).default("SCHEDULED"),
+  // Legacy: flat speaker list (all assigned as SPEAKER role)
   speakerIds: z.array(z.string().max(100)).optional(),
+  // New: session-level roles (moderator, chairperson, panelist, speaker)
+  sessionRoles: z.array(sessionSpeakerSchema).optional(),
+  // New: topics with per-topic speakers
+  topics: z.array(topicSchema).optional(),
 });
 
 interface RouteParams {
@@ -73,10 +91,28 @@ export async function GET(req: Request, { params }: RouteParams) {
           abstract: { select: { id: true, title: true } },
           speakers: {
             select: {
+              role: true,
               speaker: {
                 select: { id: true, firstName: true, lastName: true, status: true },
               },
             },
+          },
+          topics: {
+            select: {
+              id: true,
+              title: true,
+              sortOrder: true,
+              duration: true,
+              abstract: { select: { id: true, title: true } },
+              speakers: {
+                select: {
+                  speaker: {
+                    select: { id: true, firstName: true, lastName: true, status: true },
+                  },
+                },
+              },
+            },
+            orderBy: { sortOrder: "asc" },
           },
         },
         orderBy: { startTime: "asc" },
@@ -136,7 +172,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       capacity,
       status,
       speakerIds,
+      sessionRoles,
+      topics,
     } = validated.data;
+
+    // Collect all speaker IDs for validation
+    const allSpeakerIds = new Set<string>();
+    if (speakerIds) speakerIds.forEach((id) => allSpeakerIds.add(id));
+    if (sessionRoles) sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
+    if (topics) topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
 
     // Parallelize all validation queries
     const [event, track, abstract, existingAbstractSession, speakers] = await Promise.all([
@@ -156,8 +200,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       abstractId
         ? db.eventSession.findFirst({ where: { abstractId } })
         : Promise.resolve(null),
-      speakerIds && speakerIds.length > 0
-        ? db.speaker.findMany({ where: { id: { in: speakerIds }, eventId } })
+      allSpeakerIds.size > 0
+        ? db.speaker.findMany({ where: { id: { in: [...allSpeakerIds] }, eventId } })
         : Promise.resolve([]),
     ]);
 
@@ -180,8 +224,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (speakerIds && speakerIds.length > 0 && speakers.length !== speakerIds.length) {
+    if (allSpeakerIds.size > 0 && speakers.length !== allSpeakerIds.size) {
       return NextResponse.json({ error: "One or more speakers not found" }, { status: 404 });
+    }
+
+    // Build session-level speaker records
+    const sessionSpeakerData: { speakerId: string; role: "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST" }[] = [];
+    if (sessionRoles && sessionRoles.length > 0) {
+      sessionRoles.forEach((r) => sessionSpeakerData.push({ speakerId: r.speakerId, role: r.role }));
+    } else if (speakerIds && speakerIds.length > 0) {
+      // Legacy: flat speakerIds → all SPEAKER role
+      speakerIds.forEach((id) => sessionSpeakerData.push({ speakerId: id, role: "SPEAKER" }));
     }
 
     const eventSession = await db.eventSession.create({
@@ -196,11 +249,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         location: location || null,
         capacity: capacity || null,
         status,
-        speakers: speakerIds && speakerIds.length > 0
+        speakers: sessionSpeakerData.length > 0
+          ? { create: sessionSpeakerData }
+          : undefined,
+        topics: topics && topics.length > 0
           ? {
-              create: speakerIds.map((speakerId) => ({
-                speakerId,
-                role: "speaker",
+              create: topics.map((t, i) => ({
+                title: t.title,
+                abstractId: t.abstractId || null,
+                duration: t.duration || null,
+                sortOrder: t.sortOrder ?? i,
+                speakers: t.speakerIds && t.speakerIds.length > 0
+                  ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
+                  : undefined,
               })),
             }
           : undefined,
@@ -218,10 +279,28 @@ export async function POST(req: Request, { params }: RouteParams) {
         abstract: { select: { id: true, title: true } },
         speakers: {
           select: {
+            role: true,
             speaker: {
               select: { id: true, firstName: true, lastName: true, status: true },
             },
           },
+        },
+        topics: {
+          select: {
+            id: true,
+            title: true,
+            sortOrder: true,
+            duration: true,
+            abstract: { select: { id: true, title: true } },
+            speakers: {
+              select: {
+                speaker: {
+                  select: { id: true, firstName: true, lastName: true, status: true },
+                },
+              },
+            },
+          },
+          orderBy: { sortOrder: "asc" },
         },
       },
     });
