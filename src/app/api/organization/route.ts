@@ -7,7 +7,8 @@ import { getClientIp } from "@/lib/security";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  logo: z.string().url().max(500).nullable().optional(),
+  logo: z.string().max(500).nullable().optional(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color like #00aade").nullable().optional(),
   settings: z.object({
     timezone: z.string().max(100).optional(),
     dateFormat: z.string().max(50).optional(),
@@ -83,7 +84,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    const { name, logo, settings } = validated.data;
+    const { name, logo, primaryColor, settings } = validated.data;
 
     // Get current organization to merge settings
     const currentOrg = await db.organization.findUnique({
@@ -104,6 +105,7 @@ export async function PUT(req: Request) {
       data: {
         ...(name && { name }),
         ...(logo !== undefined && { logo }),
+        ...(primaryColor !== undefined && { primaryColor }),
         settings: updatedSettings,
       },
     });

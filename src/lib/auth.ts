@@ -50,7 +50,7 @@ export const {
             role: true,
             organizationId: true,
             organization: {
-              select: { name: true },
+              select: { name: true, logo: true, primaryColor: true },
             },
           },
         });
@@ -73,6 +73,8 @@ export const {
           role: user.role,
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
+          organizationLogo: user.organization?.logo ?? null,
+          organizationPrimaryColor: user.organization?.primaryColor ?? null,
           firstName: user.firstName,
           lastName: user.lastName,
         };
@@ -91,6 +93,8 @@ export const {
         token.role = user.role;
         token.organizationId = user.organizationId ?? null;
         token.organizationName = user.organizationName ?? null;
+        token.organizationLogo = user.organizationLogo ?? null;
+        token.organizationPrimaryColor = user.organizationPrimaryColor ?? null;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.roleCheckedAt = Date.now();
@@ -100,10 +104,12 @@ export const {
       if (trigger === "update" && token.id) {
         const dbUser = await db.user.findUnique({
           where: { id: token.id as string },
-          include: { organization: { select: { name: true } } },
+          include: { organization: { select: { name: true, logo: true, primaryColor: true } } },
         });
         if (dbUser) {
           token.organizationName = dbUser.organization?.name ?? null;
+          token.organizationLogo = dbUser.organization?.logo ?? null;
+          token.organizationPrimaryColor = dbUser.organization?.primaryColor ?? null;
           token.firstName = dbUser.firstName;
           token.lastName = dbUser.lastName;
           token.role = dbUser.role;
@@ -139,6 +145,8 @@ export const {
         session.user.role = token.role as string;
         session.user.organizationId = (token.organizationId as string) ?? null;
         session.user.organizationName = (token.organizationName as string) ?? null;
+        session.user.organizationLogo = (token.organizationLogo as string) ?? null;
+        session.user.organizationPrimaryColor = (token.organizationPrimaryColor as string) ?? null;
         session.user.firstName = token.firstName as string;
         session.user.lastName = token.lastName as string;
       }

@@ -189,7 +189,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: eventId,
           organizationId: session.user.organizationId!,
         },
-        select: { id: true },
+        select: { id: true, startDate: true, endDate: true },
       }),
       trackId
         ? db.track.findFirst({ where: { id: trackId, eventId } })
@@ -207,6 +207,21 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Validate session times fall within event dates
+    const sessionStart = new Date(startTime);
+    const sessionEnd = new Date(endTime);
+    const eventStart = new Date(event.startDate);
+    const eventEnd = new Date(event.endDate);
+    // Compare dates only (ignore time component) — allow sessions on any event day
+    eventStart.setHours(0, 0, 0, 0);
+    eventEnd.setHours(23, 59, 59, 999);
+    if (sessionStart < eventStart || sessionEnd > eventEnd) {
+      return NextResponse.json(
+        { error: `Session must fall within event dates (${eventStart.toLocaleDateString()} – ${eventEnd.toLocaleDateString()})` },
+        { status: 400 }
+      );
     }
 
     if (trackId && !track) {

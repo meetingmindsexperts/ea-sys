@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -139,17 +138,15 @@ export function Sidebar() {
             href="/dashboard"
             className={cn("flex items-center gap-3 min-w-0", isCollapsed && "justify-center w-full")}
           >
-            <Image
-              src="/mmg-logo.png"
-              alt="Meeting Minds Group"
-              width={isCollapsed ? 32 : 60}
-              height={36}
-              className="object-contain shrink-0"
-              priority
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={session?.user?.organizationLogo || "/mmg-logo.png"}
+              alt={session?.user?.organizationName || "Organization"}
+              className={cn("object-contain shrink-0", isCollapsed ? "h-8 w-8" : "h-9 max-w-[60px]")}
             />
             {!isCollapsed && (
-              <span className="text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 border-l border-border pl-3 leading-tight">
-                EventsHub
+              <span className="text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 border-l border-border pl-3 leading-tight line-clamp-2">
+                {session?.user?.organizationName || "EventsHub"}
               </span>
             )}
           </Link>

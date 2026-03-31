@@ -133,7 +133,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const [event, existingSession] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true },
+        select: { id: true, startDate: true, endDate: true },
       }),
       db.eventSession.findFirst({
         where: { id: sessionId, eventId },
@@ -159,6 +159,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+
+    // Validate session times fall within event dates (if times are being updated)
+    if (data.startTime || data.endTime) {
+      const sessionStart = new Date(data.startTime || existingSession.startTime);
+      const sessionEnd = new Date(data.endTime || existingSession.endTime);
+      const eventStart = new Date(event.startDate);
+      const eventEnd = new Date(event.endDate);
+      eventStart.setHours(0, 0, 0, 0);
+      eventEnd.setHours(23, 59, 59, 999);
+      if (sessionStart < eventStart || sessionEnd > eventEnd) {
+        return NextResponse.json(
+          { error: `Session must fall within event dates (${eventStart.toLocaleDateString()} – ${eventEnd.toLocaleDateString()})` },
+          { status: 400 }
+        );
+      }
+    }
 
     // Validate track if provided
     if (data.trackId) {

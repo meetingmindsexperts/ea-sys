@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SessionProvider } from "next-auth/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/sonner";
+import { OrgTheme } from "@/components/org-theme";
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -31,6 +32,7 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
+        <OrgTheme />
         {children}
         <Toaster />
       </SessionProvider>
