@@ -37,6 +37,7 @@ const updateEventSchema = z.object({
   taxRate: z.number().min(0).max(100).nullable().optional(),
   taxLabel: z.string().max(50).nullable().optional(),
   bankDetails: z.string().max(5000).nullable().optional(),
+  badgeVerticalOffset: z.number().int().min(-200).max(200).optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -146,6 +147,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       taxRate,
       taxLabel,
       bankDetails,
+      badgeVerticalOffset,
       settings,
     } = validated.data;
 
@@ -206,6 +208,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(taxRate !== undefined && { taxRate }),
         ...(taxLabel !== undefined && { taxLabel }),
         ...(bankDetails !== undefined && { bankDetails }),
+        ...(badgeVerticalOffset !== undefined && { badgeVerticalOffset }),
         settings: updatedSettings,
       },
     });

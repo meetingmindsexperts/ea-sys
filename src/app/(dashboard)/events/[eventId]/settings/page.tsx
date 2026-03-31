@@ -92,6 +92,7 @@ interface Event {
   taxRate: number | null;
   taxLabel: string | null;
   bankDetails: string | null;
+  badgeVerticalOffset: number;
   settings: {
     registrationOpen?: boolean;
     waitlistEnabled?: boolean;
@@ -156,6 +157,7 @@ export default function EventSettingsPage() {
     taxRate: "",
     taxLabel: "VAT",
     bankDetails: "",
+    badgeVerticalOffset: 0,
   });
 
   const [registrationSettings, setRegistrationSettings] = useState({
@@ -215,6 +217,7 @@ export default function EventSettingsPage() {
           taxRate: data.taxRate != null ? String(data.taxRate) : "",
           taxLabel: data.taxLabel || "VAT",
           bankDetails: data.bankDetails || "",
+          badgeVerticalOffset: data.badgeVerticalOffset ?? 0,
         });
 
         const settings = data.settings || {};
@@ -824,6 +827,25 @@ export default function EventSettingsPage() {
                   }
                   className="w-48"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="badgeVerticalOffset">Badge Vertical Offset (points)</Label>
+                <Input
+                  id="badgeVerticalOffset"
+                  type="number"
+                  value={generalFormData.badgeVerticalOffset}
+                  onChange={(e) =>
+                    setGeneralFormData({
+                      ...generalFormData,
+                      badgeVerticalOffset: parseInt(e.target.value) || 0,
+                    })
+                  }
+                  className="w-48"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Adjust badge position on printed page. Positive = move down, negative = move up. 72 points = 1 inch. Default: 0.
+                </p>
               </div>
 
               <div className="border-t pt-6">

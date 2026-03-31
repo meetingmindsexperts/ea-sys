@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -23,14 +21,13 @@ interface BadgeDialogProps {
 export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [verticalOffset, setVerticalOffset] = useState(0);
 
   const handleGenerate = async (mode: "selected" | "all") => {
     setLoading(true);
     try {
       const body = mode === "all"
-        ? { all: true, verticalOffset }
-        : { registrationIds: Array.from(selectedIds), verticalOffset };
+        ? { all: true }
+        : { registrationIds: Array.from(selectedIds) };
 
       const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
         method: "POST",
@@ -74,28 +71,13 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Generate Badges</DialogTitle>
+          <DialogTitle>Print Badges</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Generate printable badges — one per page, centered horizontally.
+            Print badges — one per page, centered horizontally. Adjust vertical position in Event Settings.
           </p>
-
-          <div className="space-y-2">
-            <Label htmlFor="verticalOffset" className="text-sm">Vertical Offset (points)</Label>
-            <Input
-              id="verticalOffset"
-              type="number"
-              value={verticalOffset}
-              onChange={(e) => setVerticalOffset(Number(e.target.value) || 0)}
-              placeholder="0"
-              className="w-full"
-            />
-            <p className="text-xs text-muted-foreground">
-              Adjust badge position: positive = move down, negative = move up. 72 points = 1 inch.
-            </p>
-          </div>
 
           <div className="space-y-2">
             {selectedIds.size > 0 && (
@@ -105,7 +87,7 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
                 disabled={loading}
               >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Generate for {selectedIds.size} Selected
+                Print {selectedIds.size} Selected
               </Button>
             )}
             <Button
@@ -115,7 +97,7 @@ export function BadgeDialog({ eventId, selectedIds, totalCount }: BadgeDialogPro
               disabled={loading}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Generate All ({totalCount})
+              Print All ({totalCount})
             </Button>
           </div>
         </div>

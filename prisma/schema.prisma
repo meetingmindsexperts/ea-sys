@@ -147,6 +147,7 @@ model Event {
   taxRate                  Decimal?  @db.Decimal(5, 2)
   taxLabel                 String?   @default("VAT")
   bankDetails              String?   @db.Text
+  badgeVerticalOffset      Int       @default(0)
   externalId     String?
   externalSource String?
   createdAt      DateTime    @default(now())

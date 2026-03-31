@@ -17,9 +17,8 @@ const BADGE_W = 288; // 4 inches
 const BADGE_H = 216; // 3 inches
 const MARGIN = 20;
 
-// A4 page dimensions
+// A4 page width (in points)
 const A4_W = 595.28;
-const A4_H = 841.89;
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -34,7 +33,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      select: { id: true, badgeVerticalOffset: true },
     });
 
     if (!event) {
@@ -42,10 +41,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const body = await req.json();
-    const { registrationIds, all, verticalOffset = 0 } = body as {
+    const { registrationIds, all } = body as {
       registrationIds?: string[];
       all?: boolean;
-      verticalOffset?: number;
     };
 
     const where = all
@@ -83,8 +81,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Clamp vertical offset to reasonable range (-200 to 200 points)
-    const vOffset = Math.max(-200, Math.min(200, Number(verticalOffset) || 0));
+    // Use event's saved vertical offset, clamped to reasonable range
+    const vOffset = Math.max(-200, Math.min(200, event.badgeVerticalOffset || 0));
     const pdfBuffer = await generateBadgePDF(registrations, vOffset);
 
     return new Response(new Uint8Array(pdfBuffer), {
