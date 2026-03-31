@@ -31,7 +31,18 @@ import {
   Redo,
   Code,
   Palette,
+  Columns2,
+  Square,
+  Minus,
+  ChevronDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface TiptapEditorProps {
   content: string;
@@ -223,6 +234,92 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
           <Palette className="h-4 w-4" />
         </Button>
       </div>
+
+      <div className="mx-1 h-6 w-px bg-border" />
+
+      {/* Layout blocks */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-muted-foreground text-xs gap-1"
+            title="Insert layout block"
+          >
+            <Columns2 className="h-4 w-4" />
+            Layout
+            <ChevronDown className="h-3 w-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<table style="width: 100%; border-collapse: collapse;" role="presentation"><tr><td style="width: 50%; padding: 10px; vertical-align: top;">Left column</td><td style="width: 50%; padding: 10px; vertical-align: top;">Right column</td></tr></table>`
+            ).run();
+          }}>
+            <Columns2 className="mr-2 h-4 w-4" /> 2 Columns (50/50)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<table style="width: 100%; border-collapse: collapse;" role="presentation"><tr><td style="width: 33%; padding: 10px; vertical-align: top;">Col 1</td><td style="width: 34%; padding: 10px; vertical-align: top;">Col 2</td><td style="width: 33%; padding: 10px; vertical-align: top;">Col 3</td></tr></table>`
+            ).run();
+          }}>
+            <Columns2 className="mr-2 h-4 w-4" /> 3 Columns (33/34/33)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<table style="width: 100%; border-collapse: collapse;" role="presentation"><tr><td style="width: 30%; padding: 10px; vertical-align: top;">Sidebar</td><td style="width: 70%; padding: 10px; vertical-align: top;">Main content</td></tr></table>`
+            ).run();
+          }}>
+            <Columns2 className="mr-2 h-4 w-4" /> 2 Columns (30/70)
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<div style="background-color: #f9fafb; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb;">Content box</div>`
+            ).run();
+          }}>
+            <Square className="mr-2 h-4 w-4" /> Content Box (gray)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<div style="background-color: #eff6ff; padding: 20px; border-radius: 8px; border: 1px solid #bfdbfe;">Info box</div>`
+            ).run();
+          }}>
+            <Square className="mr-2 h-4 w-4 text-blue-500" /> Info Box (blue)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<div style="background-color: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b;">Highlight box</div>`
+            ).run();
+          }}>
+            <Square className="mr-2 h-4 w-4 text-amber-500" /> Highlight Box (amber)
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<div style="text-align: center; padding: 20px;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Button Text</a></div>`
+            ).run();
+          }}>
+            <Square className="mr-2 h-4 w-4 text-[#00aade]" /> CTA Button
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">`
+            ).run();
+          }}>
+            <Minus className="mr-2 h-4 w-4" /> Divider
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => {
+            editor.chain().focus().insertContent(
+              `<div style="height: 20px;"></div>`
+            ).run();
+          }}>
+            <Minus className="mr-2 h-4 w-4 opacity-30" /> Spacer
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <div className="ml-auto flex items-center gap-0.5">
         {/* Undo/Redo */}

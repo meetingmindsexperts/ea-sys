@@ -85,6 +85,7 @@ export function PhotoUpload({ value, onChange, disabled = false }: PhotoUploadPr
         onChange={handleFileSelect}
         disabled={disabled || isUploading}
         className="hidden"
+        aria-label="Upload photo"
       />
 
       {value ? (
