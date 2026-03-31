@@ -22,8 +22,18 @@ export async function getOrgContext(req: Request): Promise<OrgContext | null> {
   // 1. Try NextAuth session first
   const session = await auth();
   if (session?.user?.organizationId) {
+    let orgId = session.user.organizationId;
+
+    // SUPER_ADMIN can override org via x-org-id header
+    if (session.user.role === "SUPER_ADMIN") {
+      const overrideOrgId = req.headers.get("x-org-id");
+      if (overrideOrgId) {
+        orgId = overrideOrgId;
+      }
+    }
+
     return {
-      organizationId: session.user.organizationId,
+      organizationId: orgId,
       userId: session.user.id ?? null,
       role: session.user.role ?? null,
       fromApiKey: false,

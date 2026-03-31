@@ -176,7 +176,7 @@ export function ContactDetailSheet({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
         {/* Header with actions */}
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-primary to-primary/70 px-6 py-4 text-white">
           <div className="flex items-start justify-between gap-4 pr-8">
             <SheetHeader className="flex-1">
               <SheetTitle className="text-white text-lg">
@@ -386,7 +386,7 @@ export function ContactDetailSheet({
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <a href={`mailto:${contact.email}`} className="text-sm hover:text-[#00aade] transition-colors truncate">
+                  <a href={`mailto:${contact.email}`} className="text-sm hover:text-primary transition-colors truncate">
                     {contact.email}
                   </a>
                 </div>

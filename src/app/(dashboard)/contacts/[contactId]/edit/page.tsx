@@ -58,7 +58,7 @@ function FormField({
 }
 
 const inputCls =
-  "h-9 text-sm border-gray-200 focus-visible:ring-[#00aade]/20 focus-visible:border-[#00aade]";
+  "h-9 text-sm border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function EditContactForm({ contactId, contact }: { contactId: string; contact: any }) {
@@ -140,7 +140,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* Identity — full width, photo left + fields right */}
-          <SectionCard accentColor="bg-[#00aade]" title="Identity">
+          <SectionCard accentColor="bg-primary" title="Identity">
             <div className="flex gap-6 items-start">
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
@@ -265,7 +265,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
               </FormField>
               <FormField label="Notes">
                 <textarea
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-[#00aade]/20 focus:border-[#00aade] transition-colors"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                   value={form.notes}
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                   placeholder="Any additional notes…"
@@ -320,7 +320,7 @@ export default function EditContactPage() {
       <div className="min-h-screen bg-gray-50/40 flex items-center justify-center">
         <div className="text-center">
           <p className="text-sm font-medium text-gray-600">Contact not found</p>
-          <Link href="/contacts" className="text-xs text-[#00aade] hover:underline mt-1 inline-block">
+          <Link href="/contacts" className="text-xs text-primary hover:underline mt-1 inline-block">
             Back to contacts
           </Link>
         </div>

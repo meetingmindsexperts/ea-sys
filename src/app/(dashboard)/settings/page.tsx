@@ -350,7 +350,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="rounded-xl bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-5 text-white">
+      <div className="rounded-xl bg-gradient-to-r from-primary to-primary/70 px-6 py-5 text-white">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Settings className="h-7 w-7" />
           Settings
@@ -362,9 +362,9 @@ export default function SettingsPage() {
 
       {/* Stats Overview */}
       <div className="grid gap-4 md:grid-cols-2">
-        <Card className="border-l-4 border-l-[#00aade]">
+        <Card className="border-l-4 border-l-primary">
           <CardContent className="pt-6 flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-[#00aade]/10 text-[#00aade]">
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-primary/10 text-primary">
               <Building2 className="h-6 w-6" />
             </div>
             <div>
@@ -390,7 +390,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#00aade]/10 text-[#00aade]">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
               <Building2 className="h-4 w-4" />
             </div>
             Organization Settings

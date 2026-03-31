@@ -336,7 +336,7 @@ export default function SpeakerDetailPage() {
   return (
     <div className="space-y-6">
       {/* Gradient Header */}
-      <div className="rounded-xl bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-5 text-white">
+      <div className="rounded-xl bg-gradient-to-r from-primary to-primary/70 px-6 py-5 text-white">
         <div className="flex items-center gap-2 mb-4">
           <Link href={`/events/${eventId}/speakers`} className="text-white/80 hover:text-white">
             <ArrowLeft className="h-4 w-4" />
@@ -569,7 +569,7 @@ export default function SpeakerDetailPage() {
                   {speaker.website && (
                     <div className="flex items-center gap-3">
                       <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <a href={speaker.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#00aade] hover:underline truncate">
+                      <a href={speaker.website} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline truncate">
                         {speaker.website}
                       </a>
                     </div>
@@ -665,17 +665,17 @@ export default function SpeakerDetailPage() {
             <CardContent>
               <div className="space-y-2 text-sm">
                 {speaker.socialLinks?.twitter && (
-                  <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
+                  <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
                     Twitter: {speaker.socialLinks.twitter}
                   </a>
                 )}
                 {speaker.socialLinks?.linkedin && (
-                  <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
+                  <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
                     LinkedIn
                   </a>
                 )}
                 {speaker.socialLinks?.github && (
-                  <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-[#00aade] hover:underline">
+                  <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
                     GitHub: {speaker.socialLinks.github}
                   </a>
                 )}

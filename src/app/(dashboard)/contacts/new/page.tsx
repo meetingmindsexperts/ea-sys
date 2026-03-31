@@ -75,7 +75,7 @@ function FormField({
 }
 
 const inputCls =
-  "h-9 text-sm border-gray-200 focus-visible:ring-[#00aade]/20 focus-visible:border-[#00aade]";
+  "h-9 text-sm border-gray-200 focus-visible:ring-primary/20 focus-visible:border-primary";
 
 export default function NewContactPage() {
   const router = useRouter();
@@ -135,7 +135,7 @@ export default function NewContactPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* Identity — full width, photo left + fields right */}
-          <SectionCard accentColor="bg-[#00aade]" title="Identity">
+          <SectionCard accentColor="bg-primary" title="Identity">
             <div className="flex gap-6 items-start">
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="grid grid-cols-[100px_1fr_1fr] gap-3">
@@ -260,7 +260,7 @@ export default function NewContactPage() {
               </FormField>
               <FormField label="Notes">
                 <textarea
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-[#00aade]/20 focus:border-[#00aade] transition-colors"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                   value={form.notes}
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                   placeholder="Any additional notes…"

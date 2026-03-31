@@ -318,7 +318,7 @@ export function SpeakerDetailSheet({
           ) : speaker ? (
             <>
               {/* Header */}
-              <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
+              <div className="sticky top-0 z-10 bg-gradient-to-r from-primary to-primary/70 px-6 py-4 text-white">
                 <div className="flex items-start justify-between gap-4 pr-8">
                   <SheetHeader className="flex-1">
                     <SheetTitle className="text-white text-lg">
@@ -544,7 +544,7 @@ export function SpeakerDetailSheet({
                       {speaker.website && (
                         <div className="flex items-center gap-3">
                           <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <a href={speaker.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#00aade] hover:underline truncate">
+                          <a href={speaker.website} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline truncate">
                             {speaker.website}
                           </a>
                         </div>
@@ -632,17 +632,17 @@ export function SpeakerDetailSheet({
                     <h3 className="font-semibold">Social Links</h3>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       {speaker.socialLinks.twitter && (
-                        <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-[#00aade] hover:underline">
+                        <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                           Twitter: {speaker.socialLinks.twitter}
                         </a>
                       )}
                       {speaker.socialLinks.linkedin && (
-                        <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="text-[#00aade] hover:underline">
+                        <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                           LinkedIn
                         </a>
                       )}
                       {speaker.socialLinks.github && (
-                        <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-[#00aade] hover:underline">
+                        <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                           GitHub: {speaker.socialLinks.github}
                         </a>
                       )}

@@ -264,7 +264,7 @@ export function RegistrationDetailSheet({
         {selectedRegistration ? (
           <>
             {/* Header with actions */}
-            <div className="sticky top-0 z-10 bg-gradient-to-r from-[#00aade] to-[#47c1e8] px-6 py-4 text-white">
+            <div className="sticky top-0 z-10 bg-gradient-to-r from-primary to-primary/70 px-6 py-4 text-white">
               <div className="flex items-start justify-between gap-4 pr-8">
                 <SheetHeader className="flex-1">
                   <SheetTitle className="text-white text-lg">

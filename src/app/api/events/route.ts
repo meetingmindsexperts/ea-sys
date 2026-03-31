@@ -35,11 +35,21 @@ export async function GET(req: Request) {
     // incorrectly return null for them — handle session auth separately here.
     const session = await auth();
     if (session?.user) {
+      // SUPER_ADMIN org override via x-org-id header
+      const user = { ...session.user };
+      if (user.role === "SUPER_ADMIN") {
+        const overrideOrgId = req.headers.get("x-org-id");
+        if (overrideOrgId) {
+          user.organizationId = overrideOrgId;
+        }
+      }
+
       const events = await db.event.findMany({
-        where: { ...buildEventAccessWhere(session.user), ...(slug && { slug }) },
+        where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
         orderBy: { createdAt: "desc" },
         include: {
           _count: { select: { registrations: true, speakers: true } },
+          organization: { select: { name: true } },
         },
       });
       return NextResponse.json(events);

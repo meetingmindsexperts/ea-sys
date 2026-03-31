@@ -17,7 +17,7 @@ const updateOrganizationSchema = z.object({
   }).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await auth();
 
@@ -25,8 +25,15 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // SUPER_ADMIN can view any org via x-org-id header
+    let orgId = session.user.organizationId!;
+    if (session.user.role === "SUPER_ADMIN") {
+      const overrideOrgId = req.headers.get("x-org-id");
+      if (overrideOrgId) orgId = overrideOrgId;
+    }
+
     const organization = await db.organization.findUnique({
-      where: { id: session.user.organizationId! },
+      where: { id: orgId },
       include: {
         users: {
           select: {
@@ -86,9 +93,16 @@ export async function PUT(req: Request) {
 
     const { name, logo, primaryColor, settings } = validated.data;
 
+    // SUPER_ADMIN can update any org via x-org-id header
+    let orgId = session.user.organizationId!;
+    if (session.user.role === "SUPER_ADMIN") {
+      const overrideOrgId = req.headers.get("x-org-id");
+      if (overrideOrgId) orgId = overrideOrgId;
+    }
+
     // Get current organization to merge settings
     const currentOrg = await db.organization.findUnique({
-      where: { id: session.user.organizationId! },
+      where: { id: orgId },
     });
 
     if (!currentOrg) {
@@ -101,7 +115,7 @@ export async function PUT(req: Request) {
       : JSON.parse(JSON.stringify(currentSettings));
 
     const organization = await db.organization.update({
-      where: { id: session.user.organizationId! },
+      where: { id: orgId },
       data: {
         ...(name && { name }),
         ...(logo !== undefined && { logo }),

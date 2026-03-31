@@ -24,7 +24,7 @@ export default function DashboardError({
         </p>
         <button
           onClick={reset}
-          className="rounded-md bg-[#00aade] px-4 py-2 text-sm font-medium text-white hover:bg-[#0090c0] transition-colors"
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
         >
           Try again
         </button>

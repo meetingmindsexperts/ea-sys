@@ -29,7 +29,7 @@ const TAG_COLORS = [
 ];
 
 const AVATAR_BG = [
-  "bg-[#00aade]/10 text-[#007a9e]",
+  "bg-primary/10 text-primary",
   "bg-violet-100 text-violet-600",
   "bg-emerald-100 text-emerald-600",
   "bg-amber-100 text-amber-700",
@@ -135,13 +135,13 @@ export default async function ContactDetailPage({
       value: (
         <a
           href={`mailto:${contact.email}`}
-          className="text-sm text-gray-900 hover:text-[#00aade] transition-colors truncate block"
+          className="text-sm text-gray-900 hover:text-primary transition-colors truncate block"
         >
           {contact.email}
         </a>
       ),
-      iconBg: "bg-[#00aade]/10",
-      iconColor: "text-[#00aade]",
+      iconBg: "bg-primary/10",
+      iconColor: "text-primary",
     },
     contact.phone && {
       icon: Phone,
@@ -231,7 +231,7 @@ export default async function ContactDetailPage({
       <div className="px-6 py-6 max-w-3xl space-y-5">
         {/* Profile hero card */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="h-1.5 bg-gradient-to-r from-[#00aade] via-[#00c8ff] to-[#00aade]/40" />
+          <div className="h-1.5 bg-gradient-to-r from-primary via-primary/70 to-primary/40" />
           <div className="p-6">
             <div className="flex items-start gap-5">
               {contact.photo ? (
@@ -278,7 +278,7 @@ export default async function ContactDetailPage({
         {/* Contact details */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2.5">
-            <div className="w-1 h-4 rounded-full bg-[#00aade]" />
+            <div className="w-1 h-4 rounded-full bg-primary" />
             <h2 className="text-sm font-semibold text-gray-700">Contact Details</h2>
           </div>
           <div className="p-6">
@@ -375,7 +375,7 @@ export default async function ContactDetailPage({
                     <td className="px-6 py-3.5">
                       <Link
                         href={`/events/${item.eventId}`}
-                        className="font-medium text-gray-900 hover:text-[#00aade] transition-colors"
+                        className="font-medium text-gray-900 hover:text-primary transition-colors"
                       >
                         {item.eventName}
                       </Link>
@@ -385,7 +385,7 @@ export default async function ContactDetailPage({
                         {item.role === "Speaker" ? (
                           <Mic className="h-3.5 w-3.5 text-violet-400 shrink-0" />
                         ) : (
-                          <Users className="h-3.5 w-3.5 text-[#00aade] shrink-0" />
+                          <Users className="h-3.5 w-3.5 text-primary shrink-0" />
                         )}
                         <span className="text-sm">{item.role}</span>
                       </div>

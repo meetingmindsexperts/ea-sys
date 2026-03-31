@@ -80,7 +80,7 @@ const TAG_COLORS = [
 ];
 
 const AVATAR_BG = [
-  "bg-[#00aade]/10 text-[#007a9e]",
+  "bg-primary/10 text-primary",
   "bg-violet-100 text-violet-600",
   "bg-emerald-100 text-emerald-600",
   "bg-amber-100 text-amber-700",
@@ -297,8 +297,8 @@ export default function ContactsPage() {
       <div className="bg-white border-b border-gray-200 px-6 py-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="w-9 h-9 rounded-xl bg-[#00aade]/10 flex items-center justify-center shrink-0">
-              <Users className="h-4.5 w-4.5 text-[#00aade]" style={{ width: "1.125rem", height: "1.125rem" }} />
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Users className="h-4.5 w-4.5 text-primary" style={{ width: "1.125rem", height: "1.125rem" }} />
             </div>
             <div>
               <h1 className="text-lg font-semibold tracking-tight text-gray-900">Contacts</h1>
@@ -369,8 +369,8 @@ export default function ContactsPage() {
         <div className="flex align-center py-4 border-b border-gray-200 gap-6">
         <div className="flex gap-4 w-full">
           <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3.5 shadow-sm">
-            <div className="w-8 h-8 rounded-lg bg-[#00aade]/10 flex items-center justify-center shrink-0">
-              <Users className="h-4 w-4 text-[#00aade]" />
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <Users className="h-4 w-4 text-primary" />
             </div>
             <div>
               <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Contacts</div>
@@ -394,7 +394,7 @@ export default function ContactsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
             <Input
               placeholder="Search name, email, organization…"
-              className="pl-8 h-9 bg-white border-gray-200 text-sm focus-visible:ring-[#00aade]/20 focus-visible:border-[#00aade]"
+              className="pl-8 h-9 bg-white border-gray-200 text-sm focus-visible:ring-primary/20 focus-visible:border-primary"
               value={searchInput}
               onChange={(e) => handleSearchChange(e.target.value)}
             />
@@ -421,7 +421,7 @@ export default function ContactsPage() {
                 onClick={() => toggleTagFilter(tag)}
                 className={`text-xs px-2.5 py-0.5 rounded-full border font-medium transition-all cursor-pointer ${
                   tagFilter.has(tag)
-                    ? "bg-[#00aade] text-white border-[#00aade] shadow-sm"
+                    ? "bg-primary text-white border-primary shadow-sm"
                     : `${getTagColor(tag)} hover:opacity-80`
                 }`}
               >
@@ -443,9 +443,9 @@ export default function ContactsPage() {
         </div>
         {/* Bulk actions bar */}
         {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-[#00aade]/5 rounded-xl border border-[#00aade]/20">
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 rounded-xl border border-primary/20">
             <div className="flex items-center gap-2 shrink-0">
-              <div className="w-5 h-5 rounded-full bg-[#00aade] flex items-center justify-center">
+              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
                 <span className="text-[10px] font-bold text-white leading-none">{selectedIds.size}</span>
               </div>
               <span className="text-sm font-medium text-gray-700">selected</span>
@@ -455,7 +455,7 @@ export default function ContactsPage() {
                 size="sm"
                 variant="outline"
                 onClick={() => openTagDialog(null, "add")}
-                className="h-7 text-xs border-[#00aade]/30 text-[#00aade] hover:bg-[#00aade]/5 hover:border-[#00aade]/50"
+                className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
               >
                 <Tag className="h-3 w-3 mr-1" />
                 Add Tags
@@ -555,7 +555,7 @@ export default function ContactsPage() {
                     <tr
                       key={contact.id}
                       className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/70 transition-colors group ${
-                        selectedIds.has(contact.id) ? "bg-[#00aade]/[0.03]" : ""
+                        selectedIds.has(contact.id) ? "bg-primary/[0.03]" : ""
                       }`}
                     >
                       <td className="px-4 py-3.5">
@@ -575,7 +575,7 @@ export default function ContactsPage() {
                             <button
                               type="button"
                               onClick={() => { setSheetContactId(contact.id); setSheetOpen(true); }}
-                              className="font-medium text-gray-900 hover:text-[#00aade] transition-colors truncate block leading-snug text-left cursor-pointer"
+                              className="font-medium text-gray-900 hover:text-primary transition-colors truncate block leading-snug text-left cursor-pointer"
                             >
                               {formatPersonName(contact.title, contact.firstName, contact.lastName)}
                             </button>
@@ -669,7 +669,7 @@ export default function ContactsPage() {
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-400">
                 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()} contacts
-                {isFetching && <span className="ml-2 text-[#00aade]">Refreshing…</span>}
+                {isFetching && <span className="ml-2 text-primary">Refreshing…</span>}
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-gray-400">Show</span>
@@ -680,7 +680,7 @@ export default function ContactsPage() {
                     setPageSize(Number(e.target.value));
                     setPage(1);
                   }}
-                  className="h-7 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#00aade]/30"
+                  className="h-7 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/30"
                 >
                   {PAGE_SIZE_OPTIONS.map((size) => (
                     <option key={size} value={size}>{size}</option>

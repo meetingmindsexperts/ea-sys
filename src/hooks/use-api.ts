@@ -3,9 +3,15 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-// Generic fetch wrapper with error handling
+// Generic fetch wrapper with error handling.
+// Automatically injects x-org-id header for SUPER_ADMIN org switching.
 async function fetchApi<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
+  const headers = new Headers(options?.headers);
+  const activeOrgId = typeof window !== "undefined" ? localStorage.getItem("ea-sys:active-org-id") : null;
+  if (activeOrgId) {
+    headers.set("x-org-id", activeOrgId);
+  }
+  const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error(error.error || "Request failed");
@@ -63,7 +69,27 @@ export const queryKeys = {
   emailTemplate: (eventId: string, templateId: string) => ["events", eventId, "email-templates", templateId] as const,
   registrationTypes: ["registration-types"] as const,
   notifications: ["notifications"] as const,
+  organizations: ["organizations"] as const,
 };
+
+// ============ ORGANIZATIONS (SUPER_ADMIN) ============
+export interface OrgListItem {
+  id: string;
+  name: string;
+  slug: string;
+  logo: string | null;
+  primaryColor: string | null;
+  _count: { events: number; users: number };
+}
+
+export function useOrganizations(enabled = false) {
+  return useQuery({
+    queryKey: queryKeys.organizations,
+    queryFn: () => fetchApi<OrgListItem[]>("/api/organizations"),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+  });
+}
 
 // ============ ORG BRANDING ============
 export interface OrgBranding {

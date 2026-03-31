@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useOrgBranding } from "@/hooks/use-api";
+import { useQueryClient } from "@tanstack/react-query";
+import { useOrgBranding, useOrganizations } from "@/hooks/use-api";
+import { useActiveOrg } from "@/contexts/active-org-context";
 import {
   Home,
   Settings,
@@ -23,6 +25,7 @@ import {
   ScanBarcode,
   Activity,
   Mail,
+  ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,6 +36,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
@@ -91,6 +102,8 @@ export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { data: session } = useSession();
   const { data: branding } = useOrgBranding();
+  const qc = useQueryClient();
+  const { activeOrgId, setActiveOrgId, isOrgOverride } = useActiveOrg();
   const orgLogo = branding?.logo ?? null;
   const orgName = branding?.name ?? session?.user?.organizationName ?? null;
   const isSuperAdmin  = session?.user?.role === "SUPER_ADMIN";
@@ -98,6 +111,15 @@ export function Sidebar() {
   const isSubmitter   = session?.user?.role === "SUBMITTER";
   const isRegistrant  = session?.user?.role === "REGISTRANT";
   const isRestricted  = isReviewer || isSubmitter;
+
+  // Fetch all orgs for SUPER_ADMIN switcher
+  const { data: allOrgs } = useOrganizations(isSuperAdmin);
+
+  const handleOrgSwitch = (orgId: string | null) => {
+    setActiveOrgId(orgId);
+    // Invalidate all cached queries so they refetch with the new org header
+    setTimeout(() => qc.invalidateQueries(), 50);
+  };
 
   // REGISTRANT sees no sidebar — only the portal page
   if (isRegistrant) return null;
@@ -164,6 +186,87 @@ export function Sidebar() {
             )}
           </Link>
         </div>
+
+        {/* ── Org Switcher (SUPER_ADMIN only) ──────────────────────────────── */}
+        {isSuperAdmin && allOrgs && allOrgs.length > 1 && !isCollapsed && (
+          <div className="border-b px-3 py-2 shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={cn(
+                  "flex items-center justify-between w-full rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted",
+                  isOrgOverride && "bg-amber-50 text-amber-700 border border-amber-200"
+                )}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate font-medium">{orgName || "Select Org"}</span>
+                  </div>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel className="text-xs">Switch Organization</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => handleOrgSwitch(null)}
+                  className={!activeOrgId ? "bg-muted" : ""}
+                >
+                  <Building2 className="mr-2 h-4 w-4" />
+                  <div>
+                    <div className="font-medium">My Organization</div>
+                    <div className="text-xs text-muted-foreground">
+                      {session?.user?.organizationName}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {allOrgs.map((org) => (
+                  <DropdownMenuItem
+                    key={org.id}
+                    onClick={() => handleOrgSwitch(
+                      org.id === session?.user?.organizationId ? null : org.id
+                    )}
+                    className={activeOrgId === org.id ? "bg-muted" : ""}
+                  >
+                    {org.logo ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={org.logo} alt="" className="mr-2 h-4 w-4 object-contain" />
+                    ) : (
+                      <Building2 className="mr-2 h-4 w-4" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{org.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {org._count.events} events · {org._count.users} users
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+        {isSuperAdmin && allOrgs && allOrgs.length > 1 && isCollapsed && (
+          <div className="border-b px-2 py-2 shrink-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Switch organization"
+                  onClick={() => handleOrgSwitch(null)}
+                  className={cn(
+                    "flex items-center justify-center w-full rounded-md p-1.5 transition-colors hover:bg-muted",
+                    isOrgOverride && "bg-amber-50 text-amber-700"
+                  )}
+                >
+                  <Building2 className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {isOrgOverride ? `Viewing: ${orgName}` : "My Organization"}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
 
         {/* ── Back link (event context) ─────────────────────────────────────── */}
         {isEventPage && !isCollapsed && (
