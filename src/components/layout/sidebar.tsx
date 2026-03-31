@@ -36,10 +36,10 @@ import {
 const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
-  { name: "Activity",  href: "/activity",  icon: Activity, adminOnly: true },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
+  { name: "Activity",  href: "/activity",  icon: Activity, superAdminOnly: true },
 ];
 
 // Event nav split into sections for visual grouping
