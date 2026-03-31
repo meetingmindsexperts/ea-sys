@@ -423,7 +423,12 @@ export default function SchedulePage() {
   };
 
   const openAddSession = () => {
-    resetSessionForm();
+    setEditingSession(null);
+    setSessionForm({
+      ...DEFAULT_SESSION_FORM,
+      startTime: `${resolvedDate}T09:00`,
+      endTime: `${resolvedDate}T10:00`,
+    });
     setIsSessionDialogOpen(true);
   };
 
@@ -944,6 +949,8 @@ export default function SchedulePage() {
                     onChange={(e) =>
                       setSessionForm({ ...sessionForm, startTime: e.target.value })
                     }
+                    min={minDate ? `${minDate}T00:00` : undefined}
+                    max={maxDate ? `${maxDate}T23:59` : undefined}
                     required
                   />
                 </div>
@@ -955,6 +962,8 @@ export default function SchedulePage() {
                     onChange={(e) =>
                       setSessionForm({ ...sessionForm, endTime: e.target.value })
                     }
+                    min={minDate ? `${minDate}T00:00` : undefined}
+                    max={maxDate ? `${maxDate}T23:59` : undefined}
                     required
                   />
                 </div>
