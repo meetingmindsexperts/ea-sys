@@ -366,7 +366,8 @@ export default function ContactsPage() {
 
       <div className="px-6 py-5 space-y-4">
         {/* Stats */}
-        <div className="flex gap-3">
+        <div className="flex align-center">
+        <div className="flex gap-3 w-full">
           <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3.5 shadow-sm">
             <div className="w-8 h-8 rounded-lg bg-[#00aade]/10 flex items-center justify-center shrink-0">
               <Users className="h-4 w-4 text-[#00aade]" />
@@ -388,7 +389,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Search toolbar */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="pl-9  w-full flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[220px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
             <Input
@@ -408,7 +409,7 @@ export default function ContactsPage() {
             )}
           </div>
         </div>
-
+        </div>
         {/* Tag filter pills */}
         {allTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
