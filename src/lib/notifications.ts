@@ -4,7 +4,7 @@ import { apiLogger } from "@/lib/logger";
 interface CreateNotificationParams {
   userId: string;
   eventId?: string;
-  type: "REGISTRATION" | "PAYMENT" | "ABSTRACT" | "REVIEW" | "CHECK_IN";
+  type: "REGISTRATION" | "PAYMENT" | "ABSTRACT" | "REVIEW" | "CHECK_IN" | "SIGNUP";
   title: string;
   message: string;
   link?: string;

@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { notifyEventAdmins } from "@/lib/notifications";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 
 const registerSchema = z.object({
@@ -247,6 +248,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId: event.id,
       email: emailLower,
     });
+
+    // Notify admins of new signup (non-blocking)
+    notifyEventAdmins(event.id, {
+      type: "SIGNUP",
+      title: "New Account Signup",
+      message: `${data.firstName} ${data.lastName} (${emailLower}) created a submitter account`,
+      link: `/events/${event.id}/speakers`,
+    }).catch(() => {});
 
     // Send welcome email (non-blocking)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";

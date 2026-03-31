@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { createNotification } from "@/lib/notifications";
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
@@ -124,6 +125,28 @@ export async function POST(req: Request) {
       email,
       userId: user.id,
     });
+
+    // Notify org admins of new team member (non-blocking)
+    if (user.organizationId) {
+      db.user.findMany({
+        where: {
+          organizationId: user.organizationId,
+          role: { in: ["SUPER_ADMIN", "ADMIN"] },
+          id: { not: user.id },
+        },
+        select: { id: true },
+      }).then((admins) => {
+        for (const admin of admins) {
+          createNotification({
+            userId: admin.id,
+            type: "SIGNUP",
+            title: "Team Member Joined",
+            message: `${user.firstName} ${user.lastName} (${email}) accepted their invitation and set up their account`,
+            link: "/settings",
+          });
+        }
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

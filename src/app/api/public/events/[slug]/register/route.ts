@@ -358,6 +358,13 @@ export async function POST(req: Request, { params }: RouteParams) {
             where: { attendee: { email }, userId: null },
             data: { userId: newUser.id },
           });
+          // Notify admins of new signup (non-blocking)
+          notifyEventAdmins(event.id, {
+            type: "SIGNUP",
+            title: "New Account Signup",
+            message: `${firstName} ${lastName} (${email}) created a registrant account`,
+            link: `/events/${event.id}/registrations`,
+          }).catch(() => {});
         }
       } catch (accountError) {
         // Account creation failure should not block the registration
