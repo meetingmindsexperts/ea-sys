@@ -256,7 +256,7 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
         <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; max-width: 600px;">
           ${headerBlock}
           <tr>
-            <td style="padding: 0;">
+            <td style="padding: 24px 30px;">
               ${bodyHtml}
             </td>
           </tr>
@@ -413,10 +413,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     slug: "registration-confirmation",
     name: "Registration Confirmation",
     subject: "Registration Confirmed - {{eventName}}",
-    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Registration Confirmed!</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
-    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    htmlContent: `<div style="padding: 20px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your registration for <strong>{{eventName}}</strong> has been confirmed. We look forward to seeing you!</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
