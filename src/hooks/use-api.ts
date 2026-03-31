@@ -41,6 +41,7 @@ function useEventListQuery<T>(
 
 // Query keys for cache management
 export const queryKeys = {
+  orgBranding: ["org-branding"] as const,
   events: ["events"] as const,
   event: (eventId: string) => ["events", eventId] as const,
   tickets: (eventId: string) => ["events", eventId, "tickets"] as const,
@@ -63,6 +64,21 @@ export const queryKeys = {
   registrationTypes: ["registration-types"] as const,
   notifications: ["notifications"] as const,
 };
+
+// ============ ORG BRANDING ============
+export interface OrgBranding {
+  name: string | null;
+  logo: string | null;
+  primaryColor: string | null;
+}
+
+export function useOrgBranding() {
+  return useQuery({
+    queryKey: queryKeys.orgBranding,
+    queryFn: () => fetchApi<OrgBranding>("/api/organization/branding"),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
+}
 
 // ============ EVENTS ============
 export function useEvents() {

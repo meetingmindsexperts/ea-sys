@@ -49,6 +49,9 @@ import {
   Cloud,
   CheckCircle2,
   XCircle,
+  Upload,
+  Palette,
+  X as XIcon,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -57,7 +60,9 @@ import {
   useEventsAirConfig,
   useSaveEventsAirCredentials,
   useTestEventsAirConnection,
+  queryKeys,
 } from "@/hooks/use-api";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -77,6 +82,7 @@ interface Organization {
   name: string;
   slug: string;
   logo: string | null;
+  primaryColor: string | null;
   settings: {
     timezone?: string;
     dateFormat?: string;
@@ -123,6 +129,7 @@ const dateFormats = [
 
 export default function SettingsPage() {
   const { data: session, update: updateSession } = useSession();
+  const qc = useQueryClient();
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,11 +140,14 @@ export default function SettingsPage() {
 
   const [orgFormData, setOrgFormData] = useState({
     name: "",
+    logo: null as string | null,
+    primaryColor: null as string | null,
     timezone: "UTC",
     dateFormat: "MM/DD/YYYY",
     currency: "USD",
     emailNotifications: true,
   });
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const [userFormData, setUserFormData] = useState({
     email: "",
@@ -162,6 +172,8 @@ export default function SettingsPage() {
         setOrganization(data);
         setOrgFormData({
           name: data.name,
+          logo: data.logo || null,
+          primaryColor: data.primaryColor || null,
           timezone: data.settings?.timezone || "UTC",
           dateFormat: data.settings?.dateFormat || "MM/DD/YYYY",
           currency: data.settings?.currency || "USD",
@@ -195,6 +207,8 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: orgFormData.name,
+          logo: orgFormData.logo,
+          primaryColor: orgFormData.primaryColor,
           settings: {
             timezone: orgFormData.timezone,
             dateFormat: orgFormData.dateFormat,
@@ -206,8 +220,9 @@ export default function SettingsPage() {
 
       if (res.ok) {
         fetchOrganization();
-        // Refresh session to update organization name in header
+        // Refresh session + branding cache so sidebar/theme update immediately
         await updateSession();
+        qc.invalidateQueries({ queryKey: queryKeys.orgBranding });
         toast.success("Organization settings saved");
       } else {
         toast.error("Failed to save organization settings");
@@ -405,6 +420,140 @@ export default function SettingsPage() {
                 disabled
                 className="bg-muted"
               />
+            </div>
+          </div>
+
+          {/* Branding: Logo + Primary Color */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Organization Logo</Label>
+              <div className="flex items-center gap-4">
+                {orgFormData.logo ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={orgFormData.logo}
+                      alt="Org logo"
+                      className="h-12 w-auto max-w-[120px] object-contain rounded border p-1"
+                    />
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setOrgFormData({ ...orgFormData, logo: null })}
+                        className="absolute -top-2 -right-2 rounded-full bg-destructive text-white p-0.5"
+                        aria-label="Remove logo"
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-12 w-12 rounded border border-dashed flex items-center justify-center text-muted-foreground">
+                    <Upload className="h-5 w-5" />
+                  </div>
+                )}
+                {isAdmin && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={logoUploading}
+                      onClick={() => document.getElementById("logo-upload")?.click()}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      {logoUploading ? "Uploading..." : "Upload Logo"}
+                    </Button>
+                    <input
+                      id="logo-upload"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      aria-label="Upload organization logo"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 500 * 1024) {
+                          toast.error("Logo must be under 500KB");
+                          return;
+                        }
+                        setLogoUploading(true);
+                        try {
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          const res = await fetch("/api/upload/photo", {
+                            method: "POST",
+                            body: formData,
+                          });
+                          if (res.ok) {
+                            const { url } = await res.json();
+                            setOrgFormData((prev) => ({ ...prev, logo: url }));
+                            toast.success("Logo uploaded");
+                          } else {
+                            toast.error("Failed to upload logo");
+                          }
+                        } catch {
+                          toast.error("Failed to upload logo");
+                        } finally {
+                          setLogoUploading(false);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      JPEG, PNG, or WebP. Max 500KB.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="primaryColor">
+                <span className="flex items-center gap-1.5">
+                  <Palette className="h-4 w-4" />
+                  Brand Color
+                </span>
+              </Label>
+              <div className="flex items-center gap-3">
+                <input
+                  id="primaryColor"
+                  type="color"
+                  title="Brand color picker"
+                  value={orgFormData.primaryColor || "#00aade"}
+                  onChange={(e) =>
+                    setOrgFormData({ ...orgFormData, primaryColor: e.target.value })
+                  }
+                  disabled={!isAdmin}
+                  className="h-10 w-14 cursor-pointer rounded border p-0.5"
+                />
+                <Input
+                  value={orgFormData.primaryColor || "#00aade"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                      setOrgFormData({ ...orgFormData, primaryColor: v });
+                    }
+                  }}
+                  disabled={!isAdmin}
+                  className="w-28 font-mono text-sm"
+                  maxLength={7}
+                  placeholder="#00aade"
+                />
+                {orgFormData.primaryColor && isAdmin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOrgFormData({ ...orgFormData, primaryColor: null })}
+                    className="text-muted-foreground"
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Used as the primary accent color throughout the dashboard.
+              </p>
             </div>
           </div>
 

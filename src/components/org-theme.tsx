@@ -1,25 +1,22 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { useOrgBranding } from "@/hooks/use-api";
 
 /**
  * Converts a hex color (#rrggbb) to an oklch CSS value.
- * Uses a simplified sRGB→OKLCH conversion that's good enough for theming.
+ * Uses a simplified sRGB->OKLCH conversion that's good enough for theming.
  */
 function hexToOklch(hex: string): string {
-  // Parse hex
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
 
-  // sRGB to linear
   const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
   const lr = toLinear(r);
   const lg = toLinear(g);
   const lb = toLinear(b);
 
-  // Linear sRGB to OKLab (via LMS)
   const l_ = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
   const m_ = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
   const s_ = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
@@ -41,11 +38,11 @@ function hexToOklch(hex: string): string {
 
 /**
  * Applies the organization's primary color as CSS custom property overrides.
- * This makes all existing Tailwind `bg-primary`, `text-primary`, etc. use the org color.
+ * Fetches branding from the API (not session) so changes take effect immediately.
  */
 export function OrgTheme() {
-  const { data: session } = useSession();
-  const primaryColor = session?.user?.organizationPrimaryColor;
+  const { data: branding } = useOrgBranding();
+  const primaryColor = branding?.primaryColor;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -55,7 +52,6 @@ export function OrgTheme() {
       root.style.setProperty("--primary", oklch);
       root.style.setProperty("--ring", oklch);
     } else {
-      // Reset to stylesheet defaults
       root.style.removeProperty("--primary");
       root.style.removeProperty("--ring");
     }

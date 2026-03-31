@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useOrgBranding } from "@/hooks/use-api";
 import {
   Home,
   Settings,
@@ -89,6 +90,9 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { data: session } = useSession();
+  const { data: branding } = useOrgBranding();
+  const orgLogo = branding?.logo ?? null;
+  const orgName = branding?.name ?? session?.user?.organizationName ?? null;
   const isSuperAdmin  = session?.user?.role === "SUPER_ADMIN";
   const isReviewer    = session?.user?.role === "REVIEWER";
   const isSubmitter   = session?.user?.role === "SUBMITTER";
@@ -138,15 +142,24 @@ export function Sidebar() {
             href="/dashboard"
             className={cn("flex items-center gap-3 min-w-0", isCollapsed && "justify-center w-full")}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={session?.user?.organizationLogo || "/mmg-logo.png"}
-              alt={session?.user?.organizationName || "Organization"}
-              className={cn("object-contain shrink-0", isCollapsed ? "h-8 w-8" : "h-9 max-w-[60px]")}
-            />
+            {orgLogo ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={orgLogo}
+                alt={orgName || "Organization"}
+                className={cn("object-contain shrink-0", isCollapsed ? "h-8 w-8" : "h-9 max-w-[60px]")}
+              />
+            ) : isCollapsed ? (
+              <span className="text-sm font-bold text-primary">
+                {(orgName || "E")[0]}
+              </span>
+            ) : null}
             {!isCollapsed && (
-              <span className="text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 border-l border-border pl-3 leading-tight line-clamp-2">
-                {session?.user?.organizationName || "EventsHub"}
+              <span className={cn(
+                "text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 leading-tight line-clamp-2",
+                orgLogo && "border-l border-border pl-3"
+              )}>
+                {orgName || "EventsHub"}
               </span>
             )}
           </Link>
