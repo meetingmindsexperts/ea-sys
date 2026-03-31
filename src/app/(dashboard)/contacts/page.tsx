@@ -366,8 +366,8 @@ export default function ContactsPage() {
 
       <div className="px-6 py-5 space-y-4">
         {/* Stats */}
-        <div className="flex align-center">
-        <div className="flex gap-3 w-full">
+        <div className="flex align-center py-4 border-b border-gray-200 gap-6">
+        <div className="flex gap-4 w-full">
           <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3.5 shadow-sm">
             <div className="w-8 h-8 rounded-lg bg-[#00aade]/10 flex items-center justify-center shrink-0">
               <Users className="h-4 w-4 text-[#00aade]" />
@@ -389,7 +389,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Search toolbar */}
-        <div className="pl-9  w-full flex flex-wrap items-center gap-3">
+        <div className="w-full flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[220px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
             <Input
@@ -409,10 +409,10 @@ export default function ContactsPage() {
             )}
           </div>
         </div>
-        </div>
+        
         {/* Tag filter pills */}
         {allTags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 items-center">
+          <div className="w-full flex flex-wrap gap-1.5 items-center">
             <span className="text-xs font-medium text-gray-400 mr-0.5 shrink-0">Filter:</span>
             {allTags.map((tag) => (
               <button
@@ -440,7 +440,7 @@ export default function ContactsPage() {
             )}
           </div>
         )}
-
+        </div>
         {/* Bulk actions bar */}
         {selectedIds.size > 0 && (
           <div className="flex items-center gap-3 px-4 py-2.5 bg-[#00aade]/5 rounded-xl border border-[#00aade]/20">
@@ -489,7 +489,7 @@ export default function ContactsPage() {
         )}
 
         {/* Contacts table */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+        <div className="mt-9 bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
@@ -503,6 +503,7 @@ export default function ContactsPage() {
                 </th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Organization</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Specialty</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
                 <th className="text-right px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
@@ -582,7 +583,7 @@ export default function ContactsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[160px]">
+                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
                         <div className="min-w-0">
                           <span className="text-sm text-gray-700 truncate block">
                             {contact.organization || <span className="text-gray-300">—</span>}
@@ -592,7 +593,14 @@ export default function ContactsPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 hidden lg:table-cell">
+                      <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
+                        <div className="min-w-0">
+                          {contact.specialty && (
+                            <span className="text-xs text-gray-400 truncate block">{contact.specialty}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[200px]">
                         <div className="flex flex-wrap gap-1">
                           {(contact.tags || []).slice(0, 3).map((tag: string) => (
                             <span
