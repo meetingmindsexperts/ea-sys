@@ -22,6 +22,7 @@ import {
   ScrollText,
   ScanBarcode,
   Activity,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,12 @@ const eventNavigationSections = [
     items: [
       { name: "Abstracts", href: "/abstracts", icon: FileText },
       { name: "Reviewers", href: "/reviewers", icon: UserCheck },
+    ],
+  },
+  {
+    label: "Communicate",
+    items: [
+      { name: "Communications", href: "/communications", icon: Mail },
     ],
   },
   {

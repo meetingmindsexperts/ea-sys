@@ -1432,7 +1432,7 @@ function EmailTemplatesTab({ eventId }: { eventId: string }) {
           <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">System Templates</h4>
           <div className="grid gap-3 md:grid-cols-2">
             {systemTemplates.map((template: { id: string; slug: string; name: string; subject: string; isActive: boolean; updatedAt: string }) => (
-              <Link key={template.id} href={`/events/${eventId}/email-templates/${template.id}`}>
+              <Link key={template.id} href={`/events/${eventId}/communications/templates/${template.id}`}>
                 <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full">
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">
@@ -1464,7 +1464,7 @@ function EmailTemplatesTab({ eventId }: { eventId: string }) {
           <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Custom Templates</h4>
           <div className="grid gap-3 md:grid-cols-2">
             {customTemplates.map((template: { id: string; slug: string; name: string; subject: string; isActive: boolean; updatedAt: string }) => (
-              <Link key={template.id} href={`/events/${eventId}/email-templates/${template.id}`}>
+              <Link key={template.id} href={`/events/${eventId}/communications/templates/${template.id}`}>
                 <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer h-full border-primary/20">
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between">
