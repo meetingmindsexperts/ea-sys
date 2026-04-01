@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,11 +52,6 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
-
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
-  { ssr: false, loading: () => <div className="h-[200px] border rounded-md animate-pulse bg-muted/50" /> }
-);
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -122,42 +116,6 @@ export default function AbstractsPage() {
   const mySpeaker = isSubmitter
     ? speakers.find((s) => s.userId === session?.user?.id)
     : null;
-
-  // Abstract welcome text WYSIWYG state (admin/organizer only)
-  const [abstractWelcomeHtml, setAbstractWelcomeHtml] = useState<string>("");
-  const [abstractWelcomeLoaded, setAbstractWelcomeLoaded] = useState(false);
-
-  useEffect(() => {
-    if (event && !abstractWelcomeLoaded) {
-      const html = (event as Record<string, unknown>).abstractWelcomeHtml as string || "";
-      // One-time init from fetched event data
-      queueMicrotask(() => {
-        setAbstractWelcomeHtml(html);
-        setAbstractWelcomeLoaded(true);
-      });
-    }
-  }, [event, abstractWelcomeLoaded]);
-
-  const saveAbstractWelcome = useMutation({
-    mutationFn: async (html: string) => {
-      const res = await fetch(`/api/events/${eventId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ abstractWelcomeHtml: html || null }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
-      toast.success("Abstract welcome text saved");
-    },
-    onError: () => toast.error("Failed to save abstract welcome text"),
-  });
-
-  const handleSaveAbstractWelcome = useCallback(() => {
-    saveAbstractWelcome.mutate(abstractWelcomeHtml);
-  }, [abstractWelcomeHtml, saveAbstractWelcome]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
@@ -689,24 +647,6 @@ export default function AbstractsPage() {
                 )}
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Abstract Welcome Text Editor (admin/organizer only) */}
-      {!isSubmitter && !isReviewer && (
-        <Card>
-          <CardContent className="pt-5 pb-4 px-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">Abstract Submission Welcome Text</h3>
-                <p className="text-xs text-muted-foreground">Shown on step 1 of the abstract submission registration form.</p>
-              </div>
-              <Button size="sm" onClick={handleSaveAbstractWelcome} disabled={saveAbstractWelcome.isPending}>
-                {saveAbstractWelcome.isPending ? "Saving..." : "Save"}
-              </Button>
-            </div>
-            <TiptapEditor content={abstractWelcomeHtml} onChange={setAbstractWelcomeHtml} />
           </CardContent>
         </Card>
       )}

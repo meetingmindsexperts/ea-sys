@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,7 +48,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { useMutation } from "@tanstack/react-query";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -127,102 +126,6 @@ export default function TicketsPage() {
   });
 
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
-
-  // Terms & conditions WYSIWYG state
-  const [termsHtml, setTermsHtml] = useState<string>("");
-  const [termsLoaded, setTermsLoaded] = useState(false);
-
-  useEffect(() => {
-    if (event && !termsLoaded) {
-      setTermsHtml((event as Record<string, unknown>).registrationTermsHtml as string || "");
-      setTermsLoaded(true);
-    }
-  }, [event, termsLoaded]);
-
-  const saveTerms = useMutation({
-    mutationFn: async (html: string) => {
-      const res = await fetch(`/api/events/${eventId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationTermsHtml: html || null }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
-      toast.success("Terms & conditions saved");
-    },
-    onError: () => toast.error("Failed to save terms"),
-  });
-
-  const handleSaveTerms = useCallback(() => {
-    saveTerms.mutate(termsHtml);
-  }, [termsHtml, saveTerms]);
-
-  // Welcome text WYSIWYG state
-  const [welcomeHtml, setWelcomeHtml] = useState<string>("");
-  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
-
-  useEffect(() => {
-    if (event && !welcomeLoaded) {
-      setWelcomeHtml((event as Record<string, unknown>).registrationWelcomeHtml as string || "");
-      setWelcomeLoaded(true);
-    }
-  }, [event, welcomeLoaded]);
-
-  const saveWelcome = useMutation({
-    mutationFn: async (html: string) => {
-      const res = await fetch(`/api/events/${eventId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationWelcomeHtml: html || null }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
-      toast.success("Welcome text saved");
-    },
-    onError: () => toast.error("Failed to save welcome text"),
-  });
-
-  const handleSaveWelcome = useCallback(() => {
-    saveWelcome.mutate(welcomeHtml);
-  }, [welcomeHtml, saveWelcome]);
-
-  // Post-registration confirmation text WYSIWYG state
-  const [confirmationHtml, setConfirmationHtml] = useState<string>("");
-  const [confirmationLoaded, setConfirmationLoaded] = useState(false);
-
-  useEffect(() => {
-    if (event && !confirmationLoaded) {
-      setConfirmationHtml((event as Record<string, unknown>).registrationConfirmationHtml as string || "");
-      setConfirmationLoaded(true);
-    }
-  }, [event, confirmationLoaded]);
-
-  const saveConfirmation = useMutation({
-    mutationFn: async (html: string) => {
-      const res = await fetch(`/api/events/${eventId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrationConfirmationHtml: html || null }),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
-      toast.success("Confirmation text saved");
-    },
-    onError: () => toast.error("Failed to save confirmation text"),
-  });
-
-  const handleSaveConfirmation = useCallback(() => {
-    saveConfirmation.mutate(confirmationHtml);
-  }, [confirmationHtml, saveConfirmation]);
 
   // Registration type CRUD
   const openCreateType = () => {
@@ -594,54 +497,6 @@ export default function TicketsPage() {
           </li>
         </ul>
       </div>
-
-      {/* Registration Welcome Text Editor */}
-      <Card>
-        <CardContent className="pt-5 pb-4 px-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Registration Welcome Text</h3>
-              <p className="text-xs text-muted-foreground">Shown on step 1 of the public registration form, above the account creation fields.</p>
-            </div>
-            <Button size="sm" onClick={handleSaveWelcome} disabled={saveWelcome.isPending}>
-              {saveWelcome.isPending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-          <TiptapEditor content={welcomeHtml} onChange={setWelcomeHtml} />
-        </CardContent>
-      </Card>
-
-      {/* Post-Registration Confirmation Text Editor */}
-      <Card>
-        <CardContent className="pt-5 pb-4 px-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Post-Registration Confirmation Text</h3>
-              <p className="text-xs text-muted-foreground">Shown on the confirmation page after a registrant completes registration.</p>
-            </div>
-            <Button size="sm" onClick={handleSaveConfirmation} disabled={saveConfirmation.isPending}>
-              {saveConfirmation.isPending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-          <TiptapEditor content={confirmationHtml} onChange={setConfirmationHtml} />
-        </CardContent>
-      </Card>
-
-      {/* Terms & Conditions Editor */}
-      <Card>
-        <CardContent className="pt-5 pb-4 px-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Terms & Conditions</h3>
-              <p className="text-xs text-muted-foreground">Shown on the public registration form. Registrants must agree before submitting.</p>
-            </div>
-            <Button size="sm" onClick={handleSaveTerms} disabled={saveTerms.isPending}>
-              {saveTerms.isPending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-          <TiptapEditor content={termsHtml} onChange={setTermsHtml} />
-        </CardContent>
-      </Card>
 
       {/* Registration Type Dialog */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
