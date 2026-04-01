@@ -1,8 +1,8 @@
 /**
- * Storage abstraction for photo uploads.
+ * Storage abstraction for file uploads (photos + media).
  *
  * Two providers:
- *   - "local"    — writes to /public/uploads/photos/ (EC2/Docker)
+ *   - "local"    — writes to /public/uploads/{photos,media}/ (EC2/Docker)
  *   - "supabase" — uploads to Supabase Storage bucket (Vercel / serverless)
  *
  * Selected via STORAGE_PROVIDER env var (defaults to "local").
@@ -10,7 +10,7 @@
  * Supabase setup:
  *   1. Create a public bucket (name matches SUPABASE_STORAGE_BUCKET, default "photos")
  *   2. Set allowed MIME types: image/jpeg, image/png, image/webp
- *   3. Set file size limit to 500KB
+ *   3. Set file size limit to 2MB (media uploads allow up to 2MB; profile photos are 500KB, enforced in API)
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
