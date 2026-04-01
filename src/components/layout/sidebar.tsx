@@ -27,6 +27,7 @@ import {
   Mail,
   PenLine,
   ChevronsUpDown,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
+  { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
   { name: "Activity",  href: "/activity",  icon: Activity, superAdminOnly: true },

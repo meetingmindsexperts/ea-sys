@@ -41,7 +41,7 @@ function getSupabaseClient(): SupabaseClient {
 
 // ── Local filesystem provider ────────────────────────────────────────────
 
-async function uploadLocal(buffer: Buffer, filename: string): Promise<string> {
+async function uploadLocal(buffer: Buffer, filename: string, subdirectory = "photos"): Promise<string> {
   const { writeFile, mkdir } = await import("fs/promises");
   const { join } = await import("path");
   const { existsSync } = await import("fs");
@@ -49,7 +49,7 @@ async function uploadLocal(buffer: Buffer, filename: string): Promise<string> {
   const now = new Date();
   const year = now.getFullYear().toString();
   const month = (now.getMonth() + 1).toString().padStart(2, "0");
-  const uploadDir = join(process.cwd(), "public", "uploads", "photos", year, month);
+  const uploadDir = join(process.cwd(), "public", "uploads", subdirectory, year, month);
 
   if (!existsSync(uploadDir)) {
     await mkdir(uploadDir, { recursive: true });
@@ -60,7 +60,7 @@ async function uploadLocal(buffer: Buffer, filename: string): Promise<string> {
   await writeFile(filepath, buffer);
   apiLogger.info({ msg: "File written to disk", filepath });
 
-  return `/uploads/photos/${year}/${month}/${filename}`;
+  return `/uploads/${subdirectory}/${year}/${month}/${filename}`;
 }
 
 async function deleteLocal(url: string): Promise<void> {
@@ -80,14 +80,15 @@ async function deleteLocal(url: string): Promise<void> {
 async function uploadSupabase(
   buffer: Buffer,
   filename: string,
-  mimeType: string
+  mimeType: string,
+  subdirectory = "photos"
 ): Promise<string> {
   const client = getSupabaseClient();
 
   const now = new Date();
   const year = now.getFullYear().toString();
   const month = (now.getMonth() + 1).toString().padStart(2, "0");
-  const storagePath = `${year}/${month}/${filename}`;
+  const storagePath = `${subdirectory}/${year}/${month}/${filename}`;
 
   const { error } = await client.storage
     .from(SUPABASE_STORAGE_BUCKET)
@@ -143,6 +144,24 @@ export async function uploadPhoto(
 }
 
 export async function deletePhoto(url: string): Promise<void> {
+  if (PROVIDER === "supabase") {
+    return deleteSupabase(url);
+  }
+  return deleteLocal(url);
+}
+
+export async function uploadMedia(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string
+): Promise<string> {
+  if (PROVIDER === "supabase") {
+    return uploadSupabase(buffer, filename, mimeType, "media");
+  }
+  return uploadLocal(buffer, filename, "media");
+}
+
+export async function deleteMedia(url: string): Promise<void> {
   if (PROVIDER === "supabase") {
     return deleteSupabase(url);
   }

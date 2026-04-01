@@ -20,10 +20,11 @@ model Organization {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  users    User[]
-  events   Event[]
-  contacts Contact[]
-  apiKeys  ApiKey[]
+  users      User[]
+  events     Event[]
+  contacts   Contact[]
+  apiKeys    ApiKey[]
+  mediaFiles MediaFile[]
 }
 
 model User {
@@ -49,6 +50,7 @@ model User {
   accounts      Account[]
   sessions      AuthSession[]
   notifications Notification[]
+  mediaFiles    MediaFile[]
 
   @@index([organizationId])
   @@index([email])
@@ -677,6 +679,24 @@ model Contact {
   updatedAt        DateTime      @updatedAt
 
   @@unique([organizationId, email])
+  @@index([organizationId])
+}
+
+// ==================== MEDIA ====================
+
+model MediaFile {
+  id             String       @id @default(cuid())
+  organizationId String
+  uploadedById   String
+  filename       String
+  url            String
+  mimeType       String
+  size           Int
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy     User         @relation(fields: [uploadedById], references: [id])
+
   @@index([organizationId])
 }
 
