@@ -201,14 +201,22 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Validate conditional required fields
     if (regTypeLower.includes("member") && !memberId?.trim()) {
+      apiLogger.warn({ msg: "Member registration missing memberId", email, registrationType });
       return NextResponse.json({ error: "Member ID is required for member registration" }, { status: 400 });
     }
     if (regTypeLower.includes("student")) {
       if (!studentId?.trim()) {
+        apiLogger.warn({ msg: "Student registration missing studentId", email, registrationType });
         return NextResponse.json({ error: "Student ID is required for student registration" }, { status: 400 });
       }
       if (!studentIdExpiry?.trim()) {
+        apiLogger.warn({ msg: "Student registration missing studentIdExpiry", email, registrationType });
         return NextResponse.json({ error: "Student ID expiry date is required for student registration" }, { status: 400 });
+      }
+      // Validate date format
+      if (isNaN(new Date(studentIdExpiry).getTime())) {
+        apiLogger.warn({ msg: "Invalid studentIdExpiry date", email, studentIdExpiry });
+        return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
       }
     }
 

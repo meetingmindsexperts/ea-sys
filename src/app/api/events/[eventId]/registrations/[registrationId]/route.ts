@@ -119,24 +119,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
-    });
+    // Parallelize event access check + registration lookup
+    const [event, existingRegistration] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true },
+      }),
+      db.registration.findFirst({
+        where: { id: registrationId, eventId },
+        include: { attendee: true },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-
-    const existingRegistration = await db.registration.findFirst({
-      where: {
-        id: registrationId,
-        eventId,
-      },
-      include: { attendee: true },
-    });
 
     if (!existingRegistration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
@@ -154,6 +151,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const { status, paymentStatus, badgeType, ticketTypeId, notes, attendee } = validated.data;
+
+    // Validate studentIdExpiry date format if provided
+    if (attendee?.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
+      apiLogger.warn({ msg: "Invalid studentIdExpiry date in registration update", registrationId, studentIdExpiry: attendee.studentIdExpiry });
+      return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
+    }
 
     // Update attendee if provided
     if (attendee) {

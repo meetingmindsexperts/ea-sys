@@ -125,6 +125,7 @@ export async function POST(req: Request) {
 
     const validated = createContactSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "Contact creation validation failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
@@ -132,6 +133,12 @@ export async function POST(req: Request) {
     }
 
     const { title, email, firstName, lastName, organization, jobTitle, specialty, registrationType, bio, phone, photo, city, country, tags, notes, associationName, memberId, studentId, studentIdExpiry } = validated.data;
+
+    // Validate studentIdExpiry date format if provided
+    if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
+      apiLogger.warn({ msg: "Invalid studentIdExpiry date in contact creation", email, studentIdExpiry });
+      return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
+    }
 
     const existing = await db.contact.findUnique({
       where: { organizationId_email: { organizationId: ctx.organizationId, email } },

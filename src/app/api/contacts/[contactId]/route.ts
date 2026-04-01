@@ -133,10 +133,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const validated = updateContactSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "Contact update validation failed", contactId, errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
       );
+    }
+
+    // Validate studentIdExpiry date format if provided
+    if (validated.data.studentIdExpiry && isNaN(new Date(validated.data.studentIdExpiry).getTime())) {
+      apiLogger.warn({ msg: "Invalid studentIdExpiry date in contact update", contactId, studentIdExpiry: validated.data.studentIdExpiry });
+      return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
     }
 
     const contact = await db.contact.findFirst({

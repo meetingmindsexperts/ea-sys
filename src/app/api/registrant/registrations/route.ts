@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
+import { syncToContact } from "@/lib/contact-sync";
 
 /**
  * GET /api/registrant/registrations
@@ -87,6 +88,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const validated = selfEditSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "Registrant self-edit validation failed", userId: session.user.id, errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
@@ -95,10 +97,16 @@ export async function PUT(req: Request) {
 
     const { registrationId, attendee } = validated.data;
 
+    // Validate studentIdExpiry date format if provided
+    if (attendee.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
+      apiLogger.warn({ msg: "Invalid studentIdExpiry date in self-edit", userId: session.user.id, studentIdExpiry: attendee.studentIdExpiry });
+      return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
+    }
+
     // Verify ownership
     const registration = await db.registration.findFirst({
       where: { id: registrationId, userId: session.user.id },
-      select: { id: true, attendeeId: true },
+      select: { id: true, attendeeId: true, eventId: true },
     });
 
     if (!registration) {
@@ -106,7 +114,7 @@ export async function PUT(req: Request) {
     }
 
     // Update attendee fields only
-    await db.attendee.update({
+    const updatedAttendee = await db.attendee.update({
       where: { id: registration.attendeeId },
       data: {
         ...(attendee.title !== undefined && { title: attendee.title || null }),
@@ -126,6 +134,33 @@ export async function PUT(req: Request) {
         ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
       },
     });
+
+    // Sync updated attendee to org contact store
+    const event = await db.event.findFirst({
+      where: { id: registration.eventId },
+      select: { organizationId: true },
+    });
+    if (event) {
+      await syncToContact({
+        organizationId: event.organizationId,
+        eventId: registration.eventId,
+        email: updatedAttendee.email,
+        firstName: updatedAttendee.firstName,
+        lastName: updatedAttendee.lastName,
+        title: updatedAttendee.title,
+        organization: updatedAttendee.organization,
+        jobTitle: updatedAttendee.jobTitle,
+        phone: updatedAttendee.phone,
+        city: updatedAttendee.city,
+        country: updatedAttendee.country,
+        specialty: updatedAttendee.specialty,
+        registrationType: updatedAttendee.registrationType,
+        associationName: updatedAttendee.associationName,
+        memberId: updatedAttendee.memberId,
+        studentId: updatedAttendee.studentId,
+        studentIdExpiry: updatedAttendee.studentIdExpiry,
+      });
+    }
 
     // Return updated registration
     const updated = await db.registration.findFirst({
