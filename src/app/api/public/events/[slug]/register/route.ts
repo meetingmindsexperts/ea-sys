@@ -351,7 +351,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Account creation: create or link user to registration
     if (password) {
       try {
-        const existingUser = await db.user.findUnique({ where: { email }, select: { id: true, role: true } });
+        const clientIpForTerms = getClientIp(req);
+        const existingUser = await db.user.findUnique({ where: { email }, select: { id: true, role: true, termsAcceptedAt: true } });
 
         if (existingUser) {
           // Link registration to existing user
@@ -364,6 +365,13 @@ export async function POST(req: Request, { params }: RouteParams) {
             where: { attendee: { email }, userId: null },
             data: { userId: existingUser.id },
           });
+          // Record terms acceptance (first time only — never overwrite)
+          if (!existingUser.termsAcceptedAt) {
+            await db.user.update({
+              where: { id: existingUser.id },
+              data: { termsAcceptedAt: new Date(), termsAcceptedIp: clientIpForTerms },
+            });
+          }
         } else {
           // Create new REGISTRANT user
           const passwordHash = await bcrypt.hash(password, 10);
@@ -376,6 +384,8 @@ export async function POST(req: Request, { params }: RouteParams) {
               role: "REGISTRANT",
               organizationId: null,
               specialty: specialty || null,
+              termsAcceptedAt: new Date(),
+              termsAcceptedIp: clientIpForTerms,
             },
           });
           // Link this registration + any other unlinked registrations by this email

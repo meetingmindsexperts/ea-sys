@@ -137,7 +137,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Check if email is already taken
     const existingUser = await db.user.findUnique({
       where: { email: emailLower },
-      select: { id: true, role: true },
+      select: { id: true, role: true, termsAcceptedAt: true },
     });
 
     // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
@@ -155,11 +155,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     await db.$transaction(async (tx) => {
       let user: { id: string };
 
+      const clientIpForTerms = getClientIp(req);
+
       if (existingUser) {
-        // Upgrade REGISTRANT → SUBMITTER
+        // Upgrade REGISTRANT → SUBMITTER + record terms if first time
         user = await tx.user.update({
           where: { id: existingUser.id },
-          data: { role: "SUBMITTER", firstName: data.firstName, lastName: data.lastName },
+          data: {
+            role: "SUBMITTER",
+            firstName: data.firstName,
+            lastName: data.lastName,
+            ...(!existingUser.termsAcceptedAt && {
+              termsAcceptedAt: new Date(),
+              termsAcceptedIp: clientIpForTerms,
+            }),
+          },
           select: { id: true },
         });
       } else {
@@ -172,6 +182,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             lastName: data.lastName,
             role: "SUBMITTER",
             emailVerified: new Date(),
+            termsAcceptedAt: new Date(),
+            termsAcceptedIp: clientIpForTerms,
           },
           select: { id: true },
         });
