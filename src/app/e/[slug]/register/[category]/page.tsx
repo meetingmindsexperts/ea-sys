@@ -129,10 +129,23 @@ const registrationSchema = z.object({
   jobTitle: z.string().optional(),
   phone: z.string().optional(),
   city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
   country: z.string().min(1, "Country is required"),
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
+  // Billing details
+  taxNumber: z.string().optional(),
+  billingFirstName: z.string().optional(),
+  billingLastName: z.string().optional(),
+  billingEmail: z.string().email().optional().or(z.literal("")),
+  billingPhone: z.string().optional(),
+  billingAddress: z.string().optional(),
+  billingCity: z.string().optional(),
+  billingState: z.string().optional(),
+  billingZipCode: z.string().optional(),
+  billingCountry: z.string().optional(),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string().min(1, "Please confirm your password"),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
@@ -158,6 +171,7 @@ function CategoryRegistrationContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  const [billingSame, setBillingSame] = useState(true);
 
   // Capture referral tracking on first load
   const trackingRef = useRef({
@@ -178,8 +192,10 @@ function CategoryRegistrationContent() {
     defaultValues: {
       ticketTypeId: "", pricingTierId: "", title: "", role: "",
       firstName: "", lastName: "", email: "", additionalEmail: "",
-      organization: "", jobTitle: "", phone: "", city: "",
+      organization: "", jobTitle: "", phone: "", city: "", state: "", zipCode: "",
       country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
+      taxNumber: "", billingFirstName: "", billingLastName: "", billingEmail: "",
+      billingPhone: "", billingAddress: "", billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
       password: "", confirmPassword: "",
       agreeTerms: undefined as unknown as true,
     },
@@ -279,6 +295,17 @@ function CategoryRegistrationContent() {
 
   async function onSubmit(data: RegistrationForm) {
     setSubmitting(true);
+    // Copy personal details to billing if "same as above" is checked
+    if (billingSame) {
+      data.billingFirstName = data.firstName;
+      data.billingLastName = data.lastName;
+      data.billingEmail = data.email;
+      data.billingPhone = data.phone;
+      data.billingCity = data.city;
+      data.billingState = data.state;
+      data.billingZipCode = data.zipCode;
+      data.billingCountry = data.country;
+    }
     try {
       const res = await fetch(`/api/public/events/${slug}/register`, {
         method: "POST",
@@ -549,23 +576,24 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <FormField control={form.control} name="phone"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
-                          <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-
-                    <FormField control={form.control} name="additionalEmail"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
-                          <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField control={form.control} name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="additionalEmail"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
+                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <FormField control={form.control} name="country"
@@ -581,6 +609,24 @@ function CategoryRegistrationContent() {
                           <FormItem>
                             <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
                             <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField control={form.control} name="state"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">State / Province</FormLabel>
+                            <FormControl><Input placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="zipCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code</FormLabel>
+                            <FormControl><Input placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -605,23 +651,134 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <FormField control={form.control} name="customSpecialty"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Specialty (Specific)</FormLabel>
-                          <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField control={form.control} name="customSpecialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Specialty (Specific)</FormLabel>
+                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="dietaryReqs"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Dietary Requirements</FormLabel>
+                            <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+                  </div>
 
-                    <FormField control={form.control} name="dietaryReqs"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Dietary Requirements</FormLabel>
-                          <FormControl><Input placeholder="e.g. Vegetarian, Halal" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
+                  {/* Section: Billing Details */}
+                  <div className="space-y-5">
+                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Billing Details</h3>
+
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <Checkbox
+                        checked={billingSame}
+                        onCheckedChange={(checked) => setBillingSame(!!checked)}
+                      />
+                      <span className="text-sm text-slate-600">Billing address same as personal details</span>
+                    </label>
+
+                    {!billingSame && (
+                      <div className="space-y-4 pt-1">
+                        <FormField control={form.control} name="taxNumber"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Tax Number / VAT ID</FormLabel>
+                              <FormControl><Input placeholder="e.g. AE1234567890" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="billingFirstName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">First Name</FormLabel>
+                                <FormControl><Input placeholder="Billing first name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                          <FormField control={form.control} name="billingLastName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Last Name</FormLabel>
+                                <FormControl><Input placeholder="Billing last name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="billingEmail"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Email</FormLabel>
+                                <FormControl><Input type="email" placeholder="billing@company.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                          <FormField control={form.control} name="billingPhone"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Phone</FormLabel>
+                                <FormControl><Input placeholder="+971..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                        </div>
+
+                        <FormField control={form.control} name="billingAddress"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Address</FormLabel>
+                              <FormControl><Input placeholder="Street address" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="billingCountry"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Country</FormLabel>
+                                <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                          <FormField control={form.control} name="billingCity"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                                <FormControl><Input placeholder="City" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <FormField control={form.control} name="billingState"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">State / Province</FormLabel>
+                                <FormControl><Input placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                          <FormField control={form.control} name="billingZipCode"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code</FormLabel>
+                                <FormControl><Input placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Section: Select Your Category */}

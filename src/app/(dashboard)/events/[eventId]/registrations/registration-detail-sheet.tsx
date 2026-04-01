@@ -469,20 +469,22 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
-                      <Input
-                        id="edit-dietaryReqs"
-                        value={editData.dietaryReqs}
-                        onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-specialty">Specialty</Label>
-                      <SpecialtySelect
-                        value={editData.specialty}
-                        onChange={(specialty) => setEditData({ ...editData, specialty })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-specialty">Specialty</Label>
+                        <SpecialtySelect
+                          value={editData.specialty}
+                          onChange={(specialty) => setEditData({ ...editData, specialty })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
+                        <Input
+                          id="edit-dietaryReqs"
+                          value={editData.dietaryReqs}
+                          onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
+                        />
+                      </div>
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">

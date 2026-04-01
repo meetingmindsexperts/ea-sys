@@ -220,14 +220,23 @@ export default function MyRegistrationPage() {
             <CardContent className="p-6 space-y-6">
               {/* Confirmation / Payment Section */}
               {(isConfirmed || isPaid) && !showPayment && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-                  <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
-                  <div>
-                    <p className="font-semibold text-green-800">Registration Confirmed</p>
-                    <p className="text-sm text-green-700">
-                      {isComplimentary ? "Complimentary registration — no payment required." : "Payment received. You're all set!"}
-                    </p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
+                    <div>
+                      <p className="font-semibold text-green-800">Registration Confirmed</p>
+                      <p className="text-sm text-green-700">
+                        {isComplimentary ? "Complimentary registration — no payment required." : "Payment received. You're all set!"}
+                      </p>
+                    </div>
                   </div>
+                  {isPaid && price > 0 && (
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
+                        <Download className="mr-2 h-3.5 w-3.5" /> Invoice
+                      </a>
+                    </Button>
+                  )}
                 </div>
               )}
 

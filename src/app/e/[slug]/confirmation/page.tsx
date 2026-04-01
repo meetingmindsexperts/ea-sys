@@ -13,6 +13,7 @@ import {
   CreditCard,
   Loader2,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -233,16 +234,25 @@ function ConfirmationContent() {
                 {isPaid ? (
                   /* Payment Complete */
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
+                          <p className="text-xs text-emerald-600 mt-0.5">
+                            {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-emerald-800">Payment Complete</p>
-                        <p className="text-xs text-emerald-600 mt-0.5">
-                          {ticketCurrency} {(hasTax ? totalDue : ticketPrice).toFixed(2)} — A receipt has been sent to your email.
-                        </p>
-                      </div>
+                      {registrationId && (
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={`/api/registrant/registrations/${registrationId}/quote`} download>
+                            <Download className="mr-2 h-3.5 w-3.5" /> Invoice
+                          </a>
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ) : polling ? (

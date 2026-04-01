@@ -75,6 +75,7 @@ export function ContactDetailSheet({
     firstName: "",
     lastName: "",
     email: "",
+    additionalEmail: "",
     phone: "",
     organization: "",
     jobTitle: "",
@@ -116,6 +117,7 @@ export function ContactDetailSheet({
         firstName: contact.firstName,
         lastName: contact.lastName,
         email: contact.email,
+        additionalEmail: contact.additionalEmail || "",
         phone: contact.phone || "",
         organization: contact.organization || "",
         jobTitle: contact.jobTitle || "",
@@ -137,6 +139,7 @@ export function ContactDetailSheet({
         title: editData.title || undefined,
         firstName: editData.firstName,
         lastName: editData.lastName,
+        additionalEmail: editData.additionalEmail || undefined,
         phone: editData.phone || undefined,
         organization: editData.organization || undefined,
         jobTitle: editData.jobTitle || undefined,
@@ -309,12 +312,23 @@ export function ContactDetailSheet({
                   <Input value={editData.email} disabled className="bg-muted" />
                   <p className="text-xs text-muted-foreground">Email cannot be changed</p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input
-                    value={editData.phone}
-                    onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Phone</Label>
+                    <Input
+                      value={editData.phone}
+                      onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Additional Email</Label>
+                    <Input
+                      type="email"
+                      value={editData.additionalEmail || ""}
+                      onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
+                      placeholder="alternate@example.com"
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

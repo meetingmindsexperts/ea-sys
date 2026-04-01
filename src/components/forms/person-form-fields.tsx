@@ -199,27 +199,27 @@ export function PersonFormFields({
         </div>
       </div>
 
-      {/* Dietary Requirements (for attendees) */}
-      {showDietaryReqs && data.dietaryReqs !== undefined && (
+      {/* Specialty + Dietary Requirements */}
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="dietaryReqs">Dietary Requirements</Label>
-          <Input
-            id="dietaryReqs"
-            value={data.dietaryReqs || ""}
-            onChange={(e) => updateField("dietaryReqs", e.target.value)}
+          <Label htmlFor="specialty">Specialty</Label>
+          <SpecialtySelect
+            value={data.specialty || ""}
+            onChange={(specialty) => updateField("specialty", specialty)}
             disabled={disabled}
           />
         </div>
-      )}
-
-      {/* Specialty */}
-      <div className="space-y-2">
-        <Label htmlFor="specialty">Specialty</Label>
-        <SpecialtySelect
-          value={data.specialty || ""}
-          onChange={(specialty) => updateField("specialty", specialty)}
-          disabled={disabled}
-        />
+        {showDietaryReqs && data.dietaryReqs !== undefined ? (
+          <div className="space-y-2">
+            <Label htmlFor="dietaryReqs">Dietary Requirements</Label>
+            <Input
+              id="dietaryReqs"
+              value={data.dietaryReqs || ""}
+              onChange={(e) => updateField("dietaryReqs", e.target.value)}
+              disabled={disabled}
+            />
+          </div>
+        ) : <div />}
       </div>
 
       {/* Tags */}

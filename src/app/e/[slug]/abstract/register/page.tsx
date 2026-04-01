@@ -437,23 +437,24 @@ export default function AbstractRegisterPage() {
                           )} />
                       </div>
 
-                      <FormField control={form.control} name="phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
-                            <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-
-                      <FormField control={form.control} name="additionalEmail"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
-                            <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                              <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <FormField control={form.control} name="additionalEmail"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Additional Email</FormLabel>
+                              <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <FormField control={form.control} name="country"

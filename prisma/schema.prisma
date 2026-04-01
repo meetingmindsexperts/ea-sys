@@ -260,6 +260,8 @@ model Attendee {
   phone            String?
   photo            String?
   city             String?
+  state            String?
+  zipCode          String?
   country          String?
   bio              String?       @db.Text
   specialty        String?
@@ -295,6 +297,17 @@ model Registration {
   utmCampaign    String?
   checkedInAt    DateTime?
   notes          String?            @db.Text
+  // Billing details (for invoices/tax)
+  taxNumber          String?
+  billingFirstName   String?
+  billingLastName    String?
+  billingEmail       String?
+  billingPhone       String?
+  billingAddress     String?
+  billingCity        String?
+  billingState       String?
+  billingZipCode     String?
+  billingCountry     String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
@@ -371,6 +384,8 @@ model Speaker {
   website          String?
   photo            String?
   city             String?
+  state            String?
+  zipCode          String?
   country          String?
   specialty        String?
   customSpecialty  String?
@@ -640,6 +655,8 @@ model Contact {
   phone            String?
   photo            String?
   city             String?
+  state            String?
+  zipCode          String?
   country          String?
   tags             String[]      @default([])
   eventIds         String[]      @default([])

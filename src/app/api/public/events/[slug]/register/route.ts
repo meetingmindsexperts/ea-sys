@@ -23,10 +23,23 @@ const registrationSchema = z.object({
   jobTitle: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
   city: z.string().max(255).optional(),
+  state: z.string().max(255).optional(),
+  zipCode: z.string().max(20).optional(),
   country: z.string().min(1, "Country is required").max(255),
   specialty: z.string().min(1, "Specialty is required").max(255),
   customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
+  // Billing details
+  taxNumber: z.string().max(100).optional(),
+  billingFirstName: z.string().max(100).optional(),
+  billingLastName: z.string().max(100).optional(),
+  billingEmail: z.string().email().max(255).optional().or(z.literal("")),
+  billingPhone: z.string().max(50).optional(),
+  billingAddress: z.string().max(500).optional(),
+  billingCity: z.string().max(255).optional(),
+  billingState: z.string().max(255).optional(),
+  billingZipCode: z.string().max(20).optional(),
+  billingCountry: z.string().max(255).optional(),
   // Account creation
   password: z.string().min(6).max(128).optional(),
   // Tracking
@@ -82,7 +95,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, country, specialty, customSpecialty, dietaryReqs, password, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -206,6 +219,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         jobTitle: jobTitle || null,
         phone: phone || null,
         city: city || null,
+        state: state || null,
+        zipCode: zipCode || null,
         country,
         specialty,
         customSpecialty: customSpecialty || null,
@@ -262,6 +277,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           utmSource: utmSource || null,
           utmMedium: utmMedium || null,
           utmCampaign: utmCampaign || null,
+          taxNumber: taxNumber || null,
+          billingFirstName: billingFirstName || null,
+          billingLastName: billingLastName || null,
+          billingEmail: billingEmail || null,
+          billingPhone: billingPhone || null,
+          billingAddress: billingAddress || null,
+          billingCity: billingCity || null,
+          billingState: billingState || null,
+          billingZipCode: billingZipCode || null,
+          billingCountry: billingCountry || null,
         },
         include: { attendee: true, ticketType: true, pricingTier: true },
       });
