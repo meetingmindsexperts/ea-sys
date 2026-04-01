@@ -58,9 +58,6 @@ interface PricingTierData {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
-  welcomeHtml: string | null;
-  termsHtml: string | null;
-  confirmationHtml: string | null;
 }
 
 interface TicketType {
@@ -304,16 +301,14 @@ function CategoryRegistrationContent() {
   }, [slug, categorySlug, form]);
 
   // Resolve tier-specific content with event-level fallback
+  // Event-level content (shared across all tiers)
   const selectedTierContent = useMemo(() => {
-    if (!event) return { welcomeHtml: null, termsHtml: null, confirmationHtml: null };
-    const allTiers = event.ticketTypes.flatMap((tt) => tt.pricingTiers ?? []);
-    const tier = allTiers.find((t) => toSlug(t.name) === categorySlug);
+    if (!event) return { welcomeHtml: null, termsHtml: null };
     return {
-      welcomeHtml: tier?.welcomeHtml || event.registrationWelcomeHtml || null,
-      termsHtml: tier?.termsHtml || event.registrationTermsHtml || null,
-      confirmationHtml: tier?.confirmationHtml || null,
+      welcomeHtml: event.registrationWelcomeHtml || null,
+      termsHtml: event.registrationTermsHtml || null,
     };
-  }, [event, categorySlug]);
+  }, [event]);
 
   async function onSubmit(data: RegistrationForm) {
     // Validate conditional required fields based on registration type

@@ -25,6 +25,7 @@ import {
   ScanBarcode,
   Activity,
   Mail,
+  PenLine,
   ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,7 @@ const eventNavigationSections = [
   {
     label: "Config",
     items: [
+      { name: "Content", href: "/content", icon: PenLine },
       { name: "Settings", href: "/settings", icon: Settings },
     ],
   },

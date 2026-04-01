@@ -1,0 +1,3 @@
+-- This migration is intentionally empty.
+-- Per-tier content overrides were removed in favor of event-level content only.
+-- The welcomeHtml, termsHtml, confirmationHtml columns are NOT added to PricingTier.

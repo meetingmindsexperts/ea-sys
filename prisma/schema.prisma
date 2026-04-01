@@ -146,6 +146,8 @@ model Event {
   registrationTermsHtml    String?   @db.Text
   registrationWelcomeHtml  String?   @db.Text
   abstractWelcomeHtml      String?   @db.Text
+  abstractTermsHtml        String?   @db.Text
+  abstractConfirmationHtml String?   @db.Text
   registrationConfirmationHtml String? @db.Text
   taxRate                  Decimal?  @db.Decimal(5, 2)
   taxLabel                 String?   @default("VAT")
@@ -238,9 +240,6 @@ model PricingTier {
   isActive         Boolean   @default(true)
   requiresApproval Boolean   @default(false)
   sortOrder        Int       @default(0)
-  welcomeHtml      String?   @db.Text
-  termsHtml        String?   @db.Text
-  confirmationHtml String?   @db.Text
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
