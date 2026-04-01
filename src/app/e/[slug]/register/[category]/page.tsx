@@ -316,6 +316,23 @@ function CategoryRegistrationContent() {
   }, [event, categorySlug]);
 
   async function onSubmit(data: RegistrationForm) {
+    // Validate conditional required fields based on registration type
+    const selectedName = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId)?.regTypeName?.toLowerCase() ?? "";
+    if (selectedName.includes("member") && !data.memberId?.trim()) {
+      form.setError("memberId", { message: "Member ID is required" });
+      return;
+    }
+    if (selectedName.includes("student")) {
+      if (!data.studentId?.trim()) {
+        form.setError("studentId", { message: "Student ID is required" });
+        return;
+      }
+      if (!data.studentIdExpiry?.trim()) {
+        form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
+        return;
+      }
+    }
+
     setSubmitting(true);
     // Copy personal details to billing if "same as above" is checked
     if (billingSame) {
@@ -908,7 +925,7 @@ function CategoryRegistrationContent() {
                         <FormField control={form.control} name="memberId"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Member ID</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Member ID <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="e.g. MEM-12345" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -930,7 +947,7 @@ function CategoryRegistrationContent() {
                         <FormField control={form.control} name="studentId"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Student ID</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Student ID <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="e.g. STU-2024-001" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -938,7 +955,7 @@ function CategoryRegistrationContent() {
                         <FormField control={form.control} name="studentIdExpiry"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>

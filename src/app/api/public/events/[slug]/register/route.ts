@@ -197,6 +197,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Derive registrationType from the selected ticket type name
     const registrationType = ticketType.name;
+    const regTypeLower = registrationType.toLowerCase();
+
+    // Validate conditional required fields
+    if (regTypeLower.includes("member") && !memberId?.trim()) {
+      return NextResponse.json({ error: "Member ID is required for member registration" }, { status: 400 });
+    }
+    if (regTypeLower.includes("student")) {
+      if (!studentId?.trim()) {
+        return NextResponse.json({ error: "Student ID is required for student registration" }, { status: 400 });
+      }
+      if (!studentIdExpiry?.trim()) {
+        return NextResponse.json({ error: "Student ID expiry date is required for student registration" }, { status: 400 });
+      }
+    }
 
     // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
     const result = await db.$transaction(async (tx) => {
