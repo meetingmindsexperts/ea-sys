@@ -238,6 +238,9 @@ model PricingTier {
   isActive         Boolean   @default(true)
   requiresApproval Boolean   @default(false)
   sortOrder        Int       @default(0)
+  welcomeHtml      String?   @db.Text
+  termsHtml        String?   @db.Text
+  confirmationHtml String?   @db.Text
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -271,6 +274,10 @@ model Attendee {
   registrationType String?
   tags             String[]      @default([])
   dietaryReqs      String?
+  associationName  String?
+  memberId         String?
+  studentId        String?
+  studentIdExpiry  DateTime?
   customFields     Json          @default("{}")
   externalId       String?
   createdAt        DateTime      @default(now())
@@ -660,6 +667,10 @@ model Contact {
   state            String?
   zipCode          String?
   country          String?
+  associationName  String?
+  memberId         String?
+  studentId        String?
+  studentIdExpiry  DateTime?
   tags             String[]      @default([])
   eventIds         String[]      @default([])
   notes            String?       @db.Text

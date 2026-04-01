@@ -24,6 +24,10 @@ const updateContactSchema = z.object({
   photo: z.string().max(500).optional().or(z.literal("")).nullable(),
   city: z.string().max(255).optional().nullable(),
   country: z.string().max(255).optional().nullable(),
+  associationName: z.string().max(255).optional().nullable(),
+  memberId: z.string().max(100).optional().nullable(),
+  studentId: z.string().max(100).optional().nullable(),
+  studentIdExpiry: z.string().max(20).optional().nullable(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   notes: z.string().max(2000).optional().nullable(),
 });
@@ -162,9 +166,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
+    const updateData = {
+      ...validated.data,
+      ...(validated.data.studentIdExpiry !== undefined && {
+        studentIdExpiry: validated.data.studentIdExpiry ? new Date(validated.data.studentIdExpiry) : null,
+      }),
+    };
+
     const updated = await db.contact.update({
       where: { id: contactId },
-      data: validated.data,
+      data: updateData,
     });
 
     return NextResponse.json(updated);

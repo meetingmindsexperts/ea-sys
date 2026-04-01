@@ -15,6 +15,10 @@ export interface Attendee {
   registrationType: string | null;
   tags: string[];
   dietaryReqs: string | null;
+  associationName: string | null;
+  memberId: string | null;
+  studentId: string | null;
+  studentIdExpiry: string | null;
   customFields?: Record<string, unknown>;
 }
 

@@ -86,6 +86,10 @@ export function ContactDetailSheet({
     specialty: "",
     tags: [] as string[],
     notes: "",
+    associationName: "",
+    memberId: "",
+    studentId: "",
+    studentIdExpiry: "",
   });
 
   const handleHeaderPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,6 +132,10 @@ export function ContactDetailSheet({
         specialty: contact.specialty || "",
         tags: contact.tags || [],
         notes: contact.notes || "",
+        associationName: contact.associationName || "",
+        memberId: contact.memberId || "",
+        studentId: contact.studentId || "",
+        studentIdExpiry: contact.studentIdExpiry ? new Date(contact.studentIdExpiry).toISOString().split("T")[0] : "",
       });
       setIsEditing(true);
     }
@@ -150,6 +158,10 @@ export function ContactDetailSheet({
         specialty: editData.specialty || undefined,
         tags: editData.tags,
         notes: editData.notes || undefined,
+        associationName: editData.associationName || null,
+        memberId: editData.memberId || null,
+        studentId: editData.studentId || null,
+        studentIdExpiry: editData.studentIdExpiry || null,
       });
       toast.success("Contact updated");
       setIsEditing(false);
@@ -395,6 +407,52 @@ export function ContactDetailSheet({
                     onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                   />
                 </div>
+
+                {/* Membership Details */}
+                <div className="space-y-3 border-t pt-4">
+                  <h4 className="text-sm font-semibold text-slate-700">Membership Details</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Association Name</Label>
+                      <Input
+                        value={editData.associationName}
+                        onChange={(e) => setEditData({ ...editData, associationName: e.target.value })}
+                        placeholder="e.g. AMA"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Member ID</Label>
+                      <Input
+                        value={editData.memberId}
+                        onChange={(e) => setEditData({ ...editData, memberId: e.target.value })}
+                        placeholder="e.g. MEM-12345"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Student Details */}
+                <div className="space-y-3 border-t pt-4">
+                  <h4 className="text-sm font-semibold text-slate-700">Student Details</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Student ID</Label>
+                      <Input
+                        value={editData.studentId}
+                        onChange={(e) => setEditData({ ...editData, studentId: e.target.value })}
+                        placeholder="e.g. STU-2024-001"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Student ID Expiry</Label>
+                      <Input
+                        type="date"
+                        value={editData.studentIdExpiry}
+                        onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-x-6 gap-y-3">
@@ -462,6 +520,30 @@ export function ContactDetailSheet({
                       ))}
                     </div>
                   </div>
+                )}
+                {(contact.associationName || contact.memberId) && (
+                  <>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Association</div>
+                      <div className="text-sm">{contact.associationName || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Member ID</div>
+                      <div className="text-sm">{contact.memberId || "—"}</div>
+                    </div>
+                  </>
+                )}
+                {(contact.studentId || contact.studentIdExpiry) && (
+                  <>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Student ID</div>
+                      <div className="text-sm">{contact.studentId || "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Student ID Expiry</div>
+                      <div className="text-sm">{contact.studentIdExpiry ? new Date(contact.studentIdExpiry).toLocaleDateString() : "—"}</div>
+                    </div>
+                  </>
                 )}
               </div>
             )}

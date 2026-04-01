@@ -114,6 +114,10 @@ export function RegistrationDetailSheet({
     tags: [] as string[],
     dietaryReqs: "",
     notes: "",
+    associationName: "",
+    memberId: "",
+    studentId: "",
+    studentIdExpiry: "",
   });
 
   // Keep local state in sync with prop
@@ -226,6 +230,10 @@ export function RegistrationDetailSheet({
         tags: selectedRegistration.attendee.tags || [],
         dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
         notes: selectedRegistration.notes || "",
+        associationName: selectedRegistration.attendee.associationName || "",
+        memberId: selectedRegistration.attendee.memberId || "",
+        studentId: selectedRegistration.attendee.studentId || "",
+        studentIdExpiry: selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toISOString().split("T")[0] : "",
       });
       setIsEditing(true);
     }
@@ -251,6 +259,10 @@ export function RegistrationDetailSheet({
             specialty: editData.specialty || undefined,
             tags: editData.tags,
             dietaryReqs: editData.dietaryReqs || undefined,
+            associationName: editData.associationName || null,
+            memberId: editData.memberId || null,
+            studentId: editData.studentId || null,
+            studentIdExpiry: editData.studentIdExpiry || null,
           },
         },
       });
@@ -504,6 +516,56 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                       />
                     </div>
+
+                    {/* Membership Details */}
+                    <div className="space-y-3 border-t pt-4">
+                      <h4 className="text-sm font-semibold text-slate-700">Membership Details</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-associationName">Association Name</Label>
+                          <Input
+                            id="edit-associationName"
+                            value={editData.associationName}
+                            onChange={(e) => setEditData({ ...editData, associationName: e.target.value })}
+                            placeholder="e.g. AMA"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-memberId">Member ID</Label>
+                          <Input
+                            id="edit-memberId"
+                            value={editData.memberId}
+                            onChange={(e) => setEditData({ ...editData, memberId: e.target.value })}
+                            placeholder="e.g. MEM-12345"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Student Details */}
+                    <div className="space-y-3 border-t pt-4">
+                      <h4 className="text-sm font-semibold text-slate-700">Student Details</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-studentId">Student ID</Label>
+                          <Input
+                            id="edit-studentId"
+                            value={editData.studentId}
+                            onChange={(e) => setEditData({ ...editData, studentId: e.target.value })}
+                            placeholder="e.g. STU-2024-001"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-studentIdExpiry">Student ID Expiry</Label>
+                          <Input
+                            id="edit-studentIdExpiry"
+                            type="date"
+                            value={editData.studentIdExpiry}
+                            onChange={(e) => setEditData({ ...editData, studentIdExpiry: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-x-6 gap-y-3">
@@ -574,6 +636,30 @@ export function RegistrationDetailSheet({
                         <div className="text-xs text-muted-foreground">Bio</div>
                         <div className="text-sm whitespace-pre-wrap">{selectedRegistration.attendee.bio}</div>
                       </div>
+                    )}
+                    {(selectedRegistration.attendee.associationName || selectedRegistration.attendee.memberId) && (
+                      <>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Association</div>
+                          <div className="text-sm">{selectedRegistration.attendee.associationName || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Member ID</div>
+                          <div className="text-sm">{selectedRegistration.attendee.memberId || "—"}</div>
+                        </div>
+                      </>
+                    )}
+                    {(selectedRegistration.attendee.studentId || selectedRegistration.attendee.studentIdExpiry) && (
+                      <>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Student ID</div>
+                          <div className="text-sm">{selectedRegistration.attendee.studentId || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Student ID Expiry</div>
+                          <div className="text-sm">{selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toLocaleDateString() : "—"}</div>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

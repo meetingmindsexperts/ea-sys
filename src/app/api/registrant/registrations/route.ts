@@ -66,6 +66,10 @@ const selfEditSchema = z.object({
     country: z.string().max(255).optional(),
     specialty: z.string().max(255).optional(),
     dietaryReqs: z.string().max(2000).optional(),
+    associationName: z.string().max(255).optional().nullable(),
+    memberId: z.string().max(100).optional().nullable(),
+    studentId: z.string().max(100).optional().nullable(),
+    studentIdExpiry: z.string().max(20).optional().nullable(),
   }),
 });
 
@@ -116,6 +120,10 @@ export async function PUT(req: Request) {
         ...(attendee.country !== undefined && { country: attendee.country || null }),
         ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
         ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
+        ...(attendee.associationName !== undefined && { associationName: attendee.associationName || null }),
+        ...(attendee.memberId !== undefined && { memberId: attendee.memberId || null }),
+        ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
+        ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
       },
     });
 

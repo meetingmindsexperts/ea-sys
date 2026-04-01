@@ -33,6 +33,10 @@ export interface ContactSyncData {
   specialty?: string | null;
   customSpecialty?: string | null;
   registrationType?: string | null;
+  associationName?: string | null;
+  memberId?: string | null;
+  studentId?: string | null;
+  studentIdExpiry?: Date | null;
 }
 
 /** Strip undefined/null values so we only update fields that are actually provided */
@@ -70,6 +74,10 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
       specialty: data.specialty,
       customSpecialty: data.customSpecialty,
       registrationType: data.registrationType,
+      associationName: data.associationName,
+      memberId: data.memberId,
+      studentId: data.studentId,
+      studentIdExpiry: data.studentIdExpiry,
     });
 
     const compositeKey = {

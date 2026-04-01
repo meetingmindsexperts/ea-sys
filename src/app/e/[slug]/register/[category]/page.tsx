@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -58,6 +58,9 @@ interface PricingTierData {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
+  welcomeHtml: string | null;
+  termsHtml: string | null;
+  confirmationHtml: string | null;
 }
 
 interface TicketType {
@@ -135,6 +138,12 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
   dietaryReqs: z.string().optional(),
+  // Member-specific fields
+  associationName: z.string().optional(),
+  memberId: z.string().optional(),
+  // Student-specific fields
+  studentId: z.string().optional(),
+  studentIdExpiry: z.string().optional(),
   // Billing details
   taxNumber: z.string().optional(),
   billingFirstName: z.string().optional(),
@@ -194,6 +203,7 @@ function CategoryRegistrationContent() {
       firstName: "", lastName: "", email: "", additionalEmail: "",
       organization: "", jobTitle: "", phone: "", city: "", state: "", zipCode: "",
       country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
+      associationName: "", memberId: "", studentId: "", studentIdExpiry: "",
       taxNumber: "", billingFirstName: "", billingLastName: "", billingEmail: "",
       billingPhone: "", billingAddress: "", billingCity: "", billingState: "", billingZipCode: "", billingCountry: "",
       password: "", confirmPassword: "",
@@ -293,6 +303,18 @@ function CategoryRegistrationContent() {
     if (slug) fetchEvent();
   }, [slug, categorySlug, form]);
 
+  // Resolve tier-specific content with event-level fallback
+  const selectedTierContent = useMemo(() => {
+    if (!event) return { welcomeHtml: null, termsHtml: null, confirmationHtml: null };
+    const allTiers = event.ticketTypes.flatMap((tt) => tt.pricingTiers ?? []);
+    const tier = allTiers.find((t) => toSlug(t.name) === categorySlug);
+    return {
+      welcomeHtml: tier?.welcomeHtml || event.registrationWelcomeHtml || null,
+      termsHtml: tier?.termsHtml || event.registrationTermsHtml || null,
+      confirmationHtml: tier?.confirmationHtml || null,
+    };
+  }, [event, categorySlug]);
+
   async function onSubmit(data: RegistrationForm) {
     setSubmitting(true);
     // Copy personal details to billing if "same as above" is checked
@@ -381,6 +403,9 @@ function CategoryRegistrationContent() {
 
   const purchasableOptions = regTypeOptions.filter((o) => o.canPurchase);
   const selectedTicketId = form.watch("ticketTypeId");
+  const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
+  const isMember = selectedRegTypeName.includes("member");
+  const isStudent = selectedRegTypeName.includes("student");
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   const isClosed = purchasableOptions.length === 0;
 
@@ -463,9 +488,9 @@ function CategoryRegistrationContent() {
                   {step === 1 && (
                     <div className="space-y-5">
                       {/* Welcome text from organizer — full width */}
-                      {event.registrationWelcomeHtml && (
+                      {selectedTierContent.welcomeHtml && (
                         <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
-                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationWelcomeHtml) }} />
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedTierContent.welcomeHtml!) }} />
                       )}
 
                       {/* Account form — narrower centered */}
@@ -855,19 +880,79 @@ function CategoryRegistrationContent() {
                       )}
                     />
 
-                    {selectedTicketId && (
+                    {selectedTicketId && !isMember && !isStudent && (
                       <p className="text-xs text-slate-500 italic">
                         Your professional ID may be required at the time of check-in. Always carry your ID to avoid inconvenience.
                       </p>
                     )}
                   </div>
 
+                  {/* Section: Member Details (conditional) */}
+                  {isMember && (
+                    <div className="space-y-5">
+                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Membership Details</h3>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-sm text-amber-800">
+                          Please provide your membership details below. You will be required to present your valid member ID at the time of event attendance for verification.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="associationName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Association / Society Name</FormLabel>
+                              <FormControl><Input placeholder="e.g. American Medical Association" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <FormField control={form.control} name="memberId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Member ID</FormLabel>
+                              <FormControl><Input placeholder="e.g. MEM-12345" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Section: Student Details (conditional) */}
+                  {isStudent && (
+                    <div className="space-y-5">
+                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Student Details</h3>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-sm text-amber-800">
+                          Please provide your student ID details below. You will be required to present a valid student ID at the time of event attendance for verification.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="studentId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Student ID</FormLabel>
+                              <FormControl><Input placeholder="e.g. STU-2024-001" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        <FormField control={form.control} name="studentIdExpiry"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Student ID Expiry Date</FormLabel>
+                              <FormControl><Input type="date" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Section: Terms & Conditions */}
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Terms and Conditions</h3>
                     <div className="max-h-[300px] overflow-y-auto bg-slate-50 rounded-lg border border-slate-200 p-4">
                       <div className="prose prose-slate max-w-none text-sm leading-relaxed [&>*]:mb-4 [&>*:last-child]:mb-0"
-                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationTermsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedTierContent.termsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
                     </div>
 
                     <FormField control={form.control} name="agreeTerms"

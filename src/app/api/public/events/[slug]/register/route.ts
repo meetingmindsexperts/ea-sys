@@ -29,6 +29,12 @@ const registrationSchema = z.object({
   specialty: z.string().min(1, "Specialty is required").max(255),
   customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
+  // Member-specific fields
+  associationName: z.string().max(255).optional(),
+  memberId: z.string().max(100).optional(),
+  // Student-specific fields
+  studentId: z.string().max(100).optional(),
+  studentIdExpiry: z.string().max(20).optional(),
   // Billing details
   taxNumber: z.string().max(100).optional(),
   billingFirstName: z.string().max(100).optional(),
@@ -95,7 +101,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -226,6 +232,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         customSpecialty: customSpecialty || null,
         registrationType,
         dietaryReqs: dietaryReqs || null,
+        associationName: associationName || null,
+        memberId: memberId || null,
+        studentId: studentId || null,
+        studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
       };
 
       // Look for an existing attendee with no active registration (orphaned)
@@ -346,6 +356,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       specialty: specialty || null,
       customSpecialty: customSpecialty || null,
       registrationType,
+      associationName: associationName || null,
+      memberId: memberId || null,
+      studentId: studentId || null,
+      studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
     });
 
     // Account creation: create or link user to registration

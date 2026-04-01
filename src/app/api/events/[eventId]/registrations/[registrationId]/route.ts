@@ -31,6 +31,10 @@ const updateRegistrationSchema = z.object({
     specialty: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
+    associationName: z.string().max(255).optional().nullable(),
+    memberId: z.string().max(100).optional().nullable(),
+    studentId: z.string().max(100).optional().nullable(),
+    studentIdExpiry: z.string().max(20).optional().nullable(),
     customFields: z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).optional(),
   }).optional(),
 });
@@ -169,6 +173,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
           ...(attendee.tags !== undefined && { tags: attendee.tags }),
           ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
+          ...(attendee.associationName !== undefined && { associationName: attendee.associationName || null }),
+          ...(attendee.memberId !== undefined && { memberId: attendee.memberId || null }),
+          ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
+          ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
           ...(attendee.customFields && { customFields: attendee.customFields }),
         },
       });
@@ -191,6 +199,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
         specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
         registrationType: a.registrationType,
+        associationName: attendee.associationName !== undefined ? (attendee.associationName || null) : a.associationName,
+        memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
+        studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
+        studentIdExpiry: attendee.studentIdExpiry !== undefined ? (attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null) : a.studentIdExpiry,
       });
     }
 

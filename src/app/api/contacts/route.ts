@@ -21,6 +21,10 @@ const createContactSchema = z.object({
   photo: z.string().max(500).optional().or(z.literal("")),
   city: z.string().max(255).optional(),
   country: z.string().max(255).optional(),
+  associationName: z.string().max(255).optional().nullable(),
+  memberId: z.string().max(100).optional().nullable(),
+  studentId: z.string().max(100).optional().nullable(),
+  studentIdExpiry: z.string().max(20).optional().nullable(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional().default([]),
   notes: z.string().max(2000).optional(),
 });
@@ -127,7 +131,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { title, email, firstName, lastName, organization, jobTitle, specialty, registrationType, bio, phone, photo, city, country, tags, notes } = validated.data;
+    const { title, email, firstName, lastName, organization, jobTitle, specialty, registrationType, bio, phone, photo, city, country, tags, notes, associationName, memberId, studentId, studentIdExpiry } = validated.data;
 
     const existing = await db.contact.findUnique({
       where: { organizationId_email: { organizationId: ctx.organizationId, email } },
@@ -157,6 +161,10 @@ export async function POST(req: Request) {
         photo: photo || null,
         city,
         country,
+        associationName: associationName || null,
+        memberId: memberId || null,
+        studentId: studentId || null,
+        studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
         tags,
         notes,
       },
