@@ -88,6 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Import started", importType: "registrations", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
     const errors: string[] = [];
+    const createdIds: string[] = [];
     let created = 0;
     let skipped = 0;
 
@@ -152,7 +153,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       try {
-        await db.$transaction(async (tx) => {
+        const newRegId = await db.$transaction(async (tx) => {
           // Check for duplicate registration (same email + same event)
           const existing = await tx.registration.findFirst({
             where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
@@ -196,7 +197,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
 
           const generatedBarcode = generateBarcode();
-          await tx.registration.create({
+          const registration = await tx.registration.create({
             data: {
               eventId,
               ticketTypeId: ticketType.id,
@@ -206,8 +207,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               qrCode: generatedBarcode,
               notes: getField(fields, idx.notes) || null,
             },
+            select: { id: true },
           });
+          return registration.id;
         });
+        createdIds.push(newRegId);
         created++;
 
         // Sync to contact store (awaited — errors caught internally)
@@ -244,7 +248,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "Import errors", importType: "registrations", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
-    return NextResponse.json({ created, skipped, errors });
+    return NextResponse.json({ created, skipped, errors, registrationIds: createdIds });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing registrations" });
     return NextResponse.json({ error: "Failed to import registrations" }, { status: 500 });

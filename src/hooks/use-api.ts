@@ -776,7 +776,7 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
     mutationFn: (file: File) => {
       const formData = new FormData();
       formData.append("file", file);
-      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; errors: string[] }>(
+      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; errors: string[]; registrationIds?: string[] }>(
         `/api/events/${eventId}/import/${entityType}`,
         { method: "POST", body: formData }
       );
@@ -790,6 +790,20 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
       };
       queryClient.invalidateQueries({ queryKey: keyMap[entityType] });
     },
+  });
+}
+
+export function useSendCompletionEmails(eventId: string) {
+  return useMutation({
+    mutationFn: (registrationIds: string[]) =>
+      fetchApi<{ sent: number; skipped: number; errors: string[] }>(
+        `/api/events/${eventId}/import/registrations/send-completion-emails`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ registrationIds }),
+        }
+      ),
   });
 }
 

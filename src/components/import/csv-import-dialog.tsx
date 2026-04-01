@@ -10,9 +10,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Download } from "lucide-react";
+import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Download, Send } from "lucide-react";
 import { toast } from "sonner";
-import { useCSVImport } from "@/hooks/use-api";
+import { useCSVImport, useSendCompletionEmails } from "@/hooks/use-api";
 
 interface CSVImportDialogProps {
   open: boolean;
@@ -53,9 +53,11 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
-  const [result, setResult] = useState<{ created: number; skipped?: number; tracksCreated?: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped?: number; tracksCreated?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMutation = useCSVImport(eventId, entityType);
+  const sendEmailsMutation = useSendCompletionEmails(eventId);
   const config = ENTITY_CONFIG[entityType];
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,6 +103,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     setPreview(null);
     setPreviewHeaders(null);
     setResult(null);
+    setSendResult(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     onOpenChange(false);
   };
@@ -243,6 +246,53 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                       <li>...and {result.errors.length - 20} more</li>
                     )}
                   </ul>
+                </div>
+              )}
+
+              {/* Send Registration Forms button (registrations only) */}
+              {entityType === "registrations" && result.created > 0 && result.registrationIds && result.registrationIds.length > 0 && !sendResult && (
+                <div className="border-t pt-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Send registration completion forms to imported registrants so they can fill in remaining details and create their accounts.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const data = await sendEmailsMutation.mutateAsync(result.registrationIds!);
+                        setSendResult(data);
+                        if (data.sent > 0) toast.success(`Sent ${data.sent} registration form${data.sent !== 1 ? "s" : ""}`);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Failed to send emails");
+                      }
+                    }}
+                    disabled={sendEmailsMutation.isPending}
+                  >
+                    {sendEmailsMutation.isPending ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
+                    ) : (
+                      <><Send className="h-4 w-4 mr-2" /> Send Registration Forms</>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {/* Send results */}
+              {sendResult && (
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Send className="h-4 w-4 text-primary" />
+                    <span><strong>{sendResult.sent}</strong> email{sendResult.sent !== 1 ? "s" : ""} sent</span>
+                    {sendResult.skipped > 0 && (
+                      <span className="text-muted-foreground">({sendResult.skipped} skipped — already have accounts)</span>
+                    )}
+                  </div>
+                  {sendResult.errors.length > 0 && (
+                    <ul className="text-xs text-destructive space-y-0.5">
+                      {sendResult.errors.map((err, i) => <li key={i}>{err}</li>)}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>

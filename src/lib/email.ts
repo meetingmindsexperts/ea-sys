@@ -894,6 +894,54 @@ Use the link below to set a new password: ${params.resetLink}
 ${params.expiresIn ? `Note: This reset link will expire in ${params.expiresIn}.` : ""}`,
     };
   },
+
+  registrationCompletion: (params: {
+    recipientName: string;
+    recipientEmail: string;
+    eventName: string;
+    eventDate: string;
+    eventVenue: string;
+    completionLink: string;
+    expiresIn?: string;
+  }) => {
+    const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Complete Your Registration</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">${escapeHtml(params.eventName)}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
+    <p>You have been registered for <strong>${escapeHtml(params.eventName)}</strong>. Please complete your registration by filling in the remaining details and setting up your account.</p>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">${escapeHtml(params.eventName)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">${escapeHtml(params.eventDate)}</td></tr>
+        ${params.eventVenue ? `<tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">${escapeHtml(params.eventVenue)}</td></tr>` : ""}
+      </table>
+    </div>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${escapeHtml(params.completionLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Complete Your Registration</a>
+    </div>
+    ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This link will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
+    <p style="color: #6b7280; font-size: 14px;">If you did not expect this email, you can safely ignore it.</p>
+  </div>`;
+    return {
+      subject: `Complete your registration for ${params.eventName}`,
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, { eventName: params.eventName })),
+      textContent: `Complete your registration for ${params.eventName}
+
+Hi ${params.recipientName},
+
+You have been registered for ${params.eventName}. Please complete your registration by visiting the link below.
+
+Event: ${params.eventName}
+Date: ${params.eventDate}
+${params.eventVenue ? `Venue: ${params.eventVenue}` : ""}
+
+Complete Your Registration: ${params.completionLink}
+
+${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}`,
+    };
+  },
 };
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
@@ -905,6 +953,8 @@ export const emailTemplates = {
     systemTemplates.userInvitation(params),
   passwordReset: (params: Parameters<typeof systemTemplates.passwordReset>[0]) =>
     systemTemplates.passwordReset(params),
+  registrationCompletion: (params: Parameters<typeof systemTemplates.registrationCompletion>[0]) =>
+    systemTemplates.registrationCompletion(params),
 };
 
 // ── Helper to load event template from DB (with fallback to default) ───────────
