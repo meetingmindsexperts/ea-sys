@@ -6,8 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { checkRateLimit } from "@/lib/security";
-import { hashVerificationToken } from "@/lib/security";
+import { checkRateLimit, hashVerificationToken } from "@/lib/security";
 import { sendEmail, emailTemplates } from "@/lib/email";
 
 const bodySchema = z.object({
@@ -50,38 +49,34 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { registrationIds } = validated.data;
 
-    // Load event with slug + org verification
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        startDate: true,
-        venue: true,
-        city: true,
-        country: true,
-      },
-    });
+    // Parallelize event access check + registrations lookup
+    const [event, registrations] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true, name: true, slug: true, startDate: true, venue: true, city: true, country: true },
+      }),
+      db.registration.findMany({
+        where: { id: { in: registrationIds }, eventId, status: { notIn: ["CANCELLED"] } },
+        select: {
+          id: true,
+          userId: true,
+          attendee: { select: { email: true, firstName: true, lastName: true } },
+        },
+      }),
+    ]);
+
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Load all registrations in one query
-    const registrations = await db.registration.findMany({
-      where: {
-        id: { in: registrationIds },
-        eventId,
-        status: { notIn: ["CANCELLED"] },
-      },
-      select: {
-        id: true,
-        userId: true,
-        attendee: {
-          select: { email: true, firstName: true, lastName: true },
-        },
-      },
-    });
+    if (registrations.length === 0) {
+      apiLogger.warn({ msg: "No valid registrations found for completion emails", eventId, requestedIds: registrationIds.length });
+      return NextResponse.json({ error: "No valid (non-cancelled) registrations found for the provided IDs" }, { status: 404 });
+    }
+
+    if (registrations.length < registrationIds.length) {
+      apiLogger.info({ msg: "Some registration IDs not found or cancelled", eventId, requested: registrationIds.length, found: registrations.length });
+    }
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const eventDate = format(new Date(event.startDate), "MMM d, yyyy");
@@ -140,16 +135,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
 
         if (!emailResult.success) {
-          apiLogger.warn({ msg: "Completion email send failed", registrationId: reg.id, email: reg.attendee.email, error: emailResult.error });
-          errors.push(`${reg.attendee.email}: email send failed`);
+          apiLogger.warn({ msg: "Completion email delivery failed", registrationId: reg.id, email: reg.attendee.email, provider: process.env.EMAIL_PROVIDER || "auto", error: emailResult.error });
+          errors.push(`${reg.attendee.email}: failed to deliver email — ${emailResult.error || "provider rejected"}`);
           // Clean up the token since email failed
           await db.verificationToken.deleteMany({ where: { identifier: `reg:${reg.id}` } });
         } else {
           sent++;
         }
       } catch (err) {
-        apiLogger.error({ msg: "Error sending completion email", registrationId: reg.id, err: err instanceof Error ? err.message : String(err) });
-        errors.push(`${reg.attendee.email}: ${err instanceof Error ? err.message : "unknown error"}`);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        apiLogger.error({ msg: "Unexpected error processing completion email", registrationId: reg.id, email: reg.attendee.email, err: errMsg });
+        errors.push(`${reg.attendee.email}: ${errMsg}`);
       }
     }
 
@@ -157,7 +153,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ sent, skipped, errors });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error sending completion emails" });
-    return NextResponse.json({ error: "Failed to send completion emails" }, { status: 500 });
+    apiLogger.error({ err: error, msg: "Unhandled error in send-completion-emails endpoint" });
+    return NextResponse.json({ error: "An unexpected error occurred while sending completion emails. Please try again." }, { status: 500 });
   }
 }

@@ -40,17 +40,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!tokenRecord) {
-      return NextResponse.json({ error: "Invalid or expired link" }, { status: 400 });
+      apiLogger.info({ msg: "Completion token not found (invalid or already used)", ip: getClientIp(req) });
+      return NextResponse.json({ error: "This link is invalid or has already been used. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
     if (tokenRecord.expires < new Date()) {
       await db.verificationToken.delete({ where: { token: hashedToken } });
+      apiLogger.info({ msg: "Expired completion token accessed", identifier: tokenRecord.identifier, ip: getClientIp(req) });
       return NextResponse.json({ error: "This link has expired. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
     // Extract registrationId from identifier
     if (!tokenRecord.identifier.startsWith("reg:")) {
-      return NextResponse.json({ error: "Invalid token type" }, { status: 400 });
+      apiLogger.warn({ msg: "Token with wrong identifier prefix used on completion endpoint", identifier: tokenRecord.identifier });
+      return NextResponse.json({ error: "This link is not a registration completion link." }, { status: 400 });
     }
     const registrationId = tokenRecord.identifier.slice(4);
 
@@ -112,12 +115,13 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Verify event slug matches URL for defense in depth
     if (registration.event.slug !== slug) {
-      apiLogger.warn({ msg: "Token event slug mismatch", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
-      return NextResponse.json({ error: "Invalid link" }, { status: 400 });
+      apiLogger.warn({ msg: "Completion token used on wrong event URL", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
+      return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
     // Check if already completed (user account linked)
     if (registration.userId) {
+      apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
       return NextResponse.json({ alreadyCompleted: true, event: registration.event });
     }
 
@@ -129,8 +133,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       ticketType: registration.ticketType,
     });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error validating completion token" });
-    return NextResponse.json({ error: "Failed to validate link" }, { status: 500 });
+    apiLogger.error({ err: error, msg: "Unhandled error validating completion token" });
+    return NextResponse.json({ error: "An unexpected error occurred while loading your registration. Please try again." }, { status: 500 });
   }
 }
 
@@ -194,34 +198,42 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!tokenRecord) {
-      return NextResponse.json({ error: "Invalid or expired link" }, { status: 400 });
+      apiLogger.info({ msg: "Completion POST with invalid/used token", ip: getClientIp(req) });
+      return NextResponse.json({ error: "This link is invalid or has already been used. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
     if (tokenRecord.expires < new Date()) {
       await db.verificationToken.delete({ where: { token: hashedToken } });
+      apiLogger.info({ msg: "Completion POST with expired token", identifier: tokenRecord.identifier, ip: getClientIp(req) });
       return NextResponse.json({ error: "This link has expired. Please contact the event organizer for a new link." }, { status: 400 });
     }
 
     if (!tokenRecord.identifier.startsWith("reg:")) {
-      return NextResponse.json({ error: "Invalid token type" }, { status: 400 });
+      apiLogger.warn({ msg: "Wrong token type used on completion POST", identifier: tokenRecord.identifier });
+      return NextResponse.json({ error: "This link is not a registration completion link." }, { status: 400 });
     }
     const registrationId = tokenRecord.identifier.slice(4);
 
-    // Load registration + attendee + event
+    // Load registration with only needed fields
     const registration = await db.registration.findFirst({
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
-      include: {
-        attendee: true,
+      select: {
+        id: true,
+        status: true,
+        userId: true,
+        attendeeId: true,
+        attendee: {
+          select: {
+            email: true, firstName: true, lastName: true, title: true,
+            organization: true, jobTitle: true, phone: true, city: true, country: true,
+            specialty: true, registrationType: true,
+            associationName: true, memberId: true, studentId: true, studentIdExpiry: true,
+          },
+        },
         event: {
           select: {
-            id: true,
-            name: true,
-            slug: true,
-            startDate: true,
-            venue: true,
-            city: true,
-            country: true,
-            organizationId: true,
+            id: true, name: true, slug: true, startDate: true,
+            venue: true, city: true, country: true, organizationId: true,
           },
         },
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
@@ -230,16 +242,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
-      return NextResponse.json({ error: "Registration not found or has been cancelled" }, { status: 404 });
+      apiLogger.warn({ msg: "Completion POST for missing/cancelled registration", registrationId });
+      return NextResponse.json({ error: "Registration not found or has been cancelled. Please contact the event organizer." }, { status: 404 });
     }
 
     if (registration.event.slug !== slug) {
-      apiLogger.warn({ msg: "Token event slug mismatch on POST", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
-      return NextResponse.json({ error: "Invalid link" }, { status: 400 });
+      apiLogger.warn({ msg: "Completion POST token used on wrong event URL", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
+      return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
     if (registration.userId) {
-      return NextResponse.json({ error: "Registration has already been completed" }, { status: 409 });
+      apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
+      return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });
     }
 
     // Update attendee + delete token in transaction
@@ -327,7 +341,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             title: "New Account Signup",
             message: `${firstName} ${lastName} (${email}) completed registration and created an account`,
             link: `/events/${registration.event.id}/registrations`,
-          }).catch(() => {});
+          }).catch((notifyErr) => {
+            apiLogger.warn({ msg: "Failed to notify admins of registration completion signup", registrationId, err: notifyErr instanceof Error ? notifyErr.message : String(notifyErr) });
+          });
         }
       } catch (accountError) {
         apiLogger.error({ err: accountError, msg: "Failed to create/link user account during registration completion" });
@@ -395,7 +411,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error completing registration" });
-    return NextResponse.json({ error: "Failed to complete registration" }, { status: 500 });
+    apiLogger.error({ err: error, msg: "Unhandled error in registration completion POST" });
+    return NextResponse.json({ error: "An unexpected error occurred while completing your registration. Please try again or contact the event organizer." }, { status: 500 });
   }
 }
