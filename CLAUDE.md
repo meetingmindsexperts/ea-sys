@@ -85,9 +85,9 @@ src/
 - `src/components/ui/country-select.tsx` - Searchable country dropdown component
 - `src/components/ui/tag-input.tsx` - Multi-tag chip input (Enter/comma to add, × to remove)
 - `src/components/ui/specialty-select.tsx` - Specialty field dropdown
-- `src/components/ui/title-select.tsx` - Title enum dropdown (Mr, Ms, Mrs, Dr, Prof, Other)
+- `src/components/ui/title-select.tsx` - Title enum dropdown (Dr, Mr, Mrs, Ms, Prof — alphabetically sorted)
 - `src/components/ui/registration-type-select.tsx` - Registration type dropdown (fetches from TicketType or falls back to text input)
-- `src/components/ui/tiptap-editor.tsx` - WYSIWYG email editor (Tiptap v2) with toolbar and source toggle
+- `src/components/ui/tiptap-editor.tsx` - WYSIWYG email editor (Tiptap v2) with toolbar, source toggle, and Layout dropdown (2-column, 3-column, content boxes, CTA button, divider, spacer)
 - `src/components/email-preview-dialog.tsx` - Email preview dialog with desktop/mobile toggle
 - `src/lib/schemas.ts` - Shared Zod schemas (titleEnum) used across API routes
 - `src/components/forms/person-form-fields.tsx` - Shared form fields for attendees/speakers/contacts
@@ -101,18 +101,26 @@ src/
 - `src/app/api/registrant/registrations/route.ts` - Registrant self-edit API (GET list, PUT attendee details with ownership check)
 - `src/app/api/events/[eventId]/registrations/bulk-type/route.ts` - Bulk update registration type (PATCH, adjusts soldCounts + syncs attendee.registrationType)
 - `src/lib/default-terms.ts` - Default registration terms & conditions HTML
+- `src/components/speakers/speaker-detail-sheet.tsx` - Speaker detail slide-out sheet (used from speakers list for quick view)
+- `src/components/contacts/contact-detail-sheet.tsx` - Contact detail slide-out sheet with gradient header, 2-col layout, inline edit
+- `src/components/org-theme.tsx` - Dynamic org theme provider (applies primaryColor from organization settings)
+- `src/lib/org-context.ts` - Organization context for client-side org data access
+- `src/lib/notifications.ts` - Notification helpers (`createNotification`, `notifyEventAdmins`); types: REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN, SIGNUP
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
 
-- **Organization** - Organization entity (currently single-org mode)
+- **Organization** - Organization entity (currently single-org mode); includes `primaryColor` for dynamic org theming
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER, REGISTRANT)
-- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content; `taxRate` (Decimal), `taxLabel`, and `bankDetails` for tax/payment configuration
+- **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content; `taxRate` (Decimal), `taxLabel`, and `bankDetails` for tax/payment configuration; `emailFromAddress` and `emailFromName` for per-event sender email; `badgeVerticalOffset` (Int) for badge print positioning
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI); `ticketTypeId` is the single source of truth — `attendee.registrationType` is auto-synced
-- **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service
+- **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service; `paymentStatus` includes `COMPLIMENTARY` for admin-set complimentary registrations
 - **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
 - **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard; speakers can be added manually, via CSV import, or imported from the event's registrations
-- **EventSession** - Schedule sessions
+- **EventSession** - Schedule sessions; session times validated against event dates; supports session-level roles via `SessionSpeaker` and per-topic speakers via `SessionTopic`/`TopicSpeaker`
+- **SessionTopic** - Topics within a session (title, sortOrder, duration, optional abstract link); speakers assigned per topic via `TopicSpeaker`
+- **SessionSpeaker** - Session-level roles using `SessionRole` enum (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST)
+- **TopicSpeaker** - Join table for speakers per topic within a session
 - **Track** - Session tracks
 - **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
 - **Hotel/RoomType/Accommodation** - Lodging management
@@ -294,6 +302,7 @@ The project uses several optimizations to reduce module load times:
 
 **Next.js Config** (`next.config.ts`):
 - `optimizePackageImports` - Tree-shakes large packages like `lucide-react` (44MB), Radix UI, and `@tiptap/*`
+- `serverExternalPackages` - Excludes `pdfkit` from bundling (Turbopack rewrites `__dirname` to `/ROOT/`, breaking font file resolution)
 - `transpilePackages` - Better tree-shaking for `@getbrevo/brevo`
 - `turbopack` - Faster builds with Next.js 16's default bundler
 
@@ -382,7 +391,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Composite database indexes** - Added `[eventId, status]` and `[eventId, ticketTypeId]` on Registration for faster filtered queries
 - **Middleware scope narrowing** - Matcher targets only dashboard routes; reviewers redirected from non-abstract event routes
 - **Barcode import system** - CSV import route (`/api/events/[eventId]/import/barcodes`) maps DTCM barcodes to registrations by ID or email; `barcode` field on Registration (`@unique`); import dialog UI with results summary
-- **Badge PDF generation** - Server-side PDF generation with `pdfkit` + `bwip-js` (Code128 barcodes); A4 layout with 6 badges per page (2×3 grid, 4"×3" each); badge dialog for selected or all registrations
+- **Badge PDF generation** - Server-side PDF generation with `pdfkit` + `bwip-js` (Code128 barcodes); one badge per A4 page, horizontally centered; badge layout: name, country, barcode, badge type (large), registration number (italic); all black text, no branding; `badgeVerticalOffset` on Event for print positioning; prints via `window.print()` (not download)
 - **Check-in scanner page** - Mobile-optimized page at `/events/[eventId]/check-in`; camera mode via `html5-qrcode`; manual/hardware scanner mode with auto-focused input; check-in API searches both `qrCode` and `barcode` fields; live attendance counter, recent scans log, Web Audio API sound feedback, 2s debounce
 - **API query optimization (March 2026)** - `select: { id: true }` on event existence checks across 25+ route files; parallelized independent queries in speaker/abstract detail routes; reduced over-fetching in registration list
 - **WYSIWYG footer editor** - Event footer HTML now edited via TiptapEditor in settings (replaced textarea)
@@ -414,6 +423,22 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Settings: branding split** - Branding (banner + footer) and Email Branding (header image + footer) separated into distinct tabs
 - **UI polish** - Public form widths increased to `max-w-5xl`; font sizes increased to 16px base; all select dropdowns use `w-full`; Tiptap source mode formats HTML with indentation; Tailwind safelist for DB-stored HTML classes; footer/welcome/terms rendered with `prose` + `[&>*]:mb-4`; sheet width fix (removed hardcoded 540px)
 - **SendGrid integration** - Added `@sendgrid/mail` as alternative email provider to Brevo; auto-selected via `SENDGRID_API_KEY` env var; both providers coexist in `src/lib/email.ts` with a unified `sendEmail()` interface; set `EMAIL_PROVIDER` to force a specific provider or omit to auto-detect from available API keys
+- **Attendee cleanup on registration delete** - Deleting a registration now also deletes its attendee record; public registration route reuses orphaned attendees (same email, no active registrations) instead of creating duplicates; P2002 unique constraint error handled gracefully
+- **COMPLIMENTARY payment status** - Added `COMPLIMENTARY` to `PaymentStatus` enum; admins can set any registration as complimentary from the detail sheet; complimentary registrations can check in without payment, are included in badge generation, and show "no payment required" in registrant portal; cyan badge color
+- **Detail sheet redesign (registration, contact, speaker)** - Gradient header with photo (112px, editable on hover with pencil overlay and "Remove" link below), 2-column info grid in view mode, status badges, action buttons in header; `SheetDescription` uses `asChild` + `<span>` to avoid `<p>` > `<div>` hydration errors; 700px sheet width, 32px right padding
+- **Speaker detail page** - Full page (not sheet) with gradient header, photo upload, 2-column info grid, inline edit, sessions/abstracts lists, social links, email dialog (invitation/agreement/custom); speakers list uses table layout (matching registrations)
+- **Session topics system** - `SessionTopic` model for topics within sessions (title, sortOrder, duration, optional abstract); `TopicSpeaker` join table for per-topic speakers; `SessionRole` enum (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) replaces free-text role on `SessionSpeaker`; session form has "Session Roles" section (role + speaker dropdowns) and "Topics" section (repeatable sub-form with title, duration, speaker checkboxes); topics are optional — sessions work with just session-level roles; legacy `speakerIds` array still supported
+- **Session date validation** - Session start/end times must fall within event dates; validated in both POST and PUT; datetime-local inputs have `min`/`max` set to event dates; "Add Session" pre-fills with current calendar date (9:00–10:00)
+- **Badge print (not download)** - Badge button opens PDF in new browser tab and triggers `window.print()` instead of downloading; one badge per page, horizontally centered; `badgeVerticalOffset` field on Event model for organizer-adjustable vertical positioning (Settings → Registration tab); badge layout: name, country, barcode, badge type, registration number — all black text, no branding/colors
+- **pdfkit Turbopack fix** - Added `pdfkit` to `serverExternalPackages` in next.config.ts to preserve `__dirname` for Helvetica.afm font resolution; `bwip-js` barcode rendering uses async `toBuffer()` with pre-rendered buffers (not `toBufferSync`)
+- **Email template cleanup** - Removed gradient header divs from default email templates; `wrapWithBranding()` body cell has `padding: 24px 30px`; registration confirmation template uses clean text header; `titleEnum` accepts empty string `""` and transforms to `undefined`
+- **Tiptap layout blocks** - Layout dropdown in editor toolbar: 2-column (50/50), 3-column, sidebar+main (30/70), content box (gray), info box (blue), highlight box (amber), CTA button, divider, spacer; all use inline styles (email-safe)
+- **Photo delete fix** - Photo Zod schemas accept `.nullable()` on speaker and registration update routes; `photo: editData.photo ?? null` in save logic (not `|| undefined`); validation failure logging added (`apiLogger.warn`) on speaker and registration update routes
+- **Signup notifications** - `SIGNUP` notification type; admins notified when: new registrant account created, new submitter account created, team member accepts invitation
+- **Log viewer enhancements** - "Download All" button exports all logs; "Clear Logs" button (database source only) deletes logs by timeframe with confirmation; DELETE endpoint on `/api/logs`
+- **Global settings redesign** - Gradient header banner; stats cards with colored left borders and icon badges; section cards with colored icon badges (cerulean, violet, emerald, sky, amber)
+- **Organization primary color** - `primaryColor` field on Organization model; dynamic theme provider applies org color via CSS variables; auth session includes primaryColor
+- **Title enum sorted alphabetically** - DR, MR, MRS, MS, PROF in schema, Zod, UI dropdown, and display labels
 
 ## Current Mode
 
@@ -437,7 +462,9 @@ Pino-based structured JSON logging with three output modes:
 - SUPER_ADMIN-only web UI at `/logs` with retro terminal theme
 - Supports three sources: **Database** (default on Vercel), **File**, **Docker**
 - Filters: level (error/warn/info), time range (10m to all), search text
-- Auto-refresh (5s interval), export to text file
+- Auto-refresh (configurable interval), export filtered or all logs to text file
+- **Download All** — fetches all logs from current source and exports
+- **Clear Logs** — deletes database logs for selected timeframe (database source only); DELETE endpoint at `/api/logs`
 
 ### Database Logging (Vercel)
 - `SystemLog` model stores log entries in PostgreSQL (level, module, message, timestamp)
