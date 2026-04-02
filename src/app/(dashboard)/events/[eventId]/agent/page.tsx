@@ -1,12 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Bot, ChevronDown, ChevronRight, Wrench, Check, AlertCircle, Send, Square, Trash2 } from "lucide-react";
+import {
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
+  Check,
+  AlertCircle,
+  Send,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,39 +58,32 @@ function getToolLabel(name: string) {
 }
 
 function getToolResultSummary(name: string, result: unknown): string {
-  if (result && typeof result === "object" && "error" in result) {
-    return `Error: ${(result as { error: string }).error}`;
-  }
+  if (!result || typeof result !== "object") return "Completed";
   const r = result as Record<string, unknown>;
-  if (name === "create_track" && r.track) {
-    const t = r.track as { name: string };
-    return `Created track "${t.name}"`;
-  }
+
+  if ("error" in r) return `Error: ${r.error}`;
+
+  if (name === "create_track" && r.track)
+    return `Created track "${(r.track as { name: string }).name}"`;
   if (name === "create_speaker" && r.speaker) {
     const s = r.speaker as { firstName: string; lastName: string };
     return `Created speaker ${s.firstName} ${s.lastName}`;
   }
-  if (name === "create_session" && r.session) {
-    const s = r.session as { name: string };
-    return `Created session "${s.name}"`;
-  }
-  if (name === "list_tracks" && Array.isArray(r.tracks)) {
+  if (name === "create_session" && r.session)
+    return `Created session "${(r.session as { name: string }).name}"`;
+  if (name === "list_tracks" && Array.isArray(r.tracks))
     return `Found ${r.tracks.length} track${r.tracks.length !== 1 ? "s" : ""}`;
-  }
-  if (name === "list_speakers" && Array.isArray(r.speakers)) {
+  if (name === "list_speakers" && Array.isArray(r.speakers))
     return `Found ${r.speakers.length} speaker${r.speakers.length !== 1 ? "s" : ""}`;
-  }
-  if (name === "list_registrations" && Array.isArray(r.registrations)) {
+  if (name === "list_registrations" && Array.isArray(r.registrations))
     return `Found ${r.registrations.length} registration${r.registrations.length !== 1 ? "s" : ""}`;
-  }
-  if (name === "list_sessions" && Array.isArray(r.sessions)) {
+  if (name === "list_sessions" && Array.isArray(r.sessions))
     return `Found ${r.sessions.length} session${r.sessions.length !== 1 ? "s" : ""}`;
-  }
-  if (name === "list_ticket_types" && Array.isArray(r.ticketTypes)) {
+  if (name === "list_ticket_types" && Array.isArray(r.ticketTypes))
     return `Found ${r.ticketTypes.length} ticket type${r.ticketTypes.length !== 1 ? "s" : ""}`;
-  }
   if (name === "create_ticket_type" && r.ticketType) {
-    if (r.alreadyExists) return `Ticket type "${(r.ticketType as { name: string }).name}" already exists`;
+    if (r.alreadyExists)
+      return `Ticket type "${(r.ticketType as { name: string }).name}" already exists`;
     return `Created ticket type "${(r.ticketType as { name: string }).name}" with Early Bird, Standard, Onsite tiers`;
   }
   if (name === "create_registration") {
@@ -91,12 +93,10 @@ function getToolResultSummary(name: string, result: unknown): string {
       return `Created registration for ${a.firstName} ${a.lastName}`;
     }
   }
-  if (name === "send_bulk_email" && r.sent !== undefined) {
+  if (name === "send_bulk_email" && r.sent !== undefined)
     return `Sent to ${r.sent} recipient${(r.sent as number) !== 1 ? "s" : ""}`;
-  }
-  if (name === "list_event_info" && r.name) {
-    return `Fetched event "${r.name}"`;
-  }
+  if (name === "list_event_info" && r.name) return `Fetched event "${r.name}"`;
+
   return "Completed";
 }
 
@@ -109,7 +109,26 @@ const SUGGESTED_COMMANDS = [
   "List all sessions",
 ];
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+function storageKey(eventId: string) {
+  return `agent-session-${eventId}`;
+}
+
+function loadMessages(eventId: string): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(storageKey(eventId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatMessage[];
+    return parsed.map((m) =>
+      m.role === "assistant" ? { ...m, isStreaming: false } : m
+    );
+  } catch {
+    return [];
+  }
+}
+
+// ─── ToolChip ─────────────────────────────────────────────────────────────────
 
 function ToolChip({
   name,
@@ -125,18 +144,14 @@ function ToolChip({
   const [expanded, setExpanded] = useState(false);
   const label = getToolLabel(name);
   const summary = isDone && result !== undefined ? getToolResultSummary(name, result) : null;
-  const isError =
-    isDone &&
-    result &&
-    typeof result === "object" &&
-    "error" in result;
+  const isError = isDone && result && typeof result === "object" && "error" in result;
 
   return (
-    <div className="my-1">
+    <div className="my-1 max-w-full">
       <button
         onClick={() => setExpanded((p) => !p)}
         className={cn(
-          "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors",
+          "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors max-w-full",
           isDone
             ? isError
               ? "bg-red-50 border-red-200 text-red-700"
@@ -145,29 +160,25 @@ function ToolChip({
         )}
       >
         {isDone ? (
-          isError ? (
-            <AlertCircle className="h-3 w-3" />
-          ) : (
-            <Check className="h-3 w-3" />
-          )
+          isError ? <AlertCircle className="h-3 w-3 shrink-0" /> : <Check className="h-3 w-3 shrink-0" />
         ) : (
-          <Wrench className="h-3 w-3" />
+          <Wrench className="h-3 w-3 shrink-0" />
         )}
-        <span>{isDone ? (summary ?? label) : label + "…"}</span>
+        <span className="truncate">{isDone ? (summary ?? label) : label + "…"}</span>
         {expanded ? (
-          <ChevronDown className="h-3 w-3 ml-1" />
+          <ChevronDown className="h-3 w-3 ml-1 shrink-0" />
         ) : (
-          <ChevronRight className="h-3 w-3 ml-1" />
+          <ChevronRight className="h-3 w-3 ml-1 shrink-0" />
         )}
       </button>
       {expanded && (
-        <div className="mt-1 ml-2 p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-48 max-w-full">
+        <div className="mt-1 ml-2 p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-48 w-full">
           <div className="text-muted-foreground mb-1">Input:</div>
-          <pre>{JSON.stringify(input, null, 2)}</pre>
+          <pre className="whitespace-pre-wrap break-all">{JSON.stringify(input, null, 2)}</pre>
           {isDone && result !== undefined && (
             <>
               <div className="text-muted-foreground mt-2 mb-1">Result:</div>
-              <pre>{JSON.stringify(result, null, 2)}</pre>
+              <pre className="whitespace-pre-wrap break-all">{JSON.stringify(result, null, 2)}</pre>
             </>
           )}
         </div>
@@ -175,6 +186,8 @@ function ToolChip({
     </div>
   );
 }
+
+// ─── MessageBubble ────────────────────────────────────────────────────────────
 
 function MessageBubble({
   message,
@@ -185,8 +198,8 @@ function MessageBubble({
 }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end mb-4">
-        <div className="max-w-[80%] bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap">
+      <div className="flex justify-end mb-3">
+        <div className="max-w-[80%] bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           {message.content}
         </div>
       </div>
@@ -195,29 +208,15 @@ function MessageBubble({
 
   if (message.role === "assistant") {
     return (
-      <div className="flex justify-start mb-4">
-        <div className="max-w-[85%] bg-card border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm">
-          {message.content}
-          {message.isStreaming && (
+      <div className="flex justify-start mb-3">
+        <div className="max-w-[85%] bg-card border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words shadow-sm">
+          {message.content || (message.isStreaming && (
+            <span className="text-muted-foreground italic">Thinking…</span>
+          ))}
+          {message.isStreaming && message.content && (
             <span className="inline-block w-0.5 h-3.5 bg-foreground ml-0.5 animate-pulse align-middle" />
           )}
-          {!message.content && message.isStreaming && (
-            <span className="text-muted-foreground italic">Thinking…</span>
-          )}
         </div>
-      </div>
-    );
-  }
-
-  if (message.role === "tool_start") {
-    // Shown as pending until tool_result arrives
-    return (
-      <div className="flex justify-start mb-1">
-        <ToolChip
-          name={message.name}
-          input={message.input}
-          isDone={false}
-        />
       </div>
     );
   }
@@ -238,8 +237,8 @@ function MessageBubble({
 
   if (message.role === "error") {
     return (
-      <div className="flex justify-start mb-4">
-        <div className="flex items-start gap-2 max-w-[85%] bg-destructive/10 border border-destructive/20 text-destructive rounded-xl px-4 py-2.5 text-sm">
+      <div className="flex justify-start mb-3">
+        <div className="flex items-start gap-2 max-w-[85%] bg-destructive/10 border border-destructive/20 text-destructive rounded-xl px-4 py-2.5 text-sm break-words">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <span>{message.message}</span>
         </div>
@@ -252,62 +251,44 @@ function MessageBubble({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-function storageKey(eventId: string) {
-  return `agent-session-${eventId}`;
-}
-
-function loadMessages(eventId: string): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(storageKey(eventId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ChatMessage[];
-    // Strip streaming flags on load (page was closed mid-stream)
-    return parsed.map((m) =>
-      m.role === "assistant" ? { ...m, isStreaming: false } : m
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveMessages(eventId: string, messages: ChatMessage[]) {
-  try {
-    localStorage.setItem(storageKey(eventId), JSON.stringify(messages));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
-
 export default function AgentPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Plain div ref — ScrollArea's viewport isn't reachable via ref on the wrapper
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Track tool_start inputs so tool_result can show them
   const pendingToolsRef = useRef<Map<string, { name: string; input: unknown }>>(new Map());
+  // Debounce localStorage writes — avoid writing on every streaming token
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load persisted messages on mount
   useEffect(() => {
     setMessages(loadMessages(eventId));
   }, [eventId]);
 
-  // Persist messages to localStorage whenever they change
+  // Debounced save to localStorage (500ms after last change)
   useEffect(() => {
-    if (messages.length > 0) {
-      saveMessages(eventId, messages);
-    }
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      try {
+        if (messages.length > 0) {
+          localStorage.setItem(storageKey(eventId), JSON.stringify(messages));
+        }
+      } catch {
+        // Quota exceeded — silently ignore
+      }
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
   }, [eventId, messages]);
 
-  // Auto-scroll on new messages
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   function buildHistory(): ApiMessage[] {
@@ -317,10 +298,10 @@ export default function AgentPage() {
           (m.role === "user" || m.role === "assistant") && !!m.content
       )
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
-      .slice(-40); // last 20 pairs
+      .slice(-40);
   }
 
-  function handleSSEEvent(data: SSEEvent, assistantId: string) {
+  const handleSSEEvent = useCallback((data: SSEEvent, assistantId: string) => {
     switch (data.type) {
       case "text_delta":
         setMessages((prev) =>
@@ -337,16 +318,7 @@ export default function AgentPage() {
           name: data.name,
           input: data.input,
         });
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "tool_start",
-            name: data.name,
-            input: data.input,
-            toolUseId: data.toolUseId,
-          },
-        ]);
+        // tool_start messages are not shown directly — only tool_result chips render
         break;
 
       case "tool_result":
@@ -365,18 +337,14 @@ export default function AgentPage() {
       case "error":
         setMessages((prev) => [
           ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "error",
-            message: data.message,
-          },
+          { id: crypto.randomUUID(), role: "error", message: data.message },
         ]);
         break;
 
       case "done":
         break;
     }
-  }
+  }, []);
 
   async function sendMessage(userMessage: string) {
     if (!userMessage.trim() || isRunning) return;
@@ -389,6 +357,9 @@ export default function AgentPage() {
     const userId = crypto.randomUUID();
     const assistantId = crypto.randomUUID();
 
+    // Snapshot history before adding new messages
+    const history = buildHistory();
+
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: userMessage },
@@ -400,29 +371,21 @@ export default function AgentPage() {
       const res = await fetch(`/api/events/${eventId}/agent/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userMessage,
-          history: buildHistory(),
-        }),
+        body: JSON.stringify({ message: userMessage, history }),
         signal: ac.signal,
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Request failed" }));
+        const errBody = await res.json().catch(() => ({ error: "Request failed" }));
+        // Remove the empty assistant placeholder and show error instead
         setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "error",
-            message: err.error ?? "Request failed",
-          },
+          ...prev.filter((m) => m.id !== assistantId),
+          { id: crypto.randomUUID(), role: "error", message: errBody.error ?? "Request failed" },
         ]);
         return;
       }
 
-      if (!res.body) {
-        throw new Error("No response body");
-      }
+      if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -439,33 +402,30 @@ export default function AgentPage() {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
-            const data = JSON.parse(line.slice(6)) as SSEEvent;
-            handleSSEEvent(data, assistantId);
+            handleSSEEvent(JSON.parse(line.slice(6)) as SSEEvent, assistantId);
           } catch {
-            // Skip malformed lines
+            // Skip malformed SSE line
           }
         }
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "error",
-          message: "Connection error. Please try again.",
-        },
+        ...prev.filter((m) => m.id !== assistantId),
+        { id: crypto.randomUUID(), role: "error", message: "Connection error. Please try again." },
       ]);
     } finally {
       setIsRunning(false);
       abortRef.current = null;
-      // Mark assistant message done
+      // Mark streaming done; remove bubble entirely if it ended up empty
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId && m.role === "assistant"
-            ? { ...m, isStreaming: false }
-            : m
-        )
+        prev
+          .map((m) =>
+            m.id === assistantId && m.role === "assistant"
+              ? { ...m, isStreaming: false }
+              : m
+          )
+          .filter((m) => !(m.id === assistantId && m.role === "assistant" && !m.content))
       );
     }
   }
@@ -475,6 +435,7 @@ export default function AgentPage() {
   }
 
   function clearSession() {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     localStorage.removeItem(storageKey(eventId));
     setMessages([]);
   }
@@ -486,13 +447,17 @@ export default function AgentPage() {
     }
   }
 
-  // Snapshot pending tools for rendering (avoids ref in render)
+  // Precompute set of completed tool IDs — avoids O(n²) inside render
+  const completedToolIds = new Set(
+    messages.filter((m) => m.role === "tool_result").map((m) => (m as Extract<ChatMessage, { role: "tool_result" }>).toolUseId)
+  );
   const pendingTools = pendingToolsRef.current;
 
   return (
-    <div className="space-y-6">
+    // h-full fills the dashboard <main> (flex-1 overflow-auto)
+    <div className="flex flex-col h-full gap-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between shrink-0">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Bot className="h-8 w-8" />
@@ -507,7 +472,7 @@ export default function AgentPage() {
             variant="outline"
             size="sm"
             onClick={clearSession}
-            className="text-muted-foreground"
+            className="text-muted-foreground shrink-0"
           >
             <Trash2 className="h-4 w-4 mr-1.5" />
             Clear session
@@ -515,11 +480,14 @@ export default function AgentPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 items-start">
-        {/* Chat area */}
-        <Card className="flex flex-col" style={{ height: "calc(100vh - 220px)" }}>
-          <CardHeader className="pb-3 border-b shrink-0">
-            <CardTitle className="text-base font-medium">
+      {/* Body — fills remaining height */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 flex-1 min-h-0">
+
+        {/* Chat card */}
+        <Card className="flex flex-col min-h-0 overflow-hidden">
+          {/* Status bar */}
+          <CardHeader className="py-3 px-4 border-b shrink-0">
+            <CardTitle className="text-sm font-medium">
               {isRunning ? (
                 <span className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
@@ -534,8 +502,11 @@ export default function AgentPage() {
             </CardTitle>
           </CardHeader>
 
-          {/* Message list */}
-          <ScrollArea className="flex-1 px-4 py-4" ref={scrollRef}>
+          {/* Message list — plain div, not ScrollArea, so ref works */}
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-4"
+          >
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full py-16 text-center text-muted-foreground">
                 <Bot className="h-12 w-12 mb-3 opacity-20" />
@@ -545,12 +516,17 @@ export default function AgentPage() {
               </div>
             )}
             {messages.map((msg) => {
-              // Hide tool_start messages that already have a matching tool_result
+              // Skip tool_start if the result already arrived (show only the result chip)
+              if (msg.role === "tool_start" && completedToolIds.has(msg.toolUseId)) {
+                return null;
+              }
+              // Render pending tool_start as a chip
               if (msg.role === "tool_start") {
-                const hasResult = messages.some(
-                  (m) => m.role === "tool_result" && m.toolUseId === msg.toolUseId
+                return (
+                  <div key={msg.id} className="flex justify-start mb-1">
+                    <ToolChip name={msg.name} input={msg.input} isDone={false} />
+                  </div>
                 );
-                if (hasResult) return null;
               }
               return (
                 <MessageBubble
@@ -560,7 +536,7 @@ export default function AgentPage() {
                 />
               );
             })}
-          </ScrollArea>
+          </div>
 
           {/* Input area */}
           <div className="border-t p-4 shrink-0">
@@ -571,7 +547,7 @@ export default function AgentPage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Type a command… (Enter to send, Shift+Enter for newline)"
                 rows={2}
-                className="resize-none flex-1"
+                className="resize-none flex-1 min-w-0"
                 disabled={isRunning}
                 maxLength={2000}
               />
@@ -581,6 +557,7 @@ export default function AgentPage() {
                   size="icon"
                   onClick={handleStop}
                   title="Stop agent"
+                  className="shrink-0"
                 >
                   <Square className="h-4 w-4" />
                 </Button>
@@ -590,6 +567,7 @@ export default function AgentPage() {
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim()}
                   title="Send"
+                  className="shrink-0"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
@@ -601,8 +579,8 @@ export default function AgentPage() {
           </div>
         </Card>
 
-        {/* Sidebar: suggestions */}
-        <div className="space-y-4">
+        {/* Sidebar */}
+        <div className="space-y-4 overflow-y-auto">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
@@ -613,9 +591,7 @@ export default function AgentPage() {
               {SUGGESTED_COMMANDS.map((cmd) => (
                 <button
                   key={cmd}
-                  onClick={() => {
-                    setInput(cmd);
-                  }}
+                  onClick={() => setInput(cmd)}
                   disabled={isRunning}
                   className={cn(
                     "w-full text-left text-sm px-3 py-2 rounded-lg border transition-colors",
@@ -638,11 +614,11 @@ export default function AgentPage() {
             </CardHeader>
             <CardContent className="pt-0">
               <ul className="text-xs text-muted-foreground space-y-1">
-                <li>✓ List & create tracks</li>
-                <li>✓ List & create speakers</li>
-                <li>✓ List & create sessions</li>
-                <li>✓ List registrations</li>
-                <li>✓ List ticket types</li>
+                <li>✓ List &amp; create tracks</li>
+                <li>✓ List &amp; create speakers</li>
+                <li>✓ List &amp; create sessions</li>
+                <li>✓ List &amp; create registrations</li>
+                <li>✓ List &amp; create ticket types</li>
                 <li>✓ Send bulk emails</li>
                 <li>✗ Cannot delete records</li>
               </ul>
