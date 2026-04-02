@@ -34,12 +34,15 @@ src/
 │   │   │       ├── tickets/
 │   │   │       ├── abstracts/
 │   │   │       ├── reviewers/
+│   │   │       ├── communications/ # Centralized event email sending
+│   │   │       ├── content/        # Standalone registration & abstract text editors
 │   │   │       └── settings/
 │   │   └── settings/        # Organization settings
 │   ├── e/                   # Public event pages (no auth)
 │   │   └── [slug]/          # Redirects to /e/[slug]/register
 │   │       ├── register/    # Submitter registration form (public)
 │   │       ├── submitAbstract/ # Abstract submission form (public, post-login)
+│   │       ├── complete-registration/ # Token-gated completion form for CSV-imported registrants
 │   │       └── confirmation/
 │   ├── uploads/             # Static file serving for uploaded photos
 │   │   └── [...path]/       # Catch-all: streams files from public/uploads/
@@ -47,6 +50,7 @@ src/
 │       ├── auth/            # Auth endpoints
 │       ├── events/          # Event CRUD (protected)
 │       │   └── [eventId]/   # Event-specific endpoints
+│       ├── media/           # Media library (GET list, POST upload, DELETE by id)
 │       ├── organization/    # Organization endpoints
 │       ├── upload/          # File upload endpoints
 │       │   └── photo/       # Photo upload (POST, auth required)
@@ -106,6 +110,12 @@ src/
 - `src/components/org-theme.tsx` - Dynamic org theme provider (applies primaryColor from organization settings)
 - `src/lib/org-context.ts` - Organization context for client-side org data access
 - `src/lib/notifications.ts` - Notification helpers (`createNotification`, `notifyEventAdmins`); types: REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN, SIGNUP
+- `src/lib/csv-parser.ts` - RFC 4180 compliant CSV parsing (`parseCSV`, `parseCSVLine`, `parseCSVHeaders`, `getField`, `parseTags`); max 5000 rows
+- `src/lib/contact-sync.ts` - Fire-and-forget sync of attendee/speaker/reviewer data to Contact store (`syncToContact`); non-blocking, failures only logged
+- `src/lib/storage.ts` - File storage abstraction; `uploadMedia()` saves to `/uploads/media/{YYYY}/{MM}/`; `deleteMedia()` removes from storage + DB; dual provider: local filesystem or Supabase Storage (`STORAGE_PROVIDER` env var); 2MB limit with magic byte validation
+- `src/components/import/csv-import-dialog.tsx` - CSV import dialog with file upload, first-5-row preview, template download, import results; post-import "Send Registration Forms" button triggers bulk completion emails
+- `src/components/bulk-tag-dialog.tsx` - Manage tags on selected registrations/speakers (add/remove/replace modes)
+- `src/components/bulk-email-dialog.tsx` - Send emails to selected or all filtered registrations
 - `src/app/globals.css` - Global styles and CSS variables
 
 ## Database Models
@@ -114,9 +124,10 @@ src/
 - **User** - Users with roles (SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER, REGISTRANT)
 - **Event** - Events with status tracking; includes `eventType` (CONFERENCE/WEBINAR/HYBRID), `tag`, and `specialty` fields; `registrationWelcomeHtml` and `registrationTermsHtml` for public registration form content; `taxRate` (Decimal), `taxLabel`, and `bankDetails` for tax/payment configuration; `emailFromAddress` and `emailFromName` for per-event sender email; `badgeVerticalOffset` (Int) for badge print positioning
 - **TicketType** - Registration type configurations (displayed as "Registration Types" in UI); `ticketTypeId` is the single source of truth — `attendee.registrationType` is auto-synced
-- **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service; `paymentStatus` includes `COMPLIMENTARY` for admin-set complimentary registrations
-- **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `country`, `registrationType`, and `dietaryReqs` fields
-- **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard; speakers can be added manually, via CSV import, or imported from the event's registrations
+- **Registration** - Event registrations; `userId` (nullable FK) links to User for registrant self-service; `paymentStatus` includes `COMPLIMENTARY` for admin-set complimentary registrations; `billingState` and `billingZipCode` for invoice/billing; `termsAcceptedAt` (DateTime) records when registrant accepted T&C
+- **Attendee** - Attendee information; includes `title` (Title enum), `photo`, `city`, `state`, `zipCode`, `country`, `registrationType`, `dietaryReqs`, `memberId`, `studentId`, and `studentIdExpiry` (DateTime) fields; member/student fields required conditionally based on registration type name
+- **Speaker** - Event speakers; includes `title` (Title enum), `photo`, `city`, `state`, `zipCode`, `country`, `specialty`, and `registrationType` fields; `specialty` is set during submitter registration and editable from dashboard; speakers can be added manually, via CSV import, or imported from the event's registrations
+- **MediaFile** - Organization media library; `id, organizationId, uploadedById, filename, url, mimeType, size, createdAt`; managed via `/api/media` routes (GET list, POST upload, DELETE); images stored in `/uploads/media/{YYYY}/{MM}/`
 - **EventSession** - Schedule sessions; session times validated against event dates; supports session-level roles via `SessionSpeaker` and per-topic speakers via `SessionTopic`/`TopicSpeaker`
 - **SessionTopic** - Topics within a session (title, sortOrder, duration, optional abstract link); speakers assigned per topic via `TopicSpeaker`
 - **SessionSpeaker** - Session-level roles using `SessionRole` enum (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST)
@@ -124,7 +135,7 @@ src/
 - **Track** - Session tracks
 - **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
 - **Hotel/RoomType/Accommodation** - Lodging management
-- **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `country`, and `registrationType` fields
+- **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `state`, `zipCode`, `country`, `registrationType`, `memberId`, `studentId`, `studentIdExpiry`, and `associationName` fields; auto-synced from registrants/speakers via `syncToContact()` in `src/lib/contact-sync.ts`
 - **Payment** - Stripe payment records linked to Registration; stores amount, currency, stripePaymentId (unique), stripeCustomerId, status, receiptUrl, metadata (JSON)
 - **AuditLog** - Action logging
 - **SystemLog** - Pino log entries persisted to DB (level, module, message, timestamp); used by `/logs` viewer on Vercel
@@ -180,6 +191,9 @@ EMAIL_PROVIDER="..."                  # Optional: "sendgrid" or "brevo" (auto-de
 EMAIL_FROM="..."                      # Sender email
 EMAIL_FROM_NAME="..."                 # Sender name
 LOG_LEVEL="info"                      # debug, info, warn, error
+STORAGE_PROVIDER="local"              # "local" (default) or "supabase" for media uploads
+NEXT_PUBLIC_SENTRY_DSN="..."          # Sentry DSN for client error tracking
+ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
 ```
 
 ## Common Commands
@@ -364,6 +378,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - `useAbstracts`, `useHotels`, `useAccommodations`
 - `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
 - `useEvents`, `useEvent`
+- `useMedia`, `useUploadMedia`, `useDeleteMedia` (media library)
+- `useSendCompletionEmails` (bulk send completion tokens to CSV-imported registrants)
 
 ## Recent Features
 
@@ -439,6 +455,15 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Global settings redesign** - Gradient header banner; stats cards with colored left borders and icon badges; section cards with colored icon badges (cerulean, violet, emerald, sky, amber)
 - **Organization primary color** - `primaryColor` field on Organization model; dynamic theme provider applies org color via CSS variables; auth session includes primaryColor
 - **Title enum sorted alphabetically** - DR, MR, MRS, MS, PROF in schema, Zod, UI dropdown, and display labels
+- **State and zip code fields** - Added `state` and `zipCode` to Attendee, Speaker, and Contact models; `billingState` and `billingZipCode` on Registration for invoice purposes; integrated into all person forms, CSV import/export, and contact sync
+- **Terms accepted timestamp** - `termsAcceptedAt` (DateTime) on Registration records the moment a registrant accepted T&C; set on both public registration submit and completion form submit
+- **Conditional member/student fields** - Registration types containing "member" in the name require `memberId`; types containing "student" require `studentId` and `studentIdExpiry`; enforced client-side and server-side in the completion form and public registration API; info box shown to registrant explaining ID verification at event
+- **CSV import → registration completion flow** - Admins upload a CSV (required: email, firstName, lastName; optional: state, zipCode, registrationType, memberId, studentId, etc.) at `/events/[eventId]/registrations` → CSV import dialog; records are created, then "Send Registration Forms" triggers bulk completion emails; completion email contains a 7-day token link to `/e/[slug]/complete-registration?token=...`; public page pre-fills read-only fields (name, email) and collects editable details + optional account creation; API at `GET/POST /api/public/events/[slug]/complete-registration`; rate limited (20 GET / 15 min per IP, 5 POST / 15 min per IP); send-emails route limited to 5 sends / 1 hour per org; one-time-use token deleted after successful submission; `contact-sync.ts` fires after completion
+- **Media library** - Organization-level media management; JPEG/PNG/WebP files up to 2MB with magic byte validation; stored in `/uploads/media/{YYYY}/{MM}/`; `MediaFile` Prisma model; API routes at `/api/media` (GET paginated list, POST upload, DELETE by id); usable in TiptapEditor for email template images; `STORAGE_PROVIDER` env var switches between local filesystem and Supabase Storage
+- **Contact auto-sync** - `syncToContact()` in `src/lib/contact-sync.ts` upserts attendee/speaker data to Contact store after CSV import, speaker import, and registration completion; appends eventId to contact.eventIds (no duplicates); non-blocking (failures logged, never thrown)
+- **Centralized Communications page** - `/events/[eventId]/communications` page consolidates all event email sending in one place (replaces scattered send-email buttons on individual pages)
+- **Standalone Content page** - `/events/[eventId]/content` provides dedicated TiptapEditor panels for registration welcome HTML and abstract welcome HTML, outside of settings tabs
+- **AI Agent** - `/events/[eventId]/agent` page lets organizers type natural language commands to autonomously manage their event; powered by `@anthropic-ai/sdk` with Anthropic tool-use API in an agentic loop; tools: `list_event_info`, `list_tracks`, `create_track`, `list_speakers`, `create_speaker`, `list_registrations`, `list_sessions`, `create_session`, `list_ticket_types`, `send_bulk_email`; streams progress to browser via SSE (`Content-Type: text/event-stream`); tool executors in `src/lib/agent/event-tools.ts`, system prompt builder in `src/lib/agent/system-prompt.ts`, SSE route at `src/app/api/events/[eventId]/agent/execute/route.ts`; rate limited (20 req/hr per user, 10 bulk emails/hr per event); read-only + create only (no deletes); restricted to ADMIN/ORGANIZER roles; `X-Accel-Buffering: no` header disables nginx buffering for EC2 production
 
 ## Current Mode
 

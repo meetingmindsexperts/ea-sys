@@ -58,3 +58,5 @@ next-env.d.ts
 /public/uploads/*
 !/public/uploads/.gitkeep
 docs/TECHNICAL_INTERVIEW_QA.md
+.claude/settings.json
+.claude/settings.local.json

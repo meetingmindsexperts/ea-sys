@@ -37,7 +37,8 @@
       "Bash(node -e:*)",
       "Bash(node --input-type=module:*)",
       "Bash(npm ci:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep \"export async function [A-Z]\" {} 2>/dev/null')"
     ]
   }
 }

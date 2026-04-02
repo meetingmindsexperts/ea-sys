@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
     "@auth/prisma-adapter": "^2.11.1",
     "@getbrevo/brevo": "3.0.1",
     "@hookform/resolvers": "^5.2.2",

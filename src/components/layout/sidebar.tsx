@@ -25,6 +25,7 @@ import {
   ScanBarcode,
   Activity,
   Mail,
+  Bot,
   PenLine,
   ChevronsUpDown,
   ImageIcon,
@@ -87,6 +88,12 @@ const eventNavigationSections = [
     label: "Communicate",
     items: [
       { name: "Communications", href: "/communications", icon: Mail },
+    ],
+  },
+  {
+    label: "AI",
+    items: [
+      { name: "AI Agent", href: "/agent", icon: Bot },
     ],
   },
   {
