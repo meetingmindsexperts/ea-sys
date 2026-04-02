@@ -386,6 +386,16 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "paymentDate", description: "Payment date (formatted)" },
     { key: "receiptUrl", description: "Stripe receipt URL (auto-generated)" },
   ],
+  "refund-confirmation": [
+    { key: "firstName", description: "Attendee first name" },
+    { key: "lastName", description: "Attendee last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDate", description: "Event date (formatted)" },
+    { key: "registrationId", description: "Confirmation number" },
+    { key: "ticketType", description: "Registration/ticket type" },
+    { key: "amount", description: "Amount refunded (e.g. USD 100.00)" },
+    { key: "refundDate", description: "Refund date (formatted)" },
+  ],
   "payment-reminder": [
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
@@ -748,6 +758,44 @@ Payment Date: {{paymentDate}}
 {{receiptBlock}}
 
 Please save this email for your records.`,
+  },
+  {
+    slug: "refund-confirmation",
+    name: "Refund Confirmation",
+    subject: "Refund Processed — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <div style="display: inline-block; width: 56px; height: 56px; border-radius: 50%; background: #fef3c7; text-align: center; line-height: 56px; font-size: 28px;">&#8617;</div>
+    </div>
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Refund Processed</h1>
+    <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
+      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Confirmation Number</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{registrationId}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Date</td><td style="padding: 10px 16px; text-align: right;">{{eventDate}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration Type</td><td style="padding: 10px 16px; text-align: right;">{{ticketType}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Amount Refunded</td><td style="padding: 10px 16px; font-weight: 700; font-size: 16px; text-align: right; color: #dc2626;">{{amount}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Refund Date</td><td style="padding: 10px 16px; text-align: right;">{{refundDate}}</td></tr>
+    </table>
+    <p style="color: #6b7280; font-size: 13px;">If you have any questions about this refund, please contact the event organizer.</p>
+  </div>`,
+    textContent: `Refund Processed — {{eventName}}
+
+Dear {{firstName}},
+
+Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.
+
+Confirmation Number: {{registrationId}}
+Event: {{eventName}}
+Date: {{eventDate}}
+Registration Type: {{ticketType}}
+Amount Refunded: {{amount}}
+Refund Date: {{refundDate}}
+
+If you have any questions, please contact the event organizer.`,
   },
   {
     slug: "payment-reminder",

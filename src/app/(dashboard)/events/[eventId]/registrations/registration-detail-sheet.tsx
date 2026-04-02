@@ -213,6 +213,25 @@ export function RegistrationDetailSheet({
     },
   });
 
+  const issueRefund = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/events/${eventId}/registrations/${id}/refund`, { method: "POST" });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to issue refund");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      setSelectedRegistration((prev) => prev ? { ...prev, paymentStatus: "REFUNDED" } : prev);
+      toast.success("Refund issued successfully");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const startEditing = () => {
     if (selectedRegistration) {
       setEditData({
@@ -1028,6 +1047,25 @@ export function RegistrationDetailSheet({
                       </div>
                     ))}
                   </div>
+                  {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      disabled={issueRefund.isPending}
+                      onClick={() => {
+                        if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
+                          issueRefund.mutate(selectedRegistration.id);
+                        }
+                      }}
+                    >
+                      {issueRefund.isPending ? (
+                        <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
+                      ) : (
+                        <><CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund</>
+                      )}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

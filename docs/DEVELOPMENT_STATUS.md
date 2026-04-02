@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** March 27, 2026
+**Last Updated:** April 2, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -181,7 +181,7 @@ This document outlines the current development status of the Event Administratio
 | Event-Scoped Login (/e/[slug]/login) | N/A | ✅ | Complete |
 | Event-Scoped My Registration (/e/[slug]/my-registration) | ✅ | ✅ | Complete |
 | Abstract Register (/e/[slug]/abstract/register) | ✅ | ✅ | Complete |
-| Presentation Type (Oral/Poster) | ✅ | ✅ | Complete |
+| Presentation Type (Oral/Poster/Video/Workshop) | ✅ | ✅ | Complete |
 | Full-Page Abstract Submit/Edit (Submitter) | ✅ | ✅ | Complete |
 | Reviewer Portal (Review/Score/Accept/Reject) | ✅ | ✅ | Complete |
 | PDF Quote/Proforma with Tax | ✅ | ✅ | Complete |
@@ -199,6 +199,11 @@ This document outlines the current development status of the Event Administratio
 | Accept/Reject Abstract | ✅ | ✅ | Complete |
 | Status Notification Emails | ✅ | N/A | Complete |
 | Link Abstract to Session | ✅ | ❌ | API Complete |
+| Event-Specific Abstract Themes (CRUD) | ✅ | ✅ | Complete |
+| Weighted Review Criteria per Event (CRUD) | ✅ | ✅ | Complete |
+| Criteria-based Scoring (weighted avg; fallback to plain 0-100) | ✅ | ✅ | Complete |
+| Reviewer Recommended Format (Oral/Poster/Neither) | ✅ | ✅ | Complete |
+| Submitter Withdraw Abstract (WITHDRAWN status) | ✅ | ✅ | Complete |
 
 **API Endpoints:**
 - `GET /api/events/[eventId]/abstracts` - List abstracts (filtered to own for SUBMITTER)
@@ -207,6 +212,14 @@ This document outlines the current development status of the Event Administratio
 - `PUT /api/events/[eventId]/abstracts/[id]` - Update/Review abstract (SUBMITTER: content only)
 - `DELETE /api/events/[eventId]/abstracts/[id]` - Delete abstract (admin only)
 - `POST /api/public/events/[slug]/submitter` - Create submitter account (no auth)
+- `GET /api/events/[eventId]/abstract-themes` - List themes
+- `POST /api/events/[eventId]/abstract-themes` - Create theme
+- `PUT /api/events/[eventId]/abstract-themes/[themeId]` - Update theme
+- `DELETE /api/events/[eventId]/abstract-themes/[themeId]` - Delete theme (blocked if abstracts linked)
+- `GET /api/events/[eventId]/review-criteria` - List criteria
+- `POST /api/events/[eventId]/review-criteria` - Create criterion
+- `PUT /api/events/[eventId]/review-criteria/[criterionId]` - Update criterion
+- `DELETE /api/events/[eventId]/review-criteria/[criterionId]` - Delete criterion
 
 ---
 
@@ -266,7 +279,17 @@ This document outlines the current development status of the Event Administratio
 
 ---
 
-## Recent Updates (January 29, 2026)
+## Recent Updates (April 2, 2026)
+
+### EventsAir-Style Abstract Expansion (April 2, 2026)
+- [x] `VIDEO` and `WORKSHOP` added to `PresentationType` enum
+- [x] `WITHDRAWN` added to `AbstractStatus` enum; submitters can withdraw from SUBMITTED/REVISION_REQUESTED
+- [x] New `RecommendedFormat` enum (ORAL, POSTER, NEITHER); reviewers select recommended format during review
+- [x] New `AbstractTheme` model; organizers manage event-specific themes in Settings → Abstract Themes; theme badge shown on abstract cards
+- [x] New `ReviewCriterion` model; organizers configure weighted criteria (weights must sum to 100%) in Settings → Review Criteria
+- [x] `criteriaScores` (JSON snapshot) stored on Abstract; `reviewScore` auto-computed as weighted average; plain 0-100 fallback when no criteria configured
+- [x] Theme filter added to abstract list view; withdrawn count shown in stats row
+- [x] Idempotent SQL migrations for all schema changes (`prisma db execute` compatible with Supabase pooled connections)
 
 ### Recent Improvements (March 2026)
 

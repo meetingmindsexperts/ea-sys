@@ -147,6 +147,72 @@ export async function POST(req: Request) {
     }
   }
 
+  // Handle checkout.session.expired — release stuck PENDING registrations
+  if (event.type === "checkout.session.expired") {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const registrationId = session.metadata?.registrationId;
+    if (!registrationId) return NextResponse.json({ received: true });
+
+    try {
+      const updated = await db.registration.updateMany({
+        where: { id: registrationId, paymentStatus: "PENDING" },
+        data: { paymentStatus: "UNPAID" },
+      });
+      if (updated.count > 0) {
+        apiLogger.info({ msg: "Checkout session expired — registration reset to UNPAID", registrationId, sessionId: session.id });
+      }
+    } catch (err) {
+      apiLogger.error({ err, msg: "Error handling checkout.session.expired", registrationId });
+      return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+    }
+  }
+
+  // Handle charge.refunded — update status when refund is issued (e.g. via Stripe Dashboard)
+  if (event.type === "charge.refunded") {
+    const charge = event.data.object as Stripe.Charge;
+    const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+    if (!paymentIntentId) return NextResponse.json({ received: true });
+
+    try {
+      const payment = await db.payment.findUnique({
+        where: { stripePaymentId: paymentIntentId },
+        select: { id: true, registrationId: true },
+      });
+      if (!payment) {
+        apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
+        return NextResponse.json({ received: true });
+      }
+
+      await db.$transaction([
+        db.registration.update({
+          where: { id: payment.registrationId },
+          data: { paymentStatus: "REFUNDED" },
+        }),
+        db.payment.update({
+          where: { id: payment.id },
+          data: { status: "REFUNDED" },
+        }),
+      ]);
+
+      apiLogger.info({ msg: "Refund processed via Stripe webhook", registrationId: payment.registrationId, paymentIntentId });
+    } catch (err) {
+      apiLogger.error({ err, msg: "Error handling charge.refunded", paymentIntentId });
+      return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+    }
+  }
+
+  // Handle payment_intent.payment_failed — log for visibility
+  if (event.type === "payment_intent.payment_failed") {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const errorMessage = paymentIntent.last_payment_error?.message || "Unknown error";
+    apiLogger.warn({
+      msg: "Stripe payment failed",
+      paymentIntentId: paymentIntent.id,
+      error: errorMessage,
+      code: paymentIntent.last_payment_error?.code,
+    });
+  }
+
   return NextResponse.json({ received: true });
 }
 
