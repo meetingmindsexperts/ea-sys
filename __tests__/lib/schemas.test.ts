@@ -17,9 +17,12 @@ describe("titleEnum", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects empty string", () => {
+  it("accepts empty string and transforms it to undefined (for clearing)", () => {
     const result = titleEnum.safeParse("");
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBeUndefined();
+    }
   });
 
   it("rejects number", () => {
