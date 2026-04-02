@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS "ReviewCriterion" (
 -- Unique constraint on AbstractTheme (eventId, name)
 DO $$ BEGIN
     ALTER TABLE "AbstractTheme" ADD CONSTRAINT "AbstractTheme_eventId_name_key" UNIQUE ("eventId", "name");
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_table THEN NULL;
 END $$;
 
 -- Indexes
