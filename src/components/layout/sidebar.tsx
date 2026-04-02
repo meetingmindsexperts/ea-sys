@@ -61,7 +61,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
 // Event nav split into sections for visual grouping
 const eventNavigationSections = [
   {
-    label: "Overview",
+    label: "",
     items: [
       { name: "Overview", href: "", icon: LayoutDashboard },
     ],
@@ -69,12 +69,12 @@ const eventNavigationSections = [
   {
     label: "Manage",
     items: [
-      { name: "Registrations", href: "/registrations", icon: Users },
-      { name: "Registration Types", href: "/tickets", icon: Ticket },
-      { name: "Check-In",     href: "/check-in",      icon: ScanBarcode },
-      { name: "Speakers",      href: "/speakers",      icon: Mic },
-      { name: "Schedule",      href: "/schedule",      icon: Clock },
-      { name: "Accommodation", href: "/accommodation", icon: Building2 },
+      { name: "Registrations",     href: "/registrations", icon: Users },
+      { name: "Registration Types", href: "/tickets",       icon: Ticket },
+      { name: "Check-In",          href: "/check-in",      icon: ScanBarcode },
+      { name: "Speakers",          href: "/speakers",      icon: Mic },
+      { name: "Schedule",          href: "/schedule",      icon: Clock },
+      { name: "Accommodation",     href: "/accommodation", icon: Building2 },
     ],
   },
   {
@@ -85,21 +85,17 @@ const eventNavigationSections = [
     ],
   },
   {
-    label: "Communicate",
+    label: "Tools",
     items: [
       { name: "Communications", href: "/communications", icon: Mail },
-    ],
-  },
-  {
-    label: "AI",
-    items: [
-      { name: "AI Agent", href: "/agent", icon: Bot },
+      { name: "Media",          href: "/media",          icon: ImageIcon },
+      { name: "AI Agent",       href: "/agent",          icon: Bot },
     ],
   },
   {
     label: "Config",
     items: [
-      { name: "Content", href: "/content", icon: PenLine },
+      { name: "Content",  href: "/content",  icon: PenLine },
       { name: "Settings", href: "/settings", icon: Settings },
     ],
   },
@@ -327,10 +323,12 @@ export function Sidebar() {
             ) : (
               // Expanded: sectioned with labels
               visibleEventSections.map((section, si) => (
-                <div key={section.label} className={cn(si > 0 && "pt-3")}>
-                  <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                    {section.label}
-                  </p>
+                <div key={section.label || "top"} className={cn(si > 0 && "pt-3")}>
+                  {section.label && (
+                    <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                      {section.label}
+                    </p>
+                  )}
                   {section.items.map((item) => {
                     const href = `/events/${eventId}${item.href}`;
                     const isActive =

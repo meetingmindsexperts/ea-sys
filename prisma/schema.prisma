@@ -177,6 +177,7 @@ model Event {
   importLogs     ImportLog[]
   emailTemplates EmailTemplate[]
   notifications  Notification[]
+  mediaFiles     MediaFile[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -732,6 +733,7 @@ model Contact {
 model MediaFile {
   id             String       @id @default(cuid())
   organizationId String
+  eventId        String?
   uploadedById   String
   filename       String
   url            String
@@ -740,9 +742,11 @@ model MediaFile {
   createdAt      DateTime     @default(now())
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   uploadedBy     User         @relation(fields: [uploadedById], references: [id])
 
   @@index([organizationId])
+  @@index([eventId])
 }
 
 // ==================== AUDIT & LOGGING ====================

@@ -58,6 +58,7 @@ export const queryKeys = {
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
+  eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
@@ -923,6 +924,38 @@ export function useDeleteReviewCriterion(eventId: string) {
       fetchApi(`/api/events/${eventId}/review-criteria/${criterionId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewCriteria(eventId) });
+    },
+  });
+}
+
+// ============ EVENT MEDIA ============
+
+export function useEventMedia(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.eventMedia(eventId),
+    queryFn: () => fetchApi<{ mediaFiles: any[]; total: number; page: number; limit: number }>(`/api/events/${eventId}/media`),
+    enabled: !!eventId,
+  });
+}
+
+export function useUploadEventMedia(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (formData: FormData) =>
+      fetchApi(`/api/events/${eventId}/media`, { method: "POST", body: formData }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.eventMedia(eventId) });
+    },
+  });
+}
+
+export function useDeleteEventMedia(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (mediaId: string) =>
+      fetchApi(`/api/events/${eventId}/media/${mediaId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.eventMedia(eventId) });
     },
   });
 }
