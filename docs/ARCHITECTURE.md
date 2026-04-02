@@ -55,11 +55,13 @@ This document covers the current architecture, its strengths, known gaps, and fu
 | **Presentation** | React Server/Client Components, TailwindCSS, Shadcn/ui | Renders UI; server components for static content, client components for interactivity |
 | **Client State** | React Query (TanStack Query) | Caches API responses, handles mutations, provides optimistic updates |
 | **API** | Next.js Route Handlers (`route.ts`) | REST endpoints — auth, validation (Zod), business logic, DB queries all in one handler |
-| **Auth** | NextAuth.js v5 (JWT strategy) | Session management, 5-role RBAC, 3-layer enforcement (API guards, middleware, UI) |
+| **Auth** | NextAuth.js v5 (JWT strategy) | Session management, 7-role RBAC, 3-layer enforcement (API guards, middleware, UI) |
 | **Data Access** | Prisma ORM | Direct queries in route handlers and server components — no repository abstraction |
 | **Validation** | Zod | Request validation in route handlers; shared schemas (e.g., `titleEnum`) in `src/lib/schemas.ts` |
 | **Database** | PostgreSQL | Single database, single schema, org-scoped queries; enums for Title, UserRole, EventType |
-| **Email** | Brevo (Sendinblue) API + Tiptap v2 + juice | DB-backed templates with WYSIWYG editor, consistent branding (header/footer), CSS inlining |
+| **Email** | Brevo + SendGrid (auto-detected via env) + Tiptap v2 + juice | Dual providers; DB-backed templates with WYSIWYG editor, consistent branding, CSS inlining |
+| **Payments** | Stripe (Checkout, Webhooks, Refunds) | Online payments with tax, invoices, refund processing |
+| **AI** | Anthropic Claude API | Natural language event management via agentic tool-use loop |
 | **Logging** | Pino | Structured JSON logs to stdout + file (EC2/Docker) with redaction |
 | **Deployment** | Docker on AWS EC2 (t3.large) | Single container, `output: "standalone"`, GitHub Actions CI/CD |
 
@@ -83,17 +85,18 @@ Three-layer enforcement for role-based access:
 
 ```
 Layer 1: API Guards
-  └─ denyReviewer(session) on all POST/PUT/DELETE (except abstracts)
-  └─ Returns 403 for REVIEWER and SUBMITTER roles
+  └─ denyReviewer(session) on all POST/PUT/DELETE (except abstracts, registrant self-edit)
+  └─ Returns 403 for REVIEWER, SUBMITTER, and REGISTRANT roles
 
 Layer 2: Middleware
   └─ Redirects restricted roles from non-abstract routes
   └─ REVIEWER/SUBMITTER → /events/[eventId]/abstracts
+  └─ REGISTRANT → /my-registration (from all dashboard routes)
 
 Layer 3: UI
-  └─ Write-action buttons hidden for restricted roles
-  └─ Sidebar shows only permitted navigation items
-  └─ Header shows "Reviewer Portal" or "Submitter Portal"
+  └─ Write-action buttons hidden for restricted roles and MEMBER
+  └─ Sidebar hidden for REGISTRANT; shows only permitted items per role
+  └─ Header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
 ```
 
 **Role scoping:**
@@ -102,8 +105,10 @@ Layer 3: UI
 |---|---|---|---|
 | SUPER_ADMIN / ADMIN | Yes | All org events | Full |
 | ORGANIZER | Yes | All org events | Full |
-| REVIEWER | No (`organizationId: null`) | Events in `settings.reviewerUserIds` | Abstracts only (review) |
+| MEMBER | Yes | All org events | Read-only (no writes) |
+| REVIEWER | No (`organizationId: null`) | Events in `settings.reviewerUserIds` | Abstracts only (review/score) |
 | SUBMITTER | No (`organizationId: null`) | Events with linked Speaker record | Abstracts only (own) |
+| REGISTRANT | No (`organizationId: null`) | Events with linked Registration | Self-service portal only (`/my-registration`) |
 
 ---
 
@@ -131,15 +136,14 @@ The 3-layer RBAC (API + middleware + UI) with org-independent reviewers/submitte
 
 ## Known Gaps
 
-### 1. No Tests
-**Risk: High | Effort to fix: Medium**
+### 1. Tests — Resolved
+**Status: Done**
 
-There are zero automated tests. This is the single biggest gap. The current architecture is perfectly testable — route handlers are plain async functions, Prisma can be mocked, and React Query hooks can be tested with `renderHook`.
+17 Vitest test files covering: auth guards (`denyReviewer`), event access (`buildEventAccessWhere`), RBAC enforcement, registration flow, abstract lifecycle, speaker flow, reviewer access, submitter registration, CSV parsing, API key validation, security/rate limiting, Zod schema validation, sanitization, and EventsAir credential encryption.
 
-**Recommended approach:**
-- Start with API route integration tests (most value per test)
-- Add unit tests for auth guards and access control logic
-- Use Prisma's mock client for isolated testing
+Run: `npm run test` / `npm run test:coverage`
+
+**Remaining gap:** No E2E tests (Playwright/Cypress). Unit tests mock Prisma — no integration tests against a real database.
 
 ### 2. No Service Layer Extraction
 **Risk: Low | Effort to fix: Low (when needed)**
@@ -153,10 +157,12 @@ This is not urgent — only do it when a specific handler becomes hard to follow
 
 Email sends (`await sendEmail(...)`) happen synchronously in request handlers. If Brevo is slow or down, the user's request hangs. Currently not causing issues, but would benefit from a simple queue if email volume or reliability becomes a concern.
 
-### 4. No Rate Limiting
-**Risk: Medium | Effort to fix: Low**
+### 4. Rate Limiting — Partially Resolved
+**Status: Done on public endpoints**
 
-Public endpoints (`/api/public/events/[slug]/register`, `/api/auth/forgot-password`) have no rate limiting. These are abuse vectors for registration spam and password reset flooding.
+In-memory rate limiting (`src/lib/security.ts`) is applied to: `/api/public/events/[slug]/register` (10 req/min), `/api/public/events/[slug]/checkout` (3/60s per IP), `/api/public/events/[slug]/complete-registration` (20 GET / 5 POST per 15min), bulk email send (5/hr per org), and the AI agent (20 req/hr per user).
+
+**Remaining gap:** In-memory rate limit state resets on serverless cold starts (Vercel). Needs Redis (Vercel KV / Upstash) for persistent cross-instance rate limiting.
 
 ### 5. No Input Sanitization Layer
 **Risk: Low | Effort to fix: Low**
@@ -167,30 +173,14 @@ Public endpoints (`/api/public/events/[slug]/register`, `/api/auth/forgot-passwo
 
 ## Recommendations (Prioritized)
 
-### Priority 1: Add Tests
-The highest ROI investment. Without tests, every refactor and feature addition carries risk.
+### Priority 1: E2E Tests (Playwright)
+Unit tests exist but only mock Prisma. Adding Playwright E2E tests for the three critical user flows would give the most confidence:
+- Public registration → payment → confirmation
+- Abstract submission → review → status notification
+- Admin: CSV import → send completion emails → registrant completes form
 
-**Start here:**
-```
-src/
-├── __tests__/
-│   ├── api/           # Route handler tests
-│   │   ├── auth.test.ts
-│   │   ├── speakers.test.ts
-│   │   └── abstracts.test.ts
-│   ├── lib/           # Unit tests
-│   │   ├── auth-guards.test.ts
-│   │   └── event-access.test.ts
-│   └── hooks/         # React Query hook tests
-│       └── use-api.test.ts
-```
-
-### Priority 2: Rate Limiting on Public Endpoints
-Add basic rate limiting to prevent abuse on:
-- `/api/public/events/[slug]/register`
-- `/api/public/events/[slug]/submitter`
-- `/api/auth/forgot-password`
-- `/api/auth/reset-password`
+### Priority 2: Redis for Persistent Rate Limiting
+In-memory rate limiting resets on serverless cold starts. For Vercel production, add Upstash Redis for cross-instance rate limit state.
 
 ### Priority 3: Error Monitoring Coverage
 Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs.
@@ -283,7 +273,7 @@ session.user.currentRole            // derived from UserOrganization lookup
 | Auth | NextAuth.js v5 (JWT) | Standard Next.js auth, JWT avoids DB session lookups |
 | Styling | TailwindCSS + Shadcn/ui | Utility-first CSS, copy-paste components (no vendor lock-in) |
 | Client State | React Query | Server state caching with zero boilerplate vs. Redux |
-| Email | Brevo API + Tiptap v2 + juice | Transactional email with DB-backed WYSIWYG templates, consistent branding, CSS inlining for email-client compat |
+| Email | Brevo / SendGrid + Tiptap v2 + juice | Dual transactional email providers (auto-detected via env var); DB-backed WYSIWYG templates, branding, CSS inlining |
 | Logging | Pino | Fastest Node.js logger, structured JSON, multi-stream support |
 | Database | PostgreSQL | Reliable, Prisma-native, handles relational data well |
 | Deployment | Docker on EC2 | Writable filesystem (needed for photo uploads), full control |
@@ -306,4 +296,4 @@ session.user.currentRole            // derived from UserOrganization lookup
 
 ---
 
-*Last updated: March 2026*
+*Last updated: April 2026*

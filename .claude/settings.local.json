@@ -43,7 +43,10 @@
       "Read(//Users/krishnapallapolu/.ssh/**)",
       "Bash(ssh -T git@github.com)",
       "Bash(ssh-keygen -t ed25519 -C \"krishna@meetingmindsdubai.com\" -f ~/.ssh/id_ed25519 -N \"\")",
-      "Bash(ssh-add --apple-use-keychain ~/.ssh/id_ed25519)"
+      "Bash(ssh-add --apple-use-keychain ~/.ssh/id_ed25519)",
+      "Read(//tmp/**)",
+      "Bash(npm test:*)",
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline --date=short --format=\"%ad %s\" -50)"
     ]
   }
 }

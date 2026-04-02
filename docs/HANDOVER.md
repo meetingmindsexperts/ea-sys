@@ -197,21 +197,25 @@ The schema lives in `prisma/schema.prisma`. Here are the models and why they exi
 
 **TicketType** — Displayed as "Registration Types" in the UI. Defines what kinds of registrations an event offers (e.g., "Speaker", "Delegate", "VIP"). Has price, quantity limits, sales dates, and an `isActive` toggle. The `soldCount` is updated transactionally when registrations are created/cancelled to prevent overselling.
 
-**Payment** — Payment records for registrations. Scaffolded for Stripe integration but not actively processing payments yet.
+**Payment** — Payment records for Stripe transactions linked to Registrations. Stores amount, currency, `stripePaymentId` (unique), `stripeCustomerId`, status, `receiptUrl`, and metadata (JSON). Full Stripe Checkout + webhook + refund flow is implemented.
 
 ### Speaker & Abstract Models
 
 **Speaker** — Event speakers. Like Attendee, identified by unique `email` per event (`@@unique([eventId, email])`). The nullable `userId` field is crucial: it links a speaker to a User account, enabling the SUBMITTER role (speakers who log in to submit abstracts). Includes all person fields plus `socialLinks` JSON.
 
-**Abstract** — Paper/presentation submissions. Linked to a Speaker and optionally to a Track. Follows a lifecycle: DRAFT → SUBMITTED → UNDER_REVIEW → ACCEPTED/REJECTED/REVISION_REQUESTED. The `managementToken` (unique random string) enables public token-based access to abstracts without authentication. Reviewers add `reviewNotes` and `reviewScore`. When accepted, an abstract can be linked to an EventSession.
+**Abstract** — Paper/presentation submissions. Linked to a Speaker and optionally to a Track. Lifecycle: DRAFT → SUBMITTED → UNDER_REVIEW → ACCEPTED / REJECTED / REVISION_REQUESTED / WITHDRAWN. The `managementToken` enables public token-based access. Reviewers add `reviewNotes`, `reviewScore`, and `recommendedFormat` (ORAL/POSTER/NEITHER). When weighted `ReviewCriterion` records exist for the event, `reviewScore` is computed as a weighted average stored in `criteriaScores` JSON. Abstract can be linked to an `AbstractTheme` (event-specific category) and to an EventSession on acceptance.
 
 **Track** — Categories for organizing sessions and abstracts (e.g., "Cardiology", "Oncology"). Has a `color` field for UI display and `sortOrder` for custom ordering.
 
 ### Schedule Models
 
-**EventSession** — A scheduled talk/workshop/break. Has time, location, capacity, and status. The unique `abstractId` field creates a 1:1 link with accepted abstracts (a session is created from an accepted abstract).
+**EventSession** — A scheduled talk/workshop/break. Has time, location, capacity, and status. Date/time validated against event start/end dates. The unique `abstractId` field creates a 1:1 link with accepted abstracts.
 
-**SessionSpeaker** — Many-to-many join table between sessions and speakers. A session can have multiple speakers, and a speaker can present at multiple sessions. The `role` field defaults to "speaker" but could be "moderator", "panelist", etc.
+**SessionSpeaker** — Many-to-many join table between sessions and speakers with a `SessionRole` enum (SPEAKER, MODERATOR, CHAIRPERSON, PANELIST) for session-level roles.
+
+**SessionTopic** — Topics within a session (title, duration, sortOrder, optional abstract link). Sessions can have multiple topics, each with their own speaker assignments.
+
+**TopicSpeaker** — Join table for per-topic speaker assignment within a session.
 
 ### Accommodation Models
 
@@ -236,15 +240,18 @@ The schema lives in `prisma/schema.prisma`. Here are the models and why they exi
 ### Enums
 
 ```
-UserRole:           SUPER_ADMIN, ADMIN, ORGANIZER, REVIEWER, SUBMITTER
-Title:              MR, MS, MRS, DR, PROF, OTHER
+UserRole:           SUPER_ADMIN, ADMIN, ORGANIZER, MEMBER, REVIEWER, SUBMITTER, REGISTRANT
+Title:              DR, MR, MRS, MS, PROF  (alphabetical)
 EventStatus:        DRAFT, PUBLISHED, LIVE, COMPLETED, CANCELLED
 EventType:          CONFERENCE, WEBINAR, HYBRID
 RegistrationStatus: PENDING, CONFIRMED, CANCELLED, WAITLISTED, CHECKED_IN
-PaymentStatus:      UNPAID, PENDING, PAID, REFUNDED, FAILED
+PaymentStatus:      UNPAID, PENDING, PAID, COMPLIMENTARY, REFUNDED, FAILED
 SpeakerStatus:      INVITED, CONFIRMED, DECLINED, CANCELLED
-AbstractStatus:     DRAFT, SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED
+AbstractStatus:     DRAFT, SUBMITTED, UNDER_REVIEW, ACCEPTED, REJECTED, REVISION_REQUESTED, WITHDRAWN
+PresentationType:   ORAL, POSTER, VIDEO, WORKSHOP
+RecommendedFormat:  ORAL, POSTER, NEITHER
 SessionStatus:      DRAFT, SCHEDULED, LIVE, COMPLETED, CANCELLED
+SessionRole:        SPEAKER, MODERATOR, CHAIRPERSON, PANELIST
 AccommodationStatus: PENDING, CONFIRMED, CANCELLED, CHECKED_IN, CHECKED_OUT
 ```
 
@@ -264,26 +271,28 @@ NextAuth.js v5 with Credentials provider (email + password). JWT session strateg
 
 **JWT role re-validation:** Every 5 minutes, the JWT callback queries the database to check if the user's role has changed. This prevents a scenario where an admin changes someone's role but their old JWT still grants elevated access. The DB query is non-blocking — if it fails, the existing role is kept.
 
-### The 5 Roles
+### The 7 Roles
 
 | Role | Scope | Can Do | Cannot Do |
 |------|-------|--------|-----------|
 | **SUPER_ADMIN** | Entire organization | Everything + view logs | — |
 | **ADMIN** | Entire organization | Everything except logs | View system logs |
 | **ORGANIZER** | Entire organization | Manage events, registrations, speakers, etc. | Manage team members, org settings |
-| **REVIEWER** | Assigned events only | Review abstracts, add scores/notes | Create/edit events, registrations, speakers |
-| **SUBMITTER** | Own events only | Submit/edit own abstracts | Everything else |
+| **MEMBER** | Entire organization | Read-only dashboard access, AI agent | Any write operations |
+| **REVIEWER** | Assigned events only | Review abstracts, add scores/notes, recommend format | Create/edit events, registrations, speakers |
+| **SUBMITTER** | Own events only | Submit/edit own abstracts, withdraw abstracts | Everything else |
+| **REGISTRANT** | Own registration only | Self-service portal (`/my-registration`): view/edit details, pay online, download invoice | Any dashboard access |
 
 ### Org-Bound vs Org-Independent Users
 
 This is a critical design decision:
 
 - **ADMIN and ORGANIZER** have `organizationId` set. They belong to one organization and can only see that org's data.
-- **REVIEWER and SUBMITTER** have `organizationId: null`. They are independent entities.
+- **REVIEWER, SUBMITTER, and REGISTRANT** have `organizationId: null`. They are independent entities.
 
-**Why?** A reviewer might review abstracts for events across multiple organizations. A submitter registers per-event and shouldn't be tied to any org. Making them org-independent allows one reviewer account to be assigned to events from different organizations.
+**Why?** A reviewer might review abstracts for events across multiple organizations. Submitters and Registrants self-register per-event and shouldn't be tied to any org.
 
-**Consequence:** In admin-only code paths, `session.user.organizationId!` (non-null assertion) is used because we know admins always have an org. But this would crash for reviewers — so reviewer code paths never assume `organizationId` exists.
+**Consequence:** In admin-only code paths, `session.user.organizationId!` (non-null assertion) is used because we know team members always have an org. But this would crash for org-independent roles — so reviewer/submitter/registrant code paths never assume `organizationId` exists.
 
 ### 3-Layer RBAC Enforcement
 
@@ -317,9 +326,10 @@ The sidebar hides navigation items based on role. Write-action buttons (Create, 
 
 Different roles see different events. The `buildEventAccessWhere()` function generates the Prisma `where` clause:
 
-- **ADMIN/ORGANIZER:** `{ organizationId: user.organizationId }` — all org events
+- **ADMIN/ORGANIZER/MEMBER:** `{ organizationId: user.organizationId }` — all org events
 - **REVIEWER:** `{ settings.reviewerUserIds contains user.id }` — only events they're assigned to
 - **SUBMITTER:** `{ speakers.some.userId = user.id }` — only events where they have a Speaker record
+- **REGISTRANT:** `{ registrations.some.userId = user.id }` — only events where they have a linked Registration
 
 This function is used in every event listing query and event detail page.
 
@@ -561,7 +571,30 @@ Organization configuration:
 - **Team management:** Invite users by email, assign roles, remove members
 - **API keys:** Create/revoke keys for external integrations
 - **EventsAir integration:** Enter OAuth credentials, test connection
-- **Organization info:** Name, logo
+- **Organization info:** Name, logo, primary brand color
+- **Email branding:** Per-event header image and footer HTML
+- **Abstract settings:** Themes (event-specific categories), weighted review criteria, submission deadline
+
+### AI Agent
+
+**Page:** `src/app/(dashboard)/events/[eventId]/agent/page.tsx`
+**API:** `src/app/api/events/[eventId]/agent/execute/route.ts` (SSE stream)
+
+Organizers type natural language commands ("Add Dr. Smith as a confirmed speaker", "Show me all unpaid registrations"). The backend runs an agentic loop using the Anthropic Claude API with tool-use. Supported tools: `list_event_info`, `list_tracks`, `create_track`, `list_speakers`, `create_speaker`, `list_registrations`, `list_sessions`, `create_session`, `list_ticket_types`, `send_bulk_email`. Output streamed to browser via Server-Sent Events and rendered as formatted markdown HTML. Rate limited: 20 req/hr per user, 10 bulk emails/hr per event. Admin/Organizer only.
+
+### Media Library
+
+**Page (event-scoped):** `src/app/(dashboard)/events/[eventId]/media/page.tsx`
+**API:** `src/app/api/events/[eventId]/media/route.ts`, `.../[mediaId]/route.ts`
+**API (org-wide):** `src/app/api/media/route.ts`, `.../[mediaId]/route.ts`
+
+Upload and manage JPEG/PNG/WebP images (2MB limit, magic-byte validated). Event-scoped media appears under "Tools" in the event sidebar; org-wide media is available for email template images. Images stored in `/uploads/media/{YYYY}/{MM}/` (local) or Supabase Storage. Copy URL button for pasting into email templates.
+
+### Communications
+
+**Page:** `src/app/(dashboard)/events/[eventId]/communications/page.tsx`
+
+Central hub consolidating all event email types in one place: registration confirmation resend, abstract status emails, reviewer invitations, bulk emails to registrations or abstract submitters, and completion form emails for CSV-imported registrants.
 
 ---
 
@@ -971,26 +1004,26 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 ### Current Gaps
 
-1. **Rate limiting on Vercel** — In-memory rate limiter resets on serverless cold starts. Needs Redis (Vercel KV / Upstash) for persistent rate limiting.
+1. **Rate limiting on Vercel** — In-memory rate limiter (applied to all public endpoints) resets on serverless cold starts. Needs Redis (Vercel KV / Upstash) for persistent cross-instance rate limiting. On EC2 (Docker), in-memory works fine.
 
 2. **Docker socket in production** — The Docker socket is mounted (read-only) in production containers for the log viewer to read Docker logs. This is a security consideration — if the container is compromised, the attacker could read other container info.
 
-3. **Single-org mode** — Currently one organization per deployment. Multi-org support is planned but not implemented. The `organizationId` foreign key exists on all relevant models, so the schema is ready.
+3. **Single-org mode** — Currently one organization per deployment. Multi-org support is planned. The `organizationId` FK exists on all relevant models, so the schema is ready for migration.
 
-4. **No external cache** — No Redis/Memcached. Caching is done via React Query (client-side) and HTTP cache headers. For high-traffic scenarios, adding Redis would help.
+4. **No external cache** — No Redis/Memcached. Caching via React Query (client-side, 5min stale) and HTTP headers. For high-traffic scenarios, adding Redis would help.
 
-5. **Payment processing** — Stripe integration is scaffolded (Payment model exists, env vars defined) but not actively processing payments. Ticket prices are stored but no checkout flow exists yet.
+5. **No automated E2E tests** — 17 unit test files (362+ tests) exist via Vitest but all mock Prisma. Playwright E2E tests for the critical flows (public registration → payment, abstract submission → review, CSV import → completion) would improve deployment confidence.
 
-6. **No automated E2E tests** — Only unit tests exist. Playwright or Cypress E2E tests would improve confidence for deployment.
+6. **Accommodation UI incomplete** — Hotel/room-type edit/delete and booking creation UI not built; APIs exist.
 
 ### Potential Improvements
 
-- Add Redis for rate limiting, session storage, and caching
-- Implement Stripe checkout flow for paid registrations
-- Add Playwright E2E tests for critical flows (login, registration, abstract submission)
+- Add Redis for persistent rate limiting (Vercel) and optional caching
+- Add Playwright E2E tests for critical user flows
 - Multi-org support (allow multiple organizations per deployment)
-- WebSocket notifications for real-time updates
-- Abstract file attachments (PDF uploads)
+- WebSocket / SSE notifications for real-time updates beyond the AI agent
+- Abstract file attachments (PDF uploads for full papers)
+- Analytics dashboard (registration trends, revenue, check-in rate per event)
 
 ---
 
@@ -1026,7 +1059,7 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 | File | Purpose |
 |------|---------|
 | `src/lib/db.ts` | Prisma client singleton (dev: global cache, prod: new instance) |
-| `src/lib/email.ts` | Brevo email service — templates, sending, branding wrapper, CSS inlining |
+| `src/lib/email.ts` | Brevo + SendGrid email service — templates, sending, branding wrapper, CSS inlining; auto-detects provider via env var |
 | `src/lib/email-utils.ts` | Client-safe email utilities (stripDocumentWrapper) |
 | `src/lib/eventsair-client.ts` | EventsAir GraphQL API — OAuth, queries, encryption |
 | `src/lib/storage.ts` | Photo storage — local filesystem or Supabase Storage |
@@ -1066,15 +1099,27 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 |------|---------|
 | `src/app/api/events/route.ts` | Event CRUD (list, create) |
 | `src/app/api/events/[eventId]/registrations/route.ts` | Registration CRUD |
+| `src/app/api/events/[eventId]/registrations/[id]/refund/route.ts` | Admin-initiated Stripe refund |
+| `src/app/api/events/[eventId]/registrations/badges/route.ts` | Badge PDF generation (pdfkit + bwip-js) |
 | `src/app/api/events/[eventId]/speakers/route.ts` | Speaker CRUD |
 | `src/app/api/events/[eventId]/abstracts/route.ts` | Abstract CRUD |
+| `src/app/api/events/[eventId]/abstract-themes/route.ts` | Event-specific abstract theme CRUD |
+| `src/app/api/events/[eventId]/review-criteria/route.ts` | Weighted review criteria CRUD |
+| `src/app/api/events/[eventId]/media/route.ts` | Event-scoped media upload/list/delete |
+| `src/app/api/events/[eventId]/agent/execute/route.ts` | AI agent SSE stream (Anthropic tool-use loop) |
 | `src/app/api/events/[eventId]/import/eventsair/route.ts` | EventsAir contact import |
 | `src/app/api/contacts/route.ts` | Contact CRUD |
 | `src/app/api/contacts/export/route.ts` | Contact CSV export |
 | `src/app/api/upload/photo/route.ts` | Photo upload with validation |
+| `src/app/api/media/route.ts` | Org-wide media library upload/list |
+| `src/app/api/webhooks/stripe/route.ts` | Stripe webhook handler (payment, refund, expiry events) |
+| `src/app/api/public/events/[slug]/checkout/route.ts` | Stripe Checkout session creation |
 | `src/app/api/logs/route.ts` | Log viewer API (database/file/docker) |
 | `src/app/api/registration-types/route.ts` | All unique registration type names |
 | `src/app/uploads/[...path]/route.ts` | Serves uploaded photos from filesystem |
+| `src/lib/stripe.ts` | Stripe SDK singleton + zero-decimal currency helpers |
+| `src/lib/agent/event-tools.ts` | AI agent tool executors |
+| `src/lib/agent/system-prompt.ts` | AI agent system prompt builder |
 
 ### Documentation
 
