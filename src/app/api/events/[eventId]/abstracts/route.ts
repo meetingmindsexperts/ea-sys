@@ -21,6 +21,7 @@ const createAbstractSchema = z.object({
   specialty: z.string().max(255).optional(),
   presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),
+  themeId: z.string().max(100).optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
 });
 
@@ -66,6 +67,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         include: {
           speaker: true,
           track: true,
+          theme: { select: { id: true, name: true } },
           eventSession: true,
         },
         orderBy: { submittedAt: "desc" },
@@ -117,15 +119,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId, title, content, specialty, presentationType, trackId, status } = validated.data;
+    const { speakerId, title, content, specialty, presentationType, trackId, themeId, status } = validated.data;
 
     // SUBMITTER can only submit for their own speaker record
     const speakerWhere = session.user.role === "SUBMITTER"
       ? { id: speakerId, eventId, userId: session.user.id }
       : { id: speakerId, eventId };
 
-    // Parallelize event, speaker, and track validation
-    const [event, speaker, track] = await Promise.all([
+    // Parallelize event, speaker, track, and theme validation
+    const [event, speaker, track, theme] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
@@ -137,6 +139,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       trackId
         ? db.track.findFirst({
             where: { id: trackId, eventId },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      themeId
+        ? db.abstractTheme.findFirst({
+            where: { id: themeId, eventId },
             select: { id: true },
           })
         : Promise.resolve(null),
@@ -157,6 +165,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
+    if (themeId && !theme) {
+      return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+    }
+
     const abstract = await db.abstract.create({
       data: {
         eventId,
@@ -166,6 +178,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         specialty: specialty || null,
         presentationType: presentationType || null,
         trackId: trackId || null,
+        themeId: themeId || null,
         status,
         managementToken: crypto.randomBytes(32).toString("hex"),
         submittedAt: status === "SUBMITTED" ? new Date() : undefined,

@@ -56,6 +56,8 @@ export const queryKeys = {
   sessions: (eventId: string) => ["events", eventId, "sessions"] as const,
   tracks: (eventId: string) => ["events", eventId, "tracks"] as const,
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
+  abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
+  reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
@@ -827,6 +829,100 @@ export function useMarkNotificationsRead() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+    },
+  });
+}
+
+// ============ ABSTRACT THEMES ============
+
+export function useAbstractThemes(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.abstractThemes(eventId), "abstract-themes");
+}
+
+export function useCreateAbstractTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+export function useUpdateAbstractTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ themeId, ...data }: { themeId: string; name?: string; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+export function useDeleteAbstractTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (themeId: string) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+// ============ REVIEW CRITERIA ============
+
+export function useReviewCriteria(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.reviewCriteria(eventId), "review-criteria");
+}
+
+export function useCreateReviewCriterion(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; weight: number; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/review-criteria`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewCriteria(eventId) });
+    },
+  });
+}
+
+export function useUpdateReviewCriterion(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ criterionId, ...data }: { criterionId: string; name?: string; weight?: number; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/review-criteria/${criterionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewCriteria(eventId) });
+    },
+  });
+}
+
+export function useDeleteReviewCriterion(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (criterionId: string) =>
+      fetchApi(`/api/events/${eventId}/review-criteria/${criterionId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewCriteria(eventId) });
     },
   });
 }

@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTracks, queryKeys } from "@/hooks/use-api";
+import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
@@ -43,6 +44,7 @@ const statusColors: Record<string, string> = {
   ACCEPTED: "bg-green-100 text-green-700",
   REJECTED: "bg-red-100 text-red-700",
   REVISION_REQUESTED: "bg-orange-100 text-orange-700",
+  WITHDRAWN: "bg-gray-100 text-gray-500",
 };
 
 const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
@@ -68,6 +70,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
     specialty: (abstract.specialty as string) || "",
     presentationType: (abstract.presentationType as string) || "",
     trackId: (abstract.track as { id: string } | null)?.id || "",
+    themeId: (abstract.theme as { id: string } | null)?.id || "",
   });
 
   const status = abstract.status as string;
@@ -87,6 +90,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           specialty: data.specialty || undefined,
           presentationType: data.presentationType || undefined,
           trackId: data.trackId || undefined,
+          themeId: data.themeId || undefined,
           ...(data.status && { status: data.status }),
         }),
       });
@@ -144,7 +148,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             </Badge>
             {(abstract.presentationType as string) && (
               <Badge variant="secondary" className="text-xs">
-                {(abstract.presentationType as string) === "ORAL" ? "Oral" : "Poster"}
+                {(abstract.presentationType as string) === "ORAL" ? "Oral"
+                  : (abstract.presentationType as string) === "POSTER" ? "Poster"
+                  : (abstract.presentationType as string) === "VIDEO" ? "Video"
+                  : "Workshop"}
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
@@ -246,6 +253,20 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     <Trash2 className="mr-2 h-4 w-4" /> Delete Draft
                   </Button>
                 )}
+                {["SUBMITTED", "REVISION_REQUESTED"].includes(status) && (
+                  <Button
+                    variant="outline"
+                    className="w-full text-gray-500 hover:bg-gray-50"
+                    disabled={isPending}
+                    onClick={() => {
+                      if (confirm("Withdraw this abstract? You can contact the organiser to reverse this.")) {
+                        updateMutation.mutate({ ...editData, status: "WITHDRAWN" });
+                      }
+                    }}
+                  >
+                    Withdraw Abstract
+                  </Button>
+                )}
                 <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
                   {status === "DRAFT"
                     ? "Save as draft or submit when ready."
@@ -274,6 +295,8 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   <SelectContent>
                     <SelectItem value="ORAL">Oral Presentation</SelectItem>
                     <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
+                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -310,6 +333,17 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   </Select>
                 </div>
               )}
+
+              {/* Theme */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Theme</Label>
+                <AbstractThemeSelect
+                  eventId={eventId}
+                  value={editData.themeId || null}
+                  onChange={(v) => setEditData({ ...editData, themeId: v ?? "" })}
+                  disabled={!canEdit}
+                />
+              </div>
 
               {speaker && (
                 <div className="pt-3 border-t">

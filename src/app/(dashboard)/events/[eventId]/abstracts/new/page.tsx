@@ -24,6 +24,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
@@ -71,6 +72,7 @@ export default function NewAbstractPage() {
     specialty: "",
     presentationType: "",
     trackId: "",
+    themeId: "",
     status: "SUBMITTED",
   });
 
@@ -84,6 +86,7 @@ export default function NewAbstractPage() {
           ...data,
           speakerId,
           trackId: data.trackId || undefined,
+          themeId: data.themeId || undefined,
           presentationType: data.presentationType || undefined,
         }),
       });
@@ -252,6 +255,8 @@ export default function NewAbstractPage() {
                   <SelectContent>
                     <SelectItem value="ORAL">Oral Presentation</SelectItem>
                     <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
+                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -289,6 +294,16 @@ export default function NewAbstractPage() {
                   </Select>
                 </div>
               )}
+
+              {/* Theme */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Theme</Label>
+                <AbstractThemeSelect
+                  eventId={eventId}
+                  value={formData.themeId || null}
+                  onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
+                />
+              </div>
 
               {/* Status (admin only) */}
               {isAdmin && (

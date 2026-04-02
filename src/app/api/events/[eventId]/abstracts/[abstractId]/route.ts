@@ -8,15 +8,25 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbst
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 
+const criteriaScoreItemSchema = z.object({
+  criterionId: z.string(),
+  name: z.string(),
+  weight: z.number().int().min(1).max(100),
+  score: z.number().int().min(0).max(100),
+});
+
 const updateAbstractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   content: z.string().min(1).max(50000).optional(),
   trackId: z.string().max(100).nullable().optional(),
+  themeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
-  presentationType: z.enum(["ORAL", "POSTER"]).nullable().optional(),
-  status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).optional(),
+  presentationType: z.enum(["ORAL", "POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
+  status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
   reviewNotes: z.string().max(5000).optional(),
   reviewScore: z.number().min(0).max(100).nullable().optional(),
+  criteriaScores: z.array(criteriaScoreItemSchema).nullable().optional(),
+  recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).nullable().optional(),
 });
 
 interface RouteParams {
@@ -44,6 +54,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         include: {
           speaker: true,
           track: true,
+          theme: { select: { id: true, name: true } },
           eventSession: {
             include: {
               track: true,
@@ -130,13 +141,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (existingAbstract.speaker?.userId !== session.user.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined || data.criteriaScores !== undefined || data.recommendedFormat !== undefined) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
       if (data.status && reviewStatuses.includes(data.status)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      // Submitter may withdraw their own abstract from editable states
       const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
       if (!editableStatuses.includes(existingAbstract.status)) {
         return NextResponse.json(
@@ -155,7 +167,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 403 }
         );
       }
-      if (data.reviewNotes !== undefined || data.reviewScore !== undefined) {
+      if (data.reviewNotes !== undefined || data.reviewScore !== undefined || data.criteriaScores !== undefined || data.recommendedFormat !== undefined) {
         return NextResponse.json(
           { error: "Only reviewers and admins can add review notes or scores" },
           { status: 403 }
@@ -173,6 +185,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Verify theme belongs to this event if provided
+    if (data.themeId) {
+      const theme = await db.abstractTheme.findFirst({
+        where: { id: data.themeId, eventId },
+        select: { id: true },
+      });
+      if (!theme) {
+        return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+      }
+    }
+
+    // Compute weighted score from criteria if provided; otherwise use plain reviewScore
+    let computedReviewScore: number | null | undefined = data.reviewScore;
+    if (data.criteriaScores && data.criteriaScores.length > 0) {
+      computedReviewScore = Math.round(
+        data.criteriaScores.reduce((sum, c) => sum + (c.score * c.weight) / 100, 0)
+      );
+    }
+
     // Determine if this is a review action
     const isReview = data.status && ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"].includes(data.status);
     const isSubmission = data.status === "SUBMITTED" && existingAbstract.status === "DRAFT";
@@ -183,11 +214,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.title && { title: data.title }),
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
+        ...(data.themeId !== undefined && { themeId: data.themeId }),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.status && { status: data.status }),
         ...(data.reviewNotes !== undefined && { reviewNotes: data.reviewNotes || null }),
-        ...(data.reviewScore !== undefined && { reviewScore: data.reviewScore }),
+        ...(computedReviewScore !== undefined && { reviewScore: computedReviewScore }),
+        ...(data.criteriaScores !== undefined && { criteriaScores: data.criteriaScores ?? undefined }),
+        ...(data.recommendedFormat !== undefined && { recommendedFormat: data.recommendedFormat }),
         ...(isReview && { reviewedAt: new Date() }),
         ...(isSubmission && { submittedAt: new Date() }),
       },

@@ -44,7 +44,9 @@ import {
   X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { useAbstracts, useSpeakers, useTracks, useEvent, useReviewCriteria, queryKeys } from "@/hooks/use-api";
+import { CriteriaScoreEditor, type CriteriaScoreItem } from "@/components/abstracts/criteria-score-editor";
+import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -81,10 +83,13 @@ interface Abstract {
   status: string;
   reviewNotes: string | null;
   reviewScore: number | null;
+  criteriaScores: CriteriaScoreItem[] | null;
+  recommendedFormat: string | null;
   submittedAt: string;
   reviewedAt: string | null;
   speaker: Speaker;
   track: Track | null;
+  theme: { id: string; name: string } | null;
   eventSession: { id: string; name: string } | null;
 }
 
@@ -107,6 +112,8 @@ export default function AbstractsPage() {
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
   const { data: event } = useEvent(eventId);
+  const { data: criteriaData = [] } = useReviewCriteria(eventId);
+  const criteria = criteriaData as { id: string; name: string; weight: number }[];
 
   const abstracts = abstractsData as Abstract[];
   const speakers = speakersData as Speaker[];
@@ -149,6 +156,7 @@ export default function AbstractsPage() {
     specialty: "",
     presentationType: "" as string,
     trackId: "",
+    themeId: "" as string,
     status: "SUBMITTED",
   });
   const [editData, setEditData] = useState({
@@ -157,11 +165,14 @@ export default function AbstractsPage() {
     specialty: "",
     presentationType: "" as string,
     trackId: "",
+    themeId: "" as string,
   });
   const [reviewData, setReviewData] = useState({
     status: "",
     reviewNotes: "",
     reviewScore: "",
+    criteriaScores: null as CriteriaScoreItem[] | null,
+    recommendedFormat: "" as string,
   });
 
   // Create abstract mutation
@@ -176,6 +187,7 @@ export default function AbstractsPage() {
           ...data,
           speakerId,
           trackId: data.trackId || undefined,
+          themeId: data.themeId || undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create abstract");
@@ -202,6 +214,7 @@ export default function AbstractsPage() {
           specialty: data.specialty || undefined,
           presentationType: data.presentationType || undefined,
           trackId: data.trackId || undefined,
+          themeId: data.themeId || undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to update abstract");
@@ -225,7 +238,9 @@ export default function AbstractsPage() {
         body: JSON.stringify({
           status: data.status,
           reviewNotes: data.reviewNotes || undefined,
-          reviewScore: data.reviewScore ? parseInt(data.reviewScore) : undefined,
+          reviewScore: criteria.length === 0 && data.reviewScore ? parseInt(data.reviewScore) : undefined,
+          criteriaScores: criteria.length > 0 ? (data.criteriaScores ?? undefined) : undefined,
+          recommendedFormat: data.recommendedFormat || undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to review abstract");
@@ -288,6 +303,7 @@ export default function AbstractsPage() {
       specialty: abstract.specialty || "",
       presentationType: abstract.presentationType || "",
       trackId: abstract.track?.id || "",
+      themeId: abstract.theme?.id || "",
     });
     setIsEditDialogOpen(true);
   };
@@ -298,6 +314,8 @@ export default function AbstractsPage() {
       status: abstract.status,
       reviewNotes: abstract.reviewNotes || "",
       reviewScore: abstract.reviewScore?.toString() || "",
+      criteriaScores: abstract.criteriaScores ?? null,
+      recommendedFormat: abstract.recommendedFormat || "",
     });
     setIsReviewDialogOpen(true);
   };
@@ -310,6 +328,7 @@ export default function AbstractsPage() {
       specialty: "",
       presentationType: "",
       trackId: "",
+      themeId: "",
       status: "SUBMITTED",
     });
   };
@@ -321,6 +340,7 @@ export default function AbstractsPage() {
     ACCEPTED: "bg-green-100 text-green-800",
     REJECTED: "bg-red-100 text-red-800",
     REVISION_REQUESTED: "bg-orange-100 text-orange-800",
+    WITHDRAWN: "bg-gray-100 text-gray-500",
   };
 
   const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
@@ -331,6 +351,7 @@ export default function AbstractsPage() {
     underReview: abstracts.filter((a) => a.status === "UNDER_REVIEW").length,
     accepted: abstracts.filter((a) => a.status === "ACCEPTED").length,
     rejected: abstracts.filter((a) => a.status === "REJECTED").length,
+    withdrawn: abstracts.filter((a) => a.status === "WITHDRAWN").length,
   };
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
@@ -483,6 +504,8 @@ export default function AbstractsPage() {
                   <SelectContent>
                     <SelectItem value="ORAL">Oral Presentation</SelectItem>
                     <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
+                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -512,6 +535,14 @@ export default function AbstractsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Theme</Label>
+                  <AbstractThemeSelect
+                    eventId={eventId}
+                    value={formData.themeId || null}
+                    onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
+                  />
                 </div>
                 {!isSubmitter && (
                   <div className="space-y-2">
@@ -554,7 +585,7 @@ export default function AbstractsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-6">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -607,6 +638,18 @@ export default function AbstractsPage() {
             <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
           </CardContent>
         </Card>
+        {stats.withdrawn > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Withdrawn
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-gray-500">{stats.withdrawn}</div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Abstract Submission URL (organizers/admins only) */}
@@ -701,17 +744,32 @@ export default function AbstractsPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="reviewScore">Score (0-100)</Label>
-                    <Input
-                      id="reviewScore"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={reviewData.reviewScore}
-                      onChange={(e) =>
-                        setReviewData({ ...reviewData, reviewScore: e.target.value })
+                    <Label>Score</Label>
+                    <CriteriaScoreEditor
+                      criteria={criteria}
+                      value={reviewData.criteriaScores}
+                      onChange={(cs) => setReviewData({ ...reviewData, criteriaScores: cs })}
+                      plainScore={reviewData.reviewScore ? parseInt(reviewData.reviewScore) : null}
+                      onPlainScoreChange={(s) =>
+                        setReviewData({ ...reviewData, reviewScore: s != null ? String(s) : "" })
                       }
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Recommended Format</Label>
+                    <Select
+                      value={reviewData.recommendedFormat}
+                      onValueChange={(v) => setReviewData({ ...reviewData, recommendedFormat: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select recommendation (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ORAL">Oral Presentation</SelectItem>
+                        <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                        <SelectItem value="NEITHER">Neither</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reviewNotes">Review Notes</Label>
@@ -835,6 +893,14 @@ export default function AbstractsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label>Theme</Label>
+                  <AbstractThemeSelect
+                    eventId={eventId}
+                    value={editData.themeId || null}
+                    onChange={(v) => setEditData({ ...editData, themeId: v ?? "" })}
+                  />
+                </div>
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"
@@ -921,7 +987,15 @@ export default function AbstractsPage() {
                         </Badge>
                         {abstract.presentationType && (
                           <Badge variant="secondary" className="text-xs">
-                            {abstract.presentationType === "ORAL" ? "Oral" : "Poster"}
+                            {abstract.presentationType === "ORAL" ? "Oral"
+                              : abstract.presentationType === "POSTER" ? "Poster"
+                              : abstract.presentationType === "VIDEO" ? "Video"
+                              : "Workshop"}
+                          </Badge>
+                        )}
+                        {abstract.theme && (
+                          <Badge variant="outline" className="text-xs border-violet-300 text-violet-700">
+                            {abstract.theme.name}
                           </Badge>
                         )}
                         {abstract.track && (
@@ -1022,6 +1096,8 @@ export default function AbstractsPage() {
                                     status: "ACCEPTED",
                                     reviewNotes: "",
                                     reviewScore: "",
+                                    criteriaScores: null,
+                                    recommendedFormat: "",
                                   });
                                   setIsReviewDialogOpen(true);
                                 }}
@@ -1038,6 +1114,8 @@ export default function AbstractsPage() {
                                     status: "REJECTED",
                                     reviewNotes: "",
                                     reviewScore: "",
+                                    criteriaScores: null,
+                                    recommendedFormat: "",
                                   });
                                   setIsReviewDialogOpen(true);
                                 }}

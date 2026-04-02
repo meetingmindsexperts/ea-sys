@@ -169,6 +169,8 @@ model Event {
   hotels         Hotel[]
   accommodations Accommodation[]
   abstracts      Abstract[]
+  abstractThemes AbstractTheme[]
+  reviewCriteria ReviewCriterion[]
   auditLogs      AuditLog[]
 
   importLogs     ImportLog[]
@@ -426,32 +428,65 @@ enum SpeakerStatus {
 }
 
 model Abstract {
-  id               String             @id @default(cuid())
-  eventId          String
-  speakerId        String
-  title            String
-  content          String             @db.Text
-  trackId          String?
-  specialty        String?
-  presentationType PresentationType?
-  status           AbstractStatus     @default(SUBMITTED)
-  reviewNotes     String?        @db.Text
-  reviewScore     Int?
-  managementToken String?        @unique
-  submittedAt     DateTime       @default(now())
-  reviewedAt      DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                String             @id @default(cuid())
+  eventId           String
+  speakerId         String
+  title             String
+  content           String             @db.Text
+  trackId           String?
+  themeId           String?
+  specialty         String?
+  presentationType  PresentationType?
+  status            AbstractStatus     @default(SUBMITTED)
+  reviewNotes       String?            @db.Text
+  reviewScore       Int?
+  criteriaScores    Json?
+  recommendedFormat RecommendedFormat?
+  managementToken   String?            @unique
+  submittedAt       DateTime           @default(now())
+  reviewedAt        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   event        Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   speaker      Speaker        @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   track        Track?         @relation(fields: [trackId], references: [id])
+  theme        AbstractTheme? @relation(fields: [themeId], references: [id])
   eventSession EventSession?
   sessionTopic SessionTopic?
 
   @@index([eventId])
   @@index([speakerId])
   @@index([status])
+}
+
+model AbstractTheme {
+  id        String     @id @default(cuid())
+  eventId   String
+  name      String
+  sortOrder Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstracts Abstract[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+}
+
+model ReviewCriterion {
+  id        String   @id @default(cuid())
+  eventId   String
+  name      String
+  weight    Int
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
 }
 
 enum AbstractStatus {
@@ -461,11 +496,20 @@ enum AbstractStatus {
   ACCEPTED
   REJECTED
   REVISION_REQUESTED
+  WITHDRAWN
 }
 
 enum PresentationType {
   ORAL
   POSTER
+  VIDEO
+  WORKSHOP
+}
+
+enum RecommendedFormat {
+  ORAL
+  POSTER
+  NEITHER
 }
 
 // ==================== SESSIONS & SCHEDULE ====================

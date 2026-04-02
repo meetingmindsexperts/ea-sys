@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
+import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -451,6 +453,12 @@ export default function EventSettingsPage() {
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="abstract-themes" className="flex items-center gap-2">
+            Abstract Themes
+          </TabsTrigger>
+          <TabsTrigger value="review-criteria" className="flex items-center gap-2">
+            Review Criteria
           </TabsTrigger>
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <ImageIcon className="h-4 w-4" />
@@ -1037,6 +1045,36 @@ export default function EventSettingsPage() {
                   {saving ? "Saving..." : "Save Settings"}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Abstract Themes */}
+        <TabsContent value="abstract-themes">
+          <Card>
+            <CardHeader>
+              <CardTitle>Abstract Themes</CardTitle>
+              <CardDescription>
+                Define themes that submitters can tag their abstracts with.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AbstractThemesSettings eventId={eventId} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Review Criteria */}
+        <TabsContent value="review-criteria">
+          <Card>
+            <CardHeader>
+              <CardTitle>Review Criteria</CardTitle>
+              <CardDescription>
+                Define weighted scoring criteria for abstract reviews. Weights should total 100%.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ReviewCriteriaSettings eventId={eventId} />
             </CardContent>
           </Card>
         </TabsContent>
