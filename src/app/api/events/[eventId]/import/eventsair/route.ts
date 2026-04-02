@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { generateBarcode } from "@/lib/utils";
+import { getNextSerialId } from "@/lib/registration-serial";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { syncToContact } from "@/lib/contact-sync";
 import { downloadExternalPhoto } from "@/lib/storage";
@@ -151,11 +152,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           }
 
           const generatedBarcode = generateBarcode();
+          const serialId = await getNextSerialId(tx, eventId);
           await tx.registration.create({
             data: {
               eventId,
               ticketTypeId: defaultTicketType.id,
               attendeeId: attendee.id,
+              serialId,
               status: defaultTicketType.requiresApproval ? "PENDING" : "CONFIRMED",
               paymentStatus: Number(defaultTicketType.price) === 0 ? "PAID" : "UNPAID",
               qrCode: generatedBarcode,

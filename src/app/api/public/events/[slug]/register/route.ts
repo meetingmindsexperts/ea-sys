@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { generateBarcode } from "@/lib/utils";
+import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -296,12 +297,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Create registration
       const generatedBarcode = generateBarcode();
+      const serialId = await getNextSerialId(tx, event.id);
       const registration = await tx.registration.create({
         data: {
           eventId: event.id,
           ticketTypeId,
           pricingTierId: pricingTier?.id || null,
           attendeeId: attendee.id,
+          serialId,
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           paymentStatus: effectivePrice === 0 ? "PAID" : "UNPAID",
           qrCode: generatedBarcode,

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
+import { getNextSerialId } from "@/lib/registration-serial";
 
 const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
@@ -734,12 +735,14 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
         select: { id: true, firstName: true, lastName: true, email: true },
       });
 
+      const serialId = await getNextSerialId(tx, ctx.eventId);
       const registration = await tx.registration.create({
         data: {
           eventId: ctx.eventId,
           ticketTypeId: ticketType.id,
           pricingTierId: validPricingTierId,
           attendeeId: attendee.id,
+          serialId,
           status: rawStatus as never,
         },
         select: {

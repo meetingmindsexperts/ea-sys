@@ -300,6 +300,7 @@ model Registration {
   pricingTierId  String?
   attendeeId     String
   userId         String?
+  serialId       Int?
   status         RegistrationStatus @default(PENDING)
   paymentStatus  PaymentStatus      @default(UNPAID)
   qrCode         String?            @unique
@@ -333,6 +334,7 @@ model Registration {
   payments      Payment[]
   accommodation Accommodation?
 
+  @@unique([eventId, serialId])
   @@index([eventId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { getNextSerialId } from "@/lib/registration-serial";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -82,11 +83,13 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
+          const serialId = await getNextSerialId(tx, eventId);
           await tx.registration.create({
             data: {
               eventId,
               ticketTypeId,
               attendeeId: attendee.id,
+              serialId,
             },
           });
         }

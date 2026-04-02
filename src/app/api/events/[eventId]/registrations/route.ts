@@ -4,6 +4,7 @@ import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
+import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
@@ -297,11 +298,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Create registration
       const generatedBarcode = generateBarcode();
+      const serialId = await getNextSerialId(tx, eventId);
       const reg = await tx.registration.create({
         data: {
           eventId,
           ticketTypeId,
           attendeeId: attendeeRecord.id,
+          serialId,
           status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
           paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
           qrCode: generatedBarcode,

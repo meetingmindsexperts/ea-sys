@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { formatSerialId } from "@/lib/registration-serial";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bwipjs = require("bwip-js");
 import PDFDocument from "pdfkit";
@@ -52,14 +53,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const allRegistrations = await db.registration.findMany({
       where,
-      include: {
-        attendee: {
-          select: {
-            firstName: true,
-            lastName: true,
-            country: true,
-          },
-        },
+      select: {
+        id: true,
+        serialId: true,
+        qrCode: true,
+        dtcmBarcode: true,
+        badgeType: true,
+        paymentStatus: true,
+        attendee: { select: { firstName: true, lastName: true, country: true } },
         ticketType: { select: { name: true, price: true } },
         pricingTier: { select: { price: true } },
       },
@@ -99,6 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
 interface BadgeRegistration {
   id: string;
+  serialId: number | null;
   qrCode: string | null;
   dtcmBarcode: string | null;
   badgeType: string | null;
@@ -157,7 +159,7 @@ async function generateBadgePDF(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, regIndex: number, barcodeBuffers: Map<string, Buffer>) {
+function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regIndex: number, barcodeBuffers: Map<string, Buffer>) {
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
 
   // Badge border (dashed for cutting guide)
@@ -207,7 +209,7 @@ function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, regIn
 
   // Registration number (left, italic)
   doc.font("Helvetica-BoldOblique").fontSize(10).fillColor("#000000");
-  doc.text(String(regIndex), x + MARGIN, bottomY + 4, {
+  doc.text(formatSerialId(reg.serialId), x + MARGIN, bottomY + 4, {
     width: 50,
     align: "left",
     lineBreak: false,
