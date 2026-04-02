@@ -281,6 +281,22 @@ This document outlines the current development status of the Event Administratio
 
 ## Recent Updates (April 2, 2026)
 
+### Event-Scoped Media Library (April 2, 2026)
+- [x] `eventId` (nullable FK, CASCADE) added to `MediaFile` model; existing org-wide media unaffected
+- [x] `GET/POST /api/events/[eventId]/media` — upload/list images scoped to a specific event; same magic-byte validation, 2MB limit, and rate limit as global route; storage orphan cleanup on DB failure
+- [x] `DELETE /api/events/[eventId]/media/[mediaId]` — ownership-checked delete
+- [x] `useEventMedia` / `useUploadEventMedia` / `useDeleteEventMedia` React Query hooks
+- [x] `/events/[eventId]/media` page — drag-and-drop upload zone, image grid, copy URL, delete; accessible from event sidebar under Tools
+- [x] Sidebar reorganised: 7 event nav sections merged to 4 (Overview, Manage, Abstracts, Tools, Config)
+
+### Stripe Refund + Webhook Gap Coverage (April 2, 2026)
+- [x] `POST /api/events/[eventId]/registrations/[registrationId]/refund` — admin-initiated full refund via Stripe; optimistic DB lock prevents concurrent duplicates; idempotency key; storage rollback on Stripe failure; refund confirmation email to attendee; admin in-app notification
+- [x] Webhook: `checkout.session.expired` resets PENDING → UNPAID (prevents permanently stuck registrations)
+- [x] Webhook: `charge.refunded` auto-updates `paymentStatus` + `Payment.status` → REFUNDED when refund issued via Stripe Dashboard
+- [x] Webhook: `payment_intent.payment_failed` logged for production visibility
+- [x] "Issue Refund" button on registration detail sheet (admin/organizer only, visible when PAID)
+- [x] `refund-confirmation` email template added
+
 ### EventsAir-Style Abstract Expansion (April 2, 2026)
 - [x] `VIDEO` and `WORKSHOP` added to `PresentationType` enum
 - [x] `WITHDRAWN` added to `AbstractStatus` enum; submitters can withdraw from SUBMITTED/REVISION_REQUESTED
