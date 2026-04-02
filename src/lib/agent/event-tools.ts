@@ -112,13 +112,18 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "list_registrations",
     description:
-      "List registrations for this event. Optionally filter by status or ticketTypeId.",
+      "List registrations for this event. Optionally filter by status, paymentStatus, or ticketTypeId.",
     input_schema: {
       type: "object" as const,
       properties: {
         status: {
           type: "string",
           enum: ["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"],
+        },
+        paymentStatus: {
+          type: "string",
+          enum: ["UNPAID", "PENDING", "PAID", "REFUNDED", "COMPLIMENTARY"],
+          description: "Filter by payment status, e.g. UNPAID to find who hasn't paid",
         },
         ticketTypeId: { type: "string", description: "Filter by ticket type ID" },
         limit: {
@@ -432,10 +437,16 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
     if (statusValue && !REGISTRATION_STATUSES.has(statusValue)) {
       return { error: `Invalid status "${statusValue}". Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
     }
+    const PAYMENT_STATUSES = new Set(["UNPAID", "PENDING", "PAID", "REFUNDED", "COMPLIMENTARY"]);
+    const paymentStatusValue = input.paymentStatus ? String(input.paymentStatus) : undefined;
+    if (paymentStatusValue && !PAYMENT_STATUSES.has(paymentStatusValue)) {
+      return { error: `Invalid paymentStatus "${paymentStatusValue}". Must be one of: ${[...PAYMENT_STATUSES].join(", ")}` };
+    }
     const registrations = await db.registration.findMany({
       where: {
         eventId: ctx.eventId,
         ...(statusValue ? { status: statusValue as never } : {}),
+        ...(paymentStatusValue ? { paymentStatus: paymentStatusValue as never } : {}),
         ...(input.ticketTypeId
           ? { ticketTypeId: String(input.ticketTypeId) }
           : {}),
