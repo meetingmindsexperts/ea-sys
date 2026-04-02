@@ -149,7 +149,7 @@ export async function POST(
 
   // Only ADMIN/ORGANIZER roles can use the agent
   const role = session.user.role;
-  if (!["SUPER_ADMIN", "ADMIN", "ORGANIZER"].includes(role)) {
+  if (!["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

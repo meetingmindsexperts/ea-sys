@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
  */
 export function denyReviewer(session: { user?: { role?: string } } | null) {
   const role = session?.user?.role;
-  if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {
+  if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT" || role === "MEMBER") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;

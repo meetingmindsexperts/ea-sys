@@ -37,6 +37,14 @@ export function buildEventAccessWhere(
     };
   }
 
+  // MEMBER: org-bound read-only viewer — same event scope as ORGANIZER
+  if (user.role === "MEMBER") {
+    return {
+      ...(eventId && { id: eventId }),
+      organizationId: user.organizationId!,
+    };
+  }
+
   // SUPER_ADMIN: if no org is set (or explicitly cleared), see all events
   if (user.role === "SUPER_ADMIN" && !user.organizationId) {
     return { ...(eventId && { id: eventId }) };

@@ -334,6 +334,7 @@ export default function SettingsPage() {
     SUPER_ADMIN: "bg-red-100 text-red-800",
     ADMIN: "bg-purple-100 text-purple-800",
     ORGANIZER: "bg-blue-100 text-blue-800",
+    MEMBER: "bg-amber-100 text-amber-800",
     REVIEWER: "bg-green-100 text-green-800",
   };
 
@@ -747,6 +748,7 @@ export default function SettingsPage() {
                         <SelectContent>
                           <SelectItem value="ADMIN">Admin</SelectItem>
                           <SelectItem value="ORGANIZER">Organizer</SelectItem>
+                          <SelectItem value="MEMBER">Member</SelectItem>
                           <SelectItem value="REVIEWER">Reviewer</SelectItem>
                         </SelectContent>
                       </Select>
