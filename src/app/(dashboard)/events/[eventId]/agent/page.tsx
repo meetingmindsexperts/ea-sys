@@ -39,6 +39,8 @@ const TOOL_LABELS: Record<string, string> = {
   list_sessions: "Listing sessions",
   create_session: "Creating session",
   list_ticket_types: "Listing ticket types",
+  create_ticket_type: "Creating ticket type",
+  create_registration: "Creating registration",
   send_bulk_email: "Sending bulk email",
 };
 
@@ -78,6 +80,17 @@ function getToolResultSummary(name: string, result: unknown): string {
   if (name === "list_ticket_types" && Array.isArray(r.ticketTypes)) {
     return `Found ${r.ticketTypes.length} ticket type${r.ticketTypes.length !== 1 ? "s" : ""}`;
   }
+  if (name === "create_ticket_type" && r.ticketType) {
+    if (r.alreadyExists) return `Ticket type "${(r.ticketType as { name: string }).name}" already exists`;
+    return `Created ticket type "${(r.ticketType as { name: string }).name}" with Early Bird, Standard, Onsite tiers`;
+  }
+  if (name === "create_registration") {
+    if (r.alreadyExists) return String(r.message ?? "Registration already exists");
+    if (r.attendee) {
+      const a = r.attendee as { firstName: string; lastName: string };
+      return `Created registration for ${a.firstName} ${a.lastName}`;
+    }
+  }
   if (name === "send_bulk_email" && r.sent !== undefined) {
     return `Sent to ${r.sent} recipient${(r.sent as number) !== 1 ? "s" : ""}`;
   }
@@ -90,9 +103,9 @@ function getToolResultSummary(name: string, result: unknown): string {
 const SUGGESTED_COMMANDS = [
   "What's the current status and stats of this event?",
   "Create 3 conference tracks: Keynote, Technical, Workshop",
+  "Create a ticket type called 'Standard Delegate'",
   "List all confirmed registrations",
   "List all speakers and their status",
-  "List all ticket types",
   "List all sessions",
 ];
 

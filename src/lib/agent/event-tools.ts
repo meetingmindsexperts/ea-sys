@@ -6,6 +6,8 @@ import { apiLogger } from "@/lib/logger";
 
 const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
+const MANUAL_REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "WAITLISTED"]);
+const TITLE_VALUES = new Set(["DR", "MR", "MRS", "MS", "PROF"]);
 
 export interface AgentContext {
   eventId: string;
@@ -175,6 +177,48 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
       type: "object" as const,
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: "create_ticket_type",
+    description:
+      "Create a new registration/ticket type for this event if one with the same name does not already exist. Automatically creates Early Bird, Standard, and Onsite pricing tiers at $0 and inactive — organizers can set prices and activate tiers later.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Ticket type name, e.g. 'Standard Delegate', 'VIP', 'Student'" },
+        description: { type: "string", description: "Optional description" },
+        isDefault: { type: "boolean", description: "Whether this is the default ticket type (default: false)" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "create_registration",
+    description:
+      "Manually add a registration for an attendee. Requires email, firstName, lastName, and ticketTypeId (use list_ticket_types to get IDs). Optionally specify pricingTierId, status (default CONFIRMED), title, organization, jobTitle, specialty.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        email: { type: "string", description: "Attendee email address" },
+        firstName: { type: "string" },
+        lastName: { type: "string" },
+        ticketTypeId: { type: "string", description: "ID of the ticket type (use list_ticket_types to get IDs)" },
+        pricingTierId: { type: "string", description: "Optional pricing tier ID" },
+        status: {
+          type: "string",
+          enum: ["PENDING", "CONFIRMED", "WAITLISTED"],
+          description: "Registration status (default: CONFIRMED)",
+        },
+        title: {
+          type: "string",
+          enum: ["DR", "MR", "MRS", "MS", "PROF"],
+        },
+        organization: { type: "string" },
+        jobTitle: { type: "string" },
+        specialty: { type: "string" },
+      },
+      required: ["email", "firstName", "lastName", "ticketTypeId"],
     },
   },
   {
@@ -549,6 +593,161 @@ const listTicketTypes: ToolExecutor = async (_input, ctx) => {
   }
 };
 
+const createTicketType: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim();
+    if (!name) return { error: "Ticket type name is required" };
+
+    // Check for duplicate (case-insensitive)
+    const existing = await db.ticketType.findFirst({
+      where: { eventId: ctx.eventId, name: { equals: name, mode: "insensitive" } },
+      select: { id: true, name: true },
+    });
+    if (existing) {
+      return {
+        alreadyExists: true,
+        ticketType: existing,
+        message: `A ticket type named "${existing.name}" already exists for this event.`,
+      };
+    }
+
+    // Get next sort order
+    const maxOrder = await db.ticketType.findFirst({
+      where: { eventId: ctx.eventId },
+      select: { sortOrder: true },
+      orderBy: { sortOrder: "desc" },
+    });
+    const sortOrder = (maxOrder?.sortOrder ?? -1) + 1;
+
+    const ticketType = await db.ticketType.create({
+      data: {
+        eventId: ctx.eventId,
+        name,
+        description: input.description ? String(input.description) : null,
+        isDefault: input.isDefault === true,
+        isActive: true,
+        sortOrder,
+        pricingTiers: {
+          create: [
+            { name: "Early Bird", price: 0, currency: "USD", isActive: false, sortOrder: 0 },
+            { name: "Standard",   price: 0, currency: "USD", isActive: false, sortOrder: 1 },
+            { name: "Onsite",     price: 0, currency: "USD", isActive: false, sortOrder: 2 },
+          ],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        pricingTiers: { select: { id: true, name: true, price: true, isActive: true } },
+      },
+    });
+
+    return {
+      success: true,
+      ticketType,
+      message:
+        "Ticket type created with 3 inactive pricing tiers (Early Bird, Standard, Onsite) at $0. Go to Settings → Registration Types to set prices and activate tiers.",
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_ticket_type failed");
+    return { error: "Failed to create ticket type" };
+  }
+};
+
+const createRegistration: ToolExecutor = async (input, ctx) => {
+  try {
+    const email = String(input.email ?? "").trim().toLowerCase();
+    const firstName = String(input.firstName ?? "").trim();
+    const lastName = String(input.lastName ?? "").trim();
+    const ticketTypeId = String(input.ticketTypeId ?? "").trim();
+
+    if (!email || !firstName || !lastName || !ticketTypeId) {
+      return { error: "email, firstName, lastName, and ticketTypeId are all required" };
+    }
+
+    // Validate ticketTypeId belongs to this event
+    const ticketType = await db.ticketType.findFirst({
+      where: { id: ticketTypeId, eventId: ctx.eventId },
+      select: { id: true, name: true },
+    });
+    if (!ticketType) return { error: "Ticket type not found for this event. Use list_ticket_types to get valid IDs." };
+
+    // Validate pricingTierId if provided
+    let validPricingTierId: string | null = null;
+    if (input.pricingTierId) {
+      const tier = await db.pricingTier.findFirst({
+        where: { id: String(input.pricingTierId), ticketTypeId: ticketType.id },
+        select: { id: true },
+      });
+      if (!tier) return { error: "Pricing tier not found for this ticket type." };
+      validPricingTierId = tier.id;
+    }
+
+    // Validate status
+    const rawStatus = input.status ? String(input.status) : "CONFIRMED";
+    if (!MANUAL_REGISTRATION_STATUSES.has(rawStatus)) {
+      return { error: `Invalid status "${rawStatus}". Must be one of: ${[...MANUAL_REGISTRATION_STATUSES].join(", ")}` };
+    }
+
+    // Validate title
+    const rawTitle = input.title ? String(input.title) : undefined;
+    if (rawTitle && !TITLE_VALUES.has(rawTitle)) {
+      return { error: `Invalid title "${rawTitle}". Must be one of: ${[...TITLE_VALUES].join(", ")}` };
+    }
+
+    // Check for duplicate registration by email for this event
+    const duplicate = await db.registration.findFirst({
+      where: { eventId: ctx.eventId, attendee: { email } },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return {
+        alreadyExists: true,
+        message: `A registration for ${email} already exists for this event.`,
+      };
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      const attendee = await tx.attendee.create({
+        data: {
+          email,
+          firstName,
+          lastName,
+          title: rawTitle as never ?? null,
+          organization: input.organization ? String(input.organization) : null,
+          jobTitle: input.jobTitle ? String(input.jobTitle) : null,
+          specialty: input.specialty ? String(input.specialty) : null,
+          registrationType: ticketType.name,
+        },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+
+      const registration = await tx.registration.create({
+        data: {
+          eventId: ctx.eventId,
+          ticketTypeId: ticketType.id,
+          pricingTierId: validPricingTierId,
+          attendeeId: attendee.id,
+          status: rawStatus as never,
+        },
+        select: {
+          id: true,
+          status: true,
+          ticketType: { select: { name: true } },
+        },
+      });
+
+      return { attendee, registration };
+    });
+
+    return { success: true, ...result };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_registration failed");
+    return { error: "Failed to create registration" };
+  }
+};
+
 const sendBulkEmail: ToolExecutor = async (input, ctx) => {
   try {
     // Rate limit: 10 bulk email sends per event per hour
@@ -661,5 +860,7 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   list_sessions: listSessions,
   create_session: createSession,
   list_ticket_types: listTicketTypes,
+  create_ticket_type: createTicketType,
+  create_registration: createRegistration,
   send_bulk_email: sendBulkEmail,
 };

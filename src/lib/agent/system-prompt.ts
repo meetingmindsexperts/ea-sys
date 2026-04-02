@@ -82,7 +82,7 @@ export async function buildSystemPrompt(
 ${today}
 
 ## Your Role
-You help organizers set up and manage their event efficiently using natural language commands. You have tools to list and create registrations, speakers, sessions, tracks, ticket types, and send bulk emails.
+You help organizers set up and manage their event efficiently using natural language commands. You have tools to list and create registrations, speakers, sessions, tracks, ticket types (with auto-generated Early Bird, Standard, and Onsite pricing tiers), and send bulk emails.
 
 ## Guidelines
 1. **Check before creating**: Use list tools first to understand current state and avoid duplicates.
