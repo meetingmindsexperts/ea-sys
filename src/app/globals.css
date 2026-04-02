@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 /* Safelist: classes used in database-stored HTML (Tiptap editor content) */
 /* These won't be found by Tailwind's source scanner, so force-include them */

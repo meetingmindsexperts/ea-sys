@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Bot,
   ChevronDown,
@@ -209,12 +211,18 @@ function MessageBubble({
   if (message.role === "assistant") {
     return (
       <div className="flex justify-start mb-3">
-        <div className="max-w-[85%] bg-card border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words shadow-sm">
-          {message.content || (message.isStreaming && (
+        <div className="max-w-[85%] bg-card border rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm shadow-sm">
+          {!message.content && message.isStreaming ? (
             <span className="text-muted-foreground italic">Thinking…</span>
-          ))}
-          {message.isStreaming && message.content && (
-            <span className="inline-block w-0.5 h-3.5 bg-foreground ml-0.5 animate-pulse align-middle" />
+          ) : (
+            <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:text-xs prose-pre:bg-muted prose-pre:p-2 prose-pre:rounded prose-pre:text-xs prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:text-muted-foreground prose-hr:my-2 prose-table:text-xs">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {message.content}
+              </ReactMarkdown>
+              {message.isStreaming && (
+                <span className="inline-block w-0.5 h-3.5 bg-foreground ml-0.5 animate-pulse align-middle" />
+              )}
+            </div>
           )}
         </div>
       </div>
