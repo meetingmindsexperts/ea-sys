@@ -412,7 +412,7 @@ describe("POST /events/[eventId]/media: rate limiting", () => {
 
   it("returns 429 when rate limit exceeded", async () => {
     const { checkRateLimit } = await import("@/lib/security");
-    vi.mocked(checkRateLimit).mockReturnValueOnce({ allowed: false, retryAfterSeconds: 3600 });
+    vi.mocked(checkRateLimit).mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 3600 });
     const req = await makePostRequest(makeFakeJpegFile());
     const res = await POST(req, makeParams());
     expect(res.status).toBe(429);
