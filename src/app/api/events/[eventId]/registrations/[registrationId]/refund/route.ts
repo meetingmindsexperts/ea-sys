@@ -7,6 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 
 export async function POST(
   _req: Request,
@@ -124,6 +125,21 @@ export async function POST(
     sendRefundConfirmationEmail(registration, formattedAmount).catch((err: unknown) =>
       apiLogger.error({ err, msg: "Failed to send refund confirmation email", registrationId })
     );
+
+    // Auto-create credit note (non-blocking)
+    (async () => {
+      try {
+        const cn = await createCreditNote({
+          registrationId,
+          eventId,
+          organizationId: session.user.organizationId!,
+          reason: `Admin-initiated refund of ${formattedAmount}`,
+        });
+        await sendInvoiceEmail(cn.id);
+      } catch (cnErr) {
+        apiLogger.error({ err: cnErr, msg: "Failed to auto-create credit note", registrationId });
+      }
+    })();
 
     return NextResponse.json({ refundId: refund.id, status: refund.status });
   } catch (err) {

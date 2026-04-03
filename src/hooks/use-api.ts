@@ -73,6 +73,8 @@ export const queryKeys = {
   registrationTypes: ["registration-types"] as const,
   notifications: ["notifications"] as const,
   organizations: ["organizations"] as const,
+  invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
+  registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -956,6 +958,61 @@ export function useDeleteEventMedia(eventId: string) {
       fetchApi(`/api/events/${eventId}/media/${mediaId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.eventMedia(eventId) });
+    },
+  });
+}
+
+// ============ INVOICES ============
+
+export interface InvoiceListItem {
+  id: string;
+  type: "INVOICE" | "RECEIPT" | "CREDIT_NOTE";
+  invoiceNumber: string;
+  status: string;
+  issueDate: string;
+  total: string;
+  currency: string;
+  sentAt: string | null;
+  registration?: {
+    id: string;
+    attendee: { firstName: string; lastName: string; email: string };
+  };
+}
+
+export function useInvoices(eventId: string, filters?: Record<string, string>) {
+  return useEventListQuery<InvoiceListItem[]>(eventId, queryKeys.invoices(eventId), "invoices", filters);
+}
+
+export function useRegistrationInvoices(registrationId: string) {
+  return useQuery({
+    queryKey: queryKeys.registrationInvoices(registrationId),
+    queryFn: () => fetchApi<InvoiceListItem[]>(`/api/registrant/registrations/${registrationId}/invoices`),
+    enabled: !!registrationId,
+  });
+}
+
+export function useCreateInvoice(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { registrationId: string; dueDate?: string }) =>
+      fetchApi(`/api/events/${eventId}/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices(eventId) });
+    },
+  });
+}
+
+export function useResendInvoice(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (invoiceId: string) =>
+      fetchApi(`/api/events/${eventId}/invoices/${invoiceId}/send`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices(eventId) });
     },
   });
 }

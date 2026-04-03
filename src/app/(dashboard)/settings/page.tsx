@@ -62,6 +62,7 @@ import {
   useTestEventsAirConnection,
   queryKeys,
 } from "@/hooks/use-api";
+import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -876,6 +877,9 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Billing & Invoicing */}
+      {isAdmin && <BillingSettingsCard />}
 
       {/* EventsAir Integration */}
       {isAdmin && <EventsAirCard />}

@@ -46,7 +46,10 @@
       "Bash(ssh-add --apple-use-keychain ~/.ssh/id_ed25519)",
       "Read(//tmp/**)",
       "Bash(npm test:*)",
-      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline --date=short --format=\"%ad %s\" -50)"
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline --date=short --format=\"%ad %s\" -50)",
+      "Bash(git stash:*)",
+      "Bash(npx vitest:*)",
+      "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/\\\\\\(dashboard\\\\\\)/events/\\\\[eventId\\\\]/*.tsx)"
     ]
   }
 }

@@ -15,6 +15,7 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import {
   Calendar,
   MapPin,
@@ -301,11 +302,7 @@ export default function EventMyRegistrationPage() {
                           </div>
                         </div>
                         {isPaid && price > 0 && (
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
-                              <Download className="mr-2 h-3.5 w-3.5" /> Invoice
-                            </a>
-                          </Button>
+                          <InvoiceDownloadButtons registrationId={reg.id} />
                         )}
                       </div>
                     )}

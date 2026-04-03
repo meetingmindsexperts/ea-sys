@@ -5,6 +5,7 @@ import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { createReceipt, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
           attendee: { select: { firstName: true, lastName: true, email: true } },
           ticketType: { select: { name: true, price: true, currency: true } },
           pricingTier: { select: { price: true, currency: true } },
-          event: { select: { id: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
+          event: { select: { id: true, organizationId: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
         },
       });
 
@@ -140,6 +141,31 @@ export async function POST(req: Request) {
       sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl).catch((err) =>
         apiLogger.error({ err, msg: "Failed to send payment confirmation email", registrationId })
       );
+
+      // Auto-create receipt (non-blocking)
+      (async () => {
+        try {
+          // Find the payment record just created
+          const payment = await db.payment.findFirst({
+            where: { registrationId, status: "PAID" },
+            orderBy: { createdAt: "desc" },
+            select: { id: true },
+          });
+          if (payment) {
+            const receipt = await createReceipt({
+              registrationId,
+              eventId: registration.event.id,
+              organizationId: registration.event.organizationId,
+              paymentId: payment.id,
+              paymentMethod: "stripe",
+              paymentReference: paymentIntentId || undefined,
+            });
+            await sendInvoiceEmail(receipt.id);
+          }
+        } catch (err) {
+          apiLogger.error({ err, msg: "Failed to auto-create receipt", registrationId });
+        }
+      })();
     } catch (err) {
       apiLogger.error({ err, msg: "Error processing Stripe checkout.session.completed", registrationId });
       // Return 500 so Stripe retries
@@ -176,7 +202,7 @@ export async function POST(req: Request) {
     try {
       const payment = await db.payment.findUnique({
         where: { stripePaymentId: paymentIntentId },
-        select: { id: true, registrationId: true },
+        select: { id: true, registrationId: true, registration: { select: { eventId: true, event: { select: { organizationId: true } } } } },
       });
       if (!payment) {
         apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
@@ -195,6 +221,21 @@ export async function POST(req: Request) {
       ]);
 
       apiLogger.info({ msg: "Refund processed via Stripe webhook", registrationId: payment.registrationId, paymentIntentId });
+
+      // Auto-create credit note (non-blocking)
+      (async () => {
+        try {
+          const cn = await createCreditNote({
+            registrationId: payment.registrationId,
+            eventId: payment.registration.eventId,
+            organizationId: payment.registration.event.organizationId,
+            reason: "Refund via Stripe",
+          });
+          await sendInvoiceEmail(cn.id);
+        } catch (err) {
+          apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
+        }
+      })();
     } catch (err) {
       apiLogger.error({ err, msg: "Error handling charge.refunded", paymentIntentId });
       return NextResponse.json({ error: "Processing failed" }, { status: 500 });

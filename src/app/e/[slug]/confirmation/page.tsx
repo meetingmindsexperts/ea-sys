@@ -13,11 +13,11 @@ import {
   CreditCard,
   Loader2,
   AlertCircle,
-  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { toast } from "sonner";
+import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 
 interface EventBranding {
   bannerImage: string | null;
@@ -247,11 +247,7 @@ function ConfirmationContent() {
                         </div>
                       </div>
                       {registrationId && (
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={`/api/registrant/registrations/${registrationId}/quote`} download>
-                            <Download className="mr-2 h-3.5 w-3.5" /> Invoice
-                          </a>
-                        </Button>
+                        <InvoiceDownloadButtons registrationId={registrationId} />
                       )}
                     </div>
                   </div>

@@ -17,6 +17,17 @@ model Organization {
   logo         String?
   primaryColor String?  @map("primary_color")
   settings     Json     @default("{}")
+  // Billing/Company info (for invoice "From" section)
+  companyName      String?
+  companyAddress   String?   @db.Text
+  companyCity      String?
+  companyState     String?
+  companyZipCode   String?
+  companyCountry   String?
+  companyPhone     String?
+  companyEmail     String?
+  taxId            String?
+  invoicePrefix    String?   @default("INV")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -25,6 +36,8 @@ model Organization {
   contacts   Contact[]
   apiKeys    ApiKey[]
   mediaFiles MediaFile[]
+  invoices   Invoice[]
+  invoiceCounters InvoiceCounter[]
 }
 
 model User {
@@ -178,6 +191,7 @@ model Event {
   emailTemplates EmailTemplate[]
   notifications  Notification[]
   mediaFiles     MediaFile[]
+  invoices       Invoice[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -333,6 +347,7 @@ model Registration {
   user          User?          @relation(fields: [userId], references: [id])
   payments      Payment[]
   accommodation Accommodation?
+  invoices      Invoice[]
 
   @@unique([eventId, serialId])
   @@index([eventId])
@@ -376,6 +391,7 @@ model Payment {
   updatedAt        DateTime      @updatedAt
 
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  invoice      Invoice?
 
   @@index([registrationId])
   @@index([stripePaymentId])
@@ -865,4 +881,83 @@ model ApiKey {
 
   @@index([organizationId])
   @@index([isActive])
+}
+
+// ==================== INVOICES & RECEIPTS ====================
+
+model Invoice {
+  id               String        @id @default(cuid())
+  organizationId   String
+  eventId          String
+  registrationId   String
+  paymentId        String?       @unique
+
+  type             InvoiceType
+  invoiceNumber    String        @unique
+  sequenceNumber   Int
+
+  status           InvoiceStatus @default(DRAFT)
+
+  issueDate        DateTime      @default(now())
+  dueDate          DateTime?
+  paidDate         DateTime?
+
+  // Financial snapshot (frozen at creation time)
+  subtotal         Decimal       @db.Decimal(10, 2)
+  taxRate          Decimal?      @db.Decimal(5, 2)
+  taxLabel         String?
+  taxAmount        Decimal       @default(0) @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
+  currency         String        @default("USD")
+
+  paymentMethod    String?
+  paymentReference String?
+  parentInvoiceId  String?
+
+  notes            String?       @db.Text
+  sentAt           DateTime?
+  sentTo           String?
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event            Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration     Registration  @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  payment          Payment?      @relation(fields: [paymentId], references: [id])
+  parentInvoice    Invoice?      @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
+  creditNotes      Invoice[]     @relation("CreditNotes")
+
+  @@unique([organizationId, sequenceNumber, type])
+  @@index([eventId])
+  @@index([registrationId])
+  @@index([status])
+  @@index([issueDate])
+}
+
+model InvoiceCounter {
+  id               String      @id @default(cuid())
+  organizationId   String
+  type             InvoiceType
+  year             Int
+  lastSequence     Int         @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type, year])
+}
+
+enum InvoiceType {
+  INVOICE
+  RECEIPT
+  CREDIT_NOTE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
 }

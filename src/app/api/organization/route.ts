@@ -15,6 +15,17 @@ const updateOrganizationSchema = z.object({
     currency: z.string().max(10).optional(),
     emailNotifications: z.boolean().optional(),
   }).optional(),
+  // Billing / Invoice fields
+  companyName: z.string().max(255).nullable().optional(),
+  companyAddress: z.string().max(1000).nullable().optional(),
+  companyCity: z.string().max(255).nullable().optional(),
+  companyState: z.string().max(255).nullable().optional(),
+  companyZipCode: z.string().max(50).nullable().optional(),
+  companyCountry: z.string().max(255).nullable().optional(),
+  companyPhone: z.string().max(50).nullable().optional(),
+  companyEmail: z.string().email().max(255).nullable().optional(),
+  taxId: z.string().max(100).nullable().optional(),
+  invoicePrefix: z.string().max(10).nullable().optional(),
 });
 
 export async function GET(req: Request) {
@@ -91,7 +102,12 @@ export async function PUT(req: Request) {
       );
     }
 
-    const { name, logo, primaryColor, settings } = validated.data;
+    const {
+      name, logo, primaryColor, settings,
+      companyName, companyAddress, companyCity, companyState,
+      companyZipCode, companyCountry, companyPhone, companyEmail,
+      taxId, invoicePrefix,
+    } = validated.data;
 
     // SUPER_ADMIN can update any org via x-org-id header
     let orgId = session.user.organizationId!;
@@ -121,6 +137,16 @@ export async function PUT(req: Request) {
         ...(logo !== undefined && { logo }),
         ...(primaryColor !== undefined && { primaryColor }),
         settings: updatedSettings,
+        ...(companyName !== undefined && { companyName }),
+        ...(companyAddress !== undefined && { companyAddress }),
+        ...(companyCity !== undefined && { companyCity }),
+        ...(companyState !== undefined && { companyState }),
+        ...(companyZipCode !== undefined && { companyZipCode }),
+        ...(companyCountry !== undefined && { companyCountry }),
+        ...(companyPhone !== undefined && { companyPhone }),
+        ...(companyEmail !== undefined && { companyEmail }),
+        ...(taxId !== undefined && { taxId }),
+        ...(invoicePrefix !== undefined && { invoicePrefix }),
       },
     });
 

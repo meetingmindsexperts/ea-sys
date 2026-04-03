@@ -10,6 +10,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { createInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -478,6 +479,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });
+    }
+
+    // Auto-create invoice for paid tickets (non-blocking)
+    if (finalPrice > 0) {
+      (async () => {
+        try {
+          const inv = await createInvoice({
+            registrationId: registration.id,
+            eventId: event.id,
+            organizationId: event.organizationId,
+          });
+          await sendInvoiceEmail(inv.id);
+        } catch (invErr) {
+          apiLogger.error({ err: invErr, msg: "Failed to auto-create invoice", registrationId: registration.id });
+        }
+      })();
     }
 
     return NextResponse.json(
