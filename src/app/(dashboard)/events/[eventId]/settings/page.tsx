@@ -76,6 +76,7 @@ interface Event {
   eventType: string | null;
   tag: string | null;
   specialty: string | null;
+  code: string | null;
   startDate: string;
   endDate: string;
   timezone: string;
@@ -147,6 +148,7 @@ export default function EventSettingsPage() {
     eventType: "",
     tag: "",
     specialty: "",
+    code: "",
     startDate: "",
     endDate: "",
     timezone: "UTC",
@@ -207,6 +209,7 @@ export default function EventSettingsPage() {
           eventType: data.eventType || "",
           tag: data.tag || "",
           specialty: data.specialty || "",
+          code: data.code || "",
           startDate: new Date(data.startDate).toISOString().slice(0, 16),
           endDate: new Date(data.endDate).toISOString().slice(0, 16),
           timezone: data.timezone,
@@ -278,6 +281,7 @@ export default function EventSettingsPage() {
           eventType: generalFormData.eventType || null,
           tag: generalFormData.tag || null,
           specialty: generalFormData.specialty || null,
+          code: generalFormData.code || null,
           venue: generalFormData.venue || null,
           address: generalFormData.address || null,
           city: generalFormData.city || null,
@@ -565,6 +569,22 @@ export default function EventSettingsPage() {
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="code">Event Code</Label>
+                <Input
+                  id="code"
+                  placeholder="e.g., HFC2026"
+                  value={generalFormData.code}
+                  onChange={(e) =>
+                    setGeneralFormData({ ...generalFormData, code: e.target.value.toUpperCase() })
+                  }
+                  maxLength={20}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used as prefix for invoice/receipt/quote numbers (e.g., HFC2026-INV-001)
+                </p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">

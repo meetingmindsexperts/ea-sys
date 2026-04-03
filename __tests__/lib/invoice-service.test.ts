@@ -85,6 +85,7 @@ const fakeRegistration = {
   pricingTier: null,
   event: {
     name: "Test Conference",
+    code: "HFC2026",
     startDate: new Date("2026-06-01"),
     venue: "Dubai World Trade Centre",
     city: "Dubai",
@@ -199,6 +200,17 @@ describe("createInvoice", () => {
     expect(captured.taxRate).toBeNull();
     expect(Number(captured.taxAmount)).toBe(0);
     expect(Number(captured.total)).toBe(100);
+  });
+
+  it("throws when event has no code set", async () => {
+    mockFindUniqueOrThrow.mockResolvedValue({
+      ...fakeRegistration,
+      event: { ...fakeRegistration.event, code: null },
+    });
+
+    await expect(
+      createInvoice({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1" })
+    ).rejects.toThrow("Event code is required");
   });
 });
 

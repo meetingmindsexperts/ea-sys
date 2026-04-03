@@ -15,6 +15,7 @@ const updateEventSchema = z.object({
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).nullable().optional(),
   tag: z.string().max(255).nullable().optional(),
   specialty: z.string().max(255).nullable().optional(),
+  code: z.string().max(20).nullable().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   timezone: z.string().max(100).optional(),

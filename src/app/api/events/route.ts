@@ -17,6 +17,7 @@ const createEventSchema = z.object({
   eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
   tag: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  code: z.string().max(20).optional(),
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
   venue: z.string().max(255).optional(),

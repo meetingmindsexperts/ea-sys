@@ -16,11 +16,11 @@ const registrationInclude = {
   pricingTier: { select: { name: true, price: true, currency: true } },
   event: {
     select: {
-      name: true, startDate: true, venue: true, city: true,
+      name: true, code: true, startDate: true, venue: true, city: true,
       taxRate: true, taxLabel: true, bankDetails: true, supportEmail: true,
       organization: {
         select: {
-          name: true, primaryColor: true, invoicePrefix: true,
+          name: true, primaryColor: true,
           companyName: true, companyAddress: true, companyCity: true,
           companyState: true, companyZipCode: true, companyCountry: true,
           companyPhone: true, companyEmail: true, taxId: true,
@@ -45,16 +45,21 @@ export async function createInvoice(params: {
     include: registrationInclude,
   });
 
+  if (!registration.event.code) {
+    apiLogger.warn({ msg: "Skipping invoice creation — event has no code set", eventId, registrationId });
+    throw new Error("Event code is required for invoice generation. Set it in Event Settings.");
+  }
+
   const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
   const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
   const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
   const taxAmount = taxRate ? price * (taxRate / 100) : 0;
   const total = price + taxAmount;
-  const org = registration.event.organization;
+  const eventCode = registration.event.code;
 
   return db.$transaction(async (tx) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, organizationId, "INVOICE", org.invoicePrefix || undefined
+      tx, eventId, "INVOICE", eventCode
     );
 
     return tx.invoice.create({
@@ -101,10 +106,15 @@ export async function createReceipt(params: {
   const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
   const taxAmount = taxRate ? price * (taxRate / 100) : 0;
   const total = price + taxAmount;
+  if (!registration.event.code) {
+    apiLogger.warn({ msg: "Skipping receipt creation — event has no code set", eventId, registrationId });
+    throw new Error("Event code is required for receipt generation. Set it in Event Settings.");
+  }
+  const eventCode = registration.event.code;
 
   return db.$transaction(async (tx) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, organizationId, "RECEIPT"
+      tx, eventId, "RECEIPT", eventCode
     );
 
     // Mark any existing invoice for this registration as PAID
@@ -159,6 +169,11 @@ export async function createCreditNote(params: {
   const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
   const taxAmount = taxRate ? price * (taxRate / 100) : 0;
   const total = price + taxAmount;
+  if (!registration.event.code) {
+    apiLogger.warn({ msg: "Skipping credit note creation — event has no code set", eventId, registrationId });
+    throw new Error("Event code is required for credit note generation. Set it in Event Settings.");
+  }
+  const eventCode = registration.event.code;
 
   // Find the original invoice if not provided
   let parentId = originalInvoiceId;
@@ -173,7 +188,7 @@ export async function createCreditNote(params: {
 
   return db.$transaction(async (tx) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, organizationId, "CREDIT_NOTE"
+      tx, eventId, "CREDIT_NOTE", eventCode
     );
 
     // Mark the original invoice as REFUNDED

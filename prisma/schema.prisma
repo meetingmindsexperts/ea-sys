@@ -37,7 +37,6 @@ model Organization {
   apiKeys    ApiKey[]
   mediaFiles MediaFile[]
   invoices   Invoice[]
-  invoiceCounters InvoiceCounter[]
 }
 
 model User {
@@ -150,6 +149,7 @@ model Event {
   eventType      EventType?
   tag            String?
   specialty      String?
+  code           String?
   status         EventStatus @default(DRAFT)
   settings       Json        @default("{}")
   bannerImage    String?
@@ -191,7 +191,8 @@ model Event {
   emailTemplates EmailTemplate[]
   notifications  Notification[]
   mediaFiles     MediaFile[]
-  invoices       Invoice[]
+  invoices        Invoice[]
+  invoiceCounters InvoiceCounter[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -928,7 +929,7 @@ model Invoice {
   parentInvoice    Invoice?      @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
   creditNotes      Invoice[]     @relation("CreditNotes")
 
-  @@unique([organizationId, sequenceNumber, type])
+  @@unique([eventId, sequenceNumber, type])
   @@index([eventId])
   @@index([registrationId])
   @@index([status])
@@ -937,14 +938,13 @@ model Invoice {
 
 model InvoiceCounter {
   id               String      @id @default(cuid())
-  organizationId   String
+  eventId          String
   type             InvoiceType
-  year             Int
   lastSequence     Int         @default(0)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, type, year])
+  @@unique([eventId, type])
 }
 
 enum InvoiceType {

@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateQuotePDF } from "@/lib/quote-pdf";
-import { formatSerialId } from "@/lib/registration-serial";
+import { formatQuoteNumber } from "@/lib/invoice-numbering";
 
 interface RouteParams {
   params: Promise<{ registrationId: string }>;
@@ -38,6 +38,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         event: {
           select: {
             name: true,
+            code: true,
             startDate: true,
             venue: true,
             city: true,
@@ -63,8 +64,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       ? registration.pricingTier.currency
       : registration.ticketType.currency;
 
+    const eventCode = registration.event.code || registration.event.name.slice(0, 6).toUpperCase();
+    const quoteNumber = registration.serialId
+      ? formatQuoteNumber(eventCode, registration.serialId)
+      : `${eventCode}-Q-${registration.id.slice(-4).toUpperCase()}`;
+
     const pdfBuffer = await generateQuotePDF({
-      quoteNumber: registration.serialId ? formatSerialId(registration.serialId) : registration.id.toUpperCase().slice(-8),
+      quoteNumber,
       date: registration.createdAt,
       eventName: registration.event.name,
       eventDate: registration.event.startDate,
