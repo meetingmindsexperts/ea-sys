@@ -238,7 +238,7 @@ server.tool(
 
 server.tool(
   "create_session",
-  "Create a new session in the event schedule.",
+  "Create a new session with optional session-level roles and topics. Topics represent individual talks within a session, each with their own speakers.",
   {
     eventId: z.string().describe("Event ID"),
     name: z.string().describe("Session title"),
@@ -247,11 +247,37 @@ server.tool(
     trackId: z.string().optional(),
     location: z.string().optional(),
     description: z.string().optional(),
-    speakerIds: z.array(z.string()).optional().describe("Array of speaker IDs"),
+    speakerIds: z.array(z.string()).optional().describe("Speaker IDs (assigned as SPEAKER role)"),
+    sessionRoles: z.array(z.object({
+      speakerId: z.string(),
+      role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]),
+    })).optional().describe("Session-level speaker roles"),
+    topics: z.array(z.object({
+      title: z.string(),
+      duration: z.number().optional().describe("Duration in minutes"),
+      speakerIds: z.array(z.string()).optional(),
+    })).optional().describe("Topics within the session, each with optional speakers"),
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
     const result = await runTool("create_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "add_topic_to_session",
+  "Add a topic (individual talk/agenda item) to an existing session. Each topic can have its own speakers.",
+  {
+    eventId: z.string().describe("Event ID"),
+    sessionId: z.string().describe("Session ID to add the topic to"),
+    title: z.string().describe("Topic title"),
+    duration: z.number().optional().describe("Duration in minutes"),
+    speakerIds: z.array(z.string()).optional().describe("Speaker IDs for this topic"),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("add_topic_to_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );

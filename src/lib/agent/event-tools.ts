@@ -151,7 +151,7 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_session",
     description:
-      "Create a new session. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, and speakerIds.",
+      "Create a new session. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, speakerIds, sessionRoles (with role per speaker), and topics (with per-topic speakers).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -170,7 +170,32 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
         speakerIds: {
           type: "array",
           items: { type: "string" },
-          description: "Speaker IDs to assign as speakers",
+          description: "Speaker IDs to assign as SPEAKER role (legacy, use sessionRoles for explicit roles)",
+        },
+        sessionRoles: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              speakerId: { type: "string" },
+              role: { type: "string", enum: ["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"] },
+            },
+            required: ["speakerId", "role"],
+          },
+          description: "Session-level speaker roles (e.g. moderator, chairperson)",
+        },
+        topics: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Topic title" },
+              duration: { type: "number", description: "Duration in minutes" },
+              speakerIds: { type: "array", items: { type: "string" }, description: "Speaker IDs for this topic" },
+            },
+            required: ["title"],
+          },
+          description: "Topics within the session, each with optional speakers",
         },
       },
       required: ["name", "startTime", "endTime"],
@@ -256,6 +281,25 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
         },
       },
       required: ["recipientType", "emailType", "subject", "htmlMessage"],
+    },
+  },
+  {
+    name: "add_topic_to_session",
+    description:
+      "Add a topic to an existing session. Topics represent individual talks or agenda items within a session. Each topic can have its own speakers.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID to add the topic to" },
+        title: { type: "string", description: "Topic title" },
+        duration: { type: "number", description: "Duration in minutes" },
+        speakerIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Speaker IDs to assign to this topic",
+        },
+      },
+      required: ["sessionId", "title"],
     },
   },
 ];
@@ -533,23 +577,45 @@ const createSession: ToolExecutor = async (input, ctx) => {
       if (!track) return { error: `Track with ID ${input.trackId} not found for this event` };
     }
 
-    const rawSpeakerIds = Array.isArray(input.speakerIds)
-      ? (input.speakerIds as string[]).slice(0, 50) // cap at 50
-      : [];
+    // Collect all speaker IDs from all sources for validation
+    const allSpeakerIds = new Set<string>();
 
-    // Validate all speakerIds belong to this event — never trust model-supplied IDs
-    let speakerIds: string[] = [];
-    if (rawSpeakerIds.length > 0) {
+    const rawSpeakerIds = Array.isArray(input.speakerIds)
+      ? (input.speakerIds as string[]).slice(0, 50)
+      : [];
+    rawSpeakerIds.forEach((id) => allSpeakerIds.add(id));
+
+    const sessionRoles = Array.isArray(input.sessionRoles)
+      ? (input.sessionRoles as { speakerId: string; role: string }[]).slice(0, 50)
+      : [];
+    sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
+
+    const topics = Array.isArray(input.topics)
+      ? (input.topics as { title: string; duration?: number; speakerIds?: string[] }[]).slice(0, 50)
+      : [];
+    topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
+
+    // Validate all speaker IDs belong to this event
+    if (allSpeakerIds.size > 0) {
       const validSpeakers = await db.speaker.findMany({
-        where: { id: { in: rawSpeakerIds }, eventId: ctx.eventId },
+        where: { id: { in: [...allSpeakerIds] }, eventId: ctx.eventId },
         select: { id: true },
       });
-      speakerIds = validSpeakers.map((s) => s.id);
-      if (speakerIds.length !== rawSpeakerIds.length) {
-        const invalid = rawSpeakerIds.filter((id) => !speakerIds.includes(id));
+      const validIds = new Set(validSpeakers.map((s) => s.id));
+      const invalid = [...allSpeakerIds].filter((id) => !validIds.has(id));
+      if (invalid.length > 0) {
         return { error: `Speaker IDs not found in this event: ${invalid.join(", ")}` };
       }
     }
+
+    // Build session speaker data (sessionRoles take precedence over flat speakerIds)
+    const VALID_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
+    const sessionSpeakerData = sessionRoles.length > 0
+      ? sessionRoles.map((r) => ({
+          speakerId: r.speakerId,
+          role: (VALID_ROLES.has(r.role) ? r.role : "SPEAKER") as "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST",
+        }))
+      : rawSpeakerIds.map((sid) => ({ speakerId: sid, role: "SPEAKER" as const }));
 
     const session = await db.eventSession.create({
       data: {
@@ -560,11 +626,18 @@ const createSession: ToolExecutor = async (input, ctx) => {
         trackId: input.trackId ? String(input.trackId) : null,
         location: input.location ? String(input.location) : null,
         description: input.description ? String(input.description) : null,
-        speakers: speakerIds.length
+        speakers: sessionSpeakerData.length > 0
+          ? { create: sessionSpeakerData }
+          : undefined,
+        topics: topics.length > 0
           ? {
-              create: speakerIds.map((sid) => ({
-                speakerId: sid,
-                role: "SPEAKER" as const,
+              create: topics.map((t, i) => ({
+                title: t.title,
+                duration: t.duration || null,
+                sortOrder: i,
+                speakers: t.speakerIds?.length
+                  ? { create: t.speakerIds.map((sid) => ({ speakerId: sid })) }
+                  : undefined,
               })),
             }
           : undefined,
@@ -576,6 +649,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
         endTime: true,
         location: true,
         track: { select: { name: true } },
+        topics: { select: { id: true, title: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
       },
     });
     return { success: true, session };
@@ -862,6 +936,69 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
   }
 };
 
+const addTopicToSession: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = String(input.sessionId ?? "").trim();
+    const title = String(input.title ?? "").trim();
+    if (!sessionId) return { error: "sessionId is required" };
+    if (!title) return { error: "Topic title is required" };
+
+    // Verify session belongs to this event
+    const session = await db.eventSession.findFirst({
+      where: { id: sessionId, eventId: ctx.eventId },
+      select: { id: true, name: true, _count: { select: { topics: true } } },
+    });
+    if (!session) return { error: `Session ${sessionId} not found in this event` };
+
+    const rawSpeakerIds = Array.isArray(input.speakerIds)
+      ? (input.speakerIds as string[]).slice(0, 20)
+      : [];
+
+    // Validate speakers
+    if (rawSpeakerIds.length > 0) {
+      const valid = await db.speaker.findMany({
+        where: { id: { in: rawSpeakerIds }, eventId: ctx.eventId },
+        select: { id: true },
+      });
+      const validIds = new Set(valid.map((s) => s.id));
+      const invalid = rawSpeakerIds.filter((id) => !validIds.has(id));
+      if (invalid.length > 0) {
+        return { error: `Speaker IDs not found: ${invalid.join(", ")}` };
+      }
+    }
+
+    const topic = await db.sessionTopic.create({
+      data: {
+        sessionId,
+        title,
+        duration: input.duration ? Number(input.duration) : null,
+        sortOrder: session._count.topics, // append at end
+        speakers: rawSpeakerIds.length > 0
+          ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid })) }
+          : undefined,
+      },
+      select: {
+        id: true,
+        title: true,
+        duration: true,
+        speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+
+    return {
+      success: true,
+      topic: {
+        ...topic,
+        speakers: topic.speakers.map((ts) => `${ts.speaker.firstName} ${ts.speaker.lastName}`),
+      },
+      session: session.name,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:add_topic_to_session failed");
+    return { error: "Failed to add topic to session" };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -877,4 +1014,5 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   create_ticket_type: createTicketType,
   create_registration: createRegistration,
   send_bulk_email: sendBulkEmail,
+  add_topic_to_session: addTopicToSession,
 };
