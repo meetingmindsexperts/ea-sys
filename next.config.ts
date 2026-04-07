@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=(), interest-cohort=()" },
         ],
       },
+      {
+        // Allow microphone for Zoom embedded meetings on session pages
+        source: "/e/:slug/session/:path*",
+        headers: [
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
+        ],
+      },
     ];
   },
 
@@ -64,7 +71,7 @@ const nextConfig: NextConfig = {
 
   // Exclude pdfkit from bundling — it uses __dirname for font files (Helvetica.afm)
   // which Turbopack rewrites to /ROOT/, breaking font resolution
-  serverExternalPackages: ["pdfkit", "@anthropic-ai/sdk"],
+  serverExternalPackages: ["pdfkit", "@anthropic-ai/sdk", "@zoom/meetingsdk"],
 
   // Transpile specific packages for better tree-shaking
   transpilePackages: ["@getbrevo/brevo"],

@@ -65,6 +65,7 @@ import {
   queryKeys,
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
+import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -903,10 +904,13 @@ export default function SettingsPage() {
           </TabsContent>
         )}
 
-        {/* EventsAir Integration */}
+        {/* Integrations */}
         {isAdmin && (
           <TabsContent value="integrations">
-            <EventsAirCard />
+            <div className="space-y-6">
+              <EventsAirCard />
+              <ZoomCredentialsCard />
+            </div>
           </TabsContent>
         )}
 

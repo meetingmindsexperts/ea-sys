@@ -50,6 +50,9 @@ src/
 │       ├── auth/            # Auth endpoints
 │       ├── events/          # Event CRUD (protected)
 │       │   └── [eventId]/   # Event-specific endpoints
+│       ├── mcp/             # MCP server HTTP transport
+│       │   ├── route.ts     # Streamable HTTP (POST/GET with session state)
+│       │   └── sse/         # SSE compat redirect
 │       ├── media/           # Media library (GET list, POST upload, DELETE by id)
 │       ├── organization/    # Organization endpoints
 │       ├── upload/          # File upload endpoints
@@ -62,6 +65,9 @@ src/
 ├── contexts/                # React contexts
 ├── hooks/                   # React hooks
 │   └── use-api.ts           # React Query hooks for API calls
+├── mcp/                     # MCP server (Model Context Protocol)
+│   ├── server.ts            # MCP server with tool definitions and stdio transport
+│   └── remote-client.ts     # Remote client utilities
 ├── lib/                     # Utilities
 │   ├── auth.ts              # NextAuth configuration
 │   ├── auth-guards.ts       # Role-based access guards (denyReviewer)
@@ -101,6 +107,9 @@ src/
 - `src/lib/stripe.ts` - Stripe SDK singleton, zero-decimal currency helpers (`isZeroDecimalCurrency`, `toStripeAmount`, `fromStripeAmount`)
 - `src/components/speakers/import-registrations-dialog.tsx` - Dialog to import event registrations as speakers
 - `src/components/speakers/import-registrations-button.tsx` - Button trigger for import-registrations dialog
+- `src/components/accommodation/assign-accommodation-dialog.tsx` - Dialog to assign a registration or speaker to a hotel room (searchable picker, room type selector grouped by hotel, date pickers, guest count)
+- `src/mcp/server.ts` - MCP server with 30+ tools across events, registrations, speakers, sessions, abstracts, hotels, media; stdio + HTTP transports; API key auth with rate limiting (100 req/hr)
+- `src/app/api/mcp/route.ts` - Streamable HTTP transport for MCP (POST/GET with `Mcp-Session-Id` session state, 30-min TTL); used by n8n and other MCP clients
 - `src/app/(dashboard)/my-registration/page.tsx` - Registrant self-service portal (view/edit registrations, payment status)
 - `src/app/api/registrant/registrations/route.ts` - Registrant self-edit API (GET list, PUT attendee details with ownership check)
 - `src/app/api/events/[eventId]/registrations/bulk-type/route.ts` - Bulk update registration type (PATCH, adjusts soldCounts + syncs attendee.registrationType)
@@ -137,6 +146,7 @@ src/
 - **Hotel/RoomType/Accommodation** - Lodging management; `Accommodation` links to either `Registration` (via optional `registrationId @unique`) or `Speaker` (via optional `speakerId @unique`); atomic transactions prevent overbooking (`bookedRooms` counter); status flow: PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT (or CANCELLED at any point); price auto-calculated from nights × `pricePerNight`
 - **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `state`, `zipCode`, `country`, `registrationType`, `memberId`, `studentId`, `studentIdExpiry`, and `associationName` fields; auto-synced from registrants/speakers via `syncToContact()` in `src/lib/contact-sync.ts`
 - **Payment** - Stripe payment records linked to Registration; stores amount, currency, stripePaymentId (unique), stripeCustomerId, status, receiptUrl, metadata (JSON)
+- **ApiKey** - Organization API keys for MCP/external access; `keyHash` (SHA-256, unique), `prefix` (display), `expiresAt`, `isActive`; validated by `src/lib/api-key.ts`
 - **AuditLog** - Action logging
 - **SystemLog** - Pino log entries persisted to DB (level, module, message, timestamp); used by `/logs` viewer on Vercel
 
@@ -376,6 +386,7 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - `useTickets`, `useCreateTicket`, `useUpdateTicket`, `useDeleteTicket` (for registration types)
 - `useRegistrations`, `useSpeakers`, `useImportRegistrationsToSpeakers`, `useSessions`, `useTracks`
 - `useAbstracts`, `useHotels`, `useAccommodations`
+- `useEventMedia`, `useUploadEventMedia`, `useDeleteEventMedia` (event-scoped media library)
 - `useReviewers`, `useAddReviewer`, `useRemoveReviewer`
 - `useEvents`, `useEvent`
 - `useMedia`, `useUploadMedia`, `useDeleteMedia` (media library)
@@ -464,6 +475,12 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - **Centralized Communications page** - `/events/[eventId]/communications` page consolidates all event email sending in one place (replaces scattered send-email buttons on individual pages)
 - **Standalone Content page** - `/events/[eventId]/content` provides dedicated TiptapEditor panels for registration welcome HTML and abstract welcome HTML, outside of settings tabs
 - **AI Agent** - `/events/[eventId]/agent` page lets organizers type natural language commands to autonomously manage their event; powered by `@anthropic-ai/sdk` with Anthropic tool-use API in an agentic loop; tools: `list_event_info`, `list_tracks`, `create_track`, `list_speakers`, `create_speaker`, `list_registrations`, `list_sessions`, `create_session`, `list_ticket_types`, `send_bulk_email`; streams progress to browser via SSE (`Content-Type: text/event-stream`); tool executors in `src/lib/agent/event-tools.ts`, system prompt builder in `src/lib/agent/system-prompt.ts`, SSE route at `src/app/api/events/[eventId]/agent/execute/route.ts`; rate limited (20 req/hr per user, 10 bulk emails/hr per event); read-only + create only (no deletes); restricted to ADMIN/ORGANIZER roles; `X-Accel-Buffering: no` header disables nginx buffering for EC2 production
+- **Event-scoped media library** - Each event has its own media page at `/events/[eventId]/media`; `MediaFile.eventId` (optional FK) scopes uploads per event; API routes at `/api/events/[eventId]/media` (GET paginated list, POST upload with magic byte validation and 20/hr rate limit, DELETE by id); React Query hooks `useEventMedia`, `useUploadEventMedia`, `useDeleteEventMedia`; drag-and-drop upload zone, image grid with copy URL and delete; sidebar "Media" link under event Tools section
+- **Accommodation assignment UI** - "Assign Room" button on Bookings tab of accommodation page opens `AssignAccommodationDialog` (`src/components/accommodation/assign-accommodation-dialog.tsx`); dialog has Registration/Speaker tab toggle, searchable person picker (filters to those without existing accommodation), room type `Select` grouped by hotel with availability counts, date pickers, guest count, special requests; POSTs to existing `/api/events/[eventId]/accommodations`
+- **Speaker accommodation support** - `Accommodation.speakerId` (optional `@unique` FK to Speaker) added alongside `registrationId` (now optional); API POST accepts either `registrationId` or `speakerId` (Zod refine ensures at least one); GET/PUT responses include `speaker` select; speakers API (`/api/events/[eventId]/speakers`) now returns `accommodation: { id }` for filtering; booking cards show "Speaker" badge for speaker-linked bookings
+- **Accommodation status management** - Booking cards on Bookings tab now have inline status action buttons: PENDING → Confirm/Cancel, CONFIRMED → Check In/Cancel, CHECKED_IN → Check Out, CANCELLED → Reinstate (→ PENDING); calls PUT `/api/events/[eventId]/accommodations/[id]` with `{ status }` and refreshes both bookings and hotel room counts
+- **Accommodation API optimization** - GET list uses `select` instead of `include` for attendee (only firstName/lastName/email) and roomType (only name + hotel.name); detail route parallelizes `params + auth()` and `event + accommodation` lookups via `Promise.all`; PUT parallelizes `event + accommodation + body` parsing; audit logs changed from blocking `await` to fire-and-forget `.catch()`; added `apiLogger.warn` on Zod validation failures; added missing `nights <= 0` check on room type change path
+- **MCP Server (Model Context Protocol)** - Exposes EA-SYS as an MCP server for external AI agents and automation platforms; `src/mcp/server.ts` defines 30+ tools across 6 domains: events, registrations, speakers, sessions/tracks, abstracts/reviews, and accommodations/hotels; tools include `list_events`, `get_event_info`, `list_registrations`, `create_speaker`, `create_session`, `add_topic_to_session`, `create_registration`, `create_ticket_type`, `list_abstracts`, `update_abstract_status`, `send_bulk_email`, `check_in_registration`, `get_event_stats`, `list_invoices`, `list_media`, and more; two transports: **stdio** (local CLI use) and **Streamable HTTP** at `/api/mcp` (remote clients like n8n); SSE compat endpoint at `/api/mcp/sse` redirects legacy clients; auth via `x-api-key` header or `Authorization: Bearer` — keys stored as SHA-256 hashes in `ApiKey` model, validated by `src/lib/api-key.ts`; rate limited at 100 req/hr per key; sessions tracked in-memory with `Mcp-Session-Id` header and 30-min TTL; n8n connects via its MCP node using the Streamable HTTP endpoint + API key to automate event workflows (e.g., syncing registrations, triggering emails, creating sessions from external data)
 
 ## Current Mode
 

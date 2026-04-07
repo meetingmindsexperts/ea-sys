@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
+import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,7 @@ import {
   History,
   ArrowRight,
   Mail,
+  Video,
 } from "lucide-react";
 import {
   Dialog,
@@ -446,6 +448,10 @@ export default function EventSettingsPage() {
 
       <Tabs defaultValue="general" className="space-y-6">
         <TabsList>
+          <TabsTrigger value="zoom" className="flex items-center gap-2">
+            <Video className="h-4 w-4" />
+            Zoom
+          </TabsTrigger>
           <TabsTrigger value="general" className="flex items-center gap-2">
             <Globe className="h-4 w-4" />
             General
@@ -476,6 +482,7 @@ export default function EventSettingsPage() {
             <Mail className="h-4 w-4" />
             Email Templates
           </TabsTrigger>
+          
           <TabsTrigger value="danger" className="flex items-center gap-2 text-red-600">
             <Trash2 className="h-4 w-4" />
             Danger Zone
@@ -1280,6 +1287,11 @@ export default function EventSettingsPage() {
         {/* Email Templates */}
         <TabsContent value="email-templates">
           <EmailTemplatesTab eventId={eventId} />
+        </TabsContent>
+
+        {/* Zoom Integration */}
+        <TabsContent value="zoom">
+          <ZoomSettingsCard eventId={eventId} />
         </TabsContent>
 
         {/* Danger Zone */}

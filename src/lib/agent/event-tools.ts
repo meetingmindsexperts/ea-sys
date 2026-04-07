@@ -494,6 +494,26 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
     description: "Get comprehensive event statistics: registration counts by status, payment breakdown, speaker counts, session counts, abstract counts.",
     input_schema: { type: "object" as const, properties: {}, required: [] },
   },
+  // ─── Zoom Tools ───────────────────────────────────────────────────────────
+  {
+    name: "list_zoom_meetings",
+    description: "List all sessions that have a linked Zoom meeting or webinar. Shows meeting type, status, join URL.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "create_zoom_meeting",
+    description: "Create a Zoom meeting or webinar linked to an existing session. Requires Zoom to be configured for the organization and enabled for the event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "ID of the session to link the Zoom meeting to" },
+        meetingType: { type: "string", enum: ["MEETING", "WEBINAR", "WEBINAR_SERIES"], description: "Type of Zoom meeting (default: MEETING)" },
+        passcode: { type: "string", description: "Optional meeting passcode (max 10 chars)" },
+        waitingRoom: { type: "boolean", description: "Enable waiting room (default: true)" },
+      },
+      required: ["sessionId"],
+    },
+  },
 ];
 
 // ─── Tool Executors ───────────────────────────────────────────────────────────
@@ -1614,6 +1634,147 @@ const getEventStats: ToolExecutor = async (_input, ctx) => {
   }
 };
 
+// ─── Zoom Tool Executors ──────────────────────────────────────────────────────
+
+const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
+  try {
+    const meetings = await db.zoomMeeting.findMany({
+      where: { eventId: ctx.eventId },
+      select: {
+        id: true,
+        zoomMeetingId: true,
+        meetingType: true,
+        joinUrl: true,
+        passcode: true,
+        status: true,
+        isRecurring: true,
+        duration: true,
+        session: { select: { id: true, name: true, startTime: true, endTime: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (meetings.length === 0) {
+      return { message: "No Zoom meetings linked to sessions in this event." };
+    }
+
+    return {
+      count: meetings.length,
+      meetings: meetings.map((m) => ({
+        id: m.id,
+        zoomMeetingId: m.zoomMeetingId,
+        meetingType: m.meetingType,
+        status: m.status,
+        joinUrl: m.joinUrl,
+        passcode: m.passcode,
+        isRecurring: m.isRecurring,
+        duration: m.duration,
+        sessionName: m.session.name,
+        sessionId: m.session.id,
+        sessionStart: m.session.startTime?.toISOString(),
+        sessionEnd: m.session.endTime?.toISOString(),
+      })),
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_zoom_meetings failed");
+    return { error: "Failed to list Zoom meetings" };
+  }
+};
+
+const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = input.sessionId as string;
+    const meetingType = (input.meetingType as string) || "MEETING";
+    const passcode = input.passcode as string | undefined;
+    const waitingRoom = input.waitingRoom !== false;
+
+    if (!sessionId) return { error: "sessionId is required" };
+    if (!["MEETING", "WEBINAR", "WEBINAR_SERIES"].includes(meetingType)) {
+      return { error: "meetingType must be MEETING, WEBINAR, or WEBINAR_SERIES" };
+    }
+
+    // Check if Zoom is configured
+    const { isZoomConfigured } = await import("@/lib/zoom");
+    const configured = await isZoomConfigured(ctx.organizationId);
+    if (!configured) {
+      return { error: "Zoom is not configured for this organization. Ask an admin to set up Zoom credentials in Organization Settings → Integrations." };
+    }
+
+    // Verify session exists and has no zoom meeting
+    const [session, existing] = await Promise.all([
+      db.eventSession.findFirst({
+        where: { id: sessionId, eventId: ctx.eventId },
+        select: { id: true, name: true, startTime: true, endTime: true, description: true },
+      }),
+      db.zoomMeeting.findUnique({ where: { sessionId } }),
+    ]);
+
+    if (!session) return { error: "Session not found in this event" };
+    if (existing) return { error: `Session "${session.name}" already has a Zoom meeting linked (ID: ${existing.zoomMeetingId})` };
+
+    // Get event timezone
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId },
+      select: { timezone: true },
+    });
+
+    const duration = Math.ceil(
+      (session.endTime.getTime() - session.startTime.getTime()) / 60000
+    );
+
+    const { createZoomMeeting, createZoomWebinar } = await import("@/lib/zoom");
+    const meetingParams = {
+      topic: session.name,
+      startTime: session.startTime.toISOString(),
+      duration,
+      timezone: event?.timezone || "UTC",
+      passcode,
+      waitingRoom,
+      autoRecording: "none" as const,
+      agenda: session.description || undefined,
+    };
+
+    ctx.counters.creates++;
+
+    let zoomResponse;
+    if (meetingType === "MEETING") {
+      zoomResponse = await createZoomMeeting(ctx.organizationId, meetingParams);
+    } else {
+      zoomResponse = await createZoomWebinar(ctx.organizationId, meetingParams);
+    }
+
+    const zoomMeeting = await db.zoomMeeting.create({
+      data: {
+        sessionId,
+        eventId: ctx.eventId,
+        zoomMeetingId: String(zoomResponse.id),
+        meetingType: meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
+        joinUrl: zoomResponse.join_url,
+        startUrl: zoomResponse.start_url,
+        passcode: zoomResponse.password || passcode,
+        duration,
+        zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
+      },
+    });
+
+    apiLogger.info(
+      { zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId, meetingType, userId: ctx.userId },
+      "agent:zoom-meeting-created",
+    );
+
+    return {
+      message: `Created Zoom ${meetingType.toLowerCase()} for session "${session.name}"`,
+      zoomMeetingId: zoomMeeting.zoomMeetingId,
+      joinUrl: zoomMeeting.joinUrl,
+      meetingType: zoomMeeting.meetingType,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_zoom_meeting failed");
+    const message = err instanceof Error ? err.message : "Failed to create Zoom meeting";
+    return { error: message };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -1656,4 +1817,7 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   list_email_templates: listEmailTemplates,
   // Stats
   get_event_stats: getEventStats,
+  // Zoom
+  list_zoom_meetings: listZoomMeetings,
+  create_zoom_meeting: createZoomMeetingTool,
 };

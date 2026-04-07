@@ -69,7 +69,14 @@
       "Bash(curl -v -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept-Encoding: gzip, deflate, br' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"2.13.3\"}}}')",
       "Bash(chmod +x /Users/krishnapallapolu/.config/ea-sys-mcp/start.sh)",
       "Bash(MCP_STDIO_MODE=1 npx tsx src/mcp/server.ts echo \"=== STDOUT \\(should be clean JSON-RPC only\\) ===\" cat /tmp/mcp-stdout.txt echo \"=== STDERR ===\" cat /tmp/mcp-stderr.txt)",
-      "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/lib/agent/event-tools.ts /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/events/[eventId]/agent/execute/route.ts /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/lib/agent/system-prompt.ts)"
+      "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/lib/agent/event-tools.ts /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/events/[eventId]/agent/execute/route.ts /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/lib/agent/system-prompt.ts)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && head -50 {}')",
+      "Bash(mkdir -p /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/events/\\\\[eventId\\\\]/zoom)",
+      "Bash(mkdir -p /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/events/\\\\[eventId\\\\]/sessions/\\\\[sessionId\\\\]/zoom/panelists)",
+      "Bash(mkdir -p /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/public/events/\\\\[slug\\\\]/sessions/\\\\[sessionId\\\\])",
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline -10)",
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys ls-files)",
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --all --diff-filter=A -- '.env*')"
     ]
   }
 }

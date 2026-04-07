@@ -194,6 +194,7 @@ model Event {
   mediaFiles     MediaFile[]
   invoices        Invoice[]
   invoiceCounters InvoiceCounter[]
+  zoomMeetings    ZoomMeeting[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -573,8 +574,9 @@ model EventSession {
   event    Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstract Abstract?        @relation(fields: [abstractId], references: [id])
   track    Track?           @relation(fields: [trackId], references: [id])
-  speakers SessionSpeaker[]
-  topics   SessionTopic[]
+  speakers    SessionSpeaker[]
+  topics      SessionTopic[]
+  zoomMeeting ZoomMeeting?
 
   @@index([eventId])
   @@index([startTime])
@@ -980,4 +982,44 @@ enum InvoiceStatus {
   OVERDUE
   CANCELLED
   REFUNDED
+}
+
+// ==================== ZOOM INTEGRATION ====================
+
+model ZoomMeeting {
+  id             String            @id @default(cuid())
+  sessionId      String            @unique
+  eventId        String
+  zoomMeetingId  String
+  meetingType    ZoomMeetingType
+  joinUrl        String
+  startUrl       String?           @db.Text
+  passcode       String?
+  duration       Int?
+  status         ZoomMeetingStatus @default(CREATED)
+  isRecurring    Boolean           @default(false)
+  recurrenceType Int?
+  occurrences    Json?
+  zoomResponse   Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([zoomMeetingId])
+}
+
+enum ZoomMeetingType {
+  MEETING
+  WEBINAR
+  WEBINAR_SERIES
+}
+
+enum ZoomMeetingStatus {
+  CREATED
+  STARTED
+  ENDED
+  DELETED
 }

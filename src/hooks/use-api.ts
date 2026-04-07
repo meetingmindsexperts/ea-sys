@@ -75,6 +75,9 @@ export const queryKeys = {
   organizations: ["organizations"] as const,
   invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
   registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
+  zoomCredentials: ["zoom", "credentials"] as const,
+  zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
+  zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1014,5 +1017,154 @@ export function useResendInvoice(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.invoices(eventId) });
     },
+  });
+}
+
+// ============ ZOOM ============
+
+export function useZoomCredentials() {
+  return useQuery({
+    queryKey: queryKeys.zoomCredentials,
+    queryFn: () =>
+      fetchApi<{
+        configured: boolean;
+        accountId: string | null;
+        clientId: string | null;
+        configuredAt: string | null;
+      }>("/api/organization/zoom/credentials"),
+  });
+}
+
+export function useSaveZoomCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { accountId: string; clientId: string; clientSecret: string }) =>
+      fetchApi("/api/organization/zoom/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.zoomCredentials });
+    },
+  });
+}
+
+export function useDeleteZoomCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi("/api/organization/zoom/credentials", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.zoomCredentials });
+    },
+  });
+}
+
+export function useTestZoomConnection() {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        success: boolean;
+        error?: string;
+        account?: { email: string; firstName: string; lastName: string; accountId: string };
+      }>("/api/organization/zoom/test-connection", { method: "POST" }),
+  });
+}
+
+export function useZoomSettings(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.zoomSettings(eventId),
+    queryFn: () =>
+      fetchApi<{
+        enabled: boolean;
+        defaultMeetingType: string;
+        autoCreateForSessions: boolean;
+      }>(`/api/events/${eventId}/zoom/settings`),
+    enabled: !!eventId,
+  });
+}
+
+export function useUpdateZoomSettings(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { enabled: boolean; defaultMeetingType?: string; autoCreateForSessions?: boolean }) =>
+      fetchApi(`/api/events/${eventId}/zoom/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.zoomSettings(eventId) });
+    },
+  });
+}
+
+export function useZoomMeeting(sessionId: string) {
+  return useQuery({
+    queryKey: queryKeys.zoomMeeting(sessionId),
+    queryFn: () =>
+      fetchApi<{
+        id: string;
+        zoomMeetingId: string;
+        meetingType: string;
+        joinUrl: string;
+        passcode: string | null;
+        status: string;
+        isRecurring: boolean;
+        occurrences: unknown[] | null;
+        duration: number | null;
+      }>(`/api/events/placeholder/sessions/${sessionId}/zoom`),
+    enabled: false, // manually triggered
+  });
+}
+
+export function useCreateZoomMeeting(eventId: string, sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      meetingType?: string;
+      passcode?: string;
+      waitingRoom?: boolean;
+      autoRecording?: string;
+      syncPanelists?: boolean;
+      recurrence?: {
+        type: 1 | 2 | 3;
+        repeat_interval: number;
+        end_date_time?: string;
+        end_times?: number;
+      };
+    }) =>
+      fetchApi(`/api/events/${eventId}/sessions/${sessionId}/zoom`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.zoomMeeting(sessionId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+    },
+  });
+}
+
+export function useDeleteZoomMeeting(eventId: string, sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi(`/api/events/${eventId}/sessions/${sessionId}/zoom`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.zoomMeeting(sessionId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+    },
+  });
+}
+
+export function useSyncZoomPanelists(eventId: string, sessionId: string) {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ success: boolean; count: number }>(
+        `/api/events/${eventId}/sessions/${sessionId}/zoom/panelists`,
+        { method: "POST" },
+      ),
   });
 }
