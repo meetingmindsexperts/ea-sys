@@ -77,7 +77,8 @@ export default auth((req) => {
     !pathname.startsWith("/api/auth/") &&
     !pathname.startsWith("/api/public/") &&
     !pathname.startsWith("/api/webhooks/") &&
-    !pathname.startsWith("/api/health")
+    !pathname.startsWith("/api/health") &&
+    !pathname.startsWith("/api/mcp")
   ) {
     const host = req.headers.get("host");
 
