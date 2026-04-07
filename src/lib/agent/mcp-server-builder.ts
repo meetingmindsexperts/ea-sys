@@ -8,40 +8,47 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 
+import { apiLogger } from "@/lib/logger";
+
 const SYSTEM_USER_ID = "mcp-remote";
 
 async function runTool(name: string, input: Record<string, unknown>, ctx: AgentContext): Promise<string> {
   const executor = TOOL_EXECUTOR_MAP[name];
   if (!executor) throw new Error(`Unknown tool: ${name}`);
+  const start = Date.now();
   const result = await executor(input, ctx);
+  apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs: Date.now() - start });
   return typeof result === "string" ? result : JSON.stringify(result, null, 2);
 }
 
-async function getOrgId(eventId: string): Promise<string> {
-  const event = await db.event.findUniqueOrThrow({
-    where: { id: eventId },
+/**
+ * Resolve orgId from eventId AND verify it matches the authenticated org.
+ * Prevents cross-org data access via MCP.
+ */
+async function getOrgIdSecure(eventId: string, authenticatedOrgId: string): Promise<string> {
+  const event = await db.event.findFirst({
+    where: { id: eventId, organizationId: authenticatedOrgId },
     select: { organizationId: true },
   });
+  if (!event) throw new Error(`Event ${eventId} not found or access denied`);
   return event.organizationId;
 }
 
-export function buildMcpServer(): McpServer {
+/**
+ * Build an org-scoped MCP server. All tools are restricted to the authenticated organization.
+ * @param organizationId - The org ID from the validated API key. ALL queries are scoped to this org.
+ */
+export function buildMcpServer(organizationId: string): McpServer {
   const server = new McpServer({ name: "ea-sys", version: "1.0.0" });
 
   // ── Organization-level tools ──
 
   server.tool(
     "list_events", "List all events in the organization.",
-    { organizationId: z.string().optional() },
-    async ({ organizationId }) => {
-      let orgId = organizationId;
-      if (!orgId) {
-        const org = await db.organization.findFirst({ select: { id: true } });
-        if (!org) return { content: [{ type: "text" as const, text: "No organization found." }] };
-        orgId = org.id;
-      }
+    {},
+    async () => {
       const events = await db.event.findMany({
-        where: { organizationId: orgId },
+        where: { organizationId },
         select: {
           id: true, name: true, slug: true, status: true,
           startDate: true, endDate: true, venue: true, city: true, eventType: true,
@@ -60,11 +67,9 @@ export function buildMcpServer(): McpServer {
     "list_contacts", "Search organization contacts.",
     { search: z.string().optional(), tag: z.string().optional(), limit: z.number().optional() },
     async ({ search, tag, limit }) => {
-      const org = await db.organization.findFirst({ select: { id: true } });
-      if (!org) return { content: [{ type: "text" as const, text: "No organization found." }] };
       const contacts = await db.contact.findMany({
         where: {
-          organizationId: org.id,
+          organizationId,
           ...(search && { OR: [
             { firstName: { contains: search, mode: "insensitive" as const } },
             { lastName: { contains: search, mode: "insensitive" as const } },
@@ -167,14 +172,14 @@ export function buildMcpServer(): McpServer {
     }},
   ];
 
-  // Register all event-level tools
+  // Register all event-level tools (scoped to authenticated org)
   for (const t of [...readTools, ...writeTools]) {
     server.tool(
       t.name, t.description,
       { eventId: z.string().describe("Event ID"), ...t.params },
       async (args) => {
         const { eventId, ...input } = args;
-        const orgId = await getOrgId(eventId as string);
+        const orgId = await getOrgIdSecure(eventId as string, organizationId);
         const result = await runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID });
         return { content: [{ type: "text" as const, text: result }] };
       }
@@ -183,16 +188,14 @@ export function buildMcpServer(): McpServer {
 
   // ── MCP Resources ──────────────────────────────────────────────────────────
 
-  // Static resource: all events
+  // Static resource: all events (scoped to authenticated org)
   server.resource(
     "events-list",
     "ea-sys://events",
     { description: "List of all events in the organization" },
     async (uri) => {
-      const org = await db.organization.findFirst({ select: { id: true } });
-      if (!org) return { contents: [{ uri: uri.href, text: "No organization found.", mimeType: "text/plain" }] };
       const events = await db.event.findMany({
-        where: { organizationId: org.id },
+        where: { organizationId },
         select: { id: true, name: true, slug: true, status: true, startDate: true, endDate: true, venue: true, city: true,
           _count: { select: { registrations: true, speakers: true, eventSessions: true } } },
         orderBy: { startDate: "desc" },
@@ -210,7 +213,7 @@ export function buildMcpServer(): McpServer {
     async (uri, params) => {
       const eventId = String(params.eventId);
       const event = await db.event.findFirst({
-        where: { id: eventId },
+        where: { id: eventId, organizationId },
         select: {
           id: true, name: true, slug: true, status: true, eventType: true,
           startDate: true, endDate: true, venue: true, city: true, country: true,
@@ -222,12 +225,19 @@ export function buildMcpServer(): McpServer {
     }
   );
 
+  // Helper: verify eventId belongs to this org (for resources)
+  async function verifyEventAccess(eventId: string): Promise<boolean> {
+    const event = await db.event.findFirst({ where: { id: eventId, organizationId }, select: { id: true } });
+    return !!event;
+  }
+
   server.resource(
     "event-registrations-summary",
     new ResourceTemplate("ea-sys://events/{eventId}/registrations/summary", { list: undefined }),
     { description: "Registration counts by status and payment status" },
     async (uri, params) => {
       const eventId = String(params.eventId);
+      if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const [byStatus, byPayment] = await Promise.all([
         db.registration.groupBy({ by: ["status"], where: { eventId }, _count: true }),
         db.registration.groupBy({ by: ["paymentStatus"], where: { eventId }, _count: true }),
@@ -247,6 +257,7 @@ export function buildMcpServer(): McpServer {
     { description: "All speakers with status" },
     async (uri, params) => {
       const eventId = String(params.eventId);
+      if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const speakers = await db.speaker.findMany({
         where: { eventId },
         select: { id: true, firstName: true, lastName: true, email: true, status: true, organization: true, specialty: true },
@@ -262,6 +273,7 @@ export function buildMcpServer(): McpServer {
     { description: "Full session schedule with tracks and speakers" },
     async (uri, params) => {
       const eventId = String(params.eventId);
+      if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const sessions = await db.eventSession.findMany({
         where: { eventId },
         select: {
@@ -282,6 +294,7 @@ export function buildMcpServer(): McpServer {
     { description: "Abstract counts by status and theme" },
     async (uri, params) => {
       const eventId = String(params.eventId);
+      if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const [byStatus, byTheme] = await Promise.all([
         db.abstract.groupBy({ by: ["status"], where: { eventId }, _count: true }),
         db.abstract.groupBy({ by: ["themeId"], where: { eventId, themeId: { not: null } }, _count: true }),
