@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { sendPushToUsers } from "@/lib/push";
 
 interface CreateNotificationParams {
   userId: string;
@@ -10,16 +11,27 @@ interface CreateNotificationParams {
   link?: string;
 }
 
-/** Send a notification to a single user */
+/** Send a notification to a single user (DB + push) */
 export async function createNotification(params: CreateNotificationParams) {
   try {
     await db.notification.create({ data: params });
+
+    // Fire-and-forget push notification to mobile devices
+    sendPushToUsers([params.userId], {
+      title: params.title,
+      body: params.message,
+      data: {
+        type: params.type,
+        ...(params.eventId ? { eventId: params.eventId } : {}),
+        ...(params.link ? { link: params.link } : {}),
+      },
+    });
   } catch (err) {
     apiLogger.error({ err, msg: "Failed to create notification", ...params });
   }
 }
 
-/** Send a notification to all admins/organizers of the event's organization */
+/** Send a notification to all admins/organizers of the event's organization (DB + push) */
 export async function notifyEventAdmins(
   eventId: string,
   params: Omit<CreateNotificationParams, "userId" | "eventId">
@@ -48,6 +60,20 @@ export async function notifyEventAdmins(
         ...params,
       })),
     });
+
+    // Fire-and-forget push notifications to all admin mobile devices
+    sendPushToUsers(
+      admins.map((a) => a.id),
+      {
+        title: params.title,
+        body: params.message,
+        data: {
+          type: params.type,
+          eventId,
+          ...(params.link ? { link: params.link } : {}),
+        },
+      }
+    );
   } catch (err) {
     apiLogger.error({ err, msg: "Failed to notify event admins", eventId });
   }

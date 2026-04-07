@@ -17,8 +17,38 @@ function logWarn(msg: string, data?: Record<string, unknown>) {
 // 1MB default for JSON API routes; photo upload has its own 500KB app-level limit.
 const MAX_BODY_SIZE = 1_048_576; // 1MB
 
+// ── Mobile app CORS ──
+// Allowed origins for mobile app development and production.
+// In production, the mobile app sends no Origin (native HTTP client), so CORS
+// headers are mainly needed for Expo dev server during development.
+const MOBILE_ALLOWED_ORIGINS = new Set(
+  (process.env.MOBILE_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean)
+);
+
+/** Add CORS headers for mobile client requests */
+function addCorsHeaders(
+  response: NextResponse,
+  origin: string | null
+): NextResponse {
+  if (origin && MOBILE_ALLOWED_ORIGINS.has(origin)) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-org-id");
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+    response.headers.set("Access-Control-Max-Age", "86400");
+  }
+  return response;
+}
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
+  const origin = req.headers.get("origin");
+
+  // ── CORS preflight for mobile clients ──
+  if (req.method === "OPTIONS" && pathname.startsWith("/api/")) {
+    const response = new NextResponse(null, { status: 204 });
+    return addCorsHeaders(response, origin);
+  }
 
   // ── Request body size check for API routes ──
   if (pathname.startsWith("/api/") && MUTATION_METHODS.has(req.method)) {
@@ -27,9 +57,12 @@ export default auth((req) => {
       const size = parseInt(contentLength, 10);
       if (!Number.isNaN(size) && size > MAX_BODY_SIZE) {
         logWarn("Request body too large", { pathname, contentLength: size, maxSize: MAX_BODY_SIZE });
-        return NextResponse.json(
-          { error: "Request body too large" },
-          { status: 413 }
+        return addCorsHeaders(
+          NextResponse.json(
+            { error: "Request body too large" },
+            { status: 413 }
+          ),
+          origin
         );
       }
     }
@@ -46,26 +79,35 @@ export default auth((req) => {
     !pathname.startsWith("/api/webhooks/") &&
     !pathname.startsWith("/api/health")
   ) {
-    const origin = req.headers.get("origin");
     const host = req.headers.get("host");
 
     // Browser requests always send Origin — validate it regardless of API-key headers
     // to prevent CSRF via forged headers
     if (origin && host) {
-      let originHost: string;
-      try {
-        originHost = new URL(origin).host;
-      } catch {
-        logWarn("CSRF invalid origin URL", { pathname, origin });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-      if (originHost !== host) {
-        logWarn("CSRF origin mismatch", { pathname, origin, host });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      // Allow whitelisted mobile origins through without Origin/Host matching
+      if (!MOBILE_ALLOWED_ORIGINS.has(origin)) {
+        let originHost: string;
+        try {
+          originHost = new URL(origin).host;
+        } catch {
+          logWarn("CSRF invalid origin URL", { pathname, origin });
+          return addCorsHeaders(
+            NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+            origin
+          );
+        }
+        if (originHost !== host) {
+          logWarn("CSRF origin mismatch", { pathname, origin, host });
+          return addCorsHeaders(
+            NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+            origin
+          );
+        }
       }
     }
 
     // No Origin header — only allow non-browser clients with API key or Bearer token
+    // (native mobile apps send no Origin header and use Bearer tokens)
     if (!origin) {
       const hasApiKey =
         req.headers.get("x-api-key") ||
@@ -84,7 +126,7 @@ export default auth((req) => {
   // REGISTRANT: redirect everything to /my-registration
   if (role === "REGISTRANT") {
     if (pathname.startsWith("/my-registration") || pathname.startsWith("/api/")) {
-      return NextResponse.next();
+      return addCorsHeaders(NextResponse.next(), origin);
     }
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/my-registration";
@@ -94,7 +136,7 @@ export default auth((req) => {
   const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
   if (!isRestricted) {
-    return NextResponse.next();
+    return addCorsHeaders(NextResponse.next(), origin);
   }
 
   // Block restricted roles from dashboard, settings, and logs
@@ -114,14 +156,14 @@ export default auth((req) => {
   const eventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
 
   if (!eventPath) {
-    return NextResponse.next();
+    return addCorsHeaders(NextResponse.next(), origin);
   }
 
   const eventSubPath = eventPath[1] ?? "";
   const isAbstractsPath = eventSubPath === "abstracts" || eventSubPath.startsWith("abstracts/");
 
   if (isAbstractsPath) {
-    return NextResponse.next();
+    return addCorsHeaders(NextResponse.next(), origin);
   }
 
   const redirectUrl = req.nextUrl.clone();

@@ -49,7 +49,10 @@
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline --date=short --format=\"%ad %s\" -50)",
       "Bash(git stash:*)",
       "Bash(npx vitest:*)",
-      "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/\\\\\\(dashboard\\\\\\)/events/\\\\[eventId\\\\]/*.tsx)"
+      "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/\\\\\\(dashboard\\\\\\)/events/\\\\[eventId\\\\]/*.tsx)",
+      "Bash(curl -s -X GET \"https://events.meetingmindsgroup.com/api/mcp\" -H \"Authorization: Bearer mmg_test\" -H \"Accept: text/event-stream\" -v)",
+      "Bash(curl -s -X POST \"https://events.meetingmindsgroup.com/api/mcp\" -H \"Authorization: Bearer mmg_test\" -H \"Content-Type: application/json\" -d '{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}},\"id\":1}')",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

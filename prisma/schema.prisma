@@ -63,6 +63,7 @@ model User {
   sessions      AuthSession[]
   notifications Notification[]
   mediaFiles    MediaFile[]
+  deviceTokens  DeviceToken[]
 
   @@index([organizationId])
   @@index([email])
@@ -863,6 +864,22 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
+}
+
+// ==================== MOBILE PUSH NOTIFICATIONS ====================
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  platform  String   // "ios" or "android"
+  pushToken String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pushToken])
+  @@index([userId])
 }
 
 // ==================== API KEYS ====================
