@@ -6,6 +6,14 @@
       "env": {
         "DATABASE_URL": "${DATABASE_URL}"
       }
+    },
+    "ea-sys-remote": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/remote-client.ts"],
+      "env": {
+        "MCP_SERVER_URL": "https://events.meetingmindsgroup.com/api/mcp",
+        "MCP_API_KEY": "${MCP_API_KEY}"
+      }
     }
   }
 }
