@@ -463,6 +463,15 @@ export default function SettingsPage() {
                     className="bg-muted"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="orgId">Organization ID</Label>
+                  <Input
+                    id="orgId"
+                    value={organization?.id || ""}
+                    disabled
+                    className="bg-muted font-mono text-sm"
+                  />
+                </div>
               </div>
 
               {/* Branding: Logo + Primary Color */}

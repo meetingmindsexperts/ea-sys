@@ -4,7 +4,8 @@
       "command": "npx",
       "args": ["tsx", "src/mcp/server.ts"],
       "env": {
-        "DATABASE_URL": "${DATABASE_URL}"
+        "DATABASE_URL": "${DATABASE_URL}",
+        "MCP_STDIO_MODE": "1"
       }
     },
     "ea-sys-remote": {

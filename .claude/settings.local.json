@@ -52,7 +52,23 @@
       "Bash(wc -l /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/\\\\\\(dashboard\\\\\\)/events/\\\\[eventId\\\\]/*.tsx)",
       "Bash(curl -s -X GET \"https://events.meetingmindsgroup.com/api/mcp\" -H \"Authorization: Bearer mmg_test\" -H \"Accept: text/event-stream\" -v)",
       "Bash(curl -s -X POST \"https://events.meetingmindsgroup.com/api/mcp\" -H \"Authorization: Bearer mmg_test\" -H \"Content-Type: application/json\" -d '{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}},\"id\":1}')",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "Bash(npx @modelcontextprotocol/inspector npx tsx src/mcp/server.ts)",
+      "Bash(lsof -ti:6277 -ti:6274)",
+      "Bash(xargs kill:*)",
+      "Bash(npx @modelcontextprotocol/inspector --cli npx tsx src/mcp/server.ts)",
+      "Bash(npx @modelcontextprotocol/inspector)",
+      "Bash(lsof -i:6274 -i:6277)",
+      "Bash(lsof -ti:3000)",
+      "Bash(curl -v -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"1.0\"}}}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}' -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H 'Origin: https://n8n.cloud' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"1.0\"}}}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}' -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"2.13.3\"}}}')",
+      "Bash(curl -v -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"2.13.3\"}}}')",
+      "WebFetch(domain:community.n8n.io)",
+      "Bash(curl -v -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H 'Accept-Encoding: gzip, deflate, br' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"2.13.3\"}}}')",
+      "Bash(curl -v -X POST https://events.meetingmindsgroup.com/api/mcp -H 'x-api-key: mmg_03cebb4d4ce9b8c5e555da2a635680e7f763541f676221663a8557f6462128e4' -H 'Content-Type: application/json' -H 'Accept-Encoding: gzip, deflate, br' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"n8n\",\"version\":\"2.13.3\"}}}')",
+      "Bash(chmod +x /Users/krishnapallapolu/.config/ea-sys-mcp/start.sh)",
+      "Bash(MCP_STDIO_MODE=1 npx tsx src/mcp/server.ts echo \"=== STDOUT \\(should be clean JSON-RPC only\\) ===\" cat /tmp/mcp-stdout.txt echo \"=== STDERR ===\" cat /tmp/mcp-stderr.txt)"
     ]
   }
 }

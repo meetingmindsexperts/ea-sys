@@ -5,6 +5,7 @@ import { accessSync, constants, mkdirSync } from "fs";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 const isVercel = !!process.env.VERCEL;
+const isMcpStdio = !!process.env.MCP_STDIO_MODE;
 
 const loggerConfig: pino.LoggerOptions = {
   level: process.env.LOG_LEVEL || (isDevelopment ? "debug" : "info"),
@@ -139,6 +140,11 @@ function createDbLogStream(): Writable {
 // Production on Vercel: plain pino → stdout only (no writable filesystem in serverless)
 // Production on EC2/Docker: pino.multistream → stdout + logs/app.log + logs/error.log
 function initLogger(): pino.Logger {
+  // MCP stdio mode: stdout is reserved for MCP protocol — all logs go to stderr
+  if (isMcpStdio) {
+    return pino(loggerConfig, pino.destination({ dest: 2, sync: false })); // fd 2 = stderr
+  }
+
   if (isDevelopment) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pinoPretty = require("pino-pretty");

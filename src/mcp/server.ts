@@ -5,12 +5,18 @@
  * Exposes event management tools via the Model Context Protocol.
  * Connects directly to the database via Prisma — no HTTP proxy.
  *
+ * IMPORTANT: Stdio transport uses stdout for MCP messages.
+ * ALL application logging MUST go to stderr to avoid corrupting the protocol.
+ *
  * Usage (stdio):
  *   npx tsx src/mcp/server.ts
  *
  * Configure in .mcp.json for Claude Code:
  *   { "mcpServers": { "ea-sys": { "command": "npx", "args": ["tsx", "src/mcp/server.ts"] } } }
  */
+
+// Force all Pino logging to stderr BEFORE any imports touch the logger
+process.env.MCP_STDIO_MODE = "1";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
