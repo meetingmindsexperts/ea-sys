@@ -10,12 +10,15 @@ import { getClientIp } from "@/lib/security";
 const accommodationStatusSchema = z.nativeEnum(AccommodationStatus);
 
 const createAccommodationSchema = z.object({
-  registrationId: z.string().min(1),
+  registrationId: z.string().min(1).optional(),
+  speakerId: z.string().min(1).optional(),
   roomTypeId: z.string().min(1),
   checkIn: z.string().datetime(),
   checkOut: z.string().datetime(),
   guestCount: z.number().min(1).default(1),
   specialRequests: z.string().optional(),
+}).refine((data) => data.registrationId || data.speakerId, {
+  message: "Either registrationId or speakerId is required",
 });
 
 interface RouteParams {
@@ -58,13 +61,32 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
         include: {
           registration: {
-            include: {
-              attendee: true,
+            select: {
+              attendee: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          speaker: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              title: true,
+              organization: true,
             },
           },
           roomType: {
-            include: {
-              hotel: true,
+            select: {
+              name: true,
+              hotel: {
+                select: { name: true },
+              },
             },
           },
         },
@@ -108,6 +130,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = createAccommodationSchema.safeParse(body);
 
     if (!validated.success) {
+      apiLogger.warn({ msg: "Accommodation create validation failed", eventId, errors: validated.error.flatten(), userId: session.user.id });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
@@ -116,6 +139,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const {
       registrationId,
+      speakerId,
       roomTypeId,
       checkIn,
       checkOut,
@@ -123,8 +147,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       specialRequests,
     } = validated.data;
 
-    // Parallelize event, registration, and room type validation
-    const [event, registration, roomType] = await Promise.all([
+    // Parallelize event, assignee, and room type validation
+    const [event, registration, speaker, roomType] = await Promise.all([
       db.event.findFirst({
         where: {
           id: eventId,
@@ -132,15 +156,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         select: { id: true },
       }),
-      db.registration.findFirst({
-        where: {
-          id: registrationId,
-          eventId,
-        },
-        include: {
-          accommodation: true,
-        },
-      }),
+      registrationId
+        ? db.registration.findFirst({
+            where: { id: registrationId, eventId },
+            select: { id: true, accommodation: { select: { id: true } } },
+          })
+        : null,
+      speakerId
+        ? db.speaker.findFirst({
+            where: { id: speakerId, eventId },
+            select: { id: true, accommodation: { select: { id: true } } },
+          })
+        : null,
       db.roomType.findFirst({
         where: {
           id: roomTypeId,
@@ -160,14 +187,25 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (!registration) {
+    if (registrationId && !registration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    // Check if registration already has accommodation
-    if (registration.accommodation) {
+    if (speakerId && !speaker) {
+      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+    }
+
+    // Check if assignee already has accommodation
+    if (registration?.accommodation) {
       return NextResponse.json(
         { error: "Registration already has accommodation assigned" },
+        { status: 400 }
+      );
+    }
+
+    if (speaker?.accommodation) {
+      return NextResponse.json(
+        { error: "Speaker already has accommodation assigned" },
         { status: 400 }
       );
     }
@@ -218,7 +256,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       const created = await tx.accommodation.create({
         data: {
           eventId,
-          registrationId,
+          ...(registrationId && { registrationId }),
+          ...(speakerId && { speakerId }),
           roomTypeId,
           checkIn: checkInDate,
           checkOut: checkOutDate,
@@ -232,6 +271,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           registration: {
             include: {
               attendee: true,
+            },
+          },
+          speaker: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              title: true,
+              organization: true,
             },
           },
           roomType: {

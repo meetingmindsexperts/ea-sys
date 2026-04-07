@@ -81,6 +81,9 @@ export async function GET(req: Request, { params }: RouteParams) {
               status: true,
             },
           },
+          accommodation: {
+            select: { id: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),

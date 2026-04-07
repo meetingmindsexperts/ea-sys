@@ -38,6 +38,8 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
+import { AssignAccommodationDialog } from "@/components/accommodation/assign-accommodation-dialog";
+import { toast } from "sonner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface RoomType {
@@ -77,13 +79,18 @@ interface Accommodation {
   totalPrice: number;
   currency: string;
   confirmationNo: string | null;
-  registration: {
+  registration?: {
     attendee: {
       firstName: string;
       lastName: string;
       email: string;
     };
-  };
+  } | null;
+  speaker?: {
+    firstName: string;
+    lastName: string;
+    email: string;
+  } | null;
   roomType: {
     name: string;
     hotel: {
@@ -101,6 +108,7 @@ export default function AccommodationPage() {
   const [isHotelDialogOpen, setIsHotelDialogOpen] = useState(false);
   const [isRoomDialogOpen, setIsRoomDialogOpen] = useState(false);
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
   const [hotelFormData, setHotelFormData] = useState({
     name: "",
@@ -268,6 +276,29 @@ export default function AccommodationPage() {
       amenities: "",
       isActive: true,
     });
+  };
+
+  const handleStatusUpdate = async (accommodationId: string, status: string) => {
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/accommodations/${accommodationId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }
+      );
+      if (res.ok) {
+        toast.success(`Booking ${status.toLowerCase().replace("_", " ")}`);
+        fetchAccommodations();
+        fetchHotels();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to update status");
+      }
+    } catch {
+      toast.error("Failed to update status");
+    }
   };
 
   const statusColors: Record<string, string> = {
@@ -626,6 +657,18 @@ export default function AccommodationPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Assign Accommodation Dialog */}
+      <AssignAccommodationDialog
+        open={isAssignDialogOpen}
+        onOpenChange={setIsAssignDialogOpen}
+        eventId={eventId}
+        hotels={hotels}
+        onSuccess={() => {
+          fetchAccommodations();
+          fetchHotels();
+        }}
+      />
+
       {/* Tabs */}
       <Tabs defaultValue="hotels">
         <TabsList>
@@ -786,6 +829,12 @@ export default function AccommodationPage() {
         </TabsContent>
 
         <TabsContent value="bookings" className="space-y-4">
+          <div className="flex justify-end">
+            <Button onClick={() => setIsAssignDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Assign Room
+            </Button>
+          </div>
           {accommodations.length === 0 ? (
             <Card>
               <CardContent className="pt-6">
@@ -803,9 +852,15 @@ export default function AccommodationPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold">
-                            {booking.registration.attendee.firstName}{" "}
-                            {booking.registration.attendee.lastName}
+                            {booking.registration
+                              ? `${booking.registration.attendee.firstName} ${booking.registration.attendee.lastName}`
+                              : booking.speaker
+                              ? `${booking.speaker.firstName} ${booking.speaker.lastName}`
+                              : "Unknown"}
                           </h3>
+                          {booking.speaker && !booking.registration && (
+                            <Badge variant="secondary" className="text-[10px]">Speaker</Badge>
+                          )}
                           <Badge
                             className={statusColors[booking.status]}
                             variant="outline"
@@ -832,6 +887,68 @@ export default function AccommodationPage() {
                             <p>Confirmation: {booking.confirmationNo}</p>
                           )}
                         </div>
+                      </div>
+                      <div className="flex items-start gap-2 ml-4">
+                        {booking.status === "PENDING" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-green-700 border-green-200 hover:bg-green-50"
+                              onClick={() => handleStatusUpdate(booking.id, "CONFIRMED")}
+                            >
+                              Confirm
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-700 border-red-200 hover:bg-red-50"
+                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED")}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                        {booking.status === "CONFIRMED" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                              onClick={() => handleStatusUpdate(booking.id, "CHECKED_IN")}
+                            >
+                              Check In
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-700 border-red-200 hover:bg-red-50"
+                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED")}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                        {booking.status === "CHECKED_IN" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-gray-700 border-gray-200 hover:bg-gray-50"
+                            onClick={() => handleStatusUpdate(booking.id, "CHECKED_OUT")}
+                          >
+                            Check Out
+                          </Button>
+                        )}
+                        {booking.status === "CANCELLED" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-yellow-700 border-yellow-200 hover:bg-yellow-50"
+                            onClick={() => handleStatusUpdate(booking.id, "PENDING")}
+                          >
+                            Reinstate
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>

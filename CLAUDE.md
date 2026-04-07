@@ -134,7 +134,7 @@ src/
 - **TopicSpeaker** - Join table for speakers per topic within a session
 - **Track** - Session tracks
 - **Abstract** - Paper submissions; includes `specialty` field; `managementToken` for public token-based access
-- **Hotel/RoomType/Accommodation** - Lodging management
+- **Hotel/RoomType/Accommodation** - Lodging management; `Accommodation` links to either `Registration` (via optional `registrationId @unique`) or `Speaker` (via optional `speakerId @unique`); atomic transactions prevent overbooking (`bookedRooms` counter); status flow: PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT (or CANCELLED at any point); price auto-calculated from nights × `pricePerNight`
 - **Contact** - Contact store for organization; includes `title` (Title enum), `photo`, `city`, `state`, `zipCode`, `country`, `registrationType`, `memberId`, `studentId`, `studentIdExpiry`, and `associationName` fields; auto-synced from registrants/speakers via `syncToContact()` in `src/lib/contact-sync.ts`
 - **Payment** - Stripe payment records linked to Registration; stores amount, currency, stripePaymentId (unique), stripeCustomerId, status, receiptUrl, metadata (JSON)
 - **AuditLog** - Action logging

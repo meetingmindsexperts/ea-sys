@@ -436,6 +436,7 @@ model Speaker {
   sessions      SessionSpeaker[]
   topicSpeakers TopicSpeaker[]
   abstracts     Abstract[]
+  accommodation Accommodation?
 
   @@unique([eventId, email])
   @@index([eventId])
@@ -680,7 +681,8 @@ model RoomType {
 model Accommodation {
   id              String              @id @default(cuid())
   eventId         String
-  registrationId  String              @unique
+  registrationId  String?             @unique
+  speakerId       String?             @unique
   roomTypeId      String
   checkIn         DateTime
   checkOut        DateTime
@@ -694,7 +696,8 @@ model Accommodation {
   updatedAt       DateTime            @updatedAt
 
   event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  speaker      Speaker?      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   roomType     RoomType     @relation(fields: [roomTypeId], references: [id])
 
   @@index([eventId])
