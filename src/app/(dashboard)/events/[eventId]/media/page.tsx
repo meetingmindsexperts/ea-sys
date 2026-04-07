@@ -143,12 +143,12 @@ export default function EventMediaPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {mediaFiles.map((media: { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string }) => (
               <Card key={media.id} className="group overflow-hidden">
-                <div className="aspect-square relative bg-slate-50">
+                <div className="aspect-1 relative bg-slate-50">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={media.url}
                     alt={media.filename}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <Button
