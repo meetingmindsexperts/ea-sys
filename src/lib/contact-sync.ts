@@ -28,6 +28,8 @@ export interface ContactSyncData {
   phone?: string | null;
   photo?: string | null;
   city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
   country?: string | null;
   bio?: string | null;
   specialty?: string | null;
@@ -69,6 +71,8 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
       phone: data.phone,
       photo: data.photo,
       city: data.city,
+      state: data.state,
+      zipCode: data.zipCode,
       country: data.country,
       bio: data.bio,
       specialty: data.specialty,

@@ -56,6 +56,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       speakerEmail: headers.indexOf("speakeremail"),
       specialty: headers.indexOf("specialty"),
       track: headers.indexOf("track"),
+      theme: headers.indexOf("theme"),
+      presentationType: headers.indexOf("presentationtype"),
       status: headers.indexOf("status"),
     };
 
@@ -130,6 +132,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
       const status = statusRaw && ABSTRACT_STATUS_VALUES.has(statusRaw) ? statusRaw : "SUBMITTED";
 
+      // Resolve theme by name
+      const themeName = getField(fields, idx.theme)?.trim();
+      let themeId: string | null = null;
+      if (themeName) {
+        const theme = await db.abstractTheme.findFirst({
+          where: { eventId, name: { equals: themeName, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (theme) themeId = theme.id;
+      }
+
+      // Resolve presentation type
+      const PRESENTATION_TYPES = new Set(["ORAL", "POSTER", "VIDEO", "WORKSHOP"]);
+      const ptRaw = getField(fields, idx.presentationType)?.toUpperCase();
+      const presentationType = ptRaw && PRESENTATION_TYPES.has(ptRaw) ? ptRaw : null;
+
       try {
         await db.abstract.create({
           data: {
@@ -139,6 +157,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             content,
             specialty: getField(fields, idx.specialty) || null,
             trackId,
+            themeId,
+            presentationType: presentationType as "ORAL" | "POSTER" | "VIDEO" | "WORKSHOP" | null,
             status: status as "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED",
             managementToken: crypto.randomBytes(32).toString("hex"),
             submittedAt: status === "SUBMITTED" ? new Date() : undefined,

@@ -26,14 +26,14 @@ const ENTITY_CONFIG = {
   registrations: {
     label: "Registrations",
     required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "city", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title"],
-    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "Dubai", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr"],
+    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId"],
+    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", ""],
   },
   speakers: {
     label: "Speakers",
     required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "bio", "city", "country", "specialty", "registrationType", "tags", "website", "status", "title"],
-    sampleRow: ["jane@example.com", "Jane", "Smith", "University Hospital", "Professor", "+971509876543", "Keynote speaker on AI in healthcare", "Dubai", "UAE", "Neurology", "Speaker", "keynote,invited", "https://example.com", "CONFIRMED", "Prof"],
+    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "website", "status", "title", "additionalEmail"],
+    sampleRow: ["jane@example.com", "Jane", "Smith", "University Hospital", "Professor", "+971509876543", "Keynote speaker on AI in healthcare", "Dubai", "Dubai", "00000", "UAE", "Neurology", "Speaker", "keynote,invited", "https://example.com", "CONFIRMED", "Prof", "jane.alt@example.com"],
   },
   sessions: {
     label: "Sessions",
@@ -44,8 +44,8 @@ const ENTITY_CONFIG = {
   abstracts: {
     label: "Abstracts",
     required: ["title", "content", "speakerEmail"],
-    optional: ["specialty", "track", "status"],
-    sampleRow: ["AI in Cardiology", "This paper explores the use of artificial intelligence...", "jane@example.com", "Cardiology", "Research", "SUBMITTED"],
+    optional: ["specialty", "track", "theme", "presentationType", "status"],
+    sampleRow: ["AI in Cardiology", "This paper explores the use of artificial intelligence...", "jane@example.com", "Cardiology", "Research", "AI & Technology", "ORAL", "SUBMITTED"],
   },
 };
 

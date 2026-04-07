@@ -60,6 +60,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       jobTitle: headers.indexOf("jobtitle"),
       phone: headers.indexOf("phone"),
       city: headers.indexOf("city"),
+      state: headers.indexOf("state"),
+      zipCode: headers.indexOf("zipcode"),
       country: headers.indexOf("country"),
       specialty: headers.indexOf("specialty"),
       registrationType: headers.indexOf("registrationtype"),
@@ -68,6 +70,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       dietaryReqs: headers.indexOf("dietaryreqs"),
       notes: headers.indexOf("notes"),
       title: headers.indexOf("title"),
+      associationName: headers.indexOf("associationname"),
+      memberId: headers.indexOf("memberid"),
+      studentId: headers.indexOf("studentid"),
     };
 
     if (idx.email === -1 || idx.firstName === -1 || idx.lastName === -1) {
@@ -175,10 +180,15 @@ export async function POST(req: Request, { params }: RouteParams) {
               jobTitle: getField(fields, idx.jobTitle) || null,
               phone: getField(fields, idx.phone) || null,
               city: getField(fields, idx.city) || null,
+              state: getField(fields, idx.state) || null,
+              zipCode: getField(fields, idx.zipCode) || null,
               country: getField(fields, idx.country) || null,
               bio: getField(fields, idx.bio) || null,
               specialty: getField(fields, idx.specialty) || null,
               registrationType: registrationType || null,
+              associationName: getField(fields, idx.associationName) || null,
+              memberId: getField(fields, idx.memberId) || null,
+              studentId: getField(fields, idx.studentId) || null,
               tags,
               dietaryReqs: getField(fields, idx.dietaryReqs) || null,
             },
@@ -229,10 +239,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           jobTitle: getField(fields, idx.jobTitle) || null,
           phone: getField(fields, idx.phone) || null,
           city: getField(fields, idx.city) || null,
+          state: getField(fields, idx.state) || null,
+          zipCode: getField(fields, idx.zipCode) || null,
           country: getField(fields, idx.country) || null,
           bio: getField(fields, idx.bio) || null,
           specialty: getField(fields, idx.specialty) || null,
           registrationType: registrationType || null,
+          associationName: getField(fields, idx.associationName) || null,
+          memberId: getField(fields, idx.memberId) || null,
+          studentId: getField(fields, idx.studentId) || null,
         });
       } catch (err) {
         if (err instanceof Error && err.message === "ALREADY_REGISTERED") {

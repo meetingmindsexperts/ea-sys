@@ -60,6 +60,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       phone: headers.indexOf("phone"),
       bio: headers.indexOf("bio"),
       city: headers.indexOf("city"),
+      state: headers.indexOf("state"),
+      zipCode: headers.indexOf("zipcode"),
       country: headers.indexOf("country"),
       specialty: headers.indexOf("specialty"),
       registrationType: headers.indexOf("registrationtype"),
@@ -67,6 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       website: headers.indexOf("website"),
       status: headers.indexOf("status"),
       title: headers.indexOf("title"),
+      additionalEmail: headers.indexOf("additionalemail"),
     };
 
     if (idx.email === -1 || idx.firstName === -1 || idx.lastName === -1) {
@@ -137,11 +140,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         phone: getField(fields, idx.phone) || null,
         bio: getField(fields, idx.bio) || null,
         city: getField(fields, idx.city) || null,
+        state: getField(fields, idx.state) || null,
+        zipCode: getField(fields, idx.zipCode) || null,
         country: getField(fields, idx.country) || null,
         specialty: getField(fields, idx.specialty) || null,
         registrationType: getField(fields, idx.registrationType) || null,
         tags: parseTags(getField(fields, idx.tags)),
         website: getField(fields, idx.website) || null,
+        additionalEmail: getField(fields, idx.additionalEmail) || null,
         status: status as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED",
       });
     }
