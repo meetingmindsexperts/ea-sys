@@ -4,6 +4,17 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { buildMcpServer } from "@/lib/agent/mcp-server-builder";
 
+// ── Session store for stateful MCP clients (like n8n) ──────────────────────
+const sessions = new Map<string, { transport: WebStandardStreamableHTTPServerTransport; orgId: string; createdAt: number }>();
+const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
+
+function cleanExpiredSessions() {
+  const now = Date.now();
+  for (const [id, s] of sessions) {
+    if (now - s.createdAt > SESSION_TTL) sessions.delete(id);
+  }
+}
+
 async function authenticate(req: Request): Promise<{ organizationId: string; keyPrefix: string } | null> {
   const authHeader = req.headers.get("authorization");
   const apiKeyHeader = req.headers.get("x-api-key");
@@ -38,11 +49,40 @@ async function handleMcp(req: Request): Promise<Response> {
 
   apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix });
 
-  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  cleanExpiredSessions();
+
+  // Check for existing session (stateful clients send Mcp-Session-Id header)
+  const sessionId = req.headers.get("mcp-session-id");
+  if (sessionId && sessions.has(sessionId)) {
+    const session = sessions.get(sessionId)!;
+    const response = await session.transport.handleRequest(req);
+    return response;
+  }
+
+  // New session — create transport with session ID generation
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+  });
   const mcpServer = buildMcpServer(authResult.organizationId);
 
   await mcpServer.connect(transport);
+
+  // Store session for subsequent requests
+  transport.onclose = () => {
+    if (transport.sessionId) sessions.delete(transport.sessionId);
+  };
+
   const response = await transport.handleRequest(req);
+
+  // After handling, store the session if one was created
+  if (transport.sessionId) {
+    sessions.set(transport.sessionId, {
+      transport,
+      orgId: authResult.organizationId,
+      createdAt: Date.now(),
+    });
+  }
+
   return response;
 }
 
@@ -55,5 +95,11 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  // Session termination
+  const sessionId = req.headers.get("mcp-session-id");
+  if (sessionId && sessions.has(sessionId)) {
+    sessions.delete(sessionId);
+    return new Response(null, { status: 204 });
+  }
   return handleMcp(req);
 }
