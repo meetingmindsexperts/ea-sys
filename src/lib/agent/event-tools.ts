@@ -4,16 +4,20 @@ import { sendEmail } from "@/lib/email";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
 const MANUAL_REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "WAITLISTED"]);
 const TITLE_VALUES = new Set(["DR", "MR", "MRS", "MS", "PROF"]);
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_RECIPIENTS = 500;
 
 export interface AgentContext {
   eventId: string;
   organizationId: string;
   userId: string;
+  counters: { creates: number; emailsSent: number };
 }
 
 type ToolExecutor = (
@@ -625,6 +629,7 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
     if (!email || !firstName || !lastName) {
       return { error: "email, firstName, and lastName are required" };
     }
+    if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
     const speaker = await db.speaker.create({
       data: {
@@ -939,6 +944,7 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
     if (!email || !firstName || !lastName || !ticketTypeId) {
       return { error: "email, firstName, lastName, and ticketTypeId are all required" };
     }
+    if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
     // Validate ticketTypeId belongs to this event
     const ticketType = await db.ticketType.findFirst({
@@ -1039,10 +1045,11 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
     }
 
     const subject = String(input.subject ?? "").trim();
-    const htmlMessage = String(input.htmlMessage ?? "").trim();
-    if (!subject || !htmlMessage) {
+    const rawHtmlMessage = String(input.htmlMessage ?? "").trim();
+    if (!subject || !rawHtmlMessage) {
       return { error: "subject and htmlMessage are required" };
     }
+    const htmlMessage = sanitizeHtml(rawHtmlMessage);
 
     const recipientType = String(input.recipientType);
     const rawStatusFilter = input.statusFilter ? String(input.statusFilter) : undefined;
@@ -1090,6 +1097,12 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
 
     if (recipients.length === 0) {
       return { error: "No recipients found matching the given filters" };
+    }
+
+    if (recipients.length > MAX_EMAIL_RECIPIENTS) {
+      return {
+        error: `Too many recipients (${recipients.length}). Maximum is ${MAX_EMAIL_RECIPIENTS} per bulk email. Use a statusFilter to narrow the audience.`,
+      };
     }
 
     let sent = 0;
@@ -1308,7 +1321,7 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       where: { id: abstractId },
       data: {
         status: status as never,
-        reviewNotes: input.reviewNotes ? String(input.reviewNotes) : undefined,
+        reviewNotes: input.reviewNotes ? String(input.reviewNotes).slice(0, 2000) : undefined,
         reviewedAt: new Date(),
       },
       select: { id: true, title: true, status: true },
@@ -1478,6 +1491,7 @@ const createContact: ToolExecutor = async (input, ctx) => {
     const firstName = String(input.firstName ?? "").trim();
     const lastName = String(input.lastName ?? "").trim();
     if (!email || !firstName || !lastName) return { error: "email, firstName, and lastName are required" };
+    if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
     const existing = await db.contact.findFirst({
       where: { organizationId: ctx.organizationId, email },

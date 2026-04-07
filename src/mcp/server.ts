@@ -142,7 +142,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_event_info", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_event_info", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -153,7 +153,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_tracks", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_tracks", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -169,7 +169,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_track", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_track", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -184,7 +184,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_speakers", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_speakers", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -206,7 +206,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_speaker", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_speaker", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -222,7 +222,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_registrations", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_registrations", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -237,7 +237,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_sessions", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_sessions", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -266,7 +266,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -283,7 +283,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("add_topic_to_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("add_topic_to_session", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -294,7 +294,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_ticket_types", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_ticket_types", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -309,7 +309,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_ticket_type", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_ticket_type", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -330,7 +330,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_registration", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_registration", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -348,7 +348,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("send_bulk_email", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("send_bulk_email", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -361,7 +361,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_abstract_themes", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_abstract_themes", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -375,7 +375,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_abstract_theme", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_abstract_theme", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -386,7 +386,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_review_criteria", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_review_criteria", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -401,7 +401,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_review_criterion", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_review_criterion", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -417,7 +417,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("update_abstract_status", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("update_abstract_status", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -430,7 +430,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_hotels", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_hotels", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -448,7 +448,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_hotel", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_hotel", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -463,7 +463,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_accommodations", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_accommodations", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -479,7 +479,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_media", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_media", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -495,7 +495,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("check_in_registration", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("check_in_registration", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -519,7 +519,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("create_contact", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("create_contact", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -532,7 +532,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_reviewers", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_reviewers", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -550,7 +550,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_abstracts", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_abstracts", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -566,7 +566,7 @@ server.tool(
   },
   async ({ eventId, ...input }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_invoices", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_invoices", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -577,7 +577,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("get_event_stats", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("get_event_stats", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );
@@ -588,7 +588,7 @@ server.tool(
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
     const orgId = await getOrgId(eventId);
-    const result = await runTool("list_email_templates", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    const result = await runTool("list_email_templates", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
     return { content: [{ type: "text" as const, text: result }] };
   }
 );

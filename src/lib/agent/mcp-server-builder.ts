@@ -180,7 +180,7 @@ export function buildMcpServer(organizationId: string): McpServer {
       async (args) => {
         const { eventId, ...input } = args;
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
-        const result = await runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID });
+        const result = await runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
         return { content: [{ type: "text" as const, text: result }] };
       }
     );

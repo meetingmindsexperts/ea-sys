@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -137,11 +138,13 @@ function ToolChip({
   input,
   result,
   isDone,
+  canExpand,
 }: {
   name: string;
   input: unknown;
   result?: unknown;
   isDone: boolean;
+  canExpand: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const label = getToolLabel(name);
@@ -151,9 +154,11 @@ function ToolChip({
   return (
     <div className="my-1 max-w-full">
       <button
-        onClick={() => setExpanded((p) => !p)}
+        onClick={() => canExpand && setExpanded((p) => !p)}
         className={cn(
           "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors max-w-full",
+          canExpand && "cursor-pointer",
+          !canExpand && "cursor-default",
           isDone
             ? isError
               ? "bg-red-50 border-red-200 text-red-700"
@@ -167,13 +172,15 @@ function ToolChip({
           <Wrench className="h-3 w-3 shrink-0" />
         )}
         <span className="truncate">{isDone ? (summary ?? label) : label + "…"}</span>
-        {expanded ? (
-          <ChevronDown className="h-3 w-3 ml-1 shrink-0" />
-        ) : (
-          <ChevronRight className="h-3 w-3 ml-1 shrink-0" />
+        {canExpand && (
+          expanded ? (
+            <ChevronDown className="h-3 w-3 ml-1 shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 ml-1 shrink-0" />
+          )
         )}
       </button>
-      {expanded && (
+      {canExpand && expanded && (
         <div className="mt-1 ml-2 p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-48 w-full">
           <div className="text-muted-foreground mb-1">Input:</div>
           <pre className="whitespace-pre-wrap break-all">{JSON.stringify(input, null, 2)}</pre>
@@ -194,9 +201,11 @@ function ToolChip({
 function MessageBubble({
   message,
   pendingTools,
+  canExpand,
 }: {
   message: ChatMessage;
   pendingTools: Map<string, { name: string; input: unknown }>;
+  canExpand: boolean;
 }) {
   if (message.role === "user") {
     return (
@@ -238,6 +247,7 @@ function MessageBubble({
           input={pending?.input ?? {}}
           result={message.result}
           isDone={true}
+          canExpand={canExpand}
         />
       </div>
     );
@@ -259,8 +269,12 @@ function MessageBubble({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+const SUPER_ADMIN_EMAIL = "krishna@meetingmindsdubai.com";
+
 export default function AgentPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  const { data: session } = useSession();
+  const canExpandTools = session?.user?.email === SUPER_ADMIN_EMAIL;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -535,7 +549,7 @@ export default function AgentPage() {
               if (msg.role === "tool_start") {
                 return (
                   <div key={msg.id} className="flex justify-start mb-1">
-                    <ToolChip name={msg.name} input={msg.input} isDone={false} />
+                    <ToolChip name={msg.name} input={msg.input} isDone={false} canExpand={canExpandTools} />
                   </div>
                 );
               }
@@ -544,6 +558,7 @@ export default function AgentPage() {
                   key={msg.id}
                   message={msg}
                   pendingTools={pendingTools}
+                  canExpand={canExpandTools}
                 />
               );
             })}

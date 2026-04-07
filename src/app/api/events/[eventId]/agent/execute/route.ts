@@ -17,6 +17,14 @@ const MAX_TURNS = 25;
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_HISTORY_PAIRS = 20;
 const MAX_HISTORY_MSG_LENGTH = 8000; // per history message content
+const MAX_CREATES_PER_REQUEST = 20;
+
+const MUTATING_TOOLS = new Set([
+  "create_track", "create_speaker", "create_session", "create_ticket_type",
+  "create_registration", "create_abstract_theme", "create_review_criterion",
+  "create_hotel", "create_contact", "add_topic_to_session",
+  "update_abstract_status", "check_in_registration", "send_bulk_email",
+]);
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -102,7 +110,10 @@ async function runAgentLoop(
 
       if (!executor) {
         result = { error: `Unknown tool: ${toolName}` };
+      } else if (MUTATING_TOOLS.has(toolName) && context.counters.creates >= MAX_CREATES_PER_REQUEST) {
+        result = { error: `Resource modification limit reached for this request (max ${MAX_CREATES_PER_REQUEST}). Please send a new message to continue.` };
       } else {
+        if (MUTATING_TOOLS.has(toolName)) context.counters.creates++;
         result = await executor(toolInput, context);
       }
 
@@ -216,6 +227,7 @@ export async function POST(
     eventId,
     organizationId: session.user.organizationId!,
     userId: session.user.id,
+    counters: { creates: 0, emailsSent: 0 },
   };
 
   const encoder = new TextEncoder();
