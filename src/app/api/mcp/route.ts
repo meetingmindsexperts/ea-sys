@@ -49,6 +49,15 @@ async function handleMcp(req: Request): Promise<Response> {
 
   apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix });
 
+  // Ensure Accept header includes text/event-stream (required by MCP SDK).
+  // Some clients (n8n) only send Accept: application/json which causes a 406.
+  const accept = req.headers.get("accept") || "";
+  if (!accept.includes("text/event-stream")) {
+    const headers = new Headers(req.headers);
+    headers.set("accept", "application/json, text/event-stream");
+    req = new Request(req, { headers });
+  }
+
   cleanExpiredSessions();
 
   // Check for existing session (stateful clients send Mcp-Session-Id header)
@@ -56,6 +65,13 @@ async function handleMcp(req: Request): Promise<Response> {
   if (sessionId && sessions.has(sessionId)) {
     const session = sessions.get(sessionId)!;
     const response = await session.transport.handleRequest(req);
+    // Disable nginx buffering for SSE
+    if (response.headers.get("content-type")?.includes("text/event-stream")) {
+      const headers = new Headers(response.headers);
+      headers.set("X-Accel-Buffering", "no");
+      headers.set("Cache-Control", "no-cache, no-transform");
+      return new Response(response.body, { status: response.status, headers });
+    }
     return response;
   }
 
@@ -81,6 +97,14 @@ async function handleMcp(req: Request): Promise<Response> {
       orgId: authResult.organizationId,
       createdAt: Date.now(),
     });
+  }
+
+  // Disable nginx buffering for SSE responses (critical for MCP streaming)
+  if (response.headers.get("content-type")?.includes("text/event-stream")) {
+    const headers = new Headers(response.headers);
+    headers.set("X-Accel-Buffering", "no");
+    headers.set("Cache-Control", "no-cache, no-transform");
+    return new Response(response.body, { status: response.status, headers });
   }
 
   return response;
