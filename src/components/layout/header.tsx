@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
@@ -167,27 +167,40 @@ export function Header() {
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                <DropdownMenuLabel>Switch Event</DropdownMenuLabel>
+              <DropdownMenuContent align="start" className="w-80 max-h-[500px] overflow-y-auto p-2">
+                <DropdownMenuLabel className="text-xs uppercase tracking-wider text-muted-foreground px-2">Switch Event</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {events.map((event) => (
                   <DropdownMenuItem
                     key={event.id}
                     onClick={() => handleEventChange(event.id)}
-                    className={event.id === eventId ? "bg-muted" : ""}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer",
+                      event.id === eventId && "bg-primary/10 text-primary"
+                    )}
                   >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    <div className="flex flex-col">
-                      <span className="font-medium">{event.name}</span>
+                    <div className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                      event.id === eventId ? "bg-primary text-primary-foreground" : "bg-muted"
+                    )}>
+                      <Calendar className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-medium truncate">{event.name}</span>
                       <span className="text-xs text-muted-foreground">
                         {formatDate(event.startDate)}
                       </span>
                     </div>
+                    {event.id === eventId && (
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-primary" />
+                    )}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/events">View All Events</Link>
+                  <Link href="/events" className="flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+                    View All Events
+                  </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

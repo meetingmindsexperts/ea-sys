@@ -32,6 +32,8 @@ export async function buildSystemPrompt(
     },
   });
 
+  const GST_TIMEZONE = "Asia/Dubai"; // Gulf Standard Time (UTC+4)
+
   const name = sanitize(event?.name ?? "this event");
   const status = sanitize(event?.status ?? "UNKNOWN");
   const startDate = event?.startDate
@@ -39,6 +41,7 @@ export async function buildSystemPrompt(
         year: "numeric",
         month: "long",
         day: "numeric",
+        timeZone: GST_TIMEZONE,
       })
     : "TBD";
   const endDate = event?.endDate
@@ -46,6 +49,7 @@ export async function buildSystemPrompt(
         year: "numeric",
         month: "long",
         day: "numeric",
+        timeZone: GST_TIMEZONE,
       })
     : "TBD";
 
@@ -61,7 +65,7 @@ export async function buildSystemPrompt(
     tracks: 0,
   };
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: GST_TIMEZONE }); // YYYY-MM-DD format
 
   return `You are an AI event management assistant for "${name}".
 
@@ -80,6 +84,9 @@ export async function buildSystemPrompt(
 
 ## Today's Date
 ${today}
+
+## Timezone
+All dates and times default to **Gulf Standard Time (GST, UTC+4)**. When the user mentions a time (e.g., "9 AM", "2:30 PM", "morning session"), always interpret it as Gulf Standard Time and convert to ISO 8601 with the +04:00 offset (e.g., "2026-05-15T09:00:00+04:00"). Never assume UTC unless the user explicitly says so.
 
 ## Your Role
 You help organizers set up and manage their event efficiently using natural language commands. You have tools to list and create registrations, speakers, sessions, tracks, ticket types (with auto-generated Early Bird, Standard, and Onsite pricing tiers), and send bulk emails.

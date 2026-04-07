@@ -516,6 +516,15 @@ export default function EventSettingsPage() {
                     Your public registration page: /e/{generalFormData.slug || "your-event-slug"}
                   </p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="eventId">Event ID</Label>
+                  <Input
+                    id="eventId"
+                    value={eventId}
+                    disabled
+                    className="bg-muted font-mono text-sm"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
