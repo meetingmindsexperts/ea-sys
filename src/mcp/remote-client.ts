@@ -126,6 +126,76 @@ server.tool(
   }
 );
 
+server.tool(
+  "get_event_info",
+  "Get event details and counts.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const event = await callApi(`/api/events/${eventId}`) as Record<string, unknown>;
+    return { content: [{ type: "text" as const, text: JSON.stringify(event, null, 2) }] };
+  }
+);
+
+server.tool(
+  "list_abstracts",
+  "List abstract submissions for an event.",
+  { eventId: z.string().describe("Event ID"), status: z.string().optional() },
+  async ({ eventId, status }) => {
+    const params = status ? `?status=${status}` : "";
+    const abstracts = await callApi(`/api/events/${eventId}/abstracts${params}`) as unknown[];
+    const text = abstracts.length === 0 ? "No abstracts found." : `${abstracts.length} abstracts found.\n\n${JSON.stringify(abstracts.slice(0, 50), null, 2)}`;
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+server.tool(
+  "list_hotels",
+  "List hotels for an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const hotels = await callApi(`/api/events/${eventId}/hotels`) as unknown[];
+    const text = hotels.length === 0 ? "No hotels found." : JSON.stringify(hotels, null, 2);
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+server.tool(
+  "list_accommodations",
+  "List room bookings for an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const accommodations = await callApi(`/api/events/${eventId}/accommodations`) as unknown[];
+    const text = accommodations.length === 0 ? "No accommodations found." : JSON.stringify(accommodations, null, 2);
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+server.tool(
+  "list_contacts",
+  "Search organization contacts.",
+  { search: z.string().optional(), tag: z.string().optional() },
+  async ({ search, tag }) => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (tag) params.set("tag", tag);
+    const qs = params.toString() ? `?${params}` : "";
+    const contacts = await callApi(`/api/contacts${qs}`) as unknown[];
+    const text = contacts.length === 0 ? "No contacts found." : JSON.stringify((contacts as unknown[]).slice(0, 50), null, 2);
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
+server.tool(
+  "list_reviewers",
+  "List reviewers assigned to an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const reviewers = await callApi(`/api/events/${eventId}/reviewers`) as unknown[];
+    const text = reviewers.length === 0 ? "No reviewers found." : JSON.stringify(reviewers, null, 2);
+    return { content: [{ type: "text" as const, text }] };
+  }
+);
+
 // ── Start ────────────────────────────────────────────────────────────────────
 
 async function main() {

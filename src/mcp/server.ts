@@ -347,7 +347,191 @@ server.tool(
   }
 );
 
-// ── New Read Tools (not in existing agent) ───────────────────────────────────
+// ── Abstract Management Tools ────────────────────────────────────────────────
+
+server.tool(
+  "list_abstract_themes",
+  "List abstract themes configured for an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_abstract_themes", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "create_abstract_theme",
+  "Create an abstract theme for an event.",
+  {
+    eventId: z.string().describe("Event ID"),
+    name: z.string().describe("Theme name"),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("create_abstract_theme", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "list_review_criteria",
+  "List review criteria configured for an event, including weights.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_review_criteria", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "create_review_criterion",
+  "Create a review criterion for an event.",
+  {
+    eventId: z.string().describe("Event ID"),
+    name: z.string().describe("Criterion name"),
+    weight: z.number().describe("Weight (1-10)"),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("create_review_criterion", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "update_abstract_status",
+  "Update the status of an abstract (accept, reject, request revision).",
+  {
+    eventId: z.string().describe("Event ID"),
+    abstractId: z.string().describe("Abstract ID"),
+    status: z.enum(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]),
+    reviewNotes: z.string().optional().describe("Notes for the author"),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("update_abstract_status", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Accommodation Tools ──────────────────────────────────────────────────────
+
+server.tool(
+  "list_hotels",
+  "List hotels configured for an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_hotels", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "create_hotel",
+  "Add a hotel for an event.",
+  {
+    eventId: z.string().describe("Event ID"),
+    name: z.string().describe("Hotel name"),
+    address: z.string().optional(),
+    stars: z.number().optional().describe("Star rating (1-5)"),
+    contactEmail: z.string().optional(),
+    contactPhone: z.string().optional(),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("create_hotel", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+server.tool(
+  "list_accommodations",
+  "List room bookings for an event with guest details.",
+  {
+    eventId: z.string().describe("Event ID"),
+    status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"]).optional(),
+    limit: z.number().optional(),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_accommodations", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Media Tool ───────────────────────────────────────────────────────────────
+
+server.tool(
+  "list_media",
+  "List media files in the organization library.",
+  {
+    eventId: z.string().describe("Event ID (used to resolve organization)"),
+    limit: z.number().optional(),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_media", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Check-in Tool ────────────────────────────────────────────────────────────
+
+server.tool(
+  "check_in_registration",
+  "Mark a registration as checked in at the event.",
+  {
+    eventId: z.string().describe("Event ID"),
+    registrationId: z.string().describe("Registration ID"),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("check_in_registration", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Contact CRUD Tool ────────────────────────────────────────────────────────
+
+server.tool(
+  "create_contact",
+  "Create a new contact in the organization.",
+  {
+    eventId: z.string().describe("Event ID (used to resolve organization)"),
+    email: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
+    organization: z.string().optional(),
+    jobTitle: z.string().optional(),
+    phone: z.string().optional(),
+    city: z.string().optional(),
+    country: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  },
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("create_contact", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Reviewer Tool ────────────────────────────────────────────────────────────
+
+server.tool(
+  "list_reviewers",
+  "List reviewers assigned to an event.",
+  { eventId: z.string().describe("Event ID") },
+  async ({ eventId }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_reviewers", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
+  }
+);
+
+// ── Read Tools (using shared executors) ──────────────────────────────────────
 
 server.tool(
   "list_abstracts",
@@ -355,31 +539,13 @@ server.tool(
   {
     eventId: z.string().describe("Event ID"),
     status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
+    themeId: z.string().optional().describe("Filter by theme ID"),
     limit: z.number().optional().describe("Max results (default 50)"),
   },
-  async ({ eventId, status, limit }) => {
-    const abstracts = await db.abstract.findMany({
-      where: {
-        eventId,
-        ...(status && { status }),
-      },
-      select: {
-        id: true, title: true, status: true, presentationType: true,
-        reviewScore: true, specialty: true,
-        speaker: { select: { firstName: true, lastName: true, email: true } },
-        theme: { select: { name: true } },
-      },
-      take: Math.min(limit || 50, 200),
-      orderBy: { createdAt: "desc" },
-    });
-
-    const text = abstracts.length === 0
-      ? "No abstracts found."
-      : `Found ${abstracts.length} abstracts:\n\n` + abstracts.map(a =>
-        `"${a.title}"\n  Status: ${a.status} | Type: ${a.presentationType || "N/A"} | Score: ${a.reviewScore ?? "—"}\n  Speaker: ${a.speaker.firstName} ${a.speaker.lastName} <${a.speaker.email}>\n  Theme: ${a.theme?.name || "None"}`
-      ).join("\n\n");
-
-    return { content: [{ type: "text" as const, text }] };
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_abstracts", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
   }
 );
 
@@ -392,67 +558,21 @@ server.tool(
     status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]).optional(),
     limit: z.number().optional(),
   },
-  async ({ eventId, type, status, limit }) => {
-    const invoices = await db.invoice.findMany({
-      where: {
-        eventId,
-        ...(type && { type }),
-        ...(status && { status }),
-      },
-      select: {
-        id: true, invoiceNumber: true, type: true, status: true,
-        total: true, currency: true, issueDate: true,
-        registration: { select: { attendee: { select: { firstName: true, lastName: true, email: true } } } },
-      },
-      take: Math.min(limit || 50, 200),
-      orderBy: { createdAt: "desc" },
-    });
-
-    const text = invoices.length === 0
-      ? "No invoices found."
-      : `Found ${invoices.length} documents:\n\n` + invoices.map(inv =>
-        `${inv.invoiceNumber} (${inv.type})\n  Status: ${inv.status} | Total: ${inv.currency} ${Number(inv.total).toFixed(2)}\n  Date: ${inv.issueDate.toISOString().split("T")[0]}\n  For: ${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`
-      ).join("\n\n");
-
-    return { content: [{ type: "text" as const, text }] };
+  async ({ eventId, ...input }) => {
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_invoices", input, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
   }
 );
 
 server.tool(
   "get_event_stats",
-  "Get a summary dashboard for an event: registration counts, revenue, check-in rate.",
+  "Get a summary dashboard for an event: registration counts, payment breakdown, check-in rate.",
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
-    const [event, regStats, paymentStats, checkedIn] = await Promise.all([
-      db.event.findUniqueOrThrow({
-        where: { id: eventId },
-        select: { name: true, code: true, status: true, startDate: true },
-      }),
-      db.registration.groupBy({
-        by: ["status"],
-        where: { eventId },
-        _count: true,
-      }),
-      db.registration.groupBy({
-        by: ["paymentStatus"],
-        where: { eventId },
-        _count: true,
-      }),
-      db.registration.count({
-        where: { eventId, status: "CHECKED_IN" },
-      }),
-    ]);
-
-    const totalRegs = regStats.reduce((sum, r) => sum + r._count, 0);
-    const confirmed = regStats.find(r => r.status === "CONFIRMED")?._count || 0;
-    const checkinRate = totalRegs > 0 ? ((checkedIn / totalRegs) * 100).toFixed(1) : "0";
-
-    const regBreakdown = regStats.map(r => `  ${r.status}: ${r._count}`).join("\n");
-    const payBreakdown = paymentStats.map(p => `  ${p.paymentStatus}: ${p._count}`).join("\n");
-
-    const text = `Event: ${event.name} (${event.code || "no code"})\nStatus: ${event.status}\nDate: ${event.startDate.toISOString().split("T")[0]}\n\nRegistrations: ${totalRegs} total, ${confirmed} confirmed\n${regBreakdown}\n\nPayment Status:\n${payBreakdown}\n\nCheck-in: ${checkedIn}/${totalRegs} (${checkinRate}%)`;
-
-    return { content: [{ type: "text" as const, text }] };
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("get_event_stats", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
   }
 );
 
@@ -461,19 +581,9 @@ server.tool(
   "List available email templates for an event.",
   { eventId: z.string().describe("Event ID") },
   async ({ eventId }) => {
-    const templates = await db.emailTemplate.findMany({
-      where: { eventId },
-      select: { id: true, slug: true, name: true, subject: true, isActive: true },
-      orderBy: { slug: "asc" },
-    });
-
-    const text = templates.length === 0
-      ? "No email templates configured for this event."
-      : templates.map(t =>
-        `${t.name} (${t.slug}) — ${t.isActive ? "Active" : "Inactive"}\n  Subject: ${t.subject}`
-      ).join("\n\n");
-
-    return { content: [{ type: "text" as const, text }] };
+    const orgId = await getOrgId(eventId);
+    const result = await runTool("list_email_templates", {}, { eventId, organizationId: orgId, userId: SYSTEM_USER_ID });
+    return { content: [{ type: "text" as const, text: result }] };
   }
 );
 

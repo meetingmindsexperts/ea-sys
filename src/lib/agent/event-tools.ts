@@ -302,6 +302,194 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
       required: ["sessionId", "title"],
     },
   },
+  // ─── Abstract Management Tools ──────────────────────────────────────────────
+  {
+    name: "list_abstract_themes",
+    description: "List abstract themes configured for this event.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "create_abstract_theme",
+    description: "Create an abstract theme for this event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Theme name" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_review_criteria",
+    description: "List review criteria configured for this event, including weights.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "create_review_criterion",
+    description: "Create a review criterion for this event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Criterion name (e.g. Originality, Methodology)" },
+        weight: { type: "number", description: "Weight for scoring (e.g. 1, 2, 3). Higher = more important" },
+      },
+      required: ["name", "weight"],
+    },
+  },
+  {
+    name: "list_abstracts",
+    description: "List abstract submissions for this event. Optionally filter by status or theme.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"],
+        },
+        themeId: { type: "string", description: "Filter by abstract theme ID" },
+        limit: { type: "number", description: "Max results (default 50, max 200)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "update_abstract_status",
+    description: "Update the status of an abstract submission (e.g. accept, reject, request revision).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        abstractId: { type: "string", description: "Abstract ID" },
+        status: {
+          type: "string",
+          enum: ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"],
+        },
+        reviewNotes: { type: "string", description: "Optional notes for the author" },
+      },
+      required: ["abstractId", "status"],
+    },
+  },
+  // ─── Accommodation Tools ────────────────────────────────────────────────────
+  {
+    name: "list_hotels",
+    description: "List hotels configured for this event.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "create_hotel",
+    description: "Add a hotel for this event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Hotel name" },
+        address: { type: "string" },
+        stars: { type: "number", description: "Star rating (1-5)" },
+        contactEmail: { type: "string" },
+        contactPhone: { type: "string" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_accommodations",
+    description: "List room bookings for this event with guest details.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", enum: ["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"] },
+        limit: { type: "number", description: "Max results (default 50, max 200)" },
+      },
+      required: [],
+    },
+  },
+  // ─── Media Tools ────────────────────────────────────────────────────────────
+  {
+    name: "list_media",
+    description: "List media files in the organization library. Optionally filter by event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max results (default 50)" },
+      },
+      required: [],
+    },
+  },
+  // ─── Check-in Tool ──────────────────────────────────────────────────────────
+  {
+    name: "check_in_registration",
+    description: "Mark a registration as checked in at the event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        registrationId: { type: "string", description: "Registration ID to check in" },
+      },
+      required: ["registrationId"],
+    },
+  },
+  // ─── Contact Tools ──────────────────────────────────────────────────────────
+  {
+    name: "list_contacts",
+    description: "List contacts in the organization. Optionally filter by tag or search.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        search: { type: "string", description: "Search by name or email" },
+        tag: { type: "string", description: "Filter by tag" },
+        limit: { type: "number", description: "Max results (default 50, max 200)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "create_contact",
+    description: "Create a new contact in the organization.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        email: { type: "string" },
+        firstName: { type: "string" },
+        lastName: { type: "string" },
+        organization: { type: "string" },
+        jobTitle: { type: "string" },
+        phone: { type: "string" },
+        city: { type: "string" },
+        country: { type: "string" },
+        tags: { type: "array", items: { type: "string" }, description: "Tags to assign" },
+      },
+      required: ["email", "firstName", "lastName"],
+    },
+  },
+  // ─── Reviewer Tools ─────────────────────────────────────────────────────────
+  {
+    name: "list_reviewers",
+    description: "List reviewers assigned to this event.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  // ─── Invoice Tools ──────────────────────────────────────────────────────────
+  {
+    name: "list_invoices",
+    description: "List invoices, receipts, and credit notes for this event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: { type: "string", enum: ["INVOICE", "RECEIPT", "CREDIT_NOTE"] },
+        status: { type: "string", enum: ["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"] },
+        limit: { type: "number", description: "Max results (default 50, max 200)" },
+      },
+      required: [],
+    },
+  },
+  // ─── Email Template Tools ───────────────────────────────────────────────────
+  {
+    name: "list_email_templates",
+    description: "List email templates configured for this event.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  // ─── Event Stats Tool ───────────────────────────────────────────────────────
+  {
+    name: "get_event_stats",
+    description: "Get comprehensive event statistics: registration counts by status, payment breakdown, speaker counts, session counts, abstract counts.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
 ];
 
 // ─── Tool Executors ───────────────────────────────────────────────────────────
@@ -999,6 +1187,419 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ─── Abstract Management Executors ────────────────────────────────────────────
+
+const ABSTRACT_STATUSES = new Set(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]);
+const ABSTRACT_UPDATE_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
+
+const listAbstractThemes: ToolExecutor = async (_input, ctx) => {
+  try {
+    const themes = await db.abstractTheme.findMany({
+      where: { eventId: ctx.eventId },
+      select: { id: true, name: true, sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    return { themes, total: themes.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_abstract_themes failed");
+    return { error: "Failed to fetch abstract themes" };
+  }
+};
+
+const createAbstractTheme: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim();
+    if (!name) return { error: "name is required" };
+
+    const existing = await db.abstractTheme.findFirst({
+      where: { eventId: ctx.eventId, name: { equals: name, mode: "insensitive" } },
+    });
+    if (existing) return { alreadyExists: true, theme: existing };
+
+    const count = await db.abstractTheme.count({ where: { eventId: ctx.eventId } });
+    const theme = await db.abstractTheme.create({
+      data: { eventId: ctx.eventId, name, sortOrder: count },
+    });
+    return { theme };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_abstract_theme failed");
+    return { error: "Failed to create abstract theme" };
+  }
+};
+
+const listReviewCriteria: ToolExecutor = async (_input, ctx) => {
+  try {
+    const criteria = await db.reviewCriterion.findMany({
+      where: { eventId: ctx.eventId },
+      select: { id: true, name: true, weight: true, sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    return { criteria, total: criteria.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_review_criteria failed");
+    return { error: "Failed to fetch review criteria" };
+  }
+};
+
+const createReviewCriterion: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim();
+    const weight = Number(input.weight ?? 1);
+    if (!name) return { error: "name is required" };
+    if (weight < 1 || weight > 10) return { error: "weight must be between 1 and 10" };
+
+    const count = await db.reviewCriterion.count({ where: { eventId: ctx.eventId } });
+    const criterion = await db.reviewCriterion.create({
+      data: { eventId: ctx.eventId, name, weight, sortOrder: count },
+    });
+    return { criterion };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_review_criterion failed");
+    return { error: "Failed to create review criterion" };
+  }
+};
+
+const listAbstracts: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 200);
+    const statusValue = input.status ? String(input.status) : undefined;
+    if (statusValue && !ABSTRACT_STATUSES.has(statusValue)) {
+      return { error: `Invalid status. Must be one of: ${[...ABSTRACT_STATUSES].join(", ")}` };
+    }
+    const abstracts = await db.abstract.findMany({
+      where: {
+        eventId: ctx.eventId,
+        ...(statusValue ? { status: statusValue as never } : {}),
+        ...(input.themeId ? { themeId: String(input.themeId) } : {}),
+      },
+      select: {
+        id: true, title: true, status: true, specialty: true, presentationType: true,
+        reviewScore: true, submittedAt: true,
+        speaker: { select: { firstName: true, lastName: true, email: true } },
+        theme: { select: { name: true } },
+        track: { select: { name: true } },
+      },
+      take: limit,
+      orderBy: { submittedAt: "desc" },
+    });
+    return { abstracts, total: abstracts.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_abstracts failed");
+    return { error: "Failed to fetch abstracts" };
+  }
+};
+
+const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
+  try {
+    const abstractId = String(input.abstractId ?? "").trim();
+    const status = String(input.status ?? "").trim();
+    if (!abstractId) return { error: "abstractId is required" };
+    if (!ABSTRACT_UPDATE_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...ABSTRACT_UPDATE_STATUSES].join(", ")}` };
+    }
+
+    const abstract = await db.abstract.findFirst({
+      where: { id: abstractId, eventId: ctx.eventId },
+      select: { id: true, title: true, status: true },
+    });
+    if (!abstract) return { error: `Abstract ${abstractId} not found` };
+
+    const updated = await db.abstract.update({
+      where: { id: abstractId },
+      data: {
+        status: status as never,
+        reviewNotes: input.reviewNotes ? String(input.reviewNotes) : undefined,
+        reviewedAt: new Date(),
+      },
+      select: { id: true, title: true, status: true },
+    });
+    return { abstract: updated, previousStatus: abstract.status };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_abstract_status failed");
+    return { error: "Failed to update abstract status" };
+  }
+};
+
+// ─── Accommodation Executors ──────────────────────────────────────────────────
+
+const ACCOMMODATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"]);
+
+const listHotels: ToolExecutor = async (_input, ctx) => {
+  try {
+    const hotels = await db.hotel.findMany({
+      where: { eventId: ctx.eventId },
+      select: {
+        id: true, name: true, address: true, stars: true, contactEmail: true, isActive: true,
+        _count: { select: { roomTypes: true } },
+      },
+      orderBy: { name: "asc" },
+    });
+    return { hotels, total: hotels.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_hotels failed");
+    return { error: "Failed to fetch hotels" };
+  }
+};
+
+const createHotel: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim();
+    if (!name) return { error: "name is required" };
+
+    const existing = await db.hotel.findFirst({
+      where: { eventId: ctx.eventId, name: { equals: name, mode: "insensitive" } },
+    });
+    if (existing) return { alreadyExists: true, hotel: existing };
+
+    const hotel = await db.hotel.create({
+      data: {
+        eventId: ctx.eventId,
+        name,
+        address: input.address ? String(input.address) : null,
+        stars: input.stars ? Number(input.stars) : null,
+        contactEmail: input.contactEmail ? String(input.contactEmail) : null,
+        contactPhone: input.contactPhone ? String(input.contactPhone) : null,
+      },
+    });
+    return { hotel };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_hotel failed");
+    return { error: "Failed to create hotel" };
+  }
+};
+
+const listAccommodations: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 200);
+    const statusValue = input.status ? String(input.status) : undefined;
+    if (statusValue && !ACCOMMODATION_STATUSES.has(statusValue)) {
+      return { error: `Invalid status. Must be one of: ${[...ACCOMMODATION_STATUSES].join(", ")}` };
+    }
+    const accommodations = await db.accommodation.findMany({
+      where: {
+        eventId: ctx.eventId,
+        ...(statusValue ? { status: statusValue as never } : {}),
+      },
+      select: {
+        id: true, checkIn: true, checkOut: true, guestCount: true, status: true, totalPrice: true, currency: true,
+        registration: { select: { attendee: { select: { firstName: true, lastName: true, email: true } } } },
+        roomType: { select: { name: true, hotel: { select: { name: true } } } },
+      },
+      take: limit,
+      orderBy: { checkIn: "asc" },
+    });
+    return { accommodations, total: accommodations.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_accommodations failed");
+    return { error: "Failed to fetch accommodations" };
+  }
+};
+
+// ─── Media Executor ───────────────────────────────────────────────────────────
+
+const listMedia: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 100);
+    const files = await db.mediaFile.findMany({
+      where: { organizationId: ctx.organizationId },
+      select: { id: true, filename: true, url: true, mimeType: true, size: true, createdAt: true },
+      take: limit,
+      orderBy: { createdAt: "desc" },
+    });
+    return { files, total: files.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_media failed");
+    return { error: "Failed to fetch media files" };
+  }
+};
+
+// ─── Check-in Executor ────────────────────────────────────────────────────────
+
+const checkInRegistration: ToolExecutor = async (input, ctx) => {
+  try {
+    const registrationId = String(input.registrationId ?? "").trim();
+    if (!registrationId) return { error: "registrationId is required" };
+
+    const reg = await db.registration.findFirst({
+      where: { id: registrationId, eventId: ctx.eventId },
+      select: { id: true, status: true, checkedInAt: true, attendee: { select: { firstName: true, lastName: true } } },
+    });
+    if (!reg) return { error: `Registration ${registrationId} not found` };
+    if (reg.checkedInAt) return { alreadyCheckedIn: true, checkedInAt: reg.checkedInAt, attendee: reg.attendee };
+
+    await db.registration.update({
+      where: { id: registrationId },
+      data: { checkedInAt: new Date(), status: "CHECKED_IN" },
+    });
+    return { success: true, attendee: reg.attendee, checkedInAt: new Date() };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:check_in_registration failed");
+    return { error: "Failed to check in registration" };
+  }
+};
+
+// ─── Contact Executors ────────────────────────────────────────────────────────
+
+const listContacts: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 200);
+    const search = input.search ? String(input.search).trim() : undefined;
+    const tag = input.tag ? String(input.tag).trim() : undefined;
+
+    const contacts = await db.contact.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        ...(tag ? { tags: { has: tag } } : {}),
+        ...(search ? {
+          OR: [
+            { firstName: { contains: search, mode: "insensitive" as const } },
+            { lastName: { contains: search, mode: "insensitive" as const } },
+            { email: { contains: search, mode: "insensitive" as const } },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, organization: true,
+        jobTitle: true, city: true, country: true, tags: true,
+      },
+      take: limit,
+      orderBy: { lastName: "asc" },
+    });
+    return { contacts, total: contacts.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_contacts failed");
+    return { error: "Failed to fetch contacts" };
+  }
+};
+
+const createContact: ToolExecutor = async (input, ctx) => {
+  try {
+    const email = String(input.email ?? "").trim().toLowerCase();
+    const firstName = String(input.firstName ?? "").trim();
+    const lastName = String(input.lastName ?? "").trim();
+    if (!email || !firstName || !lastName) return { error: "email, firstName, and lastName are required" };
+
+    const existing = await db.contact.findFirst({
+      where: { organizationId: ctx.organizationId, email },
+    });
+    if (existing) return { alreadyExists: true, contact: { id: existing.id, email: existing.email, firstName: existing.firstName, lastName: existing.lastName } };
+
+    const contact = await db.contact.create({
+      data: {
+        organizationId: ctx.organizationId,
+        email,
+        firstName,
+        lastName,
+        organization: input.organization ? String(input.organization) : null,
+        jobTitle: input.jobTitle ? String(input.jobTitle) : null,
+        phone: input.phone ? String(input.phone) : null,
+        city: input.city ? String(input.city) : null,
+        country: input.country ? String(input.country) : null,
+        tags: Array.isArray(input.tags) ? (input.tags as string[]) : [],
+      },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    return { contact };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_contact failed");
+    return { error: "Failed to create contact" };
+  }
+};
+
+// ─── Reviewer Executor ────────────────────────────────────────────────────────
+
+const listReviewers: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId },
+      select: { settings: true },
+    });
+    const reviewerUserIds = (event?.settings as { reviewerUserIds?: string[] })?.reviewerUserIds ?? [];
+    if (reviewerUserIds.length === 0) return { reviewers: [], total: 0 };
+
+    const users = await db.user.findMany({
+      where: { id: { in: reviewerUserIds } },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    return { reviewers: users, total: users.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_reviewers failed");
+    return { error: "Failed to fetch reviewers" };
+  }
+};
+
+// ─── Invoice Executor ─────────────────────────────────────────────────────────
+
+const listInvoices: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 200);
+    const invoices = await db.invoice.findMany({
+      where: {
+        eventId: ctx.eventId,
+        ...(input.type ? { type: String(input.type) as never } : {}),
+        ...(input.status ? { status: String(input.status) as never } : {}),
+      },
+      select: {
+        id: true, invoiceNumber: true, type: true, status: true, total: true, currency: true,
+        issueDate: true, paidDate: true,
+        registration: { select: { attendee: { select: { firstName: true, lastName: true, email: true } } } },
+      },
+      take: limit,
+      orderBy: { issueDate: "desc" },
+    });
+    return { invoices, total: invoices.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_invoices failed");
+    return { error: "Failed to fetch invoices" };
+  }
+};
+
+// ─── Email Template Executor ──────────────────────────────────────────────────
+
+const listEmailTemplates: ToolExecutor = async (_input, ctx) => {
+  try {
+    const templates = await db.emailTemplate.findMany({
+      where: { eventId: ctx.eventId },
+      select: { id: true, name: true, subject: true, slug: true, isActive: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return { templates, total: templates.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_email_templates failed");
+    return { error: "Failed to fetch email templates" };
+  }
+};
+
+// ─── Event Stats Executor ─────────────────────────────────────────────────────
+
+const getEventStats: ToolExecutor = async (_input, ctx) => {
+  try {
+    const [regByStatus, regByPayment, speakersByStatus, abstractsByStatus, sessionCount, trackCount] = await Promise.all([
+      db.registration.groupBy({ by: ["status"], where: { eventId: ctx.eventId }, _count: true }),
+      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId: ctx.eventId }, _count: true }),
+      db.speaker.groupBy({ by: ["status"], where: { eventId: ctx.eventId }, _count: true }),
+      db.abstract.groupBy({ by: ["status"], where: { eventId: ctx.eventId }, _count: true }),
+      db.eventSession.count({ where: { eventId: ctx.eventId } }),
+      db.track.count({ where: { eventId: ctx.eventId } }),
+    ]);
+
+    const checkedIn = await db.registration.count({ where: { eventId: ctx.eventId, checkedInAt: { not: null } } });
+
+    return {
+      registrations: Object.fromEntries(regByStatus.map((r) => [r.status, r._count])),
+      payments: Object.fromEntries(regByPayment.map((r) => [r.paymentStatus, r._count])),
+      speakers: Object.fromEntries(speakersByStatus.map((s) => [s.status, s._count])),
+      abstracts: Object.fromEntries(abstractsByStatus.map((a) => [a.status, a._count])),
+      sessions: sessionCount,
+      tracks: trackCount,
+      checkedIn,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:get_event_stats failed");
+    return { error: "Failed to fetch event stats" };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -1015,4 +1616,30 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   create_registration: createRegistration,
   send_bulk_email: sendBulkEmail,
   add_topic_to_session: addTopicToSession,
+  // Abstract management
+  list_abstract_themes: listAbstractThemes,
+  create_abstract_theme: createAbstractTheme,
+  list_review_criteria: listReviewCriteria,
+  create_review_criterion: createReviewCriterion,
+  list_abstracts: listAbstracts,
+  update_abstract_status: updateAbstractStatus,
+  // Accommodation
+  list_hotels: listHotels,
+  create_hotel: createHotel,
+  list_accommodations: listAccommodations,
+  // Media
+  list_media: listMedia,
+  // Check-in
+  check_in_registration: checkInRegistration,
+  // Contacts
+  list_contacts: listContacts,
+  create_contact: createContact,
+  // Reviewers
+  list_reviewers: listReviewers,
+  // Invoices
+  list_invoices: listInvoices,
+  // Email templates
+  list_email_templates: listEmailTemplates,
+  // Stats
+  get_event_stats: getEventStats,
 };

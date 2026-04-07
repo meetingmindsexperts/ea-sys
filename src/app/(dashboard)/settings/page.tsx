@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,7 @@ import {
   XCircle,
   Upload,
   Palette,
+  Receipt,
   X as XIcon,
 } from "lucide-react";
 import {
@@ -388,504 +390,560 @@ export default function SettingsPage() {
         </Card>
       </div>
 
-      {/* Organization Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
-              <Building2 className="h-4 w-4" />
-            </div>
-            Organization Settings
-          </CardTitle>
-          <CardDescription>
-            Configure your organization&apos;s general settings
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="orgName">Organization Name</Label>
-              <Input
-                id="orgName"
-                value={orgFormData.name}
-                onChange={(e) =>
-                  setOrgFormData({ ...orgFormData, name: e.target.value })
-                }
-                disabled={!isAdmin}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
-              <Input
-                id="slug"
-                value={organization?.slug || ""}
-                disabled
-                className="bg-muted"
-              />
-            </div>
-          </div>
-
-          {/* Branding: Logo + Primary Color */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Organization Logo</Label>
-              <div className="flex items-center gap-4">
-                {orgFormData.logo ? (
-                  <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={orgFormData.logo}
-                      alt="Org logo"
-                      className="h-12 w-auto max-w-[120px] object-contain rounded border p-1"
-                    />
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setOrgFormData({ ...orgFormData, logo: null })}
-                        className="absolute -top-2 -right-2 rounded-full bg-destructive text-white p-0.5"
-                        aria-label="Remove logo"
-                      >
-                        <XIcon className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-12 w-12 rounded border border-dashed flex items-center justify-center text-muted-foreground">
-                    <Upload className="h-5 w-5" />
-                  </div>
-                )}
-                {isAdmin && (
-                  <div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={logoUploading}
-                      onClick={() => document.getElementById("logo-upload")?.click()}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      {logoUploading ? "Uploading..." : "Upload Logo"}
-                    </Button>
-                    <input
-                      id="logo-upload"
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      aria-label="Upload organization logo"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        if (file.size > 500 * 1024) {
-                          toast.error("Logo must be under 500KB");
-                          return;
-                        }
-                        setLogoUploading(true);
-                        try {
-                          const formData = new FormData();
-                          formData.append("file", file);
-                          const res = await fetch("/api/upload/photo", {
-                            method: "POST",
-                            body: formData,
-                          });
-                          if (res.ok) {
-                            const { url } = await res.json();
-                            setOrgFormData((prev) => ({ ...prev, logo: url }));
-                            toast.success("Logo uploaded");
-                          } else {
-                            toast.error("Failed to upload logo");
-                          }
-                        } catch {
-                          toast.error("Failed to upload logo");
-                        } finally {
-                          setLogoUploading(false);
-                          e.target.value = "";
-                        }
-                      }}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      JPEG, PNG, or WebP. Max 500KB.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="primaryColor">
-                <span className="flex items-center gap-1.5">
-                  <Palette className="h-4 w-4" />
-                  Brand Color
-                </span>
-              </Label>
-              <div className="flex items-center gap-3">
-                <input
-                  id="primaryColor"
-                  type="color"
-                  title="Brand color picker"
-                  value={orgFormData.primaryColor || "#00aade"}
-                  onChange={(e) =>
-                    setOrgFormData({ ...orgFormData, primaryColor: e.target.value })
-                  }
-                  disabled={!isAdmin}
-                  className="h-10 w-14 cursor-pointer rounded border p-0.5"
-                />
-                <Input
-                  value={orgFormData.primaryColor || "#00aade"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
-                      setOrgFormData({ ...orgFormData, primaryColor: v });
-                    }
-                  }}
-                  disabled={!isAdmin}
-                  className="w-28 font-mono text-sm"
-                  maxLength={7}
-                  placeholder="#00aade"
-                />
-                {orgFormData.primaryColor && isAdmin && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setOrgFormData({ ...orgFormData, primaryColor: null })}
-                    className="text-muted-foreground"
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Used as the primary accent color throughout the dashboard.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="timezone">Default Timezone</Label>
-              <Select
-                value={orgFormData.timezone}
-                onValueChange={(value) =>
-                  setOrgFormData({ ...orgFormData, timezone: value })
-                }
-                disabled={!isAdmin}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {timezones.map((tz) => (
-                    <SelectItem key={tz} value={tz}>
-                      {tz}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dateFormat">Date Format</Label>
-              <Select
-                value={orgFormData.dateFormat}
-                onValueChange={(value) =>
-                  setOrgFormData({ ...orgFormData, dateFormat: value })
-                }
-                disabled={!isAdmin}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {dateFormats.map((df) => (
-                    <SelectItem key={df.value} value={df.value}>
-                      {df.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="currency">Default Currency</Label>
-              <Select
-                value={orgFormData.currency}
-                onValueChange={(value) =>
-                  setOrgFormData({ ...orgFormData, currency: value })
-                }
-                disabled={!isAdmin}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {currencies.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Email Notifications</Label>
-              <p className="text-sm text-muted-foreground">
-                Receive email notifications for important events
-              </p>
-            </div>
-            <Switch
-              checked={orgFormData.emailNotifications}
-              onCheckedChange={(checked) =>
-                setOrgFormData({ ...orgFormData, emailNotifications: checked })
-              }
-              disabled={!isAdmin}
-            />
-          </div>
-
+      {/* Tabs */}
+      <Tabs defaultValue="general" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="general" className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            General
+          </TabsTrigger>
+          <TabsTrigger value="team" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Team
+          </TabsTrigger>
           {isAdmin && (
-            <div className="flex justify-end">
-              <Button onClick={handleSaveOrganization} disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />
-                {saving ? "Saving..." : "Save Changes"}
-              </Button>
-            </div>
+            <TabsTrigger value="billing" className="flex items-center gap-2">
+              <Receipt className="h-4 w-4" />
+              Billing
+            </TabsTrigger>
           )}
-        </CardContent>
-      </Card>
+          {isAdmin && (
+            <TabsTrigger value="integrations" className="flex items-center gap-2">
+              <Cloud className="h-4 w-4" />
+              Integrations
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="api-keys" className="flex items-center gap-2">
+              <Key className="h-4 w-4" />
+              API Keys
+            </TabsTrigger>
+          )}
+          {isSuperAdmin && (
+            <TabsTrigger value="system" className="flex items-center gap-2">
+              <Terminal className="h-4 w-4" />
+              System
+            </TabsTrigger>
+          )}
+        </TabsList>
 
-      {/* Team Members */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
+        {/* General Settings */}
+        <TabsContent value="general">
+          <Card>
+            <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-50 text-violet-600">
-                  <Users className="h-4 w-4" />
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                  <Building2 className="h-4 w-4" />
                 </div>
-                Team Members
+                Organization Settings
               </CardTitle>
               <CardDescription>
-                Manage users who have access to your organization
+                Configure your organization&apos;s general settings
               </CardDescription>
-            </div>
-            {isAdmin && (
-              <Dialog
-                open={isUserDialogOpen}
-                onOpenChange={(open) => {
-                  setIsUserDialogOpen(open);
-                  if (!open) resetUserForm();
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add User
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>
-                      {editingUser ? "Edit User" : "Add New User"}
-                    </DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleUserSubmit} className="space-y-4">
-                    {!editingUser && (
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          value={userFormData.email}
-                          onChange={(e) =>
-                            setUserFormData({
-                              ...userFormData,
-                              email: e.target.value,
-                            })
-                          }
-                          required
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="orgName">Organization Name</Label>
+                  <Input
+                    id="orgName"
+                    value={orgFormData.name}
+                    onChange={(e) =>
+                      setOrgFormData({ ...orgFormData, name: e.target.value })
+                    }
+                    disabled={!isAdmin}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="slug">Slug</Label>
+                  <Input
+                    id="slug"
+                    value={organization?.slug || ""}
+                    disabled
+                    className="bg-muted"
+                  />
+                </div>
+              </div>
+
+              {/* Branding: Logo + Primary Color */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Organization Logo</Label>
+                  <div className="flex items-center gap-4">
+                    {orgFormData.logo ? (
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={orgFormData.logo}
+                          alt="Org logo"
+                          className="h-12 w-auto max-w-[120px] object-contain rounded border p-1"
                         />
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setOrgFormData({ ...orgFormData, logo: null })}
+                            className="absolute -top-2 -right-2 rounded-full bg-destructive text-white p-0.5"
+                            aria-label="Remove logo"
+                          >
+                            <XIcon className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="h-12 w-12 rounded border border-dashed flex items-center justify-center text-muted-foreground">
+                        <Upload className="h-5 w-5" />
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="firstName">First Name</Label>
-                        <Input
-                          id="firstName"
-                          value={userFormData.firstName}
-                          onChange={(e) =>
-                            setUserFormData({
-                              ...userFormData,
-                              firstName: e.target.value,
-                            })
-                          }
-                          required
+                    {isAdmin && (
+                      <div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={logoUploading}
+                          onClick={() => document.getElementById("logo-upload")?.click()}
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          {logoUploading ? "Uploading..." : "Upload Logo"}
+                        </Button>
+                        <input
+                          id="logo-upload"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          aria-label="Upload organization logo"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 500 * 1024) {
+                              toast.error("Logo must be under 500KB");
+                              return;
+                            }
+                            setLogoUploading(true);
+                            try {
+                              const formData = new FormData();
+                              formData.append("file", file);
+                              const res = await fetch("/api/upload/photo", {
+                                method: "POST",
+                                body: formData,
+                              });
+                              if (res.ok) {
+                                const { url } = await res.json();
+                                setOrgFormData((prev) => ({ ...prev, logo: url }));
+                                toast.success("Logo uploaded");
+                              } else {
+                                toast.error("Failed to upload logo");
+                              }
+                            } catch {
+                              toast.error("Failed to upload logo");
+                            } finally {
+                              setLogoUploading(false);
+                              e.target.value = "";
+                            }
+                          }}
                         />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          JPEG, PNG, or WebP. Max 500KB.
+                        </p>
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="lastName">Last Name</Label>
-                        <Input
-                          id="lastName"
-                          value={userFormData.lastName}
-                          onChange={(e) =>
-                            setUserFormData({
-                              ...userFormData,
-                              lastName: e.target.value,
-                            })
-                          }
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="role">Role</Label>
-                      <Select
-                        value={userFormData.role}
-                        onValueChange={(value) =>
-                          setUserFormData({ ...userFormData, role: value })
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="primaryColor">
+                    <span className="flex items-center gap-1.5">
+                      <Palette className="h-4 w-4" />
+                      Brand Color
+                    </span>
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="primaryColor"
+                      type="color"
+                      title="Brand color picker"
+                      value={orgFormData.primaryColor || "#00aade"}
+                      onChange={(e) =>
+                        setOrgFormData({ ...orgFormData, primaryColor: e.target.value })
+                      }
+                      disabled={!isAdmin}
+                      className="h-10 w-14 cursor-pointer rounded border p-0.5"
+                    />
+                    <Input
+                      value={orgFormData.primaryColor || "#00aade"}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                          setOrgFormData({ ...orgFormData, primaryColor: v });
                         }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ADMIN">Admin</SelectItem>
-                          <SelectItem value="ORGANIZER">Organizer</SelectItem>
-                          <SelectItem value="MEMBER">Member</SelectItem>
-                          <SelectItem value="REVIEWER">Reviewer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {!editingUser && (
-                      <div className="flex items-center gap-2 p-3 bg-muted rounded-lg text-sm">
-                        <Mail className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          An invitation email will be sent to set up their account
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-end gap-2">
+                      }}
+                      disabled={!isAdmin}
+                      className="w-28 font-mono text-sm"
+                      maxLength={7}
+                      placeholder="#00aade"
+                    />
+                    {orgFormData.primaryColor && isAdmin && (
                       <Button
                         type="button"
-                        variant="outline"
-                        onClick={() => setIsUserDialogOpen(false)}
-                        disabled={isSubmittingUser}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOrgFormData({ ...orgFormData, primaryColor: null })}
+                        className="text-muted-foreground"
                       >
-                        Cancel
+                        Reset
                       </Button>
-                      <Button type="submit" disabled={isSubmittingUser}>
-                        {isSubmittingUser && (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        )}
-                        {editingUser ? "Save Changes" : "Send Invitation"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Joined</TableHead>
-                {isAdmin && <TableHead className="w-[100px]">Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">
-                    {user.firstName} {user.lastName}
-                    {user.id === session?.user?.id && (
-                      <Badge variant="outline" className="ml-2">
-                        You
-                      </Badge>
                     )}
-                  </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Badge className={roleColors[user.role]} variant="outline">
-                      {user.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {new Date(user.createdAt).toLocaleDateString()}
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditUserDialog(user)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {user.id !== session?.user?.id && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteUser(user.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Used as the primary accent color throughout the dashboard.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="timezone">Default Timezone</Label>
+                  <Select
+                    value={orgFormData.timezone}
+                    onValueChange={(value) =>
+                      setOrgFormData({ ...orgFormData, timezone: value })
+                    }
+                    disabled={!isAdmin}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {timezones.map((tz) => (
+                        <SelectItem key={tz} value={tz}>
+                          {tz}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dateFormat">Date Format</Label>
+                  <Select
+                    value={orgFormData.dateFormat}
+                    onValueChange={(value) =>
+                      setOrgFormData({ ...orgFormData, dateFormat: value })
+                    }
+                    disabled={!isAdmin}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dateFormats.map((df) => (
+                        <SelectItem key={df.value} value={df.value}>
+                          {df.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Default Currency</Label>
+                  <Select
+                    value={orgFormData.currency}
+                    onValueChange={(value) =>
+                      setOrgFormData({ ...orgFormData, currency: value })
+                    }
+                    disabled={!isAdmin}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currencies.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Email Notifications</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Receive email notifications for important events
+                  </p>
+                </div>
+                <Switch
+                  checked={orgFormData.emailNotifications}
+                  onCheckedChange={(checked) =>
+                    setOrgFormData({ ...orgFormData, emailNotifications: checked })
+                  }
+                  disabled={!isAdmin}
+                />
+              </div>
+
+              {isAdmin && (
+                <div className="flex justify-end">
+                  <Button onClick={handleSaveOrganization} disabled={saving}>
+                    <Save className="mr-2 h-4 w-4" />
+                    {saving ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Team Members */}
+        <TabsContent value="team">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-50 text-violet-600">
+                      <Users className="h-4 w-4" />
+                    </div>
+                    Team Members
+                  </CardTitle>
+                  <CardDescription>
+                    Manage users who have access to your organization
+                  </CardDescription>
+                </div>
+                {isAdmin && (
+                  <Dialog
+                    open={isUserDialogOpen}
+                    onOpenChange={(open) => {
+                      setIsUserDialogOpen(open);
+                      if (!open) resetUserForm();
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add User
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>
+                          {editingUser ? "Edit User" : "Add New User"}
+                        </DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleUserSubmit} className="space-y-4">
+                        {!editingUser && (
+                          <div className="space-y-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                              id="email"
+                              type="email"
+                              value={userFormData.email}
+                              onChange={(e) =>
+                                setUserFormData({
+                                  ...userFormData,
+                                  email: e.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </div>
                         )}
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* System Logs - SUPER_ADMIN only */}
-      {isSuperAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-600">
-                <Terminal className="h-4 w-4" />
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="firstName">First Name</Label>
+                            <Input
+                              id="firstName"
+                              value={userFormData.firstName}
+                              onChange={(e) =>
+                                setUserFormData({
+                                  ...userFormData,
+                                  firstName: e.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="lastName">Last Name</Label>
+                            <Input
+                              id="lastName"
+                              value={userFormData.lastName}
+                              onChange={(e) =>
+                                setUserFormData({
+                                  ...userFormData,
+                                  lastName: e.target.value,
+                                })
+                              }
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="role">Role</Label>
+                          <Select
+                            value={userFormData.role}
+                            onValueChange={(value) =>
+                              setUserFormData({ ...userFormData, role: value })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ADMIN">Admin</SelectItem>
+                              <SelectItem value="ORGANIZER">Organizer</SelectItem>
+                              <SelectItem value="MEMBER">Member</SelectItem>
+                              <SelectItem value="REVIEWER">Reviewer</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {!editingUser && (
+                          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg text-sm">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-muted-foreground">
+                              An invitation email will be sent to set up their account
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setIsUserDialogOpen(false)}
+                            disabled={isSubmittingUser}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="submit" disabled={isSubmittingUser}>
+                            {isSubmittingUser && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            {editingUser ? "Save Changes" : "Send Invitation"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
-              System Logs
-            </CardTitle>
-            <CardDescription>
-              Monitor and debug application logs in real-time
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Docker Container Logs</p>
-                <p className="text-xs text-muted-foreground">
-                  View real-time logs, filter by level, search, and export logs
-                </p>
-              </div>
-              <Button asChild variant="outline">
-                <Link href="/logs" className="flex items-center gap-2">
-                  <Terminal className="h-4 w-4" />
-                  Open Logs
-                  <ExternalLink className="h-3 w-3" />
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Joined</TableHead>
+                    {isAdmin && <TableHead className="w-[100px]">Actions</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">
+                        {user.firstName} {user.lastName}
+                        {user.id === session?.user?.id && (
+                          <Badge variant="outline" className="ml-2">
+                            You
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>
+                        <Badge className={roleColors[user.role]} variant="outline">
+                          {user.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(user.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditUserDialog(user)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            {user.id !== session?.user?.id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteUser(user.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {/* Billing & Invoicing */}
-      {isAdmin && <BillingSettingsCard />}
+        {/* Billing & Invoicing */}
+        {isAdmin && (
+          <TabsContent value="billing">
+            <BillingSettingsCard />
+          </TabsContent>
+        )}
 
-      {/* EventsAir Integration */}
-      {isAdmin && <EventsAirCard />}
+        {/* EventsAir Integration */}
+        {isAdmin && (
+          <TabsContent value="integrations">
+            <EventsAirCard />
+          </TabsContent>
+        )}
 
-      {/* API Keys */}
-      {isAdmin && <ApiKeysCard />}
+        {/* API Keys */}
+        {isAdmin && (
+          <TabsContent value="api-keys">
+            <ApiKeysCard />
+          </TabsContent>
+        )}
+
+        {/* System Logs - SUPER_ADMIN only */}
+        {isSuperAdmin && (
+          <TabsContent value="system">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-600">
+                    <Terminal className="h-4 w-4" />
+                  </div>
+                  System Logs
+                </CardTitle>
+                <CardDescription>
+                  Monitor and debug application logs in real-time
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Docker Container Logs</p>
+                    <p className="text-xs text-muted-foreground">
+                      View real-time logs, filter by level, search, and export logs
+                    </p>
+                  </div>
+                  <Button asChild variant="outline">
+                    <Link href="/logs" className="flex items-center gap-2">
+                      <Terminal className="h-4 w-4" />
+                      Open Logs
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
