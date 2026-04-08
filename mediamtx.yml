@@ -1,0 +1,18 @@
+# MediaMTX configuration for EA-SYS live streaming
+# RTMP ingest from Zoom → HLS output for browser playback
+
+hlsAddress: :8888
+rtmpAddress: :1935
+webrtcAddress: :8889
+
+# HLS settings for low-latency streaming
+hlsSegmentCount: 3
+hlsSegmentDuration: 2s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+
+# Allow all paths (stream keys are generated per-session)
+paths:
+  all:
+    readUser: ""
+    readPass: ""

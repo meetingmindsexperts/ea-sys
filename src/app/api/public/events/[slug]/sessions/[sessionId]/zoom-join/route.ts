@@ -58,6 +58,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             status: true,
             isRecurring: true,
             occurrences: true,
+            liveStreamEnabled: true,
+            streamKey: true,
+            streamStatus: true,
           },
         },
       },
@@ -98,6 +101,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       0, // role = attendee
     );
 
+    // Build streaming info if live stream is enabled
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const streamingFields = session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey
+      ? {
+          liveStreamEnabled: true,
+          hlsPlaybackUrl: `${appUrl}/stream/${session.zoomMeeting.streamKey}/index.m3u8`,
+          streamStatus: session.zoomMeeting.streamStatus,
+        }
+      : { liveStreamEnabled: false };
+
     if (!sdkResult) {
       // SDK not configured — fall back to join URL (opens in Zoom app)
       apiLogger.info({ sessionId, meetingType: session.zoomMeeting.meetingType }, "zoom:join-via-url");
@@ -107,6 +120,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         passcode: session.zoomMeeting.passcode,
         meetingType: session.zoomMeeting.meetingType,
         sessionName: session.name,
+        ...streamingFields,
       });
     }
 
@@ -120,7 +134,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       passcode: session.zoomMeeting.passcode || "",
       meetingType: session.zoomMeeting.meetingType,
       sessionName: session.name,
-      joinUrl: session.zoomMeeting.joinUrl, // fallback
+      joinUrl: session.zoomMeeting.joinUrl,
+      ...streamingFields,
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:join-failed");

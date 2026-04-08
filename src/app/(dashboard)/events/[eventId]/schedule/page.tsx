@@ -102,6 +102,9 @@ interface ZoomMeetingInfo {
   joinUrl: string;
   startUrl: string | null;
   passcode: string | null;
+  liveStreamEnabled: boolean;
+  streamKey: string | null;
+  streamStatus: string;
 }
 
 interface Session {
@@ -1261,6 +1264,9 @@ export default function SchedulePage() {
                     zoomStartUrl={editingSession.zoomMeeting?.startUrl || undefined}
                     zoomMeetingId={editingSession.zoomMeeting?.zoomMeetingId}
                     zoomPasscode={editingSession.zoomMeeting?.passcode || undefined}
+                    zoomLiveStreamEnabled={editingSession.zoomMeeting?.liveStreamEnabled}
+                    zoomStreamKey={editingSession.zoomMeeting?.streamKey || undefined}
+                    zoomStreamStatus={editingSession.zoomMeeting?.streamStatus}
                     eventSlug={event?.slug}
                     defaultMeetingType={zoomSettings?.defaultMeetingType || "MEETING"}
                     onCreated={() => refetchSessions()}

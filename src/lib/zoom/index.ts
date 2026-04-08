@@ -27,6 +27,8 @@ export {
   addWebinarPanelists,
   listWebinarPanelists,
   removeWebinarPanelist,
+  enableZoomLiveStreaming,
+  enableWebinarLiveStreaming,
 } from "./meetings";
 
 // Meeting SDK signatures

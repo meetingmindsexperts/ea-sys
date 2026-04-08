@@ -165,6 +165,38 @@ export async function deleteZoomWebinar(
   await zoomApiRequest<void>(organizationId, "DELETE", `/webinars/${webinarId}`);
 }
 
+// ── Live Streaming (RTMP → MediaMTX) ───────────────────────────────
+
+export async function enableZoomLiveStreaming(
+  organizationId: string,
+  meetingId: string,
+  rtmpUrl: string,
+  streamKey: string,
+  pageUrl?: string,
+): Promise<void> {
+  apiLogger.info({ orgId: organizationId, meetingId, streamKey }, "zoom:enabling-live-stream");
+  await zoomApiRequest<void>(organizationId, "PATCH", `/meetings/${meetingId}/livestream`, {
+    stream_url: rtmpUrl,
+    stream_key: streamKey,
+    page_url: pageUrl || "",
+  });
+}
+
+export async function enableWebinarLiveStreaming(
+  organizationId: string,
+  webinarId: string,
+  rtmpUrl: string,
+  streamKey: string,
+  pageUrl?: string,
+): Promise<void> {
+  apiLogger.info({ orgId: organizationId, webinarId, streamKey }, "zoom:enabling-webinar-live-stream");
+  await zoomApiRequest<void>(organizationId, "PATCH", `/webinars/${webinarId}/livestream`, {
+    stream_url: rtmpUrl,
+    stream_key: streamKey,
+    page_url: pageUrl || "",
+  });
+}
+
 // ── Panelists ──────────────────────────────────────────────────────
 
 export async function addWebinarPanelists(

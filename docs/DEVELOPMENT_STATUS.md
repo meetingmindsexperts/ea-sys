@@ -1430,22 +1430,25 @@ LOG_LEVEL="debug"  # Optional: debug, info, warn, error
 ### Zoom Integration (April 7-8, 2026)
 
 - [x] Added `ZoomMeeting` Prisma model with enums (`ZoomMeetingType`, `ZoomMeetingStatus`) and 1:1 relation to `EventSession`
-- [x] Created `src/lib/zoom/` server module (OAuth client, meetings/webinars CRUD, JWT signature generation, panelist management)
-- [x] Org-level Zoom credentials (Server-to-Server OAuth + Meeting SDK) stored encrypted in `Organization.settings.zoom`
+- [x] Created `src/lib/zoom/` server module (OAuth client with in-memory token cache + debug-level cache hit logging, meetings/webinars CRUD with per-operation logging, org-aware JWT signature generation)
+- [x] All credentials stored AES-256-GCM encrypted per-org in `Organization.settings.zoom` — no env vars needed
+- [x] Server-to-Server OAuth: accountId, clientId, clientSecretEncrypted
+- [x] General App SDK with separate Dev and Prod keys: sdkKeyDev/sdkSecretDevEncrypted, sdkKeyProd/sdkSecretProdEncrypted, sdkMode toggle
+- [x] Secrets optional on update — existing encrypted values preserved if left blank; GET returns `hasClientSecret`/`hasSdkSecretDev`/`hasSdkSecretProd` flags, never actual secrets
 - [x] Per-event Zoom toggle via `Event.settings.zoom.enabled`
-- [x] 6 API routes: credentials CRUD, test connection, event settings, session meeting CRUD, panelist sync, public join
-- [x] 7 UI components: credentials form, settings card with setup guide, meeting form with host/join/copy links, session badge, join button, embedded viewer, series schedule
-- [x] Public session page at `/e/[slug]/session/[sessionId]` with embedded Zoom Meeting SDK (dynamic import, `ssr: false`)
-- [x] Embedded meetings use org-level SDK credentials (no environment variables needed)
+- [x] 7 API routes: credentials CRUD (with dev/prod SDK), test connection, event settings, session meeting CRUD (with startUrl/passcode), panelist sync, public join (org-aware signature), public session detail (event branding + speakers)
+- [x] 7 UI components: credentials form with Dev/Prod sections + Active SDK Mode dropdown, settings card with step-by-step setup guide, meeting form with Start as Host / Attendee Join / Copy Link / Open Embed Page, session badge with live pulse, join button, embed viewer (preserved for future), series schedule
+- [x] Branded public session landing page at `/e/[slug]/session/[sessionId]` — event banner, org name, session title/date/time/location, speakers sidebar with photos and bios, Live/Upcoming/Ended badges, prominent "Join Meeting" CTA opening Zoom web client, meeting details card, DRAFT events supported for testing
 - [x] 10 React Query hooks for Zoom state management
 - [x] AI agent tools: `list_zoom_meetings`, `create_zoom_meeting`
 - [x] Zoom badge on session cards (calendar tooltip + session list)
-- [x] "Start as Host" (opens Zoom as host) + "Attendee Join Link" + "Copy Link" in session dialog
 - [x] Webinar series support (recurring webinar with `type: 9`, occurrence tracking)
-- [x] Rate limiting on all Zoom endpoints (30/hr create, 60/hr join, 10/hr credentials)
-- [x] Full `apiLogger` coverage with Zoom-specific prefixes (`zoom:create-meeting`, `zoom:api-call`, `zoom:api-error`, etc.)
-- [x] Scoped `Permissions-Policy` header for microphone on embed pages only
+- [x] Rate limiting on all Zoom endpoints: create 30/hr, join 60/hr, credentials 10/hr, test 10/hr, panelists 30/hr — all with `apiLogger.warn` on rejection
+- [x] Full logging coverage: `zoom:creating-meeting`, `zoom:api-call` (with durationMs), `zoom:api-error` (with zoomErrorCode), `zoom:token-cache-hit` (with ttlMs), `zoom:oauth-token-refreshed`, `zoom:join-via-sdk`/`zoom:join-via-url`, `zoom:adding-panelists`, `zoom:panelists-synced`, `zoom:credentials-saved`/`deleted`, all validation failures logged as warn
+- [x] Performance: OAuth token cache with 5-min pre-expiry refresh, Promise.all on all parallel queries, Prisma select everywhere, no N+1 patterns, stateless public endpoints (~2ms per join request)
 - [x] `@zoom/meetingsdk` in `serverExternalPackages` to keep server bundle clean
+- [x] Scoped `Permissions-Policy` header for microphone on embed pages only
+- [x] `zoom-embed.tsx` preserved for future use — Zoom SDK v5/v6 bundles React 18, incompatible with React 19 (Next.js 16)
 - [x] Migration: `20260408000000_add_speaker_accommodation_and_zoom`
 
 **Meeting Types:**
@@ -1463,14 +1466,16 @@ LOG_LEVEL="debug"  # Optional: debug, info, warn, error
 - `src/app/(dashboard)/events/[eventId]/schedule/page.tsx` — Zoom button + badges in session UI
 - `src/app/api/events/[eventId]/sessions/route.ts` — zoomMeeting in session response
 
-**New Files (20):**
-- `src/lib/zoom/` (5 files) — types, client, meetings, signature, index
-- `src/app/api/` (6 routes) — credentials, test-connection, settings, meeting CRUD, panelists, public join
-- `src/components/zoom/` (7 components) — credentials, settings, meeting form, badge, join button, embed, series
-- `src/app/e/[slug]/session/[sessionId]/page.tsx` — public embedded session page
+**New Files (22):**
+- `src/lib/zoom/` (5 files) — types (with dev/prod SDK), client, meetings, signature, index
+- `src/app/api/` (7 routes) — credentials, test-connection, settings, meeting CRUD, panelists, public join, public detail
+- `src/components/zoom/` (7 components) — credentials, settings, meeting form, badge, join button, embed (preserved), series
+- `src/app/e/[slug]/session/[sessionId]/page.tsx` — branded public session landing page
 - `prisma/migrations/20260408000000_.../migration.sql` — database migration
 
-**Documentation:** `docs/ZOOM_INTEGRATION.html` — complete implementation guide with architecture, setup steps, and file list
+**Known Limitation:** Zoom Meeting SDK (`@zoom/meetingsdk` v5/v6) bundles React 18 internally — incompatible with React 19 / Next.js 16. In-browser embedded meetings not currently possible. Branded landing page redirects to Zoom web client instead.
+
+**Documentation:** `docs/ZOOM_INTEGRATION.html` — complete implementation guide with architecture, setup, logging, performance, and file list
 
 ---
 

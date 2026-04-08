@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Video, Loader2, Trash2, ExternalLink, Copy, Check } from "lucide-react";
+import { Video, Loader2, Trash2, ExternalLink, Copy, Check, Radio } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useCreateZoomMeeting, useDeleteZoomMeeting } from "@/hooks/use-api";
 
@@ -29,6 +30,9 @@ interface ZoomMeetingFormProps {
   zoomStartUrl?: string;
   zoomMeetingId?: string;
   zoomPasscode?: string;
+  zoomLiveStreamEnabled?: boolean;
+  zoomStreamKey?: string;
+  zoomStreamStatus?: string;
   eventSlug?: string;
   defaultMeetingType?: string;
   onCreated?: () => void;
@@ -45,6 +49,9 @@ export function ZoomMeetingForm({
   zoomStartUrl,
   zoomMeetingId,
   zoomPasscode,
+  zoomLiveStreamEnabled,
+  zoomStreamKey,
+  zoomStreamStatus,
   eventSlug,
   defaultMeetingType = "MEETING",
   onCreated,
@@ -56,6 +63,7 @@ export function ZoomMeetingForm({
   const [waitingRoom, setWaitingRoom] = useState(true);
   const [autoRecording, setAutoRecording] = useState("none");
   const [syncPanelists, setSyncPanelists] = useState(true);
+  const [liveStream, setLiveStream] = useState(false);
 
   // Series fields
   const [recurrenceType, setRecurrenceType] = useState<number>(2); // weekly
@@ -73,6 +81,7 @@ export function ZoomMeetingForm({
         waitingRoom,
         autoRecording,
         syncPanelists,
+        liveStreamEnabled: liveStream,
       };
 
       if (meetingType === "WEBINAR_SERIES") {
@@ -193,6 +202,46 @@ export function ZoomMeetingForm({
             </Button>
           )}
         </div>
+
+        {/* Live streaming info */}
+        {zoomLiveStreamEnabled && zoomStreamKey && (
+          <div className="border-t pt-2 mt-1 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Radio className="h-3.5 w-3.5 text-red-500" />
+              <span className="text-xs font-medium">Live Streaming</span>
+              <Badge
+                variant="outline"
+                className={`text-xs ${
+                  zoomStreamStatus === "ACTIVE"
+                    ? "bg-green-50 text-green-700 border-green-200"
+                    : zoomStreamStatus === "ENDED"
+                      ? "bg-gray-50 text-gray-600 border-gray-200"
+                      : "bg-amber-50 text-amber-700 border-amber-200"
+                }`}
+              >
+                {zoomStreamStatus === "ACTIVE" && (
+                  <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                )}
+                {zoomStreamStatus || "IDLE"}
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p>
+                RTMP URL:{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                  {process.env.NEXT_PUBLIC_APP_URL ? `rtmp://${new URL(process.env.NEXT_PUBLIC_APP_URL).hostname}:1935/live/` : "rtmp://localhost:1935/live/"}
+                </code>
+              </p>
+              <p>
+                Stream Key:{" "}
+                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">{zoomStreamKey}</code>
+              </p>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Zoom auto-streams when the host starts the meeting. Attendees watch via the embedded player.
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -318,6 +367,25 @@ export function ZoomMeetingForm({
               />
             </div>
           )}
+
+          <div className="border-t pt-3 mt-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="zoom-live-stream" className="flex items-center gap-1.5">
+                  <Radio className="h-3.5 w-3.5 text-red-500" />
+                  Enable Live Streaming
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Attendees watch via an embedded video player — no Zoom account needed.
+                </p>
+              </div>
+              <Switch
+                id="zoom-live-stream"
+                checked={liveStream}
+                onCheckedChange={setLiveStream}
+              />
+            </div>
+          </div>
         </div>
 
         <DialogFooter>

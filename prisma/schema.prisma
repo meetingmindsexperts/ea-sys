@@ -1001,8 +1001,12 @@ model ZoomMeeting {
   recurrenceType Int?
   occurrences    Json?
   zoomResponse   Json?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  // Live streaming (RTMP → MediaMTX → HLS)
+  liveStreamEnabled Boolean       @default(false)
+  streamKey         String?       // unique key for RTMP path
+  streamStatus      StreamStatus  @default(IDLE)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -1022,4 +1026,11 @@ enum ZoomMeetingStatus {
   STARTED
   ENDED
   DELETED
+}
+
+enum StreamStatus {
+  IDLE
+  ACTIVE
+  ENDED
+  ERROR
 }

@@ -1143,6 +1143,7 @@ export function useCreateZoomMeeting(eventId: string, sessionId: string) {
       waitingRoom?: boolean;
       autoRecording?: string;
       syncPanelists?: boolean;
+      liveStreamEnabled?: boolean;
       recurrence?: {
         type: 1 | 2 | 3;
         repeat_interval: number;

@@ -15,7 +15,10 @@ import {
   updateZoomWebinar,
   deleteZoomMeeting,
   deleteZoomWebinar,
+  enableZoomLiveStreaming,
+  enableWebinarLiveStreaming,
 } from "@/lib/zoom";
+import crypto from "crypto";
 import type { ZoomRecurrence } from "@/lib/zoom";
 import { z } from "zod";
 
@@ -37,6 +40,7 @@ const createZoomSchema = z.object({
   autoRecording: z.enum(["none", "local", "cloud"]).default("none"),
   syncPanelists: z.boolean().default(true),
   recurrence: recurrenceSchema.optional(),
+  liveStreamEnabled: z.boolean().default(false),
 });
 
 const updateZoomSchema = z.object({
@@ -114,7 +118,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, eventSession, existingZoom] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true, organizationId: true, timezone: true },
+        select: { id: true, organizationId: true, timezone: true, slug: true },
       }),
       db.eventSession.findFirst({
         where: { id: sessionId, eventId },
@@ -177,6 +181,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     }
 
+    // Generate stream key if live streaming enabled
+    const liveStreamEnabled = validated.data.liveStreamEnabled;
+    const streamKey = liveStreamEnabled ? crypto.randomUUID().replace(/-/g, "") : undefined;
+
     // Store in database
     const zoomMeeting = await db.zoomMeeting.create({
       data: {
@@ -192,11 +200,31 @@ export async function POST(req: Request, { params }: RouteParams) {
         recurrenceType: validated.data.recurrence?.type,
         occurrences: "occurrences" in zoomResponse ? (zoomResponse.occurrences as Parameters<typeof db.zoomMeeting.create>[0]["data"]["occurrences"]) : undefined,
         zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
+        liveStreamEnabled,
+        streamKey,
       },
     });
 
+    // Configure Zoom to push RTMP to MediaMTX
+    if (liveStreamEnabled && streamKey) {
+      const rtmpBaseUrl = process.env.RTMP_INGEST_URL || `rtmp://${new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost").hostname}:1935/live/`;
+      const pageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/e/${event.slug}/session/${sessionId}`;
+
+      try {
+        if (meetingType === "MEETING") {
+          await enableZoomLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, streamKey, pageUrl);
+        } else {
+          await enableWebinarLiveStreaming(event.organizationId, String(zoomResponse.id), rtmpBaseUrl, streamKey, pageUrl);
+        }
+        apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, streamKey }, "zoom:live-stream-configured");
+      } catch (streamErr) {
+        apiLogger.error({ err: streamErr, zoomMeetingId: zoomMeeting.zoomMeetingId }, "zoom:live-stream-config-failed");
+        // Meeting was created, streaming config failed — don't fail the whole request
+      }
+    }
+
     apiLogger.info(
-      { zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId, meetingType },
+      { zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId, meetingType, liveStreamEnabled },
       "zoom:meeting-created",
     );
 

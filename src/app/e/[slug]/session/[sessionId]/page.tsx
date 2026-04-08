@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+
+const LivePlayer = dynamic(
+  () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
+  { ssr: false },
+);
 import {
   Video,
   ExternalLink,
@@ -29,6 +35,9 @@ interface JoinInfo {
   joinUrl: string;
   meetingType: string;
   sessionName: string;
+  liveStreamEnabled?: boolean;
+  hlsPlaybackUrl?: string;
+  streamStatus?: string;
 }
 
 interface SpeakerInfo {
@@ -282,19 +291,33 @@ export default function PublicSessionPage() {
               )}
             </div>
 
-            {/* Join button — prominent CTA */}
+            {/* Live stream player */}
+            {joinInfo?.liveStreamEnabled && (
+              <LivePlayer
+                hlsUrl={joinInfo.hlsPlaybackUrl || ""}
+                slug={slug}
+                sessionId={sessionId}
+                sessionName={session?.name || joinInfo.sessionName}
+              />
+            )}
+
+            {/* Join button — prominent CTA (shown when no live stream, or as fallback) */}
             {joinInfo && (
-              <Card className="border-blue-200 bg-blue-50/50 shadow-sm">
+              <Card className={`border-blue-200 bg-blue-50/50 shadow-sm ${joinInfo.liveStreamEnabled ? "mt-2" : ""}`}>
                 <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
                   <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
                     <Video className="h-7 w-7 text-blue-600" />
                   </div>
                   <div className="flex-1 text-center sm:text-left">
-                    <p className="font-semibold text-lg">Ready to join?</p>
+                    <p className="font-semibold text-lg">
+                      {joinInfo.liveStreamEnabled ? "Want to participate?" : "Ready to join?"}
+                    </p>
                     <p className="text-sm text-muted-foreground">
-                      {joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
-                        ? "This webinar will open in Zoom. You can watch as an attendee."
-                        : "This meeting will open in Zoom. You can participate with audio and video."}
+                      {joinInfo.liveStreamEnabled
+                        ? "Join via Zoom to interact with speakers (audio/video). Or watch the live stream above."
+                        : joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
+                          ? "This webinar will open in Zoom. You can watch as an attendee."
+                          : "This meeting will open in Zoom. You can participate with audio and video."}
                     </p>
                   </div>
                   <Button
@@ -303,7 +326,7 @@ export default function PublicSessionPage() {
                     onClick={() => window.open(joinInfo.joinUrl, "_blank")}
                   >
                     <Video className="h-5 w-5" />
-                    Join Meeting
+                    {joinInfo.liveStreamEnabled ? "Join in Zoom" : "Join Meeting"}
                     <ExternalLink className="h-4 w-4" />
                   </Button>
                 </CardContent>
