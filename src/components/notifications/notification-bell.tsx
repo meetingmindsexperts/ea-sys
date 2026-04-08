@@ -92,7 +92,7 @@ export function NotificationBell() {
             <p className="text-sm text-muted-foreground">No notifications</p>
           </div>
         ) : (
-          <ScrollArea className="max-h-[400px]">
+          <ScrollArea className="max-h-[400px] overflow-scroll">
             <div className="divide-y">
               {notifications.map((n) => {
                 const Icon = typeIcons[n.type] || Bell;
