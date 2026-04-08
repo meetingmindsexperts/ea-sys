@@ -150,8 +150,8 @@ export function OrgZoomCredentials() {
             >
               Zoom App Marketplace
             </a>{" "}
-            with scopes: <code>meeting:write:admin</code>, <code>meeting:read:admin</code>,{" "}
-            <code>webinar:write:admin</code>, <code>webinar:read:admin</code>, <code>user:read:admin</code>.
+            with scopes: <code>meeting:write:meeting:admin</code>, <code>meeting:read:meeting:admin</code>,{" "}
+            <code>webinar:write:webinar:admin</code>, <code>webinar:read:webinar:admin</code>, <code>user:read:user:admin</code>.
           </div>
 
           <div className="flex items-center gap-3">
