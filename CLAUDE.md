@@ -492,6 +492,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - Registrants are org-independent (`User.organizationId = null`) — create accounts during public event registration, see only `/my-registration` portal
 - Public event registration is open to all at `/e/[event-slug]`
 
+- **Zoom SDK integration** — Fully decoupled, optional Zoom module for live meetings, webinars, and webinar series embedded in event sessions; `ZoomMeeting` Prisma model with 1:1 relation to `EventSession`; `src/lib/zoom/` server module (OAuth client with in-memory token cache, meetings/webinars CRUD, org-aware JWT signature generation); credentials stored encrypted per-org in `Organization.settings.zoom` (Server-to-Server OAuth + Meeting SDK — no env vars needed); per-event toggle via `Event.settings.zoom.enabled`; 6 API routes (credentials CRUD, test connection, event settings, session meeting CRUD, panelist sync, public join); 7 UI components under `src/components/zoom/` (credentials form, settings card with setup guide, meeting form with host start/attendee join/copy links, session badge, join button, embedded viewer, series schedule); public session page at `/e/[slug]/session/[sessionId]` dynamically imports `@zoom/meetingsdk/embedded` for in-browser meetings; `ZoomSessionBadge` on session cards in calendar tooltip + session list; `ZoomMeetingForm` in session edit dialog; React Query hooks for all Zoom state; AI agent tools `list_zoom_meetings` and `create_zoom_meeting`; rate limiting on all Zoom endpoints; full `apiLogger` coverage with `zoom:` prefixes; scoped `Permissions-Policy` for microphone on embed pages only; `@zoom/meetingsdk` in `serverExternalPackages`; supports Meeting (interactive, 1K participants), Webinar (broadcast, 10K attendees), and Webinar Series (recurring, type 9); migration `20260408000000_add_speaker_accommodation_and_zoom`; docs at `docs/ZOOM_INTEGRATION.html`
+
 ## Logging
 
 Pino-based structured JSON logging with three output modes:
@@ -533,4 +535,5 @@ View file logs: `tail -f logs/app.log`
 ## Documentation
 
 - `docs/DEVELOPMENT_STATUS.md` - Feature status and roadmap
+- `docs/ZOOM_INTEGRATION.html` - Zoom SDK integration guide (architecture, setup, file list)
 - `.env.example` - Environment variable template

@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** April 2, 2026
+**Last Updated:** April 8, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -1424,6 +1424,53 @@ NEXTAUTH_SECRET="..."
 NEXTAUTH_URL="http://localhost:3000"
 LOG_LEVEL="debug"  # Optional: debug, info, warn, error
 ```
+
+---
+
+### Zoom Integration (April 7-8, 2026)
+
+- [x] Added `ZoomMeeting` Prisma model with enums (`ZoomMeetingType`, `ZoomMeetingStatus`) and 1:1 relation to `EventSession`
+- [x] Created `src/lib/zoom/` server module (OAuth client, meetings/webinars CRUD, JWT signature generation, panelist management)
+- [x] Org-level Zoom credentials (Server-to-Server OAuth + Meeting SDK) stored encrypted in `Organization.settings.zoom`
+- [x] Per-event Zoom toggle via `Event.settings.zoom.enabled`
+- [x] 6 API routes: credentials CRUD, test connection, event settings, session meeting CRUD, panelist sync, public join
+- [x] 7 UI components: credentials form, settings card with setup guide, meeting form with host/join/copy links, session badge, join button, embedded viewer, series schedule
+- [x] Public session page at `/e/[slug]/session/[sessionId]` with embedded Zoom Meeting SDK (dynamic import, `ssr: false`)
+- [x] Embedded meetings use org-level SDK credentials (no environment variables needed)
+- [x] 10 React Query hooks for Zoom state management
+- [x] AI agent tools: `list_zoom_meetings`, `create_zoom_meeting`
+- [x] Zoom badge on session cards (calendar tooltip + session list)
+- [x] "Start as Host" (opens Zoom as host) + "Attendee Join Link" + "Copy Link" in session dialog
+- [x] Webinar series support (recurring webinar with `type: 9`, occurrence tracking)
+- [x] Rate limiting on all Zoom endpoints (30/hr create, 60/hr join, 10/hr credentials)
+- [x] Full `apiLogger` coverage with Zoom-specific prefixes (`zoom:create-meeting`, `zoom:api-call`, `zoom:api-error`, etc.)
+- [x] Scoped `Permissions-Policy` header for microphone on embed pages only
+- [x] `@zoom/meetingsdk` in `serverExternalPackages` to keep server bundle clean
+- [x] Migration: `20260408000000_add_speaker_accommodation_and_zoom`
+
+**Meeting Types:**
+- Meeting (type 2) — interactive, all participants share audio/video, up to 1,000
+- Webinar (type 5) — broadcast, panelists speak, attendees view only, up to 10,000
+- Webinar Series (type 9) — recurring webinar with multiple occurrences
+
+**Modified Files:**
+- `prisma/schema.prisma` — ZoomMeeting model + enums + relations to EventSession/Event
+- `next.config.ts` — serverExternalPackages + permissions-policy
+- `src/hooks/use-api.ts` — 10 new React Query hooks
+- `src/lib/agent/event-tools.ts` — 2 new AI agent tools
+- `src/app/(dashboard)/settings/page.tsx` — Zoom card in Integrations tab
+- `src/app/(dashboard)/events/[eventId]/settings/page.tsx` — Zoom tab with setup guide
+- `src/app/(dashboard)/events/[eventId]/schedule/page.tsx` — Zoom button + badges in session UI
+- `src/app/api/events/[eventId]/sessions/route.ts` — zoomMeeting in session response
+
+**New Files (20):**
+- `src/lib/zoom/` (5 files) — types, client, meetings, signature, index
+- `src/app/api/` (6 routes) — credentials, test-connection, settings, meeting CRUD, panelists, public join
+- `src/components/zoom/` (7 components) — credentials, settings, meeting form, badge, join button, embed, series
+- `src/app/e/[slug]/session/[sessionId]/page.tsx` — public embedded session page
+- `prisma/migrations/20260408000000_.../migration.sql` — database migration
+
+**Documentation:** `docs/ZOOM_INTEGRATION.html` — complete implementation guide with architecture, setup steps, and file list
 
 ---
 
