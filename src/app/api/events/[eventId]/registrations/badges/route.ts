@@ -70,7 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Filter to only paid or complimentary registrations
     const registrations = allRegistrations.filter((r) => {
       const isComplimentary = r.paymentStatus === "COMPLIMENTARY" ||
-        Number(r.ticketType.price) === 0 ||
+        Number(r.ticketType?.price ?? 0) === 0 ||
         (r.pricingTier && Number(r.pricingTier.price) === 0);
       return r.paymentStatus === "PAID" || isComplimentary;
     });

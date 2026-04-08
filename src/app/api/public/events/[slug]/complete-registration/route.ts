@@ -373,8 +373,8 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Send confirmation email
     try {
-      const finalPrice = registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType.price);
-      const finalCurrency = registration.pricingTier ? registration.pricingTier.currency : registration.ticketType.currency;
+      const finalPrice = registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
+      const finalCurrency = registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
 
       await sendRegistrationConfirmation({
         to: email,
@@ -386,7 +386,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventDate: registration.event.startDate,
         eventVenue: registration.event.venue || "",
         eventCity: registration.event.city || "",
-        ticketType: registration.ticketType.name,
+        ticketType: registration.ticketType?.name ?? "General",
         pricingTierName: registration.pricingTier?.name || null,
         registrationId,
         qrCode: "",
@@ -406,8 +406,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       registration: {
         id: registrationId,
         status: registration.status,
-        ticketPrice: registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType.price),
-        ticketCurrency: registration.pricingTier ? registration.pricingTier.currency : registration.ticketType.currency,
+        ticketPrice: registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0),
+        ticketCurrency: registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD",
       },
     });
   } catch (error) {

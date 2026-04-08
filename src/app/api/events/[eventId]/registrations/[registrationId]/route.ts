@@ -216,30 +216,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const isReactivating = effectiveStatus !== "CANCELLED" && existingRegistration.status === "CANCELLED";
       const isChangingType = ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId;
 
-      if (isBecomingCancelled) {
+      if (isBecomingCancelled && existingRegistration.ticketTypeId) {
         await tx.ticketType.update({
           where: { id: existingRegistration.ticketTypeId },
           data: { soldCount: { decrement: 1 } },
         });
       } else if (isReactivating) {
         const targetTypeId = ticketTypeId || existingRegistration.ticketTypeId;
-        const ticket = await tx.ticketType.findUnique({
-          where: { id: targetTypeId },
-          select: { quantity: true, soldCount: true },
-        });
-        if (ticket && ticket.soldCount >= ticket.quantity) {
-          throw new Error("CAPACITY_EXCEEDED");
+        if (targetTypeId) {
+          const ticket = await tx.ticketType.findUnique({
+            where: { id: targetTypeId },
+            select: { quantity: true, soldCount: true },
+          });
+          if (ticket && ticket.soldCount >= ticket.quantity) {
+            throw new Error("CAPACITY_EXCEEDED");
+          }
+          await tx.ticketType.update({
+            where: { id: targetTypeId },
+            data: { soldCount: { increment: 1 } },
+          });
         }
-        await tx.ticketType.update({
-          where: { id: targetTypeId },
-          data: { soldCount: { increment: 1 } },
-        });
       } else if (isChangingType && effectiveStatus !== "CANCELLED") {
         // Moving between types: decrement old, increment new
-        await tx.ticketType.update({
-          where: { id: existingRegistration.ticketTypeId },
-          data: { soldCount: { decrement: 1 } },
-        });
+        if (existingRegistration.ticketTypeId) {
+          await tx.ticketType.update({
+            where: { id: existingRegistration.ticketTypeId },
+            data: { soldCount: { decrement: 1 } },
+          });
+        }
         const newTicket = await tx.ticketType.findUnique({
           where: { id: ticketTypeId },
           select: { quantity: true, soldCount: true, name: true },
@@ -358,7 +362,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Wrap soldCount decrement + delete in a transaction
     await db.$transaction(async (tx) => {
-      if (registration.status !== "CANCELLED") {
+      if (registration.status !== "CANCELLED" && registration.ticketTypeId) {
         await tx.ticketType.update({
           where: { id: registration.ticketTypeId },
           data: { soldCount: { decrement: 1 } },

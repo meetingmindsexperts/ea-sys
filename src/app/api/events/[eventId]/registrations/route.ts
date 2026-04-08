@@ -17,7 +17,7 @@ const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 
 const createRegistrationSchema = z.object({
-  ticketTypeId: z.string().min(1).max(100),
+  ticketTypeId: z.string().min(1).max(100).optional(),
   attendee: z.object({
     title: titleEnum.optional(),
     email: z.string().email().max(255),
@@ -187,7 +187,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { ticketTypeId, attendee, notes } = validated.data;
 
-    // Parallelize event and ticket type lookup
+    // Look up event (always needed) and ticket type (if provided)
     const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: {
@@ -196,58 +196,41 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         select: { id: true },
       }),
-      db.ticketType.findFirst({
-        where: {
-          id: ticketTypeId,
-          eventId,
-          isActive: true,
-        },
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          currency: true,
-          quantity: true,
-          soldCount: true,
-          salesStart: true,
-          salesEnd: true,
-          requiresApproval: true,
-        },
-      }),
+      ticketTypeId
+        ? db.ticketType.findFirst({
+            where: { id: ticketTypeId, eventId, isActive: true },
+            select: {
+              id: true, name: true, price: true, currency: true,
+              quantity: true, soldCount: true,
+              salesStart: true, salesEnd: true, requiresApproval: true,
+            },
+          })
+        : null,
     ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (!ticketType) {
+    if (ticketTypeId && !ticketType) {
       return NextResponse.json(
-        { error: "Ticket type not found or inactive" },
+        { error: "Registration type not found or inactive" },
         { status: 404 }
       );
     }
 
-    // Check if sales period is valid
-    const now = new Date();
-    if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
-      return NextResponse.json(
-        { error: "Ticket sales have not started" },
-        { status: 400 }
-      );
-    }
-    if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
-      return NextResponse.json(
-        { error: "Ticket sales have ended" },
-        { status: 400 }
-      );
-    }
-
-    // Early check (non-authoritative — the real check is inside the transaction)
-    if (ticketType.soldCount >= ticketType.quantity) {
-      return NextResponse.json(
-        { error: "Tickets sold out" },
-        { status: 400 }
-      );
+    // Ticket type checks only when a type is selected
+    if (ticketType) {
+      const now = new Date();
+      if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
+        return NextResponse.json({ error: "Ticket sales have not started" }, { status: 400 });
+      }
+      if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
+        return NextResponse.json({ error: "Ticket sales have ended" }, { status: 400 });
+      }
+      if (ticketType.soldCount >= ticketType.quantity) {
+        return NextResponse.json({ error: "Tickets sold out" }, { status: 400 });
+      }
     }
 
     // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
@@ -280,20 +263,22 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: attendee.country || null,
           bio: attendee.bio || null,
           specialty: attendee.specialty || null,
-          registrationType: ticketType.name,
+          registrationType: ticketType?.name || null,
           tags: attendee.tags || [],
           dietaryReqs: attendee.dietaryReqs || null,
           customFields: attendee.customFields || {},
         },
       });
 
-      // Atomically increment soldCount only if tickets are still available
-      const updated = await tx.ticketType.updateMany({
-        where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-        data: { soldCount: { increment: 1 } },
-      });
-      if (updated.count === 0) {
-        throw new Error("SOLD_OUT");
+      // Atomically increment soldCount only when a ticket type is selected
+      if (ticketType && ticketTypeId) {
+        const updated = await tx.ticketType.updateMany({
+          where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
+          data: { soldCount: { increment: 1 } },
+        });
+        if (updated.count === 0) {
+          throw new Error("SOLD_OUT");
+        }
       }
 
       // Create registration
@@ -302,11 +287,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       const reg = await tx.registration.create({
         data: {
           eventId,
-          ticketTypeId,
+          ticketTypeId: ticketTypeId || null,
           attendeeId: attendeeRecord.id,
           serialId,
-          status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
+          status: ticketType?.requiresApproval ? "PENDING" : "CONFIRMED",
+          paymentStatus: !ticketType || Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
           qrCode: generatedBarcode,
           notes: notes || null,
         },
@@ -332,7 +317,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       country: attendee.country || null,
       bio: attendee.bio || null,
       specialty: attendee.specialty || null,
-      registrationType: ticketType.name,
+      registrationType: ticketType?.name || null,
     });
 
     // Log the action (non-blocking for better response time)

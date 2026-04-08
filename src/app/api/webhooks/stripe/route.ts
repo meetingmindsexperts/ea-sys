@@ -66,10 +66,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      const sessionCurrency = (session.currency || registration.pricingTier?.currency || registration.ticketType.currency).toUpperCase();
+      const sessionCurrency = (session.currency || registration.pricingTier?.currency || registration.ticketType?.currency || "USD").toUpperCase();
       const amount = session.amount_total
         ? fromStripeAmount(session.amount_total, sessionCurrency)
-        : Number(registration.pricingTier?.price ?? registration.ticketType.price);
+        : Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
       const currency = sessionCurrency;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
@@ -261,7 +261,7 @@ async function sendPaymentConfirmationEmail(
   registration: {
     id: string;
     attendee: { firstName: string; lastName: string; email: string };
-    ticketType: { name: string; price: unknown; currency: string };
+    ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
     event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
   },
@@ -285,7 +285,7 @@ async function sendPaymentConfirmationEmail(
   }).format(new Date());
 
   // Calculate tax from event settings
-  const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+  const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
   const taxRate = Number(registration.event.taxRate || 0);
   const taxLabel = registration.event.taxLabel || "VAT";
   const taxAmount = taxRate > 0 ? basePrice * taxRate / 100 : 0;
@@ -312,7 +312,7 @@ async function sendPaymentConfirmationEmail(
     eventDate,
     eventVenue: [registration.event.venue, registration.event.city].filter(Boolean).join(", "),
     registrationId: registration.id,
-    ticketType: registration.ticketType.name,
+    ticketType: registration.ticketType?.name ?? "General",
     amount: `${currency} ${amount.toFixed(2)}`,
     currency,
     paymentDate,

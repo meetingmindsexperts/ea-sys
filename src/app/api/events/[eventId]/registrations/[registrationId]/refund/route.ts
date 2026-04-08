@@ -65,7 +65,7 @@ export async function POST(
       return NextResponse.json({ error: "No Stripe payment found for this registration" }, { status: 400 });
     }
 
-    const currency = (payment.currency || registration.pricingTier?.currency || registration.ticketType.currency).toUpperCase();
+    const currency = (payment.currency || registration.pricingTier?.currency || registration.ticketType?.currency || "USD").toUpperCase();
     const amount = Number(payment.amount);
     const formattedAmount = `${currency} ${amount.toFixed(2)}`;
 
@@ -152,7 +152,7 @@ async function sendRefundConfirmationEmail(
   registration: {
     id: string;
     attendee: { firstName: string; lastName: string; email: string };
-    ticketType: { name: string };
+    ticketType: { name: string } | null;
     event: { id: string; name: string; startDate: Date };
   },
   formattedAmount: string
@@ -171,7 +171,7 @@ async function sendRefundConfirmationEmail(
     eventName: registration.event.name,
     eventDate,
     registrationId: registration.id,
-    ticketType: registration.ticketType.name,
+    ticketType: registration.ticketType?.name ?? "General",
     amount: formattedAmount,
     refundDate,
   };

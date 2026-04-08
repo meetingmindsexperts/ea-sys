@@ -77,7 +77,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Group by old ticket type to batch soldCount decrements
     const oldTypeCounts = new Map<string, number>();
     for (const r of registrations) {
-      oldTypeCounts.set(r.ticketTypeId, (oldTypeCounts.get(r.ticketTypeId) || 0) + 1);
+      if (r.ticketTypeId) {
+        oldTypeCounts.set(r.ticketTypeId, (oldTypeCounts.get(r.ticketTypeId) || 0) + 1);
+      }
     }
 
     await db.$transaction(async (tx) => {

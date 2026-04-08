@@ -68,6 +68,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    if (!registration.ticketType) {
+      return NextResponse.json({ error: "Registration has no ticket type" }, { status: 400 });
+    }
+
     const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
     const discountAmount = registration.discountAmount ? Number(registration.discountAmount) : 0;
     const ticketPrice = Math.max(0, basePrice - discountAmount);

@@ -67,6 +67,17 @@ export async function GET(req: Request, { params }: RouteParams) {
               },
             },
           },
+          topicSpeakers: {
+            include: {
+              topic: {
+                include: {
+                  session: {
+                    select: { id: true, name: true, startTime: true },
+                  },
+                },
+              },
+            },
+          },
           abstracts: {
             include: {
               track: true,

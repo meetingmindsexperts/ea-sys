@@ -52,15 +52,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
     const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
 
     const response = NextResponse.json({
       registrationStatus: registration.status,
       paymentStatus: registration.paymentStatus,
-      ticketName: registration.ticketType.name,
+      ticketName: registration.ticketType?.name ?? "General",
       ticketPrice: Math.max(0, basePrice - discount),
-      ticketCurrency: registration.pricingTier?.currency ?? registration.ticketType.currency,
+      ticketCurrency: registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD",
       taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
       taxLabel: registration.event.taxLabel,
       originalPrice: registration.originalPrice ? Number(registration.originalPrice) : null,

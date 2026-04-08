@@ -58,7 +58,7 @@ export default function NewRegistrationPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticketTypeId: formData.ticketTypeId,
+          ticketTypeId: formData.ticketTypeId || undefined,
           attendee: {
             email: formData.personData.email,
             firstName: formData.personData.firstName,
@@ -135,43 +135,33 @@ export default function NewRegistrationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {(ticketTypes as TicketType[]).length === 0 ? (
-              <div className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg border border-dashed">
-                No registration types available. Please{" "}
-                <Link
-                  href={`/events/${eventId}/tickets`}
-                  className="text-primary hover:underline font-medium"
-                >
-                  create a registration type
-                </Link>{" "}
-                first.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="ticketType">Type *</Label>
-                <Select
-                  value={formData.ticketTypeId}
-                  onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value })}
-                  required
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a registration type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(ticketTypes as TicketType[]).map((regType) => (
-                      <SelectItem
-                        key={regType.id}
-                        value={regType.id}
-                        disabled={regType.soldCount >= regType.quantity}
-                      >
-                        {regType.name} - ${regType.price}
-                        {regType.soldCount >= regType.quantity ? " (Unavailable)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="ticketType">Type</Label>
+              <Select
+                value={formData.ticketTypeId}
+                onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value === "__none__" ? "" : value })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No registration type (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {(ticketTypes as TicketType[]).map((regType) => (
+                    <SelectItem
+                      key={regType.id}
+                      value={regType.id}
+                      disabled={regType.soldCount >= regType.quantity}
+                    >
+                      {regType.name} - ${regType.price}
+                      {regType.soldCount >= regType.quantity ? " (Unavailable)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Optional — leave empty to register without a type
+              </p>
+            </div>
           </CardContent>
         </Card>
 

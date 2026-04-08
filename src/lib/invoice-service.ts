@@ -41,13 +41,13 @@ const registrationInclude = {
 
 function calcInvoicePricing(registration: {
   pricingTier?: { price: unknown; currency: string } | null;
-  ticketType: { price: unknown; currency: string };
+  ticketType: { price: unknown; currency: string } | null;
   discountAmount?: unknown;
   promoCode?: { code: string } | null;
   event: { taxRate: unknown; taxLabel: string | null };
 }) {
-  const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
-  const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
+  const price = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
+  const currency = registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD";
   const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
   const discountedPrice = Math.max(0, price - discount);
   const discountCode = registration.promoCode?.code || null;
@@ -286,7 +286,7 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       eventDate: reg.event.startDate,
       eventVenue: reg.event.venue,
       eventCity: reg.event.city,
-      registrationType: reg.ticketType.name,
+      registrationType: reg.ticketType?.name ?? "General",
       pricingTier: reg.pricingTier?.name || null,
       price: Number(invoice.subtotal),
       currency: invoice.currency,
@@ -321,7 +321,7 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       eventDate: reg.event.startDate,
       eventVenue: reg.event.venue,
       eventCity: reg.event.city,
-      registrationType: reg.ticketType.name,
+      registrationType: reg.ticketType?.name ?? "General",
       pricingTier: reg.pricingTier?.name || null,
       price: Number(invoice.subtotal),
       currency: invoice.currency,
@@ -367,7 +367,7 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     eventDate: reg.event.startDate,
     eventVenue: reg.event.venue,
     eventCity: reg.event.city,
-    registrationType: reg.ticketType.name,
+    registrationType: reg.ticketType?.name ?? "General",
     pricingTier: reg.pricingTier?.name || null,
     price: Number(invoice.subtotal),
     currency: invoice.currency,

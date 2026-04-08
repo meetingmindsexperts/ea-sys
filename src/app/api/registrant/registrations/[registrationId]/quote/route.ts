@@ -58,11 +58,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const price = registration.pricingTier
       ? Number(registration.pricingTier.price)
-      : Number(registration.ticketType.price);
+      : Number(registration.ticketType?.price ?? 0);
 
     const currency = registration.pricingTier
       ? registration.pricingTier.currency
-      : registration.ticketType.currency;
+      : registration.ticketType?.currency ?? "USD";
 
     const eventCode = registration.event.code || registration.event.name.slice(0, 6).toUpperCase();
     const quoteNumber = registration.serialId
@@ -81,7 +81,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       email: registration.attendee.email,
       organization: registration.attendee.organization,
       title: registration.attendee.title,
-      registrationType: registration.ticketType.name,
+      registrationType: registration.ticketType?.name ?? "General",
       pricingTier: registration.pricingTier?.name || null,
       price,
       currency,

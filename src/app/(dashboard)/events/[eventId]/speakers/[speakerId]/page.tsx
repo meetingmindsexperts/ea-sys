@@ -97,6 +97,18 @@ interface Speaker {
       track?: { name: string };
     };
   }>;
+  topicSpeakers?: Array<{
+    topic: {
+      id: string;
+      title: string;
+      duration: number | null;
+      session: {
+        id: string;
+        name: string;
+        startTime: string;
+      };
+    };
+  }>;
   abstracts: Array<{
     id: string;
     title: string;
@@ -629,6 +641,32 @@ export default function SpeakerDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Topics */}
+          {speaker.topicSpeakers && speaker.topicSpeakers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Topics ({speaker.topicSpeakers.length})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {speaker.topicSpeakers.map((ts) => (
+                    <div key={ts.topic.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <div>
+                        <p className="font-medium text-sm">{ts.topic.title}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {ts.topic.session.name}
+                          {" · "}
+                          {new Date(ts.topic.session.startTime).toLocaleString()}
+                          {ts.topic.duration && ` · ${ts.topic.duration} min`}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Abstracts */}
           <Card>

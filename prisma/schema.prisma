@@ -315,7 +315,7 @@ model Attendee {
 model Registration {
   id             String             @id @default(cuid())
   eventId        String
-  ticketTypeId   String
+  ticketTypeId   String?
   pricingTierId  String?
   attendeeId     String
   userId         String?
@@ -350,7 +350,7 @@ model Registration {
   updatedAt      DateTime           @updatedAt
 
   event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketType      TicketType          @relation(fields: [ticketTypeId], references: [id])
+  ticketType      TicketType?         @relation(fields: [ticketTypeId], references: [id])
   pricingTier     PricingTier?        @relation(fields: [pricingTierId], references: [id])
   attendee        Attendee            @relation(fields: [attendeeId], references: [id])
   user            User?               @relation(fields: [userId], references: [id])
