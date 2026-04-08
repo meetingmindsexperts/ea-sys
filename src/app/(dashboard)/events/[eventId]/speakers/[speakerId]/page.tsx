@@ -90,6 +90,7 @@ interface Speaker {
     github?: string;
   };
   sessions: Array<{
+    role?: string;
     session: {
       id: string;
       name: string;
@@ -616,57 +617,87 @@ export default function SpeakerDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Sessions */}
+          {/* Sessions — includes both session-level and topic-level assignments */}
+          {(() => {
+            const sessionMap = new Map<string, { id: string; name: string; startTime: string; track?: { name: string }; role?: string }>();
+            for (const s of speaker.sessions) {
+              sessionMap.set(s.session.id, { ...s.session, role: s.role });
+            }
+            for (const ts of (speaker.topicSpeakers || [])) {
+              if (!sessionMap.has(ts.topic.session.id)) {
+                sessionMap.set(ts.topic.session.id, ts.topic.session);
+              }
+            }
+            const allSessions = Array.from(sessionMap.values()).sort(
+              (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+            );
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Sessions ({allSessions.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {allSessions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No sessions assigned yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {allSessions.map((session) => (
+                        <div key={session.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                          <div>
+                            <p className="font-medium text-sm">{session.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(session.startTime).toLocaleString()}
+                              {session.track && ` · ${session.track.name}`}
+                            </p>
+                          </div>
+                          {session.role && (() => {
+                            const roleColors: Record<string, string> = {
+                              CHAIRPERSON: "bg-violet-100 text-violet-700 border-violet-200",
+                              MODERATOR: "bg-amber-100 text-amber-700 border-amber-200",
+                              PANELIST: "bg-sky-100 text-sky-700 border-sky-200",
+                              SPEAKER: "bg-emerald-100 text-emerald-700 border-emerald-200",
+                            };
+                            const colors = roleColors[session.role!] || "bg-slate-100 text-slate-700 border-slate-200";
+                            return (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors}`}>
+                                {session.role!.toLowerCase().replace("_", " ")}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Topics */}
           <Card>
             <CardHeader>
-              <CardTitle>Sessions ({speaker.sessions.length})</CardTitle>
+              <CardTitle>Topics ({(speaker.topicSpeakers || []).length})</CardTitle>
             </CardHeader>
             <CardContent>
-              {speaker.sessions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No sessions assigned yet.</p>
+              {(!speaker.topicSpeakers || speaker.topicSpeakers.length === 0) ? (
+                <p className="text-sm text-muted-foreground">No topics assigned yet.</p>
               ) : (
                 <div className="space-y-2">
-                  {speaker.sessions.map((s) => (
-                    <div key={s.session.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{s.session.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(s.session.startTime).toLocaleString()}
-                          {s.session.track && ` · ${s.session.track.name}`}
-                        </p>
-                      </div>
+                  {speaker.topicSpeakers.map((ts) => (
+                    <div key={ts.topic.id} className="p-3 bg-muted rounded-lg">
+                      <p className="font-medium text-sm">{ts.topic.title}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {ts.topic.session.name}
+                        {" · "}
+                        {new Date(ts.topic.session.startTime).toLocaleString()}
+                        {ts.topic.duration && ` · ${ts.topic.duration} min`}
+                      </p>
                     </div>
                   ))}
                 </div>
               )}
             </CardContent>
           </Card>
-
-          {/* Topics */}
-          {speaker.topicSpeakers && speaker.topicSpeakers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Topics ({speaker.topicSpeakers.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {speaker.topicSpeakers.map((ts) => (
-                    <div key={ts.topic.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{ts.topic.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {ts.topic.session.name}
-                          {" · "}
-                          {new Date(ts.topic.session.startTime).toLocaleString()}
-                          {ts.topic.duration && ` · ${ts.topic.duration} min`}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Abstracts */}
           <Card>
