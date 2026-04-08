@@ -211,9 +211,6 @@ export default function PublicSessionPage() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div>
-              {event?.organization?.name && (
-                <p className="text-xs text-muted-foreground">{event.organization.name}</p>
-              )}
               <p className="text-sm font-medium text-muted-foreground">{event?.name}</p>
             </div>
           </div>

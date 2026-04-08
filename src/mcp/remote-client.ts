@@ -13,7 +13,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const SERVER_URL = process.env.MCP_SERVER_URL || "https://events.meetingmindsgroup.com/api/mcp";
+const SERVER_URL = process.env.MCP_SERVER_URL || `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/mcp`;
 const API_KEY = process.env.MCP_API_KEY || "";
 
 if (!API_KEY) {

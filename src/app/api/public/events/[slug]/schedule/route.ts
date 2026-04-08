@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         slug: true,
         startDate: true,
         endDate: true,
+        supportEmail: true,
         settings: true,
         organization: { select: { name: true, logo: true } },
         tracks: {
@@ -92,6 +93,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       slug: event.slug,
       startDate: event.startDate,
       endDate: event.endDate,
+      supportEmail: event.supportEmail,
       organization: event.organization,
       tracks: event.tracks,
       sessions: event.eventSessions,

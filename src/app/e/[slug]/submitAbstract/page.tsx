@@ -299,8 +299,7 @@ export default function SubmitAbstractPage() {
           </>
         )}
         <div className={cn("relative max-w-5xl mx-auto px-4 sm:px-6", event.bannerImage ? "py-6 -mt-6" : "py-10")}>
-          <span className="text-xs font-medium tracking-widest uppercase text-primary/80">{event.organization.name}</span>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 mt-2 leading-tight">{event.name}</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1 leading-tight">{event.name}</h1>
           <p className="text-primary/80 text-sm font-medium mb-4">Abstract Submission Portal</p>
           <div className="flex flex-wrap gap-2">
             <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1 text-xs text-white/90">

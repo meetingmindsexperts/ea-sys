@@ -269,12 +269,10 @@ function MessageBubble({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const SUPER_ADMIN_EMAIL = "krishna@meetingmindsdubai.com";
-
 export default function AgentPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { data: session } = useSession();
-  const canExpandTools = session?.user?.email === SUPER_ADMIN_EMAIL;
+  const canExpandTools = session?.user?.role === "SUPER_ADMIN";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);

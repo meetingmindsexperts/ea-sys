@@ -54,6 +54,7 @@ interface EventData {
   slug: string;
   startDate: string;
   endDate: string;
+  supportEmail: string | null;
   organization: { name: string; logo: string | null };
   tracks: Track[];
   sessions: Session[];
@@ -173,14 +174,18 @@ export default function PublicSchedulePage() {
                 Back to event
               </button>
             </Link>
-            <span className="hidden sm:inline text-slate-300">|</span>
-            <a
-              href="mailto:support@meetingmindsgroup.com"
-              className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
-            >
-              <Mail className="h-3.5 w-3.5" />
-              Contact support
-            </a>
+            {eventData?.supportEmail && (
+              <>
+                <span className="hidden sm:inline text-slate-300">|</span>
+                <a
+                  href={`mailto:${eventData.supportEmail}`}
+                  className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Contact support
+                </a>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -203,11 +208,6 @@ export default function PublicSchedulePage() {
                   <ArrowLeft className="h-3.5 w-3.5" />
                   Back to event
                 </Link>
-              </div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-medium tracking-widest uppercase text-primary/80 print:text-slate-500">
-                  {eventData.organization.name}
-                </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-white print:text-slate-900 mb-1">
                 {eventData.name}
@@ -388,19 +388,7 @@ export default function PublicSchedulePage() {
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <div className="border-t border-slate-200 bg-white print:mt-8">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            {eventData.organization.logo && (
-              <Image
-                src={eventData.organization.logo}
-                alt={eventData.organization.name}
-                width={28}
-                height={28}
-                className="rounded"
-                unoptimized
-              />
-            )}
-            <span className="text-sm text-slate-500">{eventData.organization.name}</span>
-          </div>
+          <span className="text-sm text-slate-500">{eventData.name}</span>
           <Link
             href={`/e/${slug}`}
             className="text-sm text-primary hover:underline flex items-center gap-1 print:hidden"
@@ -409,7 +397,7 @@ export default function PublicSchedulePage() {
             <ChevronRight className="h-3.5 w-3.5" />
           </Link>
           <p className="text-xs text-slate-400 hidden print:block">
-            Printed from {eventData.organization.name} — Subject to change
+            Printed from {eventData.name} — Subject to change
           </p>
         </div>
       </div>
