@@ -5,8 +5,8 @@ hlsAddress: :8888
 rtmpAddress: :1935
 webrtcAddress: :8889
 
-# HLS settings
-hlsVariant: fmp4
+# HLS settings — mpegts variant (fmp4 has known 404 issues)
+hlsVariant: mpegts
 hlsSegmentCount: 7
 hlsSegmentDuration: 2s
 hlsSegmentMaxSize: 50M
