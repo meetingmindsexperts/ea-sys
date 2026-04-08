@@ -10,6 +10,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3000:3000"
     networks:
@@ -39,6 +40,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3001:3000"
     networks:

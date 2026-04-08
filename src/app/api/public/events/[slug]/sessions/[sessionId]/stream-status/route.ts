@@ -50,7 +50,6 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     try {
       const hlsCheck = await fetch(`${mediamtxUrl}/live/${zoomMeeting.streamKey}/index.m3u8`, {
-        method: "HEAD",
         signal: AbortSignal.timeout(3000),
       });
       isLive = hlsCheck.ok;
