@@ -1269,8 +1269,16 @@ export default function SchedulePage() {
                     zoomStreamStatus={editingSession.zoomMeeting?.streamStatus}
                     eventSlug={event?.slug}
                     defaultMeetingType={zoomSettings?.defaultMeetingType || "MEETING"}
-                    onCreated={() => refetchSessions()}
-                    onDeleted={() => refetchSessions()}
+                    onCreated={async () => {
+                      const { data } = await refetchSessions();
+                      const updated = data?.find((s: Session) => s.id === editingSession.id);
+                      if (updated) setEditingSession(updated);
+                    }}
+                    onDeleted={async () => {
+                      const { data } = await refetchSessions();
+                      const updated = data?.find((s: Session) => s.id === editingSession.id);
+                      if (updated) setEditingSession(updated);
+                    }}
                   />
                 </div>
               )}
