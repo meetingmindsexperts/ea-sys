@@ -54,19 +54,24 @@ services:
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
 
-  # ── Add future apps below this line ──────────────────────────────────────────
-  # other-next-app:
-  #   build:
-  #     context: ../other-next-app
-  #     dockerfile: Dockerfile
-  #   container_name: other-next-app
-  #   restart: unless-stopped
-  #   env_file:
-  #     - ../other-next-app/.env
-  #   ports:
-  #     - "3002:3000"
-  #   networks:
-  #     - web
+  # ── RTMP → HLS live streaming server ─────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: ea-sys-mediamtx
+    restart: unless-stopped
+    ports:
+      - "1935:1935"    # RTMP ingest (Zoom pushes here)
+      - "8888:8888"    # HLS output (nginx proxies /stream/ to here)
+      - "8889:8889"    # WebRTC (future low-latency option)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml
+    networks:
+      - web
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
 
 networks:
   web:
