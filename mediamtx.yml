@@ -5,14 +5,13 @@ hlsAddress: :8888
 rtmpAddress: :1935
 webrtcAddress: :8889
 
-# HLS settings for low-latency streaming
+# HLS settings
 hlsSegmentCount: 3
 hlsSegmentDuration: 2s
-hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
+hlsAlwaysRemux: true
 
-# Allow all paths (stream keys are generated per-session)
+# Allow all paths
 paths:
   all:
-    readUser: ""
-    readPass: ""
+    source: publisher
