@@ -1028,11 +1028,15 @@ export function useZoomCredentials() {
     queryFn: () =>
       fetchApi<{
         configured: boolean;
+        hasClientSecret: boolean;
         accountId: string | null;
         clientId: string | null;
         configuredAt: string | null;
-        sdkKeyConfigured: boolean;
-        sdkKey: string | null;
+        sdkKeyDev: string | null;
+        hasSdkSecretDev: boolean;
+        sdkKeyProd: string | null;
+        hasSdkSecretProd: boolean;
+        sdkMode: string;
       }>("/api/organization/zoom/credentials"),
   });
 }
@@ -1040,7 +1044,16 @@ export function useZoomCredentials() {
 export function useSaveZoomCredentials() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { accountId: string; clientId: string; clientSecret: string; sdkKey?: string; sdkSecret?: string }) =>
+    mutationFn: (data: {
+      accountId: string;
+      clientId: string;
+      clientSecret?: string;
+      sdkKeyDev?: string;
+      sdkSecretDev?: string;
+      sdkKeyProd?: string;
+      sdkSecretProd?: string;
+      sdkMode?: "dev" | "prod";
+    }) =>
       fetchApi("/api/organization/zoom/credentials", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

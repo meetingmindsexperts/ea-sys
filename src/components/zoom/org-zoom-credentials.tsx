@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save, CheckCircle2, XCircle, Video, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -24,31 +25,50 @@ export function OrgZoomCredentials() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState("");
-  const [sdkKey, setSdkKey] = useState<string | null>(null);
-  const [sdkSecret, setSdkSecret] = useState("");
+  // SDK Dev
+  const [sdkKeyDev, setSdkKeyDev] = useState<string | null>(null);
+  const [sdkSecretDev, setSdkSecretDev] = useState("");
+  // SDK Prod
+  const [sdkKeyProd, setSdkKeyProd] = useState<string | null>(null);
+  const [sdkSecretProd, setSdkSecretProd] = useState("");
+  // Mode
+  const [sdkMode, setSdkMode] = useState<string | null>(null);
+
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
   const [connectedAccount, setConnectedAccount] = useState<string | null>(null);
 
   const displayAccountId = accountId ?? config?.accountId ?? "";
   const displayClientId = clientId ?? config?.clientId ?? "";
-  const displaySdkKey = sdkKey ?? config?.sdkKey ?? "";
+  const displaySdkKeyDev = sdkKeyDev ?? config?.sdkKeyDev ?? "";
+  const displaySdkKeyProd = sdkKeyProd ?? config?.sdkKeyProd ?? "";
+  const displaySdkMode = sdkMode ?? config?.sdkMode ?? "dev";
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!displayAccountId.trim() || !displayClientId.trim() || !clientSecret.trim()) {
-      toast.error("All three fields are required");
+    if (!displayAccountId.trim() || !displayClientId.trim()) {
+      toast.error("Account ID and Client ID are required");
+      return;
+    }
+    // Require client secret on first setup only
+    if (!config?.hasClientSecret && !clientSecret.trim()) {
+      toast.error("Client Secret is required");
       return;
     }
     try {
       await saveCredentials.mutateAsync({
         accountId: displayAccountId.trim(),
         clientId: displayClientId.trim(),
-        clientSecret: clientSecret.trim(),
-        ...(displaySdkKey.trim() && { sdkKey: displaySdkKey.trim() }),
-        ...(sdkSecret.trim() && { sdkSecret: sdkSecret.trim() }),
+        ...(clientSecret.trim() && { clientSecret: clientSecret.trim() }),
+        ...(displaySdkKeyDev.trim() && { sdkKeyDev: displaySdkKeyDev.trim() }),
+        ...(sdkSecretDev.trim() && { sdkSecretDev: sdkSecretDev.trim() }),
+        ...(displaySdkKeyProd.trim() && { sdkKeyProd: displaySdkKeyProd.trim() }),
+        ...(sdkSecretProd.trim() && { sdkSecretProd: sdkSecretProd.trim() }),
+        sdkMode: displaySdkMode as "dev" | "prod",
       });
       toast.success("Zoom credentials saved");
       setClientSecret("");
+      setSdkSecretDev("");
+      setSdkSecretProd("");
       setConnectionStatus("idle");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save credentials");
@@ -81,6 +101,11 @@ export function OrgZoomCredentials() {
       setAccountId(null);
       setClientId(null);
       setClientSecret("");
+      setSdkKeyDev(null);
+      setSdkSecretDev("");
+      setSdkKeyProd(null);
+      setSdkSecretProd("");
+      setSdkMode(null);
       setConnectionStatus("idle");
       setConnectedAccount(null);
     } catch {
@@ -113,89 +138,142 @@ export function OrgZoomCredentials() {
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="zoom-account-id">Account ID</Label>
-              <Input
-                id="zoom-account-id"
-                value={displayAccountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                placeholder="Zoom Account ID"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="zoom-client-id">Client ID</Label>
-              <Input
-                id="zoom-client-id"
-                value={displayClientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="Server-to-Server OAuth Client ID"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="zoom-client-secret">Client Secret</Label>
-              <Input
-                id="zoom-client-secret"
-                type="password"
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                placeholder={config?.configured ? "••••••••••••" : "Client Secret"}
-              />
-            </div>
-          </div>
-
-          <div className="text-xs text-muted-foreground">
-            <strong>Step 1:</strong> Create a <strong>Server-to-Server OAuth</strong> app in the{" "}
-            <a
-              href="https://marketplace.zoom.us/develop/create"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline"
-            >
-              Zoom App Marketplace
-            </a>{" "}
-            with scopes: <code>meeting:write:meeting:admin</code>, <code>meeting:read:meeting:admin</code>,{" "}
-            <code>webinar:write:webinar:admin</code>, <code>webinar:read:webinar:admin</code>, <code>user:read:user:admin</code>.
-          </div>
-
-          {/* Meeting SDK credentials */}
-          <div className="border-t pt-4 mt-2">
-            <p className="text-sm font-medium mb-3">Meeting SDK (embed meetings in browser)</p>
-            <div className="grid gap-4 md:grid-cols-2">
+        <form onSubmit={handleSave} className="space-y-5">
+          {/* ── Server-to-Server OAuth ─────────────────────── */}
+          <div>
+            <p className="text-sm font-medium mb-3">Server-to-Server OAuth (for creating meetings)</p>
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-key">SDK Key (Client ID)</Label>
+                <Label htmlFor="zoom-account-id">Account ID</Label>
                 <Input
-                  id="zoom-sdk-key"
-                  value={displaySdkKey}
-                  onChange={(e) => setSdkKey(e.target.value)}
-                  placeholder="Meeting SDK Client ID"
+                  id="zoom-account-id"
+                  value={displayAccountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  placeholder="Zoom Account ID"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-secret">SDK Secret (Client Secret)</Label>
+                <Label htmlFor="zoom-client-id">Client ID</Label>
                 <Input
-                  id="zoom-sdk-secret"
+                  id="zoom-client-id"
+                  value={displayClientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="OAuth Client ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zoom-client-secret">Client Secret</Label>
+                <Input
+                  id="zoom-client-secret"
                   type="password"
-                  value={sdkSecret}
-                  onChange={(e) => setSdkSecret(e.target.value)}
-                  placeholder={config?.sdkKeyConfigured ? "••••••••••••" : "Meeting SDK Client Secret"}
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  placeholder={config?.hasClientSecret ? "••••••••  (saved)" : "Client Secret"}
                 />
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              <strong>Step 2:</strong> Create a <strong>Meeting SDK</strong> app in the Zoom App Marketplace.
-              Copy the Client ID and Client Secret here. Add your domain (e.g. <code>events.meetingmindsgroup.com</code>) to the
-              app&apos;s allowed domains list. Without this, meetings will open in the Zoom app instead of embedding in the browser.
+              Create a <strong>Server-to-Server OAuth</strong> app in the{" "}
+              <a href="https://marketplace.zoom.us/develop/create" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                Zoom App Marketplace
+              </a>{" "}
+              with scopes: <code>meeting:write:meeting:admin</code>, <code>meeting:read:meeting:admin</code>,{" "}
+              <code>webinar:write:webinar:admin</code>, <code>webinar:read:webinar:admin</code>, <code>user:read:user:admin</code>.
             </p>
-            {config?.sdkKeyConfigured && (
+          </div>
+
+          {/* ── Meeting SDK — Development ─────────────────── */}
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium mb-3">Meeting SDK — Development (for local/test embedding)</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-key-dev">SDK Key (Client ID)</Label>
+                <Input
+                  id="zoom-sdk-key-dev"
+                  value={displaySdkKeyDev}
+                  onChange={(e) => setSdkKeyDev(e.target.value)}
+                  placeholder="Dev Client ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-secret-dev">SDK Secret (Client Secret)</Label>
+                <Input
+                  id="zoom-sdk-secret-dev"
+                  type="password"
+                  value={sdkSecretDev}
+                  onChange={(e) => setSdkSecretDev(e.target.value)}
+                  placeholder={config?.hasSdkSecretDev ? "••••••••  (saved)" : "Dev Client Secret"}
+                />
+              </div>
+            </div>
+            {config?.hasSdkSecretDev && (
               <Badge variant="outline" className="mt-2 bg-green-50 text-green-700 border-green-200 text-xs">
-                SDK Configured
+                Dev SDK Saved
               </Badge>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* ── Meeting SDK — Production ──────────────────── */}
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium mb-3">Meeting SDK — Production (for live domain)</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-key-prod">SDK Key (Client ID)</Label>
+                <Input
+                  id="zoom-sdk-key-prod"
+                  value={displaySdkKeyProd}
+                  onChange={(e) => setSdkKeyProd(e.target.value)}
+                  placeholder="Prod Client ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-secret-prod">SDK Secret (Client Secret)</Label>
+                <Input
+                  id="zoom-sdk-secret-prod"
+                  type="password"
+                  value={sdkSecretProd}
+                  onChange={(e) => setSdkSecretProd(e.target.value)}
+                  placeholder={config?.hasSdkSecretProd ? "••••••••  (saved)" : "Prod Client Secret"}
+                />
+              </div>
+            </div>
+            {config?.hasSdkSecretProd && (
+              <Badge variant="outline" className="mt-2 bg-green-50 text-green-700 border-green-200 text-xs">
+                Prod SDK Saved
+              </Badge>
+            )}
+          </div>
+
+          {/* ── Active SDK Mode ───────────────────────────── */}
+          <div className="border-t pt-4">
+            <div className="flex items-center gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-mode">Active SDK Mode</Label>
+                <Select value={displaySdkMode} onValueChange={(v) => setSdkMode(v)}>
+                  <SelectTrigger id="zoom-sdk-mode" className="w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dev">Development</SelectItem>
+                    <SelectItem value="prod">Production</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground pt-6">
+                Selects which Meeting SDK credentials to use for embedding. Use <strong>Development</strong> for local testing,
+                switch to <strong>Production</strong> when going live.
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Create a <strong>General App</strong> in the Zoom Marketplace. Copy the Client ID and Client Secret
+            from the App Credentials tab. Under the <strong>Embed</strong> tab, add <code>localhost</code> (for dev)
+            and your production domain (e.g. <code>events.meetingmindsgroup.com</code>) to the allowed domains list.
+          </p>
+
+          {/* ── Actions ───────────────────────────────────── */}
+          <div className="flex items-center gap-3 border-t pt-4">
             <Button type="submit" disabled={saveCredentials.isPending}>
               {saveCredentials.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               <Save className="mr-2 h-4 w-4" />

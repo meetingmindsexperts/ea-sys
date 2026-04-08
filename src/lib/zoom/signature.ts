@@ -51,20 +51,25 @@ export async function generateZoomSignatureForOrg(
 ): Promise<{ sdkKey: string; signature: string } | null> {
   const credentials = await getZoomCredentials(organizationId);
 
-  if (!credentials?.sdkKey || !credentials?.sdkSecretEncrypted) {
-    apiLogger.warn({ organizationId }, "zoom:signature — SDK credentials not configured for org");
+  // Pick dev or prod SDK credentials based on sdkMode
+  const mode = credentials?.sdkMode || "dev";
+  const sdkKey = mode === "prod" ? credentials?.sdkKeyProd : credentials?.sdkKeyDev;
+  const sdkSecretEncrypted = mode === "prod" ? credentials?.sdkSecretProdEncrypted : credentials?.sdkSecretDevEncrypted;
+
+  if (!sdkKey || !sdkSecretEncrypted) {
+    apiLogger.warn({ organizationId, mode }, "zoom:signature — SDK credentials not configured for org");
     return null;
   }
 
   try {
-    const sdkSecret = decryptSecret(credentials.sdkSecretEncrypted);
+    const sdkSecret = decryptSecret(sdkSecretEncrypted);
     const signature = generateZoomSignature(
-      credentials.sdkKey,
+      sdkKey,
       sdkSecret,
       meetingNumber,
       role,
     );
-    return { sdkKey: credentials.sdkKey, signature };
+    return { sdkKey, signature };
   } catch (err) {
     apiLogger.error({ err, organizationId }, "zoom:signature-generation-failed");
     return null;

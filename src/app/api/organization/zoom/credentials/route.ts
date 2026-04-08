@@ -9,10 +9,13 @@ import { z } from "zod";
 const credentialsSchema = z.object({
   accountId: z.string().min(1).max(500),
   clientId: z.string().min(1).max(500),
-  clientSecret: z.string().min(1).max(500),
-  // Meeting SDK credentials (optional — needed for embedded meetings)
-  sdkKey: z.string().max(500).optional(),
-  sdkSecret: z.string().max(500).optional(),
+  clientSecret: z.string().max(500).optional(), // optional on update — keeps existing if empty
+  // Meeting SDK credentials (dev + prod)
+  sdkKeyDev: z.string().max(500).optional(),
+  sdkSecretDev: z.string().max(500).optional(),
+  sdkKeyProd: z.string().max(500).optional(),
+  sdkSecretProd: z.string().max(500).optional(),
+  sdkMode: z.enum(["dev", "prod"]).optional(),
 });
 
 export async function GET() {
@@ -36,11 +39,18 @@ export async function GET() {
 
     return NextResponse.json({
       configured: !!zoom?.clientId,
+      hasClientSecret: !!zoom?.clientSecretEncrypted,
       accountId: zoom?.accountId || null,
       clientId: zoom?.clientId || null,
       configuredAt: zoom?.configuredAt || null,
-      sdkKeyConfigured: !!zoom?.sdkKey,
-      sdkKey: zoom?.sdkKey || null,
+      // SDK Dev
+      sdkKeyDev: zoom?.sdkKeyDev || null,
+      hasSdkSecretDev: !!zoom?.sdkSecretDevEncrypted,
+      // SDK Prod
+      sdkKeyProd: zoom?.sdkKeyProd || null,
+      hasSdkSecretProd: !!zoom?.sdkSecretProdEncrypted,
+      // Active mode
+      sdkMode: zoom?.sdkMode || "dev",
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:credentials-fetch-failed");
@@ -93,16 +103,33 @@ export async function PUT(req: Request) {
       ...existingZoom,
       accountId: validated.data.accountId,
       clientId: validated.data.clientId,
-      clientSecretEncrypted: encryptSecret(validated.data.clientSecret),
       configuredAt: new Date().toISOString(),
     };
 
-    // SDK credentials (optional — for embedded meetings)
-    if (validated.data.sdkKey) {
-      zoomData.sdkKey = validated.data.sdkKey;
+    // Only update client secret if provided (keeps existing encrypted value otherwise)
+    if (validated.data.clientSecret) {
+      zoomData.clientSecretEncrypted = encryptSecret(validated.data.clientSecret);
     }
-    if (validated.data.sdkSecret) {
-      zoomData.sdkSecretEncrypted = encryptSecret(validated.data.sdkSecret);
+
+    // SDK Dev credentials
+    if (validated.data.sdkKeyDev) {
+      zoomData.sdkKeyDev = validated.data.sdkKeyDev;
+    }
+    if (validated.data.sdkSecretDev) {
+      zoomData.sdkSecretDevEncrypted = encryptSecret(validated.data.sdkSecretDev);
+    }
+
+    // SDK Prod credentials
+    if (validated.data.sdkKeyProd) {
+      zoomData.sdkKeyProd = validated.data.sdkKeyProd;
+    }
+    if (validated.data.sdkSecretProd) {
+      zoomData.sdkSecretProdEncrypted = encryptSecret(validated.data.sdkSecretProd);
+    }
+
+    // SDK mode (dev or prod)
+    if (validated.data.sdkMode) {
+      zoomData.sdkMode = validated.data.sdkMode;
     }
 
     const updatedSettings = {
