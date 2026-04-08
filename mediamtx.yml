@@ -6,7 +6,8 @@ rtmpAddress: :1935
 webrtcAddress: :8889
 
 # HLS settings
-hlsSegmentCount: 3
+hlsVariant: fmp4
+hlsSegmentCount: 7
 hlsSegmentDuration: 2s
 hlsSegmentMaxSize: 50M
 hlsAlwaysRemux: true
