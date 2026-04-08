@@ -25,6 +25,14 @@ import {
 } from "@/components/ui/sheet";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -52,14 +60,30 @@ import {
   Download,
   IdCard,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
-import { queryKeys, useTickets } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { registrationStatusColors, paymentStatusColors } from "./types";
+
+const EMAIL_TYPE_LABELS: Record<string, string> = {
+  confirmation: "Registration Confirmation",
+  reminder: "Event Reminder",
+  "payment-reminder": "Payment Reminder",
+  custom: "Custom Notification",
+};
+
+const EMAIL_TYPE_TO_SLUG: Record<string, string> = {
+  confirmation: "registration-confirmation",
+  reminder: "event-reminder",
+  "payment-reminder": "payment-reminder",
+  custom: "custom-notification",
+};
 
 interface RegistrationDetailSheetProps {
   eventId: string;
@@ -169,6 +193,24 @@ export function RegistrationDetailSheet({
       toast.error(error.message);
     },
   });
+
+  const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
+  const [selectedEmailType, setSelectedEmailType] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const previewMutation = usePreviewEmailBySlug(eventId);
+
+  const handlePreviewRegistrationEmail = async () => {
+    const slug = EMAIL_TYPE_TO_SLUG[selectedEmailType];
+    if (!slug) return;
+    try {
+      const result = await previewMutation.mutateAsync({ slug });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch {
+      toast.error("Failed to generate preview");
+    }
+  };
 
   const sendEmail = useMutation({
     mutationFn: async ({ id, type }: { id: string; type: string }) => {
@@ -290,6 +332,7 @@ export function RegistrationDetailSheet({
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
         {selectedRegistration ? (
@@ -921,16 +964,16 @@ export function RegistrationDetailSheet({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "confirmation" })}>
+                      <DropdownMenuItem onClick={() => { setSelectedEmailType("confirmation"); setEmailConfirmOpen(true); }}>
                         Registration Confirmation
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "reminder" })}>
+                      <DropdownMenuItem onClick={() => { setSelectedEmailType("reminder"); setEmailConfirmOpen(true); }}>
                         Event Reminder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "payment-reminder" })}>
+                      <DropdownMenuItem onClick={() => { setSelectedEmailType("payment-reminder"); setEmailConfirmOpen(true); }}>
                         Payment Reminder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => sendEmail.mutate({ id: selectedRegistration.id, type: "custom" })}>
+                      <DropdownMenuItem onClick={() => { setSelectedEmailType("custom"); setEmailConfirmOpen(true); }}>
                         Custom Notification
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1073,5 +1116,56 @@ export function RegistrationDetailSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+
+    {/* Email confirmation dialog */}
+    <Dialog open={emailConfirmOpen} onOpenChange={setEmailConfirmOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Send Email</DialogTitle>
+          <DialogDescription asChild>
+            <span>
+              Send <strong>{EMAIL_TYPE_LABELS[selectedEmailType]}</strong> to{" "}
+              {selectedRegistration ? formatPersonName(
+                selectedRegistration.attendee?.title,
+                selectedRegistration.attendee?.firstName || "",
+                selectedRegistration.attendee?.lastName || ""
+              ) : "recipient"}
+              {selectedRegistration?.attendee?.email && ` (${selectedRegistration.attendee.email})`}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEmailConfirmOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="outline" onClick={handlePreviewRegistrationEmail} disabled={previewMutation.isPending}>
+            {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+            Preview
+          </Button>
+          <Button
+            onClick={() => {
+              if (selectedRegistration) {
+                sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
+                setEmailConfirmOpen(false);
+              }
+            }}
+            disabled={sendEmail.isPending}
+          >
+            <Send className="mr-2 h-4 w-4" />
+            Send
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {previewData && (
+      <EmailPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        subject={previewData.subject}
+        htmlContent={previewData.htmlContent}
+      />
+    )}
+    </>
   );
 }

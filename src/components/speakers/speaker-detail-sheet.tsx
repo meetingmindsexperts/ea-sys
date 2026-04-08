@@ -55,9 +55,11 @@ import {
   FileText,
   ChevronDown,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { queryKeys } from "@/hooks/use-api";
+import { queryKeys, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -153,6 +155,28 @@ export function SpeakerDetailSheet({
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const previewMutation = usePreviewEmailBySlug(eventId);
+
+  const handlePreviewEmail = async () => {
+    const slugMap: Record<string, string> = {
+      invitation: "speaker-invitation",
+      agreement: "speaker-agreement",
+      custom: "custom-notification",
+    };
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: slugMap[emailType],
+        customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
+        customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch {
+      toast.error("Failed to generate preview");
+    }
+  };
 
   const fetchSpeaker = useCallback(async () => {
     if (!speakerId) return;
@@ -705,6 +729,10 @@ export function SpeakerDetailSheet({
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>
+                <Button variant="outline" onClick={handlePreviewEmail} disabled={previewMutation.isPending || sendingEmail}>
+                  {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+                  Preview
+                </Button>
                 <Button onClick={handleSendEmail} disabled={sendingEmail}>
                   {sendingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {sendingEmail ? "Sending..." : "Send Email"}
@@ -713,6 +741,15 @@ export function SpeakerDetailSheet({
             </div>
           </DialogContent>
         </Dialog>
+      )}
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
       )}
     </>
   );

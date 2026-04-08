@@ -20,9 +20,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Mail, Paperclip, Send, X } from "lucide-react";
+import { Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { useBulkEmail } from "@/hooks/use-api";
+import { useBulkEmail, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
@@ -115,6 +116,9 @@ export function BulkEmailDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
+  const previewMutation = usePreviewEmailBySlug(eventId);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
 
   const emailTypes = getEmailTypes(recipientType);
   const isCustom = emailType === "custom";
@@ -162,6 +166,34 @@ export function BulkEmailDialog({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const emailTypeToSlug: Record<string, string> = {
+    invitation: recipientType === "speakers" ? "speaker-invitation" : "custom-notification",
+    agreement: "speaker-agreement",
+    confirmation: "registration-confirmation",
+    reminder: "event-reminder",
+    custom: "custom-notification",
+    "abstract-accepted": "abstract-status-update",
+    "abstract-rejected": "abstract-status-update",
+    "abstract-revision": "abstract-status-update",
+    "abstract-reminder": "abstract-submission-confirmation",
+  };
+
+  const handlePreview = async () => {
+    const slug = emailTypeToSlug[emailType];
+    if (!slug) return;
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug,
+        customSubject: isCustom ? customSubject.trim() || undefined : undefined,
+        customMessage: isCustom ? customMessage.trim() || undefined : undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch {
+      toast.error("Failed to generate preview");
+    }
+  };
+
   const handleSend = async () => {
     if (isCustom && (!customSubject.trim() || !customMessage.trim())) {
       toast.error("Please provide both subject and message for custom emails");
@@ -207,6 +239,7 @@ export function BulkEmailDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[525px]">
         <DialogHeader>
@@ -356,6 +389,14 @@ export function BulkEmailDialog({
           <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={bulkEmail.isPending}>
             Cancel
           </Button>
+          <Button variant="outline" onClick={handlePreview} disabled={previewMutation.isPending || bulkEmail.isPending}>
+            {previewMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="mr-2 h-4 w-4" />
+            )}
+            Preview
+          </Button>
           <Button onClick={handleSend} disabled={bulkEmail.isPending}>
             {bulkEmail.isPending ? (
               <>
@@ -372,5 +413,15 @@ export function BulkEmailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {previewData && (
+      <EmailPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        subject={previewData.subject}
+        htmlContent={previewData.htmlContent}
+      />
+    )}
+    </>
   );
 }

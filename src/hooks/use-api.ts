@@ -803,6 +803,20 @@ export function usePreviewEmailTemplate(eventId: string) {
   });
 }
 
+export function usePreviewEmailBySlug(eventId: string) {
+  return useMutation({
+    mutationFn: (params: { slug: string; customSubject?: string; customMessage?: string }) =>
+      fetchApi<{ subject: string; htmlContent: string }>(
+        `/api/events/${eventId}/email-preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        }
+      ),
+  });
+}
+
 // ============ BULK EMAIL ============
 export function useBulkEmail(eventId: string) {
   return useMutation({

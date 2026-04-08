@@ -1005,6 +1005,48 @@ export const emailTemplates = {
     systemTemplates.registrationCompletion(params),
 };
 
+// ── Sample preview variables for email template preview ──────────────────────
+
+export function getSamplePreviewVariables(
+  overrides?: Partial<Record<string, string | number>>
+): Record<string, string | number> {
+  return {
+    firstName: "John",
+    lastName: "Doe",
+    eventName: "Sample Conference 2026",
+    eventDate: "Monday, March 15, 2026",
+    eventVenue: "Convention Center, Dubai",
+    eventAddress: "123 Main Street",
+    ticketType: "VIP Pass",
+    registrationId: "ABCD1234",
+    organizerName: "Event Organizer",
+    organizerEmail: "organizer@example.com",
+    personalMessage: "We're excited to have you!",
+    sessionDetails: "Opening Keynote - Main Hall",
+    agreementLink: "#",
+    abstractTitle: "Sample Abstract Title",
+    newStatus: "ACCEPTED",
+    statusHeading: "Abstract Accepted!",
+    statusMessage: "Congratulations! Your abstract has been accepted.",
+    reviewNotes: "Excellent work. Well-structured and relevant.",
+    reviewScore: 9,
+    managementLink: "#",
+    loginLink: "#",
+    daysUntilEvent: 7,
+    subject: "Custom Subject",
+    message: "This is a custom message body.",
+    ctaText: "Click Here",
+    ctaLink: "#",
+    amount: "USD 100.00",
+    currency: "USD",
+    paymentDate: "Monday, March 1, 2026",
+    receiptUrl: "#",
+    refundDate: "Monday, March 5, 2026",
+    paymentBlock: "",
+    ...overrides,
+  };
+}
+
 // ── Helper to load event template from DB (with fallback to default) ───────────
 
 export async function getEventTemplate(
