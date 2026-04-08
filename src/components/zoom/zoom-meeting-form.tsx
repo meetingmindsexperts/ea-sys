@@ -205,42 +205,12 @@ export function ZoomMeetingForm({
 
         {/* Live streaming info */}
         {zoomLiveStreamEnabled && zoomStreamKey && (
-          <div className="border-t pt-2 mt-1 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Radio className="h-3.5 w-3.5 text-red-500" />
-              <span className="text-xs font-medium">Live Streaming</span>
-              <Badge
-                variant="outline"
-                className={`text-xs ${
-                  zoomStreamStatus === "ACTIVE"
-                    ? "bg-green-50 text-green-700 border-green-200"
-                    : zoomStreamStatus === "ENDED"
-                      ? "bg-gray-50 text-gray-600 border-gray-200"
-                      : "bg-amber-50 text-amber-700 border-amber-200"
-                }`}
-              >
-                {zoomStreamStatus === "ACTIVE" && (
-                  <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                )}
-                {zoomStreamStatus || "IDLE"}
-              </Badge>
-            </div>
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p>
-                RTMP URL:{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                  {process.env.NEXT_PUBLIC_APP_URL ? `rtmp://${new URL(process.env.NEXT_PUBLIC_APP_URL).hostname}:1935/live/` : "rtmp://localhost:1935/live/"}
-                </code>
-              </p>
-              <p>
-                Stream Key:{" "}
-                <code className="bg-muted px-1 py-0.5 rounded text-[10px]">{zoomStreamKey}</code>
-              </p>
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Zoom auto-streams when the host starts the meeting. Attendees watch via the embedded player.
-            </p>
-          </div>
+          <StreamingInfoCard
+            streamKey={zoomStreamKey}
+            streamStatus={zoomStreamStatus}
+            eventSlug={eventSlug}
+            sessionId={sessionId}
+          />
         )}
       </div>
     );
@@ -399,5 +369,86 @@ export function ZoomMeetingForm({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Streaming Info Card (shown when live streaming is enabled) ──────
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0 flex-1">
+        <span className="text-[10px] text-muted-foreground block">{label}</span>
+        <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded block truncate">{value}</code>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 w-6 p-0 shrink-0"
+        onClick={handleCopy}
+      >
+        {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+      </Button>
+    </div>
+  );
+}
+
+function StreamingInfoCard({
+  streamKey,
+  streamStatus,
+  eventSlug,
+  sessionId,
+}: {
+  streamKey: string;
+  streamStatus?: string;
+  eventSlug?: string;
+  sessionId: string;
+}) {
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+
+  const rtmpUrl = `rtmp://${hostname}:1935/live/`;
+  const hlsUrl = `${origin}/stream/${streamKey}/index.m3u8`;
+  const sessionPageUrl = eventSlug ? `${origin}/e/${eventSlug}/session/${sessionId}` : "";
+
+  return (
+    <div className="border-t pt-2 mt-1 space-y-2">
+      <div className="flex items-center gap-2">
+        <Radio className="h-3.5 w-3.5 text-red-500" />
+        <span className="text-xs font-medium">Live Streaming</span>
+        <Badge
+          variant="outline"
+          className={`text-xs ${
+            streamStatus === "ACTIVE"
+              ? "bg-green-50 text-green-700 border-green-200"
+              : streamStatus === "ENDED"
+                ? "bg-gray-50 text-gray-600 border-gray-200"
+                : "bg-amber-50 text-amber-700 border-amber-200"
+          }`}
+        >
+          {streamStatus === "ACTIVE" && (
+            <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+          )}
+          {streamStatus || "IDLE"}
+        </Badge>
+      </div>
+
+      <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
+        <CopyField label="RTMP URL" value={rtmpUrl} />
+        <CopyField label="Stream Key" value={streamKey} />
+        <CopyField label="HLS Playback URL" value={hlsUrl} />
+        {sessionPageUrl && <CopyField label="Attendee Page" value={sessionPageUrl} />}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        Zoom auto-streams when the host starts the meeting. Attendees watch via the embedded player at the attendee page URL.
+      </p>
+    </div>
   );
 }
