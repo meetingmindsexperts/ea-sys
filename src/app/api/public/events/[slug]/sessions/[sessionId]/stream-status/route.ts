@@ -49,7 +49,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     let isLive = false;
 
     try {
-      const hlsCheck = await fetch(`${mediamtxUrl}/${zoomMeeting.streamKey}/index.m3u8`, {
+      const hlsCheck = await fetch(`${mediamtxUrl}/live/${zoomMeeting.streamKey}/index.m3u8`, {
         method: "HEAD",
         signal: AbortSignal.timeout(3000),
       });
@@ -70,7 +70,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Build HLS URL for the client
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const hlsPlaybackUrl = `${appUrl}/stream/${zoomMeeting.streamKey}/index.m3u8`;
+    const hlsPlaybackUrl = `${appUrl}/stream/live/${zoomMeeting.streamKey}/index.m3u8`;
 
     return NextResponse.json({
       status: isLive ? "active" : newStatus.toLowerCase(),

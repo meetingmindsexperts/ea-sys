@@ -414,7 +414,7 @@ function StreamingInfoCard({
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
 
   const rtmpUrl = `rtmp://${hostname}:1935/live/`;
-  const hlsUrl = `${origin}/stream/${streamKey}/index.m3u8`;
+  const hlsUrl = `${origin}/stream/live/${streamKey}/index.m3u8`;
   const sessionPageUrl = eventSlug ? `${origin}/e/${eventSlug}/session/${sessionId}` : "";
 
   return (

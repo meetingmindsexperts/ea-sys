@@ -106,7 +106,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const streamingFields = session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey
       ? {
           liveStreamEnabled: true,
-          hlsPlaybackUrl: `${appUrl}/stream/${session.zoomMeeting.streamKey}/index.m3u8`,
+          hlsPlaybackUrl: `${appUrl}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
           streamStatus: session.zoomMeeting.streamStatus,
         }
       : { liveStreamEnabled: false };
