@@ -29,6 +29,7 @@ interface ZoomMeetingFormProps {
   zoomStartUrl?: string;
   zoomMeetingId?: string;
   zoomPasscode?: string;
+  eventSlug?: string;
   defaultMeetingType?: string;
   onCreated?: () => void;
   onDeleted?: () => void;
@@ -44,6 +45,7 @@ export function ZoomMeetingForm({
   zoomStartUrl,
   zoomMeetingId,
   zoomPasscode,
+  eventSlug,
   defaultMeetingType = "MEETING",
   onCreated,
   onDeleted,
@@ -177,6 +179,17 @@ export function ZoomMeetingForm({
                 <Copy className="h-3 w-3" />
               )}
               {copied ? "Copied" : "Copy Link"}
+            </Button>
+          )}
+          {eventSlug && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+              onClick={() => window.open(`/e/${eventSlug}/session/${sessionId}`, "_blank")}
+            >
+              <Video className="h-3 w-3" />
+              Open Embed Page
             </Button>
           )}
         </div>

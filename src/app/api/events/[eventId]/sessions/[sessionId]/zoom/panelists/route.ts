@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { checkRateLimit } from "@/lib/security";
 import { addWebinarPanelists, listWebinarPanelists, removeWebinarPanelist } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ eventId: string; sessionId: string }> };
@@ -18,6 +19,19 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    const { allowed, retryAfterSeconds } = checkRateLimit({
+      key: `zoom-panelists:${eventId}`,
+      limit: 30,
+      windowMs: 3600_000,
+    });
+    if (!allowed) {
+      apiLogger.warn({ userId: session.user.id, eventId }, "zoom:panelists-rate-limited");
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
+    }
 
     const [event, zoomMeeting, sessionSpeakers] = await Promise.all([
       db.event.findFirst({

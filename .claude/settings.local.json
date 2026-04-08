@@ -78,7 +78,8 @@
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys ls-files)",
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --all --diff-filter=A -- '.env*')",
       "Bash(npm --version)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(npm view:*)"
     ]
   }
 }

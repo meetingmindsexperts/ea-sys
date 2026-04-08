@@ -20,6 +20,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ ip }, "zoom:join-rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -30,9 +31,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       where: {
         slug,
-        status: { in: ["PUBLISHED", "LIVE"] },
+        status: { in: ["DRAFT", "PUBLISHED", "LIVE"] },
       },
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, status: true },
     });
 
     if (!event) {
@@ -70,14 +71,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No Zoom meeting for this session" }, { status: 404 });
     }
 
-    // Check timing: allow join if session is LIVE, or starts within 15 minutes
+    // Check timing: allow join if session is LIVE, starts within 15 minutes,
+    // or event is in DRAFT mode (for testing)
     const now = Date.now();
     const startTime = session.startTime.getTime();
     const endTime = session.endTime.getTime();
     const isLive = session.status === "LIVE" || (now >= startTime && now <= endTime);
     const isUpcoming = startTime - now <= JOINABLE_BEFORE_START_MS && startTime > now;
+    const isDraftEvent = event.status === "DRAFT";
 
-    if (!isLive && !isUpcoming) {
+    if (!isLive && !isUpcoming && !isDraftEvent) {
       return NextResponse.json(
         {
           error: "Session is not currently joinable",

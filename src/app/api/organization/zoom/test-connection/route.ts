@@ -22,6 +22,7 @@ export async function POST() {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ userId: session.user.id }, "zoom:test-connection-rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },

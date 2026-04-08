@@ -113,6 +113,7 @@ async function fetchAccessToken(credentials: ZoomOrgCredentials): Promise<Cached
 export async function getZoomAccessToken(organizationId: string): Promise<string> {
   const cached = tokenCache.get(organizationId);
   if (cached && cached.expiresAt > Date.now() + TOKEN_REFRESH_BUFFER_MS) {
+    apiLogger.debug({ organizationId, ttlMs: cached.expiresAt - Date.now() }, "zoom:token-cache-hit");
     return cached.accessToken;
   }
 

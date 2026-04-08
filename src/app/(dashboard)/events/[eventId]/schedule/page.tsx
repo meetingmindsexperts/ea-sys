@@ -1261,6 +1261,7 @@ export default function SchedulePage() {
                     zoomStartUrl={editingSession.zoomMeeting?.startUrl || undefined}
                     zoomMeetingId={editingSession.zoomMeeting?.zoomMeetingId}
                     zoomPasscode={editingSession.zoomMeeting?.passcode || undefined}
+                    eventSlug={event?.slug}
                     defaultMeetingType={zoomSettings?.defaultMeetingType || "MEETING"}
                     onCreated={() => refetchSessions()}
                     onDeleted={() => refetchSessions()}

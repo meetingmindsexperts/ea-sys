@@ -4,6 +4,7 @@
  */
 
 import { zoomApiRequest } from "./client";
+import { apiLogger } from "@/lib/logger";
 import type {
   CreateZoomMeetingParams,
   CreateZoomWebinarParams,
@@ -18,6 +19,7 @@ export async function createZoomMeeting(
   organizationId: string,
   params: CreateZoomMeetingParams,
 ): Promise<ZoomMeetingResponse> {
+  apiLogger.info({ orgId: organizationId, topic: params.topic }, "zoom:creating-meeting");
   return zoomApiRequest<ZoomMeetingResponse>(organizationId, "POST", "/users/me/meetings", {
     topic: params.topic,
     type: 2, // scheduled
@@ -70,6 +72,7 @@ export async function deleteZoomMeeting(
   organizationId: string,
   meetingId: string,
 ): Promise<void> {
+  apiLogger.info({ orgId: organizationId, meetingId }, "zoom:deleting-meeting");
   await zoomApiRequest<void>(organizationId, "DELETE", `/meetings/${meetingId}`);
 }
 
@@ -79,6 +82,7 @@ export async function createZoomWebinar(
   organizationId: string,
   params: CreateZoomWebinarParams,
 ): Promise<ZoomWebinarResponse> {
+  apiLogger.info({ orgId: organizationId, topic: params.topic }, "zoom:creating-webinar");
   return zoomApiRequest<ZoomWebinarResponse>(organizationId, "POST", "/users/me/webinars", {
     topic: params.topic,
     type: 5, // scheduled webinar
@@ -103,6 +107,7 @@ export async function createWebinarSeries(
     throw new Error("Recurrence configuration is required for webinar series");
   }
 
+  apiLogger.info({ orgId: organizationId, topic: params.topic, recurrence: params.recurrence.type }, "zoom:creating-webinar-series");
   return zoomApiRequest<ZoomWebinarResponse>(organizationId, "POST", "/users/me/webinars", {
     topic: params.topic,
     type: 9, // recurring webinar with fixed time
@@ -156,6 +161,7 @@ export async function deleteZoomWebinar(
   organizationId: string,
   webinarId: string,
 ): Promise<void> {
+  apiLogger.info({ orgId: organizationId, webinarId }, "zoom:deleting-webinar");
   await zoomApiRequest<void>(organizationId, "DELETE", `/webinars/${webinarId}`);
 }
 
@@ -166,6 +172,7 @@ export async function addWebinarPanelists(
   webinarId: string,
   panelists: { name: string; email: string }[],
 ): Promise<void> {
+  apiLogger.info({ orgId: organizationId, webinarId, count: panelists.length }, "zoom:adding-panelists");
   await zoomApiRequest<void>(organizationId, "POST", `/webinars/${webinarId}/panelists`, {
     panelists,
   });
