@@ -61,6 +61,7 @@ export const queryKeys = {
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
+  promoCodes: (eventId: string) => ["events", eventId, "promo-codes"] as const,
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
   contacts: ["contacts"] as const,
   contact: (contactId: string) => ["contacts", contactId] as const,
@@ -291,6 +292,54 @@ export function useHotels(eventId: string) {
 // ============ ACCOMMODATIONS ============
 export function useAccommodations(eventId: string, filters?: Record<string, string>) {
   return useEventListQuery<any[]>(eventId, queryKeys.accommodations(eventId), "accommodations", filters);
+}
+
+// ============ PROMO CODES ============
+export function usePromoCodes(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.promoCodes(eventId), "promo-codes");
+}
+
+export function useCreatePromoCode(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      fetchApi(`/api/events/${eventId}/promo-codes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.promoCodes(eventId) });
+    },
+  });
+}
+
+export function useUpdatePromoCode(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ promoCodeId, data }: { promoCodeId: string; data: Record<string, unknown> }) =>
+      fetchApi(`/api/events/${eventId}/promo-codes/${promoCodeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.promoCodes(eventId) });
+    },
+  });
+}
+
+export function useDeletePromoCode(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (promoCodeId: string) =>
+      fetchApi(`/api/events/${eventId}/promo-codes/${promoCodeId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.promoCodes(eventId) });
+    },
+  });
 }
 
 // ============ IMPORT LOGS ============

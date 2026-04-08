@@ -48,6 +48,8 @@ const registrationSchema = z.object({
   billingState: z.string().max(255).optional(),
   billingZipCode: z.string().max(20).optional(),
   billingCountry: z.string().max(255).optional(),
+  // Promo code
+  promoCode: z.string().max(50).optional(),
   // Account creation
   password: z.string().min(6).max(128).optional(),
   // Tracking
@@ -103,7 +105,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
 
@@ -293,8 +295,64 @@ export async function POST(req: Request, { params }: RouteParams) {
         if (updated.count === 0) throw new Error("SOLD_OUT");
       }
 
-      const effectivePrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
+      const originalPrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
+
+      // Promo code validation and redemption (inside transaction for atomicity)
+      let discountAmount = 0;
+      let promoCodeRecord: { id: string; code: string; discountType: string; discountValue: unknown } | null = null;
+
+      if (promoCode) {
+        const promo = await tx.promoCode.findUnique({
+          where: { eventId_code: { eventId: event.id, code: promoCode.toUpperCase().trim() } },
+          include: { ticketTypes: { select: { ticketTypeId: true } } },
+        });
+
+        if (!promo || !promo.isActive) throw new Error("INVALID_PROMO_CODE");
+
+        const now2 = new Date();
+        if (promo.validFrom && now2 < promo.validFrom) throw new Error("INVALID_PROMO_CODE");
+        if (promo.validUntil && now2 > promo.validUntil) throw new Error("INVALID_PROMO_CODE");
+
+        // Ticket type applicability
+        if (promo.ticketTypes.length > 0) {
+          if (!promo.ticketTypes.some((t: { ticketTypeId: string }) => t.ticketTypeId === ticketTypeId))
+            throw new Error("PROMO_CODE_NOT_APPLICABLE");
+        }
+
+        // Atomic usedCount increment (same pattern as soldCount)
+        if (promo.maxUses !== null) {
+          const updated = await tx.promoCode.updateMany({
+            where: { id: promo.id, usedCount: { lt: promo.maxUses } },
+            data: { usedCount: { increment: 1 } },
+          });
+          if (updated.count === 0) throw new Error("PROMO_CODE_EXHAUSTED");
+        } else {
+          await tx.promoCode.update({
+            where: { id: promo.id },
+            data: { usedCount: { increment: 1 } },
+          });
+        }
+
+        // Per-email limit
+        if (promo.maxUsesPerEmail !== null) {
+          const emailUses = await tx.promoCodeRedemption.count({
+            where: { promoCodeId: promo.id, email },
+          });
+          if (emailUses >= promo.maxUsesPerEmail) throw new Error("PROMO_CODE_EMAIL_LIMIT");
+        }
+
+        // Calculate discount
+        if (promo.discountType === "PERCENTAGE") {
+          discountAmount = originalPrice * Number(promo.discountValue) / 100;
+        } else {
+          discountAmount = Math.min(Number(promo.discountValue), originalPrice);
+        }
+        discountAmount = Math.round(discountAmount * 100) / 100;
+        promoCodeRecord = promo;
+      }
+
+      const finalPrice = Math.max(0, originalPrice - discountAmount);
 
       // Create registration
       const generatedBarcode = generateBarcode();
@@ -307,8 +365,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendee.id,
           serialId,
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: effectivePrice === 0 ? "PAID" : "UNPAID",
+          paymentStatus: finalPrice === 0 ? "PAID" : "UNPAID",
           qrCode: generatedBarcode,
+          promoCodeId: promoCodeRecord?.id || null,
+          discountAmount: discountAmount > 0 ? discountAmount : null,
+          originalPrice: discountAmount > 0 ? originalPrice : null,
           referrer: referrer || null,
           utmSource: utmSource || null,
           utmMedium: utmMedium || null,
@@ -327,15 +388,24 @@ export async function POST(req: Request, { params }: RouteParams) {
         include: { attendee: true, ticketType: true, pricingTier: true },
       });
 
-      return registration;
+      // Create promo code redemption record
+      if (promoCodeRecord && discountAmount > 0) {
+        await tx.promoCodeRedemption.create({
+          data: {
+            promoCodeId: promoCodeRecord.id,
+            registrationId: registration.id,
+            email,
+            originalPrice,
+            discountAmount,
+            finalPrice,
+          },
+        });
+      }
+
+      return { registration, discountAmount, originalPrice, finalPrice };
     });
 
-    if (result instanceof Error) {
-      // Should not reach here, but safety check
-      throw result;
-    }
-
-    const registration = result;
+    const { registration, discountAmount: appliedDiscount, finalPrice: registrationFinalPrice } = result;
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(event.id, {
@@ -447,7 +517,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    const finalPrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
+    const finalPrice = registrationFinalPrice;
     const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;
     const tierLabel = pricingTier ? `${ticketType.name} (${pricingTier.name})` : ticketType.name;
 
@@ -509,6 +579,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           pricingTier: pricingTier ? pricingTier.name : null,
           ticketPrice: finalPrice,
           ticketCurrency: finalCurrency,
+          discountAmount: appliedDiscount > 0 ? appliedDiscount : null,
+          promoCode: promoCode || null,
           attendee: {
             firstName,
             lastName,
@@ -535,6 +607,30 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (error.message === "SOLD_OUT") {
         return NextResponse.json(
           { error: "Tickets sold out" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "INVALID_PROMO_CODE") {
+        return NextResponse.json(
+          { error: "Invalid or expired promo code" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "PROMO_CODE_NOT_APPLICABLE") {
+        return NextResponse.json(
+          { error: "Promo code not applicable to this ticket type" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "PROMO_CODE_EXHAUSTED") {
+        return NextResponse.json(
+          { error: "Promo code usage limit reached" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "PROMO_CODE_EMAIL_LIMIT") {
+        return NextResponse.json(
+          { error: "Promo code already used with this email" },
           { status: 400 }
         );
       }

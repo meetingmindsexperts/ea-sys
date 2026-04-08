@@ -35,6 +35,9 @@ interface PaymentInfo {
   ticketCurrency: string;
   taxRate?: number | null;
   taxLabel?: string | null;
+  originalPrice?: number | null;
+  discountAmount?: number | null;
+  promoCode?: string | null;
 }
 
 function ConfirmationContent() {
@@ -149,6 +152,9 @@ function ConfirmationContent() {
   const totalDue = ticketPrice + taxAmount;
   const hasTax = taxRate > 0;
   const taxLabel = paymentInfo?.taxLabel || "VAT";
+  const discountAmount = paymentInfo?.discountAmount ?? 0;
+  const originalPrice = paymentInfo?.originalPrice ?? null;
+  const promoCodeUsed = paymentInfo?.promoCode ?? null;
   // Registration status: prefer server data, fall back to URL param
   const registrationStatus = paymentInfo?.registrationStatus ?? statusParam;
   const isPending = registrationStatus === "PENDING";
@@ -279,16 +285,31 @@ function ConfirmationContent() {
                         <CreditCard className="h-4 w-4 text-slate-500" />
                         <span className="text-sm font-medium text-slate-700">Payment Due</span>
                       </div>
-                      {hasTax ? (
+                      {hasTax || discountAmount > 0 ? (
                         <div className="space-y-1.5 mb-3">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-600">Subtotal</span>
-                            <span className="text-slate-900">{ticketCurrency} {ticketPrice.toFixed(2)}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-600">{taxLabel} ({taxRate}%)</span>
-                            <span className="text-slate-900">{ticketCurrency} {taxAmount.toFixed(2)}</span>
-                          </div>
+                          {discountAmount > 0 && originalPrice !== null ? (
+                            <>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-600">Subtotal</span>
+                                <span className="text-slate-900">{ticketCurrency} {originalPrice.toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-emerald-600">Discount{promoCodeUsed ? ` (${promoCodeUsed})` : ""}</span>
+                                <span className="text-emerald-600">-{ticketCurrency} {discountAmount.toFixed(2)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-600">Subtotal</span>
+                              <span className="text-slate-900">{ticketCurrency} {ticketPrice.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {hasTax && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-600">{taxLabel} ({taxRate}%)</span>
+                              <span className="text-slate-900">{ticketCurrency} {taxAmount.toFixed(2)}</span>
+                            </div>
+                          )}
                           <div className="border-t border-slate-200 pt-1.5 flex items-center justify-between text-sm">
                             <span className="font-semibold text-slate-700">Total Due</span>
                             <span className="font-bold text-slate-900">{ticketCurrency} {totalDue.toFixed(2)}</span>

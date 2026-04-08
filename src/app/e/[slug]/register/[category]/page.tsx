@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   AlertCircle,
   Lock,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -178,6 +179,10 @@ function CategoryRegistrationContent() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [billingSame, setBillingSame] = useState(true);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoValidating, setPromoValidating] = useState(false);
+  const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; error?: string } | null>(null);
+  const [showPromoInput, setShowPromoInput] = useState(false);
 
   // Capture referral tracking on first load
   const trackingRef = useRef({
@@ -346,6 +351,7 @@ function CategoryRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          promoCode: promoResult?.valid ? promoResult.code : undefined,
           referrer: trackingRef.current.referrer || undefined,
           utmSource: trackingRef.current.utmSource || undefined,
           utmMedium: trackingRef.current.utmMedium || undefined,
@@ -896,6 +902,75 @@ function CategoryRegistrationContent() {
                       <p className="text-xs text-slate-500 italic">
                         Your professional ID may be required at the time of check-in. Always carry your ID to avoid inconvenience.
                       </p>
+                    )}
+
+                    {/* Promo Code */}
+                    {selectedTicketId && (
+                      <div className="mt-2">
+                        {!showPromoInput ? (
+                          <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">
+                            Have a promo code?
+                          </button>
+                        ) : (
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-600">Promo Code</label>
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="Enter promo code"
+                                value={promoCode}
+                                onChange={(e) => {
+                                  setPromoCode(e.target.value.toUpperCase());
+                                  if (promoResult) setPromoResult(null);
+                                }}
+                                className="rounded-lg border-slate-200 text-base uppercase"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={!promoCode.trim() || promoValidating}
+                                onClick={async () => {
+                                  setPromoValidating(true);
+                                  try {
+                                    const ticketTypeId = form.getValues("ticketTypeId");
+                                    const pricingTierId = form.getValues("pricingTierId");
+                                    const email = form.getValues("email");
+                                    const res = await fetch(`/api/public/events/${slug}/validate-promo`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ code: promoCode, ticketTypeId, pricingTierId: pricingTierId || undefined, email: email || "check@temp.com" }),
+                                    });
+                                    const data = await res.json();
+                                    setPromoResult(data);
+                                  } catch {
+                                    setPromoResult({ valid: false, error: "Failed to validate promo code" });
+                                  } finally {
+                                    setPromoValidating(false);
+                                  }
+                                }}
+                                className="shrink-0"
+                              >
+                                {promoValidating ? "Checking..." : "Apply"}
+                              </Button>
+                            </div>
+                            {promoResult && (
+                              promoResult.valid ? (
+                                <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-200">
+                                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                  <span>
+                                    {promoResult.discountType === "PERCENTAGE"
+                                      ? `${promoResult.discountValue}% off`
+                                      : `${promoResult.originalPrice !== undefined ? `${(promoResult.originalPrice - (promoResult.finalPrice || 0)).toFixed(2)}` : promoResult.discountAmount?.toFixed(2)} off`}
+                                    {" — "}you save {promoResult.discountAmount?.toFixed(2)}
+                                    {promoResult.finalPrice === 0 && " (Free!)"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-red-500">{promoResult.error || "Invalid promo code"}</p>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 

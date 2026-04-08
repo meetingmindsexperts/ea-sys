@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextInvoiceNumber } from "@/lib/invoice-numbering";
@@ -11,13 +12,19 @@ import type { Invoice } from "@prisma/client";
 // ── Shared query for building PDF data ──────────────────────────────────────
 
 const registrationInclude = {
-  attendee: true,
+  attendee: {
+    select: {
+      firstName: true, lastName: true, email: true, organization: true, title: true,
+    },
+  },
   ticketType: { select: { name: true, price: true, currency: true } },
   pricingTier: { select: { name: true, price: true, currency: true } },
+  promoCode: { select: { code: true } },
   event: {
     select: {
       name: true, code: true, startDate: true, venue: true, city: true,
       taxRate: true, taxLabel: true, bankDetails: true, supportEmail: true,
+      organizationId: true,
       organization: {
         select: {
           name: true, primaryColor: true,
@@ -29,6 +36,26 @@ const registrationInclude = {
     },
   },
 } as const;
+
+// ── Shared pricing calculation ─────────────────────────────────────────────
+
+function calcInvoicePricing(registration: {
+  pricingTier?: { price: unknown; currency: string } | null;
+  ticketType: { price: unknown; currency: string };
+  discountAmount?: unknown;
+  promoCode?: { code: string } | null;
+  event: { taxRate: unknown; taxLabel: string | null };
+}) {
+  const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+  const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
+  const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
+  const discountedPrice = Math.max(0, price - discount);
+  const discountCode = registration.promoCode?.code || null;
+  const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
+  const taxAmount = taxRate ? discountedPrice * (taxRate / 100) : 0;
+  const total = discountedPrice + taxAmount;
+  return { price, currency, discount, discountCode, discountedPrice, taxRate, taxAmount, total };
+}
 
 // ── Create Invoice ──────────────────────────────────────────────────────────
 
@@ -50,14 +77,10 @@ export async function createInvoice(params: {
     throw new Error("Event code is required for invoice generation. Set it in Event Settings.");
   }
 
-  const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
-  const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
-  const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
-  const taxAmount = taxRate ? price * (taxRate / 100) : 0;
-  const total = price + taxAmount;
+  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
   const eventCode = registration.event.code;
 
-  return db.$transaction(async (tx) => {
+  const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "INVOICE", eventCode
     );
@@ -74,6 +97,8 @@ export async function createInvoice(params: {
         issueDate: new Date(),
         dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
         subtotal: price,
+        discountCode,
+        discountAmount: discount,
         taxRate,
         taxLabel: registration.event.taxLabel || "VAT",
         taxAmount,
@@ -82,6 +107,9 @@ export async function createInvoice(params: {
       },
     });
   });
+
+  apiLogger.info({ msg: "Invoice created", invoiceNumber: invoice.invoiceNumber, registrationId, total: Number(invoice.total), currency });
+  return invoice;
 }
 
 // ── Create Receipt ──────────────────────────────────────────────────────────
@@ -101,18 +129,15 @@ export async function createReceipt(params: {
     include: registrationInclude,
   });
 
-  const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
-  const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
-  const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
-  const taxAmount = taxRate ? price * (taxRate / 100) : 0;
-  const total = price + taxAmount;
   if (!registration.event.code) {
     apiLogger.warn({ msg: "Skipping receipt creation — event has no code set", eventId, registrationId });
     throw new Error("Event code is required for receipt generation. Set it in Event Settings.");
   }
+
+  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
   const eventCode = registration.event.code;
 
-  return db.$transaction(async (tx) => {
+  const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "RECEIPT", eventCode
     );
@@ -136,6 +161,8 @@ export async function createReceipt(params: {
         issueDate: new Date(),
         paidDate: new Date(),
         subtotal: price,
+        discountCode,
+        discountAmount: discount,
         taxRate,
         taxLabel: registration.event.taxLabel || "VAT",
         taxAmount,
@@ -146,6 +173,9 @@ export async function createReceipt(params: {
       },
     });
   });
+
+  apiLogger.info({ msg: "Receipt created", invoiceNumber: receipt.invoiceNumber, registrationId, total: Number(receipt.total), currency });
+  return receipt;
 }
 
 // ── Create Credit Note ──────────────────────────────────────────────────────
@@ -164,15 +194,12 @@ export async function createCreditNote(params: {
     include: registrationInclude,
   });
 
-  const price = Number(registration.pricingTier?.price ?? registration.ticketType.price);
-  const currency = registration.pricingTier?.currency ?? registration.ticketType.currency;
-  const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
-  const taxAmount = taxRate ? price * (taxRate / 100) : 0;
-  const total = price + taxAmount;
   if (!registration.event.code) {
     apiLogger.warn({ msg: "Skipping credit note creation — event has no code set", eventId, registrationId });
     throw new Error("Event code is required for credit note generation. Set it in Event Settings.");
   }
+
+  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
   const eventCode = registration.event.code;
 
   // Find the original invoice if not provided
@@ -186,7 +213,7 @@ export async function createCreditNote(params: {
     parentId = existingInvoice?.id || undefined;
   }
 
-  return db.$transaction(async (tx) => {
+  const creditNote = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "CREDIT_NOTE", eventCode
     );
@@ -210,6 +237,8 @@ export async function createCreditNote(params: {
         status: "REFUNDED",
         issueDate: new Date(),
         subtotal: price,
+        discountCode,
+        discountAmount: discount,
         taxRate,
         taxLabel: registration.event.taxLabel || "VAT",
         taxAmount,
@@ -220,19 +249,15 @@ export async function createCreditNote(params: {
       },
     });
   });
+
+  apiLogger.info({ msg: "Credit note created", invoiceNumber: creditNote.invoiceNumber, registrationId, total: Number(creditNote.total), currency });
+  return creditNote;
 }
 
 // ── Generate PDF ────────────────────────────────────────────────────────────
 
-export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> {
-  const invoice = await db.invoice.findUniqueOrThrow({
-    where: { id: invoiceId },
-    include: {
-      registration: { include: registrationInclude },
-      parentInvoice: { select: { invoiceNumber: true } },
-    },
-  });
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
   const reg = invoice.registration;
   const org = reg.event.organization;
   const titleLabel = getTitleLabel(reg.attendee.title);
@@ -267,6 +292,8 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
       currency: invoice.currency,
       taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
       taxLabel: invoice.taxLabel || "VAT",
+      discountCode: invoice.discountCode || null,
+      discountAmount: Number(invoice.discountAmount) || 0,
     };
     return generateReceiptPDF(receiptData);
   }
@@ -300,6 +327,8 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
       currency: invoice.currency,
       taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
       taxLabel: invoice.taxLabel || "VAT",
+      discountCode: invoice.discountCode || null,
+      discountAmount: Number(invoice.discountAmount) || 0,
       notes: invoice.notes,
     };
     return generateCreditNotePDF(cnData);
@@ -344,35 +373,52 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
     currency: invoice.currency,
     taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
     taxLabel: invoice.taxLabel || "VAT",
+    discountCode: invoice.discountCode || null,
+    discountAmount: Number(invoice.discountAmount) || 0,
     bankDetails: reg.event.bankDetails,
     supportEmail: reg.event.supportEmail,
   };
   return generateInvoicePDF(invoiceData);
 }
 
+export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> {
+  const invoice = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: {
+      registration: { include: registrationInclude },
+      parentInvoice: { select: { invoiceNumber: true } },
+    },
+  });
+
+  return buildPDFFromLoadedInvoice(invoice);
+}
+
 // ── Send Invoice Email ──────────────────────────────────────────────────────
 
 export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
+  // Single query: fetch invoice + minimal registration data + full data for PDF in one go
   const invoice = await db.invoice.findUniqueOrThrow({
     where: { id: invoiceId },
     include: {
       registration: {
         include: {
-          attendee: { select: { firstName: true, lastName: true, email: true } },
+          ...registrationInclude,
           event: {
             select: {
-              name: true,
+              ...registrationInclude.event.select,
               emailFromAddress: true,
               emailFromName: true,
             },
           },
         },
       },
+      parentInvoice: { select: { invoiceNumber: true } },
     },
   });
 
-  const { attendee, event } = invoice.registration;
-  const pdfBuffer = await generatePDFForInvoice(invoiceId);
+  const reg = invoice.registration;
+  const { attendee, event } = reg;
+  const pdfBuffer = await buildPDFFromLoadedInvoice(invoice);
 
   const typeLabels: Record<string, string> = {
     INVOICE: "Invoice",
@@ -429,8 +475,21 @@ function buildInvoiceEmailHtml(typeLabel: string, invoiceNumber: string, eventNa
 // ── Cancel Invoice ──────────────────────────────────────────────────────────
 
 export async function cancelInvoice(invoiceId: string): Promise<Invoice> {
-  return db.invoice.update({
+  const existing = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: { id: true, status: true, invoiceNumber: true },
+  });
+
+  if (existing.status === "CANCELLED") {
+    apiLogger.warn({ msg: "Invoice already cancelled", invoiceId, invoiceNumber: existing.invoiceNumber });
+    return db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+  }
+
+  const cancelled = await db.invoice.update({
     where: { id: invoiceId },
     data: { status: "CANCELLED" },
   });
+
+  apiLogger.info({ msg: "Invoice cancelled", invoiceId, invoiceNumber: cancelled.invoiceNumber });
+  return cancelled;
 }

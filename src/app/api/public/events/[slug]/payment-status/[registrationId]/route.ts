@@ -20,6 +20,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: {
         status: true,
         paymentStatus: true,
+        discountAmount: true,
+        originalPrice: true,
         event: {
           select: {
             taxRate: true,
@@ -39,6 +41,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             currency: true,
           },
         },
+        promoCode: {
+          select: { code: true },
+        },
       },
     });
 
@@ -47,14 +52,20 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+    const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
+
     const response = NextResponse.json({
       registrationStatus: registration.status,
       paymentStatus: registration.paymentStatus,
       ticketName: registration.ticketType.name,
-      ticketPrice: Number(registration.pricingTier?.price ?? registration.ticketType.price),
+      ticketPrice: Math.max(0, basePrice - discount),
       ticketCurrency: registration.pricingTier?.currency ?? registration.ticketType.currency,
       taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
       taxLabel: registration.event.taxLabel,
+      originalPrice: registration.originalPrice ? Number(registration.originalPrice) : null,
+      discountAmount: discount > 0 ? discount : null,
+      promoCode: registration.promoCode?.code || null,
     });
 
     // Short cache to allow polling but reduce DB load

@@ -59,6 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         pricingTier: { select: { id: true, price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
         event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true } },
+        promoCode: { select: { code: true } },
       },
     });
 
@@ -67,7 +68,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const ticketPrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+    const discountAmount = registration.discountAmount ? Number(registration.discountAmount) : 0;
+    const ticketPrice = Math.max(0, basePrice - discountAmount);
 
     if (ticketPrice === 0) {
       apiLogger.warn({ msg: "Checkout attempted for free ticket", registrationId });

@@ -195,6 +195,7 @@ model Event {
   invoices        Invoice[]
   invoiceCounters InvoiceCounter[]
   zoomMeetings    ZoomMeeting[]
+  promoCodes      PromoCode[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -241,9 +242,10 @@ model TicketType {
   salesEnd         DateTime?
   requiresApproval Boolean   @default(false)
 
-  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  pricingTiers  PricingTier[]
-  registrations Registration[]
+  event          Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pricingTiers   PricingTier[]
+  registrations  Registration[]
+  promoCodeLinks PromoCodeTicketType[]
 
   @@index([eventId])
   @@index([isActive])
@@ -340,17 +342,23 @@ model Registration {
   billingState       String?
   billingZipCode     String?
   billingCountry     String?
+  // Promo code discount
+  promoCodeId        String?
+  discountAmount     Decimal?       @db.Decimal(10, 2)
+  originalPrice      Decimal?       @db.Decimal(10, 2)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id])
-  pricingTier   PricingTier?   @relation(fields: [pricingTierId], references: [id])
-  attendee      Attendee       @relation(fields: [attendeeId], references: [id])
-  user          User?          @relation(fields: [userId], references: [id])
-  payments      Payment[]
-  accommodation Accommodation?
-  invoices      Invoice[]
+  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType      TicketType          @relation(fields: [ticketTypeId], references: [id])
+  pricingTier     PricingTier?        @relation(fields: [pricingTierId], references: [id])
+  attendee        Attendee            @relation(fields: [attendeeId], references: [id])
+  user            User?               @relation(fields: [userId], references: [id])
+  promoCode       PromoCode?          @relation(fields: [promoCodeId], references: [id])
+  payments        Payment[]
+  accommodation   Accommodation?
+  invoices        Invoice[]
+  promoRedemption PromoCodeRedemption?
 
   @@unique([eventId, serialId])
   @@index([eventId])
@@ -359,6 +367,7 @@ model Registration {
   @@index([pricingTierId])
   @@index([attendeeId])
   @@index([userId])
+  @@index([promoCodeId])
   @@index([status])
   @@index([qrCode])
 }
@@ -927,6 +936,8 @@ model Invoice {
 
   // Financial snapshot (frozen at creation time)
   subtotal         Decimal       @db.Decimal(10, 2)
+  discountCode     String?
+  discountAmount   Decimal       @default(0) @db.Decimal(10, 2)
   taxRate          Decimal?      @db.Decimal(5, 2)
   taxLabel         String?
   taxAmount        Decimal       @default(0) @db.Decimal(10, 2)
@@ -1033,4 +1044,68 @@ enum StreamStatus {
   ACTIVE
   ENDED
   ERROR
+}
+
+// ==================== PROMO CODES ====================
+
+model PromoCode {
+  id               String       @id @default(cuid())
+  eventId          String
+  code             String
+  description      String?      @db.Text
+  discountType     DiscountType
+  discountValue    Decimal      @db.Decimal(10, 2)
+  currency         String?
+  maxUses          Int?
+  maxUsesPerEmail  Int?         @default(1)
+  usedCount        Int          @default(0)
+  validFrom        DateTime?
+  validUntil       DateTime?
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  event            Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypes      PromoCodeTicketType[]
+  redemptions      PromoCodeRedemption[]
+  registrations    Registration[]
+
+  @@unique([eventId, code])
+  @@index([eventId])
+  @@index([code])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model PromoCodeTicketType {
+  id           String     @id @default(cuid())
+  promoCodeId  String
+  ticketTypeId String
+
+  promoCode    PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, ticketTypeId])
+  @@index([promoCodeId])
+  @@index([ticketTypeId])
+}
+
+model PromoCodeRedemption {
+  id              String   @id @default(cuid())
+  promoCodeId     String
+  registrationId  String   @unique
+  email           String
+  originalPrice   Decimal  @db.Decimal(10, 2)
+  discountAmount  Decimal  @db.Decimal(10, 2)
+  finalPrice      Decimal  @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+
+  promoCode       PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  registration    Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([promoCodeId])
+  @@index([email])
 }

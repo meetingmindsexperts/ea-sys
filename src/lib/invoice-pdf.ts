@@ -44,6 +44,8 @@ export interface InvoicePDFData {
   currency: string;
   taxRate: number | null;
   taxLabel: string;
+  discountCode: string | null;
+  discountAmount: number;
   // Payment info
   bankDetails: string | null;
   supportEmail: string | null;
@@ -160,12 +162,21 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       y += 12;
 
       const subtotal = data.price;
-      const taxAmount = data.taxRate ? subtotal * (data.taxRate / 100) : 0;
-      const total = subtotal + taxAmount;
+      const discount = data.discountAmount || 0;
+      const discountedSubtotal = Math.max(0, subtotal - discount);
+      const taxAmount = data.taxRate ? discountedSubtotal * (data.taxRate / 100) : 0;
+      const total = discountedSubtotal + taxAmount;
 
       doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Subtotal", colRate, y);
       doc.fillColor("#1e293b").text(`${data.currency} ${subtotal.toFixed(2)}`, colAmount, y);
       y += 16;
+
+      if (discount > 0) {
+        const discountLabel = data.discountCode ? `Discount (${data.discountCode})` : "Discount";
+        doc.fontSize(9).fillColor("#dc2626").font("Helvetica").text(discountLabel, colRate, y);
+        doc.fillColor("#dc2626").text(`-${data.currency} ${discount.toFixed(2)}`, colAmount, y);
+        y += 16;
+      }
 
       if (data.taxRate && data.taxRate > 0) {
         doc.fontSize(9).fillColor("#64748b").font("Helvetica")
