@@ -112,19 +112,50 @@ interface Event {
   };
 }
 
+/** Convert a Date to `datetime-local` input value in Dubai timezone (UTC+4) */
+function toDatetimeLocal(date: Date): string {
+  const dubaiOffset = 4 * 60 * 60 * 1000; // UTC+4
+  const dubai = new Date(date.getTime() + dubaiOffset);
+  return dubai.toISOString().slice(0, 16);
+}
+
+/** Convert a `datetime-local` value back to UTC Date (assuming Dubai timezone input) */
+function fromDatetimeLocal(value: string): string {
+  const dubaiOffset = 4 * 60 * 60 * 1000;
+  const asUtc = new Date(value + ":00.000Z"); // parse as UTC
+  return new Date(asUtc.getTime() - dubaiOffset).toISOString();
+}
+
 const timezones = [
   "UTC",
+  // Americas
   "America/New_York",
   "America/Chicago",
   "America/Denver",
   "America/Los_Angeles",
+  // Europe
   "Europe/London",
   "Europe/Paris",
   "Europe/Berlin",
+  "Europe/Istanbul",
+  "Europe/Moscow",
+  // GCC / Middle East
+  "Asia/Dubai",
+  "Asia/Riyadh",
+  "Asia/Qatar",
+  "Asia/Bahrain",
+  "Asia/Kuwait",
+  "Asia/Muscat",
+  // South Asia
+  "Asia/Kolkata",
+  "Asia/Karachi",
+  // East Asia / Pacific
   "Asia/Tokyo",
   "Asia/Shanghai",
-  "Asia/Kolkata",
+  "Asia/Hong_Kong",
+  "Asia/Singapore",
   "Australia/Sydney",
+
 ];
 
 const eventStatuses = [
@@ -153,7 +184,7 @@ export default function EventSettingsPage() {
     code: "",
     startDate: "",
     endDate: "",
-    timezone: "UTC",
+    timezone: "Asia/Dubai",
     venue: "",
     address: "",
     city: "",
@@ -212,8 +243,8 @@ export default function EventSettingsPage() {
           tag: data.tag || "",
           specialty: data.specialty || "",
           code: data.code || "",
-          startDate: new Date(data.startDate).toISOString().slice(0, 16),
-          endDate: new Date(data.endDate).toISOString().slice(0, 16),
+          startDate: toDatetimeLocal(new Date(data.startDate)),
+          endDate: toDatetimeLocal(new Date(data.endDate)),
           timezone: data.timezone,
           venue: data.venue || "",
           address: data.address || "",
@@ -293,8 +324,8 @@ export default function EventSettingsPage() {
           taxLabel: generalFormData.taxLabel || null,
           bankDetails: generalFormData.bankDetails || null,
           description: generalFormData.description || null,
-          startDate: new Date(generalFormData.startDate).toISOString(),
-          endDate: new Date(generalFormData.endDate).toISOString(),
+          startDate: fromDatetimeLocal(generalFormData.startDate),
+          endDate: fromDatetimeLocal(generalFormData.endDate),
         }),
       });
 
