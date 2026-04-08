@@ -100,6 +100,17 @@ if [ -n "$PORT_HOLDER" ]; then
   echo "  Orphan container(s) removed."
 fi
 
+# ── Ensure MediaMTX (RTMP/HLS streaming) is running ─────────────────────────
+# MediaMTX is a long-running service, not part of blue-green rotation.
+# Start it if not already running.
+if ! docker ps --format '{{.Names}}' | grep -q "ea-sys-mediamtx"; then
+  echo "==> Starting MediaMTX streaming server..."
+  $COMPOSE up -d mediamtx
+  phase_done "Start MediaMTX"
+else
+  echo "==> MediaMTX already running"
+fi
+
 # ── Start inactive slot (active slot still serving traffic) ───────────────────
 # --remove-orphans also cleans up compose-project-labelled orphan containers.
 echo "==> Starting ea-sys-$INACTIVE..."
