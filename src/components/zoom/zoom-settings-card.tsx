@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Video, Loader2 } from "lucide-react";
+import { Video, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useZoomCredentials, useZoomSettings, useUpdateZoomSettings } from "@/hooks/use-api";
 
@@ -80,24 +80,68 @@ export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
         </div>
 
         {settings?.enabled && (
-          <div className="space-y-2">
-            <Label htmlFor="zoom-default-type">Default meeting type</Label>
-            <Select
-              value={settings.defaultMeetingType || "MEETING"}
-              onValueChange={handleMeetingTypeChange}
-            >
-              <SelectTrigger id="zoom-default-type" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MEETING">Meeting</SelectItem>
-                <SelectItem value="WEBINAR">Webinar</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Default type when creating Zoom links for sessions. Can be overridden per session.
-            </p>
-          </div>
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="zoom-default-type">Default meeting type</Label>
+              <Select
+                value={settings.defaultMeetingType || "MEETING"}
+                onValueChange={handleMeetingTypeChange}
+              >
+                <SelectTrigger id="zoom-default-type" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MEETING">Meeting</SelectItem>
+                  <SelectItem value="WEBINAR">Webinar</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Default type when creating Zoom links for sessions. Can be overridden per session.
+              </p>
+            </div>
+
+            {/* How to use guide */}
+            <div className="rounded-lg border bg-blue-50/50 p-4 space-y-3">
+              <h4 className="text-sm font-medium flex items-center gap-1.5">
+                <Info className="h-4 w-4 text-blue-600" />
+                How to create a Zoom session
+              </h4>
+              <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+                <li>
+                  Go to the <strong>Schedule</strong> page for this event and create a session (or open an existing one).
+                </li>
+                <li>
+                  On the session card, click the <strong>&ldquo;Create Zoom Meeting&rdquo;</strong> button.
+                </li>
+                <li>
+                  Choose the type:
+                  <ul className="ml-5 mt-1 space-y-0.5 list-disc text-xs">
+                    <li><strong>Meeting</strong> &mdash; interactive, all participants can share audio/video (up to 1,000 participants).</li>
+                    <li><strong>Webinar</strong> &mdash; view-only for attendees, only panelists can speak (up to 10,000 attendees).</li>
+                    <li><strong>Webinar Series</strong> &mdash; recurring webinar with multiple occurrences under one registration.</li>
+                  </ul>
+                </li>
+                <li>
+                  Optionally set a <strong>passcode</strong>, enable <strong>waiting room</strong>, or turn on <strong>auto-recording</strong>.
+                </li>
+                <li>
+                  Click <strong>Create</strong>. The session will display a Zoom badge and a join link will appear on the public schedule 15 minutes before start.
+                </li>
+              </ol>
+
+              <div className="text-xs text-muted-foreground pt-1 border-t space-y-1">
+                <p>
+                  <strong>For webinars:</strong> Session speakers are automatically added as Zoom panelists if &ldquo;Add session speakers as panelists&rdquo; is enabled during creation.
+                </p>
+                <p>
+                  <strong>Attendee experience:</strong> Attendees click &ldquo;Join&rdquo; on the public schedule. If Zoom Meeting SDK is configured (env vars), the session embeds directly in the browser. Otherwise, it opens in the Zoom app.
+                </p>
+                <p>
+                  <strong>Zoom plan note:</strong> Webinar features require a Zoom Webinar add-on on your Zoom account. Standard meetings work with any paid Zoom plan.
+                </p>
+              </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { generateZoomSignature, isZoomSdkConfigured } from "@/lib/zoom";
+import { generateZoomSignatureForOrg } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -26,13 +26,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Find event by slug (public — no auth required)
+    // Find event by slug — include organizationId for SDK credentials
     const event = await db.event.findFirst({
       where: {
         slug,
         status: { in: ["PUBLISHED", "LIVE"] },
       },
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
 
     if (!event) {
@@ -88,12 +88,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Generate SDK signature for attendee (role=0)
-    const sdkKey = process.env.NEXT_PUBLIC_ZOOM_SDK_KEY || "";
-    const signature = generateZoomSignature(session.zoomMeeting.zoomMeetingId, 0);
+    // Generate SDK signature using org-level credentials
+    const sdkResult = await generateZoomSignatureForOrg(
+      event.organizationId,
+      session.zoomMeeting.zoomMeetingId,
+      0, // role = attendee
+    );
 
-    if (!isZoomSdkConfigured() || !signature) {
-      // Fall back to join URL if SDK not configured
+    if (!sdkResult) {
+      // SDK not configured — fall back to join URL (opens in Zoom app)
       apiLogger.info({ sessionId, meetingType: session.zoomMeeting.meetingType }, "zoom:join-via-url");
       return NextResponse.json({
         mode: "url",
@@ -108,8 +111,8 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       mode: "sdk",
-      sdkKey,
-      signature,
+      sdkKey: sdkResult.sdkKey,
+      signature: sdkResult.signature,
       meetingNumber: session.zoomMeeting.zoomMeetingId,
       passcode: session.zoomMeeting.passcode || "",
       meetingType: session.zoomMeeting.meetingType,

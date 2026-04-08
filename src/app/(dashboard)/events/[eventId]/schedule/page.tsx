@@ -61,6 +61,9 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
+import { ZoomMeetingForm } from "@/components/zoom/zoom-meeting-form";
+import { ZoomSessionBadge } from "@/components/zoom/zoom-session-badge";
+import { useZoomSettings } from "@/hooks/use-api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +94,16 @@ interface TopicEntry {
   speakers: Array<{ speaker: Speaker }>;
 }
 
+interface ZoomMeetingInfo {
+  id: string;
+  zoomMeetingId: string;
+  meetingType: string;
+  status: string;
+  joinUrl: string;
+  startUrl: string | null;
+  passcode: string | null;
+}
+
 interface Session {
   id: string;
   name: string;
@@ -103,6 +116,7 @@ interface Session {
   track: Track | null;
   speakers: SessionSpeakerEntry[];
   topics: TopicEntry[];
+  zoomMeeting: ZoomMeetingInfo | null;
 }
 
 interface TopicForm {
@@ -214,6 +228,8 @@ export default function SchedulePage() {
   const { data: sessions = [], isLoading: loading, isFetching, refetch: refetchSessions } = useSessions(eventId);
   const { data: tracks = [], refetch: refetchTracks } = useTracks(eventId);
   const { data: speakers = [] } = useSpeakers(eventId);
+  const { data: zoomSettings } = useZoomSettings(eventId);
+  const isZoomEnabled = zoomSettings?.enabled === true;
 
   const handleRefresh = () => {
     refetchSessions();
@@ -1231,6 +1247,27 @@ export default function SchedulePage() {
                 </div>
               )}
 
+              {/* Zoom Integration */}
+              {editingSession && isZoomEnabled && !isReviewer && (
+                <div className="space-y-2 pt-2 border-t">
+                  <Label className="text-sm font-medium">Zoom</Label>
+                  <ZoomMeetingForm
+                    eventId={eventId}
+                    sessionId={editingSession.id}
+                    sessionName={editingSession.name}
+                    hasZoomMeeting={!!editingSession.zoomMeeting}
+                    zoomMeetingType={editingSession.zoomMeeting?.meetingType}
+                    zoomJoinUrl={editingSession.zoomMeeting?.joinUrl}
+                    zoomStartUrl={editingSession.zoomMeeting?.startUrl || undefined}
+                    zoomMeetingId={editingSession.zoomMeeting?.zoomMeetingId}
+                    zoomPasscode={editingSession.zoomMeeting?.passcode || undefined}
+                    defaultMeetingType={zoomSettings?.defaultMeetingType || "MEETING"}
+                    onCreated={() => refetchSessions()}
+                    onDeleted={() => refetchSessions()}
+                  />
+                </div>
+              )}
+
               <div className="flex items-center justify-between pt-2">
                 {editingSession ? (
                   <Button
@@ -1412,6 +1449,13 @@ export default function SchedulePage() {
                             </div>
                           )}
 
+                          {s.zoomMeeting && (
+                            <ZoomSessionBadge
+                              meetingType={s.zoomMeeting.meetingType}
+                              status={s.zoomMeeting.status}
+                            />
+                          )}
+
                           {!isReviewer && (
                             <div className="flex gap-2 pt-0.5">
                               <button
@@ -1523,6 +1567,12 @@ function SessionCard({
                 />
                 {session.track.name}
               </div>
+            )}
+            {session.zoomMeeting && (
+              <ZoomSessionBadge
+                meetingType={session.zoomMeeting.meetingType}
+                status={session.zoomMeeting.status}
+              />
             )}
             {session.speakers.length > 0 && (
               <div className="space-y-0.5">

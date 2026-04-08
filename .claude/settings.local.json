@@ -76,7 +76,9 @@
       "Bash(mkdir -p /Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/app/api/public/events/\\\\[slug\\\\]/sessions/\\\\[sessionId\\\\])",
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --oneline -10)",
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys ls-files)",
-      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --all --diff-filter=A -- '.env*')"
+      "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --all --diff-filter=A -- '.env*')",
+      "Bash(npm --version)",
+      "Bash(git rm:*)"
     ]
   }
 }

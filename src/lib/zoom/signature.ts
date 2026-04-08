@@ -1,36 +1,35 @@
 /**
  * Zoom Meeting SDK signature generation.
  * Generates JWTs for client-side Meeting SDK embedding.
+ * Uses org-level SDK credentials stored in Organization.settings.zoom.
  */
 
 import jwt from "jsonwebtoken";
 import { apiLogger } from "@/lib/logger";
-
-const ZOOM_SDK_KEY = process.env.NEXT_PUBLIC_ZOOM_SDK_KEY || "";
-const ZOOM_SDK_SECRET = process.env.ZOOM_SDK_SECRET || "";
+import { getZoomCredentials } from "./client";
+import { decryptSecret } from "@/lib/eventsair-client";
 
 /**
- * Generate a Zoom Meeting SDK signature for client-side embedding.
+ * Generate a Zoom Meeting SDK signature.
+ * @param sdkKey - The SDK key (public)
+ * @param sdkSecret - The SDK secret (decrypted, server-only)
  * @param meetingNumber - The Zoom meeting number (numeric ID)
  * @param role - 0 = attendee, 1 = host
  * @param expiresInSeconds - Token TTL (default 2 hours)
  */
 export function generateZoomSignature(
+  sdkKey: string,
+  sdkSecret: string,
   meetingNumber: string,
   role: 0 | 1,
   expiresInSeconds = 7200,
-): string | null {
-  if (!ZOOM_SDK_KEY || !ZOOM_SDK_SECRET) {
-    apiLogger.warn("zoom:signature — ZOOM_SDK_KEY or ZOOM_SDK_SECRET not configured");
-    return null;
-  }
-
+): string {
   const iat = Math.floor(Date.now() / 1000) - 30; // 30s clock skew buffer
   const exp = iat + expiresInSeconds;
 
   const payload = {
-    sdkKey: ZOOM_SDK_KEY,
-    appKey: ZOOM_SDK_KEY,
+    sdkKey,
+    appKey: sdkKey,
     mn: meetingNumber,
     role,
     iat,
@@ -38,12 +37,36 @@ export function generateZoomSignature(
     tokenExp: exp,
   };
 
-  return jwt.sign(payload, ZOOM_SDK_SECRET, { algorithm: "HS256" });
+  return jwt.sign(payload, sdkSecret, { algorithm: "HS256" });
 }
 
 /**
- * Check if Zoom Meeting SDK environment variables are configured.
+ * Generate a Zoom SDK signature using org-level credentials.
+ * Returns { sdkKey, signature } or null if SDK not configured for the org.
  */
-export function isZoomSdkConfigured(): boolean {
-  return !!(ZOOM_SDK_KEY && ZOOM_SDK_SECRET);
+export async function generateZoomSignatureForOrg(
+  organizationId: string,
+  meetingNumber: string,
+  role: 0 | 1,
+): Promise<{ sdkKey: string; signature: string } | null> {
+  const credentials = await getZoomCredentials(organizationId);
+
+  if (!credentials?.sdkKey || !credentials?.sdkSecretEncrypted) {
+    apiLogger.warn({ organizationId }, "zoom:signature — SDK credentials not configured for org");
+    return null;
+  }
+
+  try {
+    const sdkSecret = decryptSecret(credentials.sdkSecretEncrypted);
+    const signature = generateZoomSignature(
+      credentials.sdkKey,
+      sdkSecret,
+      meetingNumber,
+      role,
+    );
+    return { sdkKey: credentials.sdkKey, signature };
+  } catch (err) {
+    apiLogger.error({ err, organizationId }, "zoom:signature-generation-failed");
+    return null;
+  }
 }

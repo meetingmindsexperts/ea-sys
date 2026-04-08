@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Video, Loader2, Trash2 } from "lucide-react";
+import { Video, Loader2, Trash2, ExternalLink, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useCreateZoomMeeting, useDeleteZoomMeeting } from "@/hooks/use-api";
 
@@ -25,6 +25,10 @@ interface ZoomMeetingFormProps {
   sessionName: string;
   hasZoomMeeting?: boolean;
   zoomMeetingType?: string;
+  zoomJoinUrl?: string;
+  zoomStartUrl?: string;
+  zoomMeetingId?: string;
+  zoomPasscode?: string;
   defaultMeetingType?: string;
   onCreated?: () => void;
   onDeleted?: () => void;
@@ -36,6 +40,10 @@ export function ZoomMeetingForm({
   sessionName,
   hasZoomMeeting,
   zoomMeetingType,
+  zoomJoinUrl,
+  zoomStartUrl,
+  zoomMeetingId,
+  zoomPasscode,
   defaultMeetingType = "MEETING",
   onCreated,
   onDeleted,
@@ -92,29 +100,86 @@ export function ZoomMeetingForm({
     }
   };
 
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyLink = () => {
+    if (zoomJoinUrl) {
+      navigator.clipboard.writeText(zoomJoinUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   if (hasZoomMeeting) {
     return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <Video className="h-3 w-3 text-blue-600" />
-          {zoomMeetingType === "WEBINAR" || zoomMeetingType === "WEBINAR_SERIES"
-            ? "Zoom Webinar"
-            : "Zoom Meeting"}{" "}
-          linked
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-          onClick={handleDelete}
-          disabled={deleteMeeting.isPending}
-        >
-          {deleteMeeting.isPending ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Trash2 className="h-3 w-3" />
+      <div className="space-y-2 rounded-lg border bg-blue-50/50 p-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium flex items-center gap-1.5">
+            <Video className="h-4 w-4 text-blue-600" />
+            {zoomMeetingType === "WEBINAR" || zoomMeetingType === "WEBINAR_SERIES"
+              ? "Zoom Webinar"
+              : "Zoom Meeting"}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-red-500 hover:text-red-600 hover:bg-red-50"
+            onClick={handleDelete}
+            disabled={deleteMeeting.isPending}
+          >
+            {deleteMeeting.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+
+        {zoomMeetingId && (
+          <p className="text-xs text-muted-foreground">
+            Meeting ID: {zoomMeetingId}
+            {zoomPasscode && <> &middot; Passcode: {zoomPasscode}</>}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {zoomStartUrl && (
+            <Button
+              size="sm"
+              className="gap-1.5 h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => window.open(zoomStartUrl, "_blank")}
+            >
+              <Video className="h-3 w-3" />
+              Start as Host
+            </Button>
           )}
-        </Button>
+          {zoomJoinUrl && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+              onClick={() => window.open(zoomJoinUrl, "_blank")}
+            >
+              <ExternalLink className="h-3 w-3" />
+              Attendee Join Link
+            </Button>
+          )}
+          {zoomJoinUrl && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+              onClick={handleCopyLink}
+            >
+              {copied ? (
+                <Check className="h-3 w-3 text-green-600" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+              {copied ? "Copied" : "Copy Link"}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }

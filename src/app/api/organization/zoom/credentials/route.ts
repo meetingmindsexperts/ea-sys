@@ -10,6 +10,9 @@ const credentialsSchema = z.object({
   accountId: z.string().min(1).max(500),
   clientId: z.string().min(1).max(500),
   clientSecret: z.string().min(1).max(500),
+  // Meeting SDK credentials (optional — needed for embedded meetings)
+  sdkKey: z.string().max(500).optional(),
+  sdkSecret: z.string().max(500).optional(),
 });
 
 export async function GET() {
@@ -36,6 +39,8 @@ export async function GET() {
       accountId: zoom?.accountId || null,
       clientId: zoom?.clientId || null,
       configuredAt: zoom?.configuredAt || null,
+      sdkKeyConfigured: !!zoom?.sdkKey,
+      sdkKey: zoom?.sdkKey || null,
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:credentials-fetch-failed");
@@ -80,20 +85,34 @@ export async function PUT(req: Request) {
     });
 
     const currentSettings = (org?.settings as Record<string, unknown>) || {};
+    const existingZoom = typeof currentSettings.zoom === "object" && currentSettings.zoom !== null
+      ? (currentSettings.zoom as Record<string, unknown>)
+      : {};
+
+    const zoomData: Record<string, unknown> = {
+      ...existingZoom,
+      accountId: validated.data.accountId,
+      clientId: validated.data.clientId,
+      clientSecretEncrypted: encryptSecret(validated.data.clientSecret),
+      configuredAt: new Date().toISOString(),
+    };
+
+    // SDK credentials (optional — for embedded meetings)
+    if (validated.data.sdkKey) {
+      zoomData.sdkKey = validated.data.sdkKey;
+    }
+    if (validated.data.sdkSecret) {
+      zoomData.sdkSecretEncrypted = encryptSecret(validated.data.sdkSecret);
+    }
+
     const updatedSettings = {
       ...currentSettings,
-      zoom: {
-        ...(typeof currentSettings.zoom === "object" && currentSettings.zoom !== null ? currentSettings.zoom : {}),
-        accountId: validated.data.accountId,
-        clientId: validated.data.clientId,
-        clientSecretEncrypted: encryptSecret(validated.data.clientSecret),
-        configuredAt: new Date().toISOString(),
-      },
+      zoom: zoomData,
     };
 
     await db.organization.update({
       where: { id: session.user.organizationId },
-      data: { settings: updatedSettings },
+      data: { settings: JSON.parse(JSON.stringify(updatedSettings)) },
     });
 
     apiLogger.info({ userId: session.user.id }, "zoom:credentials-saved");

@@ -32,7 +32,7 @@ export {
 // Meeting SDK signatures
 export {
   generateZoomSignature,
-  isZoomSdkConfigured,
+  generateZoomSignatureForOrg,
 } from "./signature";
 
 // Types

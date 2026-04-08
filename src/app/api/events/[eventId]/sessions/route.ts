@@ -114,6 +114,17 @@ export async function GET(req: Request, { params }: RouteParams) {
             },
             orderBy: { sortOrder: "asc" },
           },
+          zoomMeeting: {
+            select: {
+              id: true,
+              zoomMeetingId: true,
+              meetingType: true,
+              status: true,
+              joinUrl: true,
+              startUrl: true,
+              passcode: true,
+            },
+          },
         },
         orderBy: { startTime: "asc" },
       }),

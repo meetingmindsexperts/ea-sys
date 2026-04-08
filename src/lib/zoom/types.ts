@@ -16,6 +16,9 @@ export interface ZoomOrgCredentials {
   clientId: string;
   clientSecretEncrypted: string;
   configuredAt: string; // ISO date
+  // Meeting SDK credentials (for embedding in browser)
+  sdkKey?: string;
+  sdkSecretEncrypted?: string;
 }
 
 // ── Meeting / Webinar creation ─────────────────────────────────────

@@ -24,11 +24,14 @@ export function OrgZoomCredentials() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState("");
+  const [sdkKey, setSdkKey] = useState<string | null>(null);
+  const [sdkSecret, setSdkSecret] = useState("");
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
   const [connectedAccount, setConnectedAccount] = useState<string | null>(null);
 
   const displayAccountId = accountId ?? config?.accountId ?? "";
   const displayClientId = clientId ?? config?.clientId ?? "";
+  const displaySdkKey = sdkKey ?? config?.sdkKey ?? "";
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +44,8 @@ export function OrgZoomCredentials() {
         accountId: displayAccountId.trim(),
         clientId: displayClientId.trim(),
         clientSecret: clientSecret.trim(),
+        ...(displaySdkKey.trim() && { sdkKey: displaySdkKey.trim() }),
+        ...(sdkSecret.trim() && { sdkSecret: sdkSecret.trim() }),
       });
       toast.success("Zoom credentials saved");
       setClientSecret("");
@@ -141,7 +146,7 @@ export function OrgZoomCredentials() {
           </div>
 
           <div className="text-xs text-muted-foreground">
-            Create a <strong>Server-to-Server OAuth</strong> app in the{" "}
+            <strong>Step 1:</strong> Create a <strong>Server-to-Server OAuth</strong> app in the{" "}
             <a
               href="https://marketplace.zoom.us/develop/create"
               target="_blank"
@@ -152,6 +157,42 @@ export function OrgZoomCredentials() {
             </a>{" "}
             with scopes: <code>meeting:write:meeting:admin</code>, <code>meeting:read:meeting:admin</code>,{" "}
             <code>webinar:write:webinar:admin</code>, <code>webinar:read:webinar:admin</code>, <code>user:read:user:admin</code>.
+          </div>
+
+          {/* Meeting SDK credentials */}
+          <div className="border-t pt-4 mt-2">
+            <p className="text-sm font-medium mb-3">Meeting SDK (embed meetings in browser)</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-key">SDK Key (Client ID)</Label>
+                <Input
+                  id="zoom-sdk-key"
+                  value={displaySdkKey}
+                  onChange={(e) => setSdkKey(e.target.value)}
+                  placeholder="Meeting SDK Client ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zoom-sdk-secret">SDK Secret (Client Secret)</Label>
+                <Input
+                  id="zoom-sdk-secret"
+                  type="password"
+                  value={sdkSecret}
+                  onChange={(e) => setSdkSecret(e.target.value)}
+                  placeholder={config?.sdkKeyConfigured ? "••••••••••••" : "Meeting SDK Client Secret"}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              <strong>Step 2:</strong> Create a <strong>Meeting SDK</strong> app in the Zoom App Marketplace.
+              Copy the Client ID and Client Secret here. Add your domain (e.g. <code>events.meetingmindsgroup.com</code>) to the
+              app&apos;s allowed domains list. Without this, meetings will open in the Zoom app instead of embedding in the browser.
+            </p>
+            {config?.sdkKeyConfigured && (
+              <Badge variant="outline" className="mt-2 bg-green-50 text-green-700 border-green-200 text-xs">
+                SDK Configured
+              </Badge>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

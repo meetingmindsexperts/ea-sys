@@ -1031,6 +1031,8 @@ export function useZoomCredentials() {
         accountId: string | null;
         clientId: string | null;
         configuredAt: string | null;
+        sdkKeyConfigured: boolean;
+        sdkKey: string | null;
       }>("/api/organization/zoom/credentials"),
   });
 }
@@ -1038,7 +1040,7 @@ export function useZoomCredentials() {
 export function useSaveZoomCredentials() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { accountId: string; clientId: string; clientSecret: string }) =>
+    mutationFn: (data: { accountId: string; clientId: string; clientSecret: string; sdkKey?: string; sdkSecret?: string }) =>
       fetchApi("/api/organization/zoom/credentials", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
