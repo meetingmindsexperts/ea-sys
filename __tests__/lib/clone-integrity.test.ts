@@ -80,7 +80,7 @@ describe("clone settings handling", () => {
       registrationOpen: true,
       waitlistEnabled: false,
       maxAttendees: 100,
-      programmePublished: true,
+      agendaPublished: true,
       notifyOnRegistration: true,
       reviewerUserIds: ["rev-1"],
     });
@@ -88,7 +88,7 @@ describe("clone settings handling", () => {
     expect(result.registrationOpen).toBe(true);
     expect(result.waitlistEnabled).toBe(false);
     expect(result.maxAttendees).toBe(100);
-    expect(result.programmePublished).toBe(true);
+    expect(result.agendaPublished).toBe(true);
     expect(result.notifyOnRegistration).toBe(true);
   });
 

@@ -85,7 +85,7 @@ function getDurationMin(start: string, end: string) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────
 
-export default function PublicSchedulePage() {
+export default function PublicAgendaPage() {
   const params = useParams();
   const slug = params.slug as string;
 
@@ -96,23 +96,23 @@ export default function PublicSchedulePage() {
   const [selectedTrack, setSelectedTrack] = useState<string>("all");
 
   useEffect(() => {
-    async function fetchSchedule() {
+    async function fetchAgenda() {
       try {
-        const res = await fetch(`/api/public/events/${slug}/schedule`);
+        const res = await fetch(`/api/public/events/${slug}/agenda`);
         if (!res.ok) {
-          setError(res.status === 404 ? "Event not found or not yet published" : "Failed to load schedule");
+          setError(res.status === 404 ? "Event not found or not yet published" : "Failed to load agenda");
           return;
         }
         const data: EventData = await res.json();
         setEventData(data);
       } catch (err) {
-        console.error("[schedule] Failed to load schedule:", err);
-        setError("Failed to load schedule");
+        console.error("[agenda] Failed to load agenda:", err);
+        setError("Failed to load agenda");
       } finally {
         setLoading(false);
       }
     }
-    if (slug) fetchSchedule();
+    if (slug) fetchAgenda();
   }, [slug]);
 
   // Group sessions by date
@@ -147,7 +147,7 @@ export default function PublicSchedulePage() {
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-slate-400 text-sm tracking-wide">Loading schedule…</p>
+          <p className="text-slate-400 text-sm tracking-wide">Loading agenda…</p>
         </div>
       </div>
     );
@@ -161,10 +161,10 @@ export default function PublicSchedulePage() {
             <Clock className="h-8 w-8 text-slate-400" />
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">
-            Programme Not Live Yet
+            Agenda Not Live Yet
           </h2>
           <p className="text-slate-500 text-sm leading-relaxed mb-6 max-w-sm mx-auto">
-            The programme for this event hasn&apos;t been published yet.
+            The agenda for this event hasn&apos;t been published yet.
             Please check back later — it will be available here once the organizer publishes it.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -213,7 +213,7 @@ export default function PublicSchedulePage() {
                 {eventData.name}
               </h1>
               <p className="text-primary/80 text-sm font-medium print:text-slate-500">
-                Programme / Agenda
+                Agenda
               </p>
               <div className="flex items-center gap-1.5 mt-3 text-sm text-white/60 print:text-slate-500">
                 <Calendar className="h-3.5 w-3.5" />
@@ -325,17 +325,17 @@ export default function PublicSchedulePage() {
         </div>
       )}
 
-      {/* ── Schedule body ─────────────────────────────────────────────────── */}
+      {/* ── Agenda body ──────────────────────────────────────────────────── */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full print:px-0 print:py-4">
         {eventData.sessions.length === 0 ? (
           <div className="text-center py-20">
             <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
               <Calendar className="h-7 w-7 text-slate-400" />
             </div>
-            <p className="text-slate-700 font-semibold text-lg">Programme Coming Soon</p>
+            <p className="text-slate-700 font-semibold text-lg">Agenda Coming Soon</p>
             <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto leading-relaxed">
               The sessions haven&apos;t been added yet. Check back closer to the event
-              for the full programme.
+              for the full agenda.
             </p>
           </div>
         ) : (

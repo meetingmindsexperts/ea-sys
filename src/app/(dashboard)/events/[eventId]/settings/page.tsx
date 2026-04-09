@@ -108,7 +108,8 @@ interface Event {
     abstractDeadline?: string;
     notifyOnRegistration?: boolean;
     notifyOnAbstractSubmission?: boolean;
-    programmePublished?: boolean;
+    agendaPublished?: boolean;
+    programmePublished?: boolean; // backward compat
   };
 }
 
@@ -205,8 +206,8 @@ export default function EventSettingsPage() {
     showRemainingTickets: true,
   });
 
-  const [programmeSettings, setProgrammeSettings] = useState({
-    programmePublished: false,
+  const [agendaSettings, setAgendaSettings] = useState({
+    agendaPublished: false,
   });
 
   const [abstractSettings, setAbstractSettings] = useState({
@@ -267,8 +268,8 @@ export default function EventSettingsPage() {
           showRemainingTickets: settings.showRemainingTickets ?? true,
         });
 
-        setProgrammeSettings({
-          programmePublished: settings.programmePublished ?? false,
+        setAgendaSettings({
+          agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
         });
 
         setAbstractSettings({
@@ -361,7 +362,7 @@ export default function EventSettingsPage() {
         body: JSON.stringify({
           settings: {
             ...registrationSettings,
-            ...programmeSettings,
+            ...agendaSettings,
             ...abstractSettings,
             ...notificationSettings,
             abstractDeadline: abstractSettings.abstractDeadline
@@ -987,21 +988,21 @@ export default function EventSettingsPage() {
               </div>
 
               <div className="border-t pt-6">
-                <h3 className="text-lg font-medium mb-4">Programme</h3>
+                <h3 className="text-lg font-medium mb-4">Agenda</h3>
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Publish Programme</Label>
+                    <Label>Publish Agenda</Label>
                     <p className="text-sm text-muted-foreground">
-                      Make the event schedule visible on the public programme page
+                      Make the event agenda visible on the public agenda page
                     </p>
                   </div>
                   <Switch
-                    checked={programmeSettings.programmePublished}
+                    checked={agendaSettings.agendaPublished}
                     onCheckedChange={(checked) =>
-                      setProgrammeSettings({
-                        ...programmeSettings,
-                        programmePublished: checked,
+                      setAgendaSettings({
+                        ...agendaSettings,
+                        agendaPublished: checked,
                       })
                     }
                   />

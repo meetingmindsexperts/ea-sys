@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   Tooltip,
   TooltipContent,
@@ -64,6 +64,7 @@ import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { ZoomMeetingForm } from "@/components/zoom/zoom-meeting-form";
 import { ZoomSessionBadge } from "@/components/zoom/zoom-session-badge";
 import { useZoomSettings } from "@/hooks/use-api";
+import { SessionDetailSheet } from "@/components/sessions/session-detail-sheet";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,7 +217,7 @@ function getSessionStyle(s: Session) {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export default function SchedulePage() {
+export default function AgendaPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const queryClient = useQueryClient();
@@ -226,6 +227,8 @@ export default function SchedulePage() {
     authSession?.user?.role === "SUBMITTER";
 
   const [copied, setCopied] = useState(false);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [detailSessionId, setDetailSessionId] = useState<string | null>(null);
 
   const { data: event } = useEvent(eventId);
   const { data: sessions = [], isLoading: loading, isFetching, refetch: refetchSessions } = useSessions(eventId);
@@ -583,7 +586,7 @@ export default function SchedulePage() {
               </Link>
               <h1 className="text-3xl font-bold flex items-center gap-2">
                 <Calendar className="h-7 w-7" />
-                Schedule
+                Agenda
                 {isFetching && !loading && (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                 )}
@@ -591,7 +594,7 @@ export default function SchedulePage() {
             </div>
             <p className="text-muted-foreground text-sm ml-6">
               {isReviewer
-                ? "View the event schedule"
+                ? "View the event agenda"
                 : "Click any time slot to add a session · Click a session to edit"}
             </p>
           </div>
@@ -692,13 +695,13 @@ export default function SchedulePage() {
           </div>
         )}
 
-        {/* ── Public schedule URL ──────────────────────────────────────────── */}
+        {/* ── Public agenda URL ───────────────────────────────────────────── */}
         {!isReviewer && event?.slug && (
           <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border bg-muted/40">
             <Link2 className="h-4 w-4 text-primary shrink-0" />
-            <span className="text-xs text-muted-foreground font-medium shrink-0">Public schedule:</span>
+            <span className="text-xs text-muted-foreground font-medium shrink-0">Public agenda:</span>
             <code className="flex-1 text-xs font-mono truncate select-all">
-              {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/schedule
+              {process.env.NEXT_PUBLIC_APP_URL || ""}/e/{event.slug}/agenda
             </code>
             <Button
               type="button"
@@ -706,7 +709,7 @@ export default function SchedulePage() {
               size="sm"
               className="shrink-0 h-7 px-2.5"
               onClick={() => {
-                const url = `${window.location.origin}/e/${event.slug}/schedule`;
+                const url = `${window.location.origin}/e/${event.slug}/agenda`;
                 navigator.clipboard.writeText(url).then(() => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
@@ -851,6 +854,7 @@ export default function SchedulePage() {
                                 session={s}
                                 style={getSessionStyle(s)}
                                 onClick={() => openEditSession(s)}
+                                onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                               />
                             ))}
                           </div>
@@ -910,6 +914,7 @@ export default function SchedulePage() {
                           session={s}
                           style={getSessionStyle(s)}
                           onClick={() => openEditSession(s)}
+                          onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                         />
                       ))}
                     </div>
@@ -1212,37 +1217,23 @@ export default function SchedulePage() {
                           </Button>
                         </div>
                         <div className="pl-5">
-                          <div className="border rounded-md divide-y max-h-28 overflow-y-auto">
-                            {(speakers as Speaker[]).map((sp) => (
-                              <label
-                                key={sp.id}
-                                className="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-muted/50 text-xs"
-                              >
-                                <Checkbox
-                                  checked={topic.speakerIds.includes(sp.id)}
-                                  onCheckedChange={(checked: boolean) => {
-                                    const updated = [...sessionForm.topics];
-                                    updated[idx] = {
-                                      ...updated[idx],
-                                      speakerIds: checked
-                                        ? [...updated[idx].speakerIds, sp.id]
-                                        : updated[idx].speakerIds.filter((id) => id !== sp.id),
-                                    };
-                                    setSessionForm({ ...sessionForm, topics: updated });
-                                  }}
-                                />
-                                <span className="flex-1">{sp.firstName} {sp.lastName}</span>
-                                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${SPEAKER_STATUS_COLORS[sp.status] ?? "bg-gray-100 text-gray-700"}`}>
-                                  {sp.status}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                          {topic.speakerIds.length > 0 && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {topic.speakerIds.length} speaker{topic.speakerIds.length !== 1 ? "s" : ""}
-                            </p>
-                          )}
+                          <MultiSelect
+                            options={(speakers as Speaker[]).map((sp) => ({
+                              value: sp.id,
+                              label: `${sp.firstName} ${sp.lastName}`,
+                              badge: sp.status,
+                              badgeClassName: SPEAKER_STATUS_COLORS[sp.status] ?? "bg-gray-100 text-gray-700",
+                            }))}
+                            selected={topic.speakerIds}
+                            onChange={(selected) => {
+                              const updated = [...sessionForm.topics];
+                              updated[idx] = { ...updated[idx], speakerIds: selected };
+                              setSessionForm({ ...sessionForm, topics: updated });
+                            }}
+                            placeholder="Select speakers..."
+                            searchPlaceholder="Search speakers..."
+                            emptyMessage="No speakers found."
+                          />
                         </div>
                       </div>
                     ))}
@@ -1504,6 +1495,16 @@ export default function SchedulePage() {
           </SheetContent>
         </Sheet>
       </div>
+
+      <SessionDetailSheet
+        eventId={eventId}
+        sessionId={detailSessionId}
+        open={detailSheetOpen}
+        onOpenChange={setDetailSheetOpen}
+        onSessionUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
+        }}
+      />
     </TooltipProvider>
   );
 }
@@ -1514,10 +1515,12 @@ function SessionCard({
   session,
   style,
   onClick,
+  onViewDetails,
 }: {
   session: Session;
   style: { top: string; height: string };
   onClick: () => void;
+  onViewDetails?: () => void;
 }) {
   const color = session.track?.color || "#6B7280";
   const heightPx = parseInt(style.height);
@@ -1618,7 +1621,21 @@ function SessionCard({
           >
             {session.status.charAt(0) + session.status.slice(1).toLowerCase()}
           </Badge>
-          <p className="text-xs text-muted-foreground italic">Click to edit</p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="italic">Click to edit</span>
+            {onViewDetails && (
+              <>
+                <span>·</span>
+                <button
+                  type="button"
+                  className="text-primary hover:underline font-medium not-italic"
+                  onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
+                >
+                  View Details
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </TooltipContent>
     </Tooltip>

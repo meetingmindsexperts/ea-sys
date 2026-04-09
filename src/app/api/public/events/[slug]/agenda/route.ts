@@ -11,7 +11,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
     const ipRateLimit = checkRateLimit({
-      key: `public-schedule:ip:${clientIp}`,
+      key: `public-agenda:ip:${clientIp}`,
       limit: 120,
       windowMs: 60 * 1000,
     });
@@ -81,10 +81,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Check if the programme has been published by the organizer
+    // Check if the agenda has been published by the organizer
     const settings = (event.settings ?? {}) as Record<string, unknown>;
-    if (!settings.programmePublished) {
-      return NextResponse.json({ error: "Programme not published yet" }, { status: 404 });
+    if (!settings.agendaPublished && !settings.programmePublished) {
+      return NextResponse.json({ error: "Agenda not published yet" }, { status: 404 });
     }
 
     const response = NextResponse.json({
@@ -102,7 +102,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     response.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return response;
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error fetching public schedule" });
-    return NextResponse.json({ error: "Failed to fetch schedule" }, { status: 500 });
+    apiLogger.error({ err: error, msg: "Error fetching public agenda" });
+    return NextResponse.json({ error: "Failed to fetch agenda" }, { status: 500 });
   }
 }

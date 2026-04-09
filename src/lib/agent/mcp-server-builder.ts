@@ -268,9 +268,9 @@ export function buildMcpServer(organizationId: string): McpServer {
   );
 
   server.resource(
-    "event-schedule",
-    new ResourceTemplate("ea-sys://events/{eventId}/schedule", { list: undefined }),
-    { description: "Full session schedule with tracks and speakers" },
+    "event-agenda",
+    new ResourceTemplate("ea-sys://events/{eventId}/agenda", { list: undefined }),
+    { description: "Full session agenda with tracks and speakers" },
     async (uri, params) => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
@@ -360,15 +360,15 @@ export function buildMcpServer(organizationId: string): McpServer {
   );
 
   server.prompt(
-    "schedule-builder",
-    "Build event schedule: create tracks, sessions, and assign speakers.",
+    "agenda-builder",
+    "Build event agenda: create tracks, sessions, and assign speakers.",
     { eventId: z.string().describe("Event ID") },
     async ({ eventId }) => ({
       messages: [{
         role: "user" as const,
         content: {
           type: "text" as const,
-          text: `Help me build the schedule for event ${eventId}. I need to:\n1. Review existing tracks (or create new ones)\n2. Create sessions with proper time slots\n3. Assign speakers to sessions\n4. Add topics within sessions if needed\n\nStart by getting the event info and listing existing tracks and speakers.`,
+          text: `Help me build the agenda for event ${eventId}. I need to:\n1. Review existing tracks (or create new ones)\n2. Create sessions with proper time slots\n3. Assign speakers to sessions\n4. Add topics within sessions if needed\n\nStart by getting the event info and listing existing tracks and speakers.`,
         },
       }],
     })
@@ -406,14 +406,14 @@ export function buildMcpServer(organizationId: string): McpServer {
 
   server.prompt(
     "pre-event-checklist",
-    "Pre-event readiness check: registrations, payments, schedule, speakers.",
+    "Pre-event readiness check: registrations, payments, agenda, speakers.",
     { eventId: z.string().describe("Event ID") },
     async ({ eventId }) => ({
       messages: [{
         role: "user" as const,
         content: {
           type: "text" as const,
-          text: `Run a pre-event readiness check for event ${eventId}. Check:\n1. Registration numbers and any pending payments\n2. Speaker confirmations — who hasn't confirmed?\n3. Schedule completeness — any empty time slots?\n4. Abstract review status — any still under review?\n\nUse get_event_stats, list_speakers, list_sessions, and list_abstracts to gather data, then give me a readiness summary with action items.`,
+          text: `Run a pre-event readiness check for event ${eventId}. Check:\n1. Registration numbers and any pending payments\n2. Speaker confirmations — who hasn't confirmed?\n3. Agenda completeness — any empty time slots?\n4. Abstract review status — any still under review?\n\nUse get_event_stats, list_speakers, list_sessions, and list_abstracts to gather data, then give me a readiness summary with action items.`,
         },
       }],
     })

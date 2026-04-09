@@ -351,7 +351,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       type: "REGISTRATION",
       title: "Session Created",
       message: `New session: "${name}"`,
-      link: `/events/${eventId}/schedule`,
+      link: `/events/${eventId}/agenda`,
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send session notification" }));
 
     return NextResponse.json(eventSession, { status: 201 });

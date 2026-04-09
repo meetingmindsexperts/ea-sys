@@ -1092,14 +1092,14 @@ function CategoryRegistrationContent() {
 
         {/* Sidebar links */}
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
-          <Link href={`/e/${slug}/schedule`} className="block group">
+          <Link href={`/e/${slug}/agenda`} className="block group">
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
               <div className="flex items-center gap-4">
                 <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
                   <Calendar className="h-4 w-4 text-amber-500" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-800 text-sm">View Programme</p>
+                  <p className="font-medium text-slate-800 text-sm">View Agenda</p>
                   <p className="text-xs text-slate-400">Full agenda</p>
                 </div>
                 <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />

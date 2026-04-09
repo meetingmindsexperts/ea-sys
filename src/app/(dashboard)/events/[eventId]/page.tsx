@@ -83,7 +83,7 @@ export default async function EventPage({ params }: EventPageProps) {
   const stats = [
     { title: "Registrations", value: event._count.registrations, icon: Users,     href: `/events/${eventId}/registrations` },
     { title: "Speakers",      value: event._count.speakers,      icon: Mic,       href: `/events/${eventId}/speakers` },
-    { title: "Sessions",      value: event._count.eventSessions, icon: Calendar,  href: `/events/${eventId}/schedule` },
+    { title: "Sessions",      value: event._count.eventSessions, icon: Calendar,  href: `/events/${eventId}/agenda` },
     { title: "Hotels",        value: event._count.hotels,        icon: Building2, href: `/events/${eventId}/accommodation` },
   ];
 
@@ -104,13 +104,13 @@ export default async function EventPage({ params }: EventPageProps) {
     },
     {
       title: event._count.eventSessions > 0
-        ? "Manage Schedule"
-        : "Build Your Schedule",
+        ? "Manage Agenda"
+        : "Build Your Agenda",
       description: event._count.eventSessions > 0
         ? "Edit sessions and tracks"
         : "Create sessions and organize your event agenda",
       icon: Calendar,
-      href: `/events/${eventId}/schedule`,
+      href: `/events/${eventId}/agenda`,
       attention: event._count.eventSessions === 0,
       iconStyle: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
     },

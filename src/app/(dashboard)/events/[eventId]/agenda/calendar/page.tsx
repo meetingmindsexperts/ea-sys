@@ -4,7 +4,7 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-export default async function ScheduleCalendarRedirect({ params }: RouteParams) {
+export default async function AgendaCalendarRedirect({ params }: RouteParams) {
   const { eventId } = await params;
-  redirect(`/events/${eventId}/schedule`);
+  redirect(`/events/${eventId}/agenda`);
 }

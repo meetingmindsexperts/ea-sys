@@ -96,7 +96,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
     settings: {
       registrationOpen: true,
       reviewerUserIds: ["rev-1", "rev-2"],
-      programmePublished: true,
+      agendaPublished: true,
     },
     bannerImage: "/uploads/banner.jpg",
     footerHtml: "<p>Footer</p>",
@@ -458,7 +458,7 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(settings.reviewerUserIds).toEqual([]);
       // Other settings should be preserved
       expect(settings.registrationOpen).toBe(true);
-      expect(settings.programmePublished).toBe(true);
+      expect(settings.agendaPublished).toBe(true);
     });
 
     it("does not clone externalId or externalSource", async () => {

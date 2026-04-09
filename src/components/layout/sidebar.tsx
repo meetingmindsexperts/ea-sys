@@ -75,7 +75,7 @@ const eventNavigationSections = [
       { name: "Promo Codes",        href: "/promo-codes",   icon: Tag },
       { name: "Check-In",          href: "/check-in",      icon: ScanBarcode },
       { name: "Speakers",          href: "/speakers",      icon: Mic },
-      { name: "Schedule",          href: "/schedule",      icon: Clock },
+      { name: "Agenda",            href: "/agenda",        icon: Clock },
       { name: "Accommodation",     href: "/accommodation", icon: Building2 },
     ],
   },

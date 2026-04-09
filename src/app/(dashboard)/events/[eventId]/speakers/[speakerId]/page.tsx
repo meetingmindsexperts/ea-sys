@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { SessionDetailSheet } from "@/components/sessions/session-detail-sheet";
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -128,6 +129,8 @@ export default function SpeakerDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [sessionSheetOpen, setSessionSheetOpen] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     title: "",
@@ -642,7 +645,14 @@ export default function SpeakerDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       {allSessions.map((session) => (
-                        <div key={session.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <div
+                          key={session.id}
+                          className="flex items-center justify-between p-3 bg-muted rounded-lg cursor-pointer hover:bg-muted/70 transition-colors"
+                          onClick={() => {
+                            setSelectedSessionId(session.id);
+                            setSessionSheetOpen(true);
+                          }}
+                        >
                           <div>
                             <p className="font-medium text-sm">{session.name}</p>
                             <p className="text-sm text-muted-foreground">
@@ -818,6 +828,14 @@ export default function SpeakerDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <SessionDetailSheet
+        eventId={eventId}
+        sessionId={selectedSessionId}
+        open={sessionSheetOpen}
+        onOpenChange={setSessionSheetOpen}
+        onSessionUpdated={() => fetchSpeaker()}
+      />
     </div>
   );
 }

@@ -229,7 +229,7 @@ server.tool(
 
 server.tool(
   "list_sessions",
-  "List sessions/schedule for an event.",
+  "List sessions/agenda for an event.",
   {
     eventId: z.string().describe("Event ID"),
     trackId: z.string().optional().describe("Filter by track ID"),

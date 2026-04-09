@@ -106,7 +106,7 @@ export default function PublicSessionPage() {
         } else {
           // Fallback — try schedule API
           try {
-            const scheduleRes = await fetch(`/api/public/events/${slug}/schedule`);
+            const scheduleRes = await fetch(`/api/public/events/${slug}/agenda`);
             if (scheduleRes.ok) {
               const scheduleData = await scheduleRes.json();
               setEvent({ name: scheduleData.name, slug: scheduleData.slug });
@@ -175,10 +175,10 @@ export default function PublicSessionPage() {
             </div>
             <h2 className="text-lg font-semibold">Session Not Available</h2>
             <p className="text-sm text-muted-foreground">{error}</p>
-            <Link href={`/e/${slug}/schedule`}>
+            <Link href={`/e/${slug}/agenda`}>
               <Button variant="outline" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
-                Back to Schedule
+                Back to Agenda
               </Button>
             </Link>
           </CardContent>
@@ -205,7 +205,7 @@ export default function PublicSessionPage() {
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center gap-3">
             <Link
-              href={`/e/${slug}/schedule`}
+              href={`/e/${slug}/agenda`}
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />

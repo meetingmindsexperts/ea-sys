@@ -140,7 +140,7 @@ describe("RBAC Layer 2: Middleware route redirects", () => {
       "/events/new",
       "/events/evt-1/registrations",
       "/events/evt-1/speakers",
-      "/events/evt-1/schedule",
+      "/events/evt-1/agenda",
       "/events/evt-1/abstracts",
     ];
 
@@ -188,9 +188,9 @@ describe("RBAC Layer 2: Middleware route redirects", () => {
       ).toEqual({ redirect: "/events/evt-1/abstracts" });
     });
 
-    it("redirects /events/evt-1/schedule to /events/evt-1/abstracts", () => {
+    it("redirects /events/evt-1/agenda to /events/evt-1/abstracts", () => {
       expect(
-        getMiddlewareAction("REVIEWER", "/events/evt-1/schedule")
+        getMiddlewareAction("REVIEWER", "/events/evt-1/agenda")
       ).toEqual({ redirect: "/events/evt-1/abstracts" });
     });
 

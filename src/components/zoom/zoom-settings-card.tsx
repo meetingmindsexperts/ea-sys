@@ -108,7 +108,7 @@ export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
               </h4>
               <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
                 <li>
-                  Go to the <strong>Schedule</strong> page for this event and create a session (or open an existing one).
+                  Go to the <strong>Agenda</strong> page for this event and create a session (or open an existing one).
                 </li>
                 <li>
                   On the session card, click the <strong>&ldquo;Create Zoom Meeting&rdquo;</strong> button.
@@ -125,7 +125,7 @@ export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
                   Optionally set a <strong>passcode</strong>, enable <strong>waiting room</strong>, or turn on <strong>auto-recording</strong>.
                 </li>
                 <li>
-                  Click <strong>Create</strong>. The session will display a Zoom badge and a join link will appear on the public schedule 15 minutes before start.
+                  Click <strong>Create</strong>. The session will display a Zoom badge and a join link will appear on the public agenda 15 minutes before start.
                 </li>
               </ol>
 
@@ -134,7 +134,7 @@ export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
                   <strong>For webinars:</strong> Session speakers are automatically added as Zoom panelists if &ldquo;Add session speakers as panelists&rdquo; is enabled during creation.
                 </p>
                 <p>
-                  <strong>Attendee experience:</strong> Attendees click &ldquo;Join&rdquo; on the public schedule. If Zoom Meeting SDK is configured (env vars), the session embeds directly in the browser. Otherwise, it opens in the Zoom app.
+                  <strong>Attendee experience:</strong> Attendees click &ldquo;Join&rdquo; on the public agenda. If Zoom Meeting SDK is configured (env vars), the session embeds directly in the browser. Otherwise, it opens in the Zoom app.
                 </p>
                 <p>
                   <strong>Zoom plan note:</strong> Webinar features require a Zoom Webinar add-on on your Zoom account. Standard meetings work with any paid Zoom plan.
