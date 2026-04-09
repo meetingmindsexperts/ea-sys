@@ -516,13 +516,11 @@ Best regards,
         <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
       </table>
     </div>
-    <p>Please review and acknowledge the speaker agreement terms. By participating as a speaker, you agree to:</p>
-    <ul style="color: #4b5563;">
-      <li>Deliver your presentation as scheduled</li>
-      <li>Provide presentation materials in advance if requested</li>
-      <li>Allow the event to record and distribute your session (if applicable)</li>
-      <li>Adhere to the event&apos;s code of conduct</li>
-    </ul>
+    <p>Please review and confirm the speaker agreement by clicking the button below:</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{agreementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Accept Agreement</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; text-align: center;">This link is unique to you and will expire in 30 days.</p>
     <p>If you have any questions, please don&apos;t hesitate to reach out.</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
   </div>`,
@@ -536,6 +534,11 @@ Event Details:
 - Event: {{eventName}}
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
+
+Please review and confirm the speaker agreement here:
+{{agreementLink}}
+
+This link is unique to you and will expire in 30 days.
 
 Best regards,
 {{organizerName}}

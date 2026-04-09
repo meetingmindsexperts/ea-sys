@@ -88,6 +88,7 @@ interface Speaker {
   registrationType: string | null;
   tags: string[];
   status: string;
+  agreementAcceptedAt: string | null;
   createdAt: string;
   socialLinks: {
     twitter?: string;
@@ -353,6 +354,11 @@ export function SpeakerDetailSheet({
                         <Badge className={`${statusColors[speaker.status] || "bg-gray-100 text-gray-800"} border-white/30`} variant="outline">
                           {speaker.status}
                         </Badge>
+                        {speaker.agreementAcceptedAt && (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-white/30" variant="outline">
+                            Agreement Accepted
+                          </Badge>
+                        )}
                       </span>
                     </SheetDescription>
                   </SheetHeader>

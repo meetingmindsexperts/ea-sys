@@ -31,6 +31,7 @@ export default function ContentPage() {
     abstractWelcomeHtml: "",
     abstractTermsHtml: "",
     abstractConfirmationHtml: "",
+    speakerAgreementHtml: "",
   });
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function ContentPage() {
             abstractWelcomeHtml: data.abstractWelcomeHtml || "",
             abstractTermsHtml: data.abstractTermsHtml || "",
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
+            speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
         }
       } catch {
@@ -70,6 +72,7 @@ export default function ContentPage() {
           abstractWelcomeHtml: content.abstractWelcomeHtml || null,
           abstractTermsHtml: content.abstractTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
+          speakerAgreementHtml: content.speakerAgreementHtml || null,
         }),
       });
       if (res.ok) toast.success("Content saved");
@@ -106,6 +109,7 @@ export default function ContentPage() {
         <TabsList>
           <TabsTrigger value="registration">Registration</TabsTrigger>
           <TabsTrigger value="abstracts">Abstracts</TabsTrigger>
+          <TabsTrigger value="speakers">Speakers</TabsTrigger>
         </TabsList>
 
         {/* Registration Content */}
@@ -223,6 +227,34 @@ export default function ContentPage() {
               <Button onClick={handleSave} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving..." : "Save Abstract Content"}
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Speaker Content */}
+        <TabsContent value="speakers">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Speaker Agreement</CardTitle>
+                <CardDescription>
+                  Shown on the public speaker agreement page (linked from speaker agreement emails). Speakers must accept these terms to confirm their participation. A default agreement is seeded on event creation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TiptapEditor
+                  content={content.speakerAgreementHtml}
+                  onChange={(html) => setContent({ ...content, speakerAgreementHtml: html })}
+                  placeholder="By accepting this agreement, you confirm your participation as a speaker..."
+                />
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                {saving ? "Saving..." : "Save Speaker Content"}
               </Button>
             </div>
           </div>

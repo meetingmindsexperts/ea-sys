@@ -33,3 +33,36 @@ export const DEFAULT_REGISTRATION_TERMS_HTML = `
 <p><strong>Data Privacy Policy:</strong></p>
 <p>By registering, you consent to the collection and processing of your personal data for the purposes of event management, communication, and related services in accordance with our data privacy policy.</p>
 `.trim();
+
+/**
+ * Default speaker agreement HTML.
+ * Seeded on event creation and used as fallback on the public speaker agreement page.
+ */
+export const DEFAULT_SPEAKER_AGREEMENT_HTML = `
+<p><strong>Speaker Agreement</strong></p>
+<p>By accepting this agreement, you confirm your participation as a speaker at this event and agree to the following terms:</p>
+
+<p><strong>1. Presentation Commitment</strong></p>
+<p>You agree to deliver your presentation as scheduled. Any changes to the schedule must be communicated to the organizers as soon as possible.</p>
+
+<p><strong>2. Presentation Materials</strong></p>
+<p>You agree to provide your presentation materials (slides, handouts, etc.) in advance if requested by the organizers. All materials must be original or properly licensed for use at the event.</p>
+
+<p><strong>3. Recording and Distribution</strong></p>
+<p>You grant the organizers permission to record, photograph, and distribute your session and presentation materials for promotional and educational purposes, unless explicitly stated otherwise in writing.</p>
+
+<p><strong>4. Code of Conduct</strong></p>
+<p>You agree to adhere to the event's code of conduct and to treat all attendees, staff, and fellow speakers with respect and professionalism.</p>
+
+<p><strong>5. Original Content</strong></p>
+<p>You confirm that the content of your presentation is your own original work or that you have obtained all necessary permissions and rights for any third-party content used.</p>
+
+<p><strong>6. Cancellation</strong></p>
+<p>If you are unable to attend the event, you must notify the organizers in writing as soon as possible. The organizers reserve the right to find a replacement speaker.</p>
+
+<p><strong>7. Travel and Expenses</strong></p>
+<p>Travel, accommodation, and other expenses are handled separately and will be communicated by the event organizers.</p>
+
+<p><strong>8. Data Privacy</strong></p>
+<p>Your personal information will be used solely for event management purposes in accordance with our data privacy policy.</p>
+`.trim();

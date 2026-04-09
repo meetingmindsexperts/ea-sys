@@ -48,6 +48,8 @@ import {
   X,
   Stethoscope,
   Calendar,
+  CheckCircle2,
+  FileCheck,
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -84,6 +86,8 @@ interface Speaker {
   registrationType: string | null;
   tags: string[];
   status: keyof typeof statusColors;
+  agreementAcceptedAt: string | null;
+  agreementAcceptedBy: string | null;
   createdAt: string;
   socialLinks: {
     twitter?: string;
@@ -160,6 +164,7 @@ export default function SpeakerDetailPage() {
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [updatingAgreement, setUpdatingAgreement] = useState(false);
 
   const fetchSpeaker = useCallback(async () => {
     try {
@@ -290,6 +295,37 @@ export default function SpeakerDetailPage() {
     }
   };
 
+  const handleAgreementToggle = async (accepted: boolean) => {
+    if (updatingAgreement) return;
+    if (!accepted && !confirm("Revoke this speaker's agreement acceptance? This will clear the acceptance record.")) {
+      return;
+    }
+    setUpdatingAgreement(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/agreement`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to update agreement");
+        return;
+      }
+      const data = await res.json();
+      setSpeaker((prev) => prev ? {
+        ...prev,
+        agreementAcceptedAt: data.speaker.agreementAcceptedAt,
+        agreementAcceptedBy: data.speaker.agreementAcceptedBy,
+      } : prev);
+      toast.success(accepted ? "Agreement marked as accepted" : "Agreement acceptance revoked");
+    } catch {
+      toast.error("Failed to update agreement");
+    } finally {
+      setUpdatingAgreement(false);
+    }
+  };
+
   const handleSendEmail = async () => {
     if (sendingEmail) return;
     if (emailType === "custom" && (!customEmailSubject || !customEmailMessage)) {
@@ -369,6 +405,12 @@ export default function SpeakerDetailPage() {
               <Badge className={`${statusColors[speaker.status]} border-white/30`} variant="outline">
                 {speaker.status}
               </Badge>
+              {speaker.agreementAcceptedAt && (
+                <Badge className="bg-emerald-100 text-emerald-800 border-white/30" variant="outline">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Agreement Accepted
+                </Badge>
+              )}
             </div>
 
             {/* Actions */}
@@ -757,6 +799,65 @@ export default function SpeakerDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Speaker Agreement */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileCheck className="h-4 w-4 text-muted-foreground" />
+                Speaker Agreement
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {speaker.agreementAcceptedAt ? (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-emerald-900">Accepted</p>
+                      <p className="text-xs text-emerald-700 mt-0.5">
+                        {formatDate(speaker.agreementAcceptedAt)}
+                        {speaker.agreementAcceptedBy?.startsWith("ORGANIZER") ? (
+                          <span className="ml-1 text-emerald-600/80">(by organizer)</span>
+                        ) : (
+                          <span className="ml-1 text-emerald-600/80">(by speaker)</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-red-600 hover:text-red-700"
+                    onClick={() => handleAgreementToggle(false)}
+                    disabled={updatingAgreement}
+                  >
+                    {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <X className="mr-2 h-4 w-4" />}
+                    Revoke
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm font-medium text-slate-700">Pending</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Speaker has not yet accepted the agreement.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleAgreementToggle(true)}
+                    disabled={updatingAgreement}
+                  >
+                    {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    Mark as Accepted
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Social Links */}
           <Card>
             <CardHeader>

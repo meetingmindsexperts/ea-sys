@@ -56,6 +56,7 @@ interface Speaker {
   bio: string | null;
   tags: string[];
   status: string;
+  agreementAcceptedAt: string | null;
   _count: { sessions: number; abstracts: number };
 }
 
@@ -350,6 +351,7 @@ export default function SpeakersPage() {
                   <TableHead>Tags</TableHead>
                   <TableHead>Sessions</TableHead>
                   <TableHead>Abstracts</TableHead>
+                  <TableHead>Agreement</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -405,6 +407,15 @@ export default function SpeakersPage() {
                     </TableCell>
                     <TableCell className="text-center">{speaker._count.sessions}</TableCell>
                     <TableCell className="text-center">{speaker._count.abstracts}</TableCell>
+                    <TableCell>
+                      {speaker.agreementAcceptedAt ? (
+                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                          Accepted
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Pending</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge className={statusColors[speaker.status] ?? "bg-gray-100 text-gray-800"} variant="outline">
                         {speaker.status}

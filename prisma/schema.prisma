@@ -166,6 +166,7 @@ model Event {
   abstractTermsHtml        String?   @db.Text
   abstractConfirmationHtml String?   @db.Text
   registrationConfirmationHtml String? @db.Text
+  speakerAgreementHtml     String?   @db.Text
   taxRate                  Decimal?  @db.Decimal(5, 2)
   taxLabel                 String?   @default("VAT")
   bankDetails              String?   @db.Text
@@ -438,6 +439,10 @@ model Speaker {
   socialLinks      Json          @default("{}")
   status           SpeakerStatus @default(INVITED)
   externalId       String?
+  agreementAcceptedAt    DateTime?
+  agreementAcceptedIp    String?
+  agreementAcceptedBy    String?
+  agreementTextSnapshot  String?  @db.Text
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

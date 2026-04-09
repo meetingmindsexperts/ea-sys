@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
-import { getClientIp, checkRateLimit } from "@/lib/security";
+import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
 
 const sendEmailSchema = z.object({
   type: z.enum(["invitation", "agreement", "custom"]),
@@ -89,6 +90,34 @@ export async function POST(req: Request, { params }: RouteParams) {
     const sessionDetails = speaker.sessions.length > 0
       ? speaker.sessions.map((s) => s.session.name).join(", ") : "";
 
+    // Generate a hashed, one-time verification token for agreement emails
+    let agreementLink = "";
+    if (type === "agreement" || includeAgreementLink) {
+      try {
+        const identifier = `speaker-agreement:${speaker.id}`;
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const hashedToken = hashVerificationToken(rawToken);
+
+        // Atomically rotate the token: delete any existing tokens, then create new one
+        await db.$transaction([
+          db.verificationToken.deleteMany({ where: { identifier } }),
+          db.verificationToken.create({
+            data: {
+              identifier,
+              token: hashedToken,
+              expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            },
+          }),
+        ]);
+
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        agreementLink = `${appUrl}/e/${event.slug}/speaker-agreement?token=${rawToken}`;
+      } catch (tokenErr) {
+        apiLogger.error({ err: tokenErr, msg: "Failed to create speaker agreement token", speakerId: speaker.id, eventId });
+        return NextResponse.json({ error: "Failed to generate agreement link" }, { status: 500 });
+      }
+    }
+
     const vars: Record<string, string> = {
       firstName: speaker.firstName,
       lastName: speaker.lastName,
@@ -99,8 +128,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       organizerEmail,
       personalMessage: customMessage || "",
       sessionDetails,
-      agreementLink: includeAgreementLink
-        ? `${process.env.NEXT_PUBLIC_APP_URL || ""}/speaker-agreement/${speaker.id}` : "",
+      agreementLink,
     };
 
     const slugMap: Record<string, string> = {
