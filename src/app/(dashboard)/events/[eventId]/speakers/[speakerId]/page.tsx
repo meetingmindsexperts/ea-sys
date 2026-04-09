@@ -50,6 +50,7 @@ import {
   Calendar,
   CheckCircle2,
   FileCheck,
+  Eye,
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -58,6 +59,8 @@ import { RegistrationTypeSelect } from "@/components/ui/registration-type-select
 import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { usePreviewEmailBySlug } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { formatPersonName, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -165,6 +168,28 @@ export default function SpeakerDetailPage() {
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const previewMutation = usePreviewEmailBySlug(eventId);
+
+  const handlePreviewEmail = async () => {
+    const slugMap: Record<string, string> = {
+      invitation: "speaker-invitation",
+      agreement: "speaker-agreement",
+      custom: "custom-notification",
+    };
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: slugMap[emailType],
+        customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
+        customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch {
+      toast.error("Failed to generate preview");
+    }
+  };
 
   const fetchSpeaker = useCallback(async () => {
     try {
@@ -942,6 +967,10 @@ export default function SpeakerDetailPage() {
             )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>
+              <Button variant="outline" onClick={handlePreviewEmail} disabled={previewMutation.isPending || sendingEmail}>
+                {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+                Preview
+              </Button>
               <Button onClick={handleSendEmail} disabled={sendingEmail}>
                 {sendingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {sendingEmail ? "Sending..." : "Send Email"}
@@ -950,6 +979,15 @@ export default function SpeakerDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
+      )}
 
       <SessionDetailSheet
         eventId={eventId}

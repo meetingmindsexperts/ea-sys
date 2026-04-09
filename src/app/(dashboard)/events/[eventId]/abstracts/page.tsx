@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -190,7 +191,18 @@ export default function AbstractsPage() {
           themeId: data.themeId || undefined,
         }),
       });
-      if (!res.ok) throw new Error("Failed to create abstract");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        // Extract field-level errors from Zod flatten() if present
+        const fieldErrors = err.details?.fieldErrors as Record<string, string[]> | undefined;
+        const firstFieldError = fieldErrors
+          ? Object.entries(fieldErrors).find(([, msgs]) => msgs && msgs.length > 0)
+          : undefined;
+        const message = firstFieldError
+          ? `${firstFieldError[0]}: ${firstFieldError[1][0]}`
+          : err.error || "Failed to create abstract";
+        throw new Error(message);
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -199,7 +211,7 @@ export default function AbstractsPage() {
       resetForm();
       toast.success("Abstract submitted successfully");
     },
-    onError: () => toast.error("Failed to submit abstract"),
+    onError: (err: Error) => toast.error(err.message || "Failed to submit abstract"),
   });
 
   // Edit abstract mutation (for submitters)
@@ -217,7 +229,10 @@ export default function AbstractsPage() {
           themeId: data.themeId || undefined,
         }),
       });
-      if (!res.ok) throw new Error("Failed to update abstract");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update abstract");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -226,7 +241,7 @@ export default function AbstractsPage() {
       setSelectedAbstract(null);
       toast.success("Abstract updated successfully");
     },
-    onError: () => toast.error("Failed to update abstract"),
+    onError: (err: Error) => toast.error(err.message || "Failed to update abstract"),
   });
 
   // Review abstract mutation
@@ -243,7 +258,10 @@ export default function AbstractsPage() {
           recommendedFormat: data.recommendedFormat || undefined,
         }),
       });
-      if (!res.ok) throw new Error("Failed to review abstract");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to review abstract");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -252,7 +270,7 @@ export default function AbstractsPage() {
       setSelectedAbstract(null);
       toast.success("Review saved successfully");
     },
-    onError: () => toast.error("Failed to save review"),
+    onError: (err: Error) => toast.error(err.message || "Failed to save review"),
   });
 
   // Delete abstract mutation (SUPER_ADMIN only)
@@ -261,14 +279,17 @@ export default function AbstractsPage() {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to delete abstract");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to delete abstract");
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
       toast.success("Abstract deleted");
     },
-    onError: () => toast.error("Failed to delete abstract"),
+    onError: (err: Error) => toast.error(err.message || "Failed to delete abstract"),
   });
 
   const handleDelete = (abstractId: string) => {
@@ -280,6 +301,18 @@ export default function AbstractsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSubmitter && !formData.speakerId) {
+      toast.error("Please select a speaker");
+      return;
+    }
+    if (!formData.title.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    if (!formData.content.trim()) {
+      toast.error("Abstract content is required");
+      return;
+    }
     createAbstractMutation.mutate(formData);
   };
 
@@ -431,140 +464,159 @@ export default function AbstractsPage() {
             </Button>
           </DialogTrigger>
           )}
-          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[720px] max-h-[90vh] flex flex-col p-0 gap-0">
+            <DialogHeader className="px-6 py-4 border-b shrink-0">
               <DialogTitle>Submit Abstract</DialogTitle>
+              <DialogDescription>
+                Add a new abstract to this event. Fields marked with * are required.
+              </DialogDescription>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!isSubmitter && (
-                <div className="space-y-2">
-                  <Label htmlFor="speaker">Speaker</Label>
-                  <Select
-                    value={formData.speakerId}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, speakerId: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select speaker" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {speakers.map((speaker) => (
-                        <SelectItem key={speaker.id} value={speaker.id}>
-                          {speaker.firstName} {speaker.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="title">Title</Label>
-                <Input
-                  id="title"
-                  value={formData.title}
-                  onChange={(e) =>
-                    setFormData({ ...formData, title: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="content">Abstract Content</Label>
-                <Textarea
-                  id="content"
-                  value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  rows={10}
-                  placeholder="Enter your abstract content..."
-                  className="resize-y min-h-[200px]"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Specialty</Label>
-                <SpecialtySelect
-                  value={formData.specialty}
-                  onChange={(specialty) =>
-                    setFormData({ ...formData, specialty })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Presentation Type</Label>
-                <Select
-                  value={formData.presentationType}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, presentationType: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                    <SelectItem value="POSTER">Poster Presentation</SelectItem>
-                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
-                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className={isSubmitter ? "" : "grid grid-cols-2 gap-4"}>
-                <div className="space-y-2">
-                  <Label htmlFor="track">Track</Label>
-                  <Select
-                    value={formData.trackId}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, trackId: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select track" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tracks.map((track) => (
-                        <SelectItem key={track.id} value={track.id}>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: track.color }}
-                            />
-                            {track.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Theme</Label>
-                  <AbstractThemeSelect
-                    eventId={eventId}
-                    value={formData.themeId || null}
-                    onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
-                  />
-                </div>
-                {!isSubmitter && (
+            <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+                {/* Section: Abstract Details */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Abstract Details
+                  </h3>
+                  {!isSubmitter && (
+                    <div className="space-y-2">
+                      <Label htmlFor="speaker">Speaker <span className="text-red-500">*</span></Label>
+                      <Select
+                        value={formData.speakerId}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, speakerId: value })
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select speaker" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {speakers.map((speaker) => (
+                            <SelectItem key={speaker.id} value={speaker.id}>
+                              {speaker.firstName} {speaker.lastName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, status: value })
+                    <Label htmlFor="title">Title <span className="text-red-500">*</span></Label>
+                    <Input
+                      id="title"
+                      value={formData.title}
+                      onChange={(e) =>
+                        setFormData({ ...formData, title: e.target.value })
                       }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DRAFT">Draft</SelectItem>
-                        <SelectItem value="SUBMITTED">Submitted</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      placeholder="Enter a concise, descriptive title"
+                      required
+                    />
                   </div>
-                )}
+                  <div className="space-y-2">
+                    <Label htmlFor="content">Abstract Content <span className="text-red-500">*</span></Label>
+                    <Textarea
+                      id="content"
+                      value={formData.content}
+                      onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                      rows={6}
+                      placeholder="Enter your abstract content..."
+                      className="resize-y min-h-[140px]"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Section: Categorization */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Categorization
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Specialty</Label>
+                      <SpecialtySelect
+                        value={formData.specialty}
+                        onChange={(specialty) =>
+                          setFormData({ ...formData, specialty })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Presentation Type</Label>
+                      <Select
+                        value={formData.presentationType}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, presentationType: value })
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ORAL">Oral Presentation</SelectItem>
+                          <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                          <SelectItem value="VIDEO">Video Presentation</SelectItem>
+                          <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="track">Track</Label>
+                      <Select
+                        value={formData.trackId}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, trackId: value })
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select track" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {tracks.map((track) => (
+                            <SelectItem key={track.id} value={track.id}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: track.color }}
+                                />
+                                {track.name}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Theme</Label>
+                      <AbstractThemeSelect
+                        eventId={eventId}
+                        value={formData.themeId || null}
+                        onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
+                      />
+                    </div>
+                    {!isSubmitter && (
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="status">Status</Label>
+                        <Select
+                          value={formData.status}
+                          onValueChange={(value) =>
+                            setFormData({ ...formData, status: value })
+                          }
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="DRAFT">Draft</SelectItem>
+                            <SelectItem value="SUBMITTED">Submitted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 px-6 py-4 border-t bg-muted/30 shrink-0">
                 <Button
                   type="button"
                   variant="outline"
@@ -574,8 +626,14 @@ export default function AbstractsPage() {
                   Cancel
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Submit Abstract
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit Abstract"
+                  )}
                 </Button>
               </div>
             </form>

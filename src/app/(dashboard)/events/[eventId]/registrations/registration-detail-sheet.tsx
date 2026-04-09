@@ -143,6 +143,7 @@ export function RegistrationDetailSheet({
     memberId: "",
     studentId: "",
     studentIdExpiry: "",
+    dtcmBarcode: "",
   });
 
   // Keep local state in sync with prop
@@ -296,17 +297,20 @@ export function RegistrationDetailSheet({
         memberId: selectedRegistration.attendee.memberId || "",
         studentId: selectedRegistration.attendee.studentId || "",
         studentIdExpiry: selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toISOString().split("T")[0] : "",
+        dtcmBarcode: selectedRegistration.dtcmBarcode || "",
       });
       setIsEditing(true);
     }
   };
 
   const saveEdits = () => {
-    if (selectedRegistration) {
-      updateRegistration.mutate({
+    if (!selectedRegistration) return;
+    updateRegistration.mutate(
+      {
         id: selectedRegistration.id,
         data: {
           notes: editData.notes || undefined,
+          dtcmBarcode: editData.dtcmBarcode.trim() || null,
           attendee: {
             title: editData.title || undefined,
             firstName: editData.firstName,
@@ -327,9 +331,12 @@ export function RegistrationDetailSheet({
             studentIdExpiry: editData.studentIdExpiry || null,
           },
         },
-      });
-      setIsEditing(false);
-    }
+      },
+      {
+        // Only exit edit mode on success — keep user input on error so they can retry
+        onSuccess: () => setIsEditing(false),
+      }
+    );
   };
 
   return (
@@ -578,6 +585,17 @@ export function RegistrationDetailSheet({
                         value={editData.notes}
                         onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-dtcmBarcode">DTCM Barcode</Label>
+                      <Input
+                        id="edit-dtcmBarcode"
+                        value={editData.dtcmBarcode}
+                        onChange={(e) => setEditData({ ...editData, dtcmBarcode: e.target.value })}
+                        placeholder="Enter DTCM barcode"
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">Must be unique across the event.</p>
                     </div>
 
                     {/* Membership Details */}
@@ -891,31 +909,35 @@ export function RegistrationDetailSheet({
 
               <div className="border-t" />
 
-              {/* Event Barcode + DTCM Barcode (side by side if both exist) */}
-              {(selectedRegistration.qrCode || selectedRegistration.dtcmBarcode) && (
-                <div className={`grid gap-3 ${selectedRegistration.qrCode && selectedRegistration.dtcmBarcode ? "grid-cols-2" : "grid-cols-1"}`}>
-                  {selectedRegistration.qrCode && (
-                    <div className="space-y-2">
-                      <div className="font-semibold text-sm flex items-center gap-2">
-                        <Barcode className="h-4 w-4" />
-                        Event Barcode
-                      </div>
-                      <div className="bg-muted p-3 rounded-lg text-center">
+              {/* Event Barcode + DTCM Barcode (always both shown) */}
+              {!isEditing && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <div className="font-semibold text-sm flex items-center gap-2">
+                      <Barcode className="h-4 w-4" />
+                      Event Barcode
+                    </div>
+                    <div className="bg-muted p-3 rounded-lg text-center">
+                      {selectedRegistration.qrCode ? (
                         <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
-                      </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">Not set</p>
+                      )}
                     </div>
-                  )}
-                  {selectedRegistration.dtcmBarcode && (
-                    <div className="space-y-2">
-                      <div className="font-semibold text-sm flex items-center gap-2">
-                        <Barcode className="h-4 w-4" />
-                        DTCM Barcode
-                      </div>
-                      <div className="bg-muted p-3 rounded-lg text-center">
+                  </div>
+                  <div className="space-y-2">
+                    <div className="font-semibold text-sm flex items-center gap-2">
+                      <Barcode className="h-4 w-4" />
+                      DTCM Barcode
+                    </div>
+                    <div className="bg-muted p-3 rounded-lg text-center">
+                      {selectedRegistration.dtcmBarcode ? (
                         <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
-                      </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">Not set — click Edit to add</p>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 

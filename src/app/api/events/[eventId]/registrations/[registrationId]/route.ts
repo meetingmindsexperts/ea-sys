@@ -15,6 +15,7 @@ const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
   paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
   badgeType: z.string().max(50).optional().nullable(),
+  dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
   notes: z.string().max(2000).optional(),
   attendee: z.object({
@@ -108,8 +109,8 @@ export async function GET(req: Request, { params }: RouteParams) {
 }
 
 export async function PUT(req: Request, { params }: RouteParams) {
+  const { eventId, registrationId } = await params;
   try {
-    const { eventId, registrationId } = await params;
     const session = await auth();
 
     if (!session?.user) {
@@ -150,7 +151,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { status, paymentStatus, badgeType, ticketTypeId, notes, attendee } = validated.data;
+    const { status, paymentStatus, badgeType, dtcmBarcode, ticketTypeId, notes, attendee } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (attendee?.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
@@ -268,6 +269,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
           ...(badgeType !== undefined && { badgeType }),
+          ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
           ...(ticketTypeId && { ticketTypeId }),
           ...(notes !== undefined && { notes: notes || null }),
         },
@@ -314,6 +316,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
       return NextResponse.json(
         { error: "Registration type is at full capacity" },
+        { status: 409 }
+      );
+    }
+    // P2002 unique constraint violation — most likely on dtcmBarcode
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
+      const target = (error as { meta?: { target?: string[] } }).meta?.target;
+      apiLogger.warn({ msg: "Registration update unique constraint violation", target, registrationId });
+      if (target?.includes("dtcmBarcode")) {
+        return NextResponse.json(
+          { error: "This DTCM barcode is already assigned to another registration." },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: "A unique constraint was violated." },
         { status: 409 }
       );
     }
