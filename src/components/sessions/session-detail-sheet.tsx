@@ -236,7 +236,7 @@ export function SessionDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[600px] overflow-y-auto">
+      <SheetContent className="w-full px-6 sm:max-w-[700px] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{session?.name || "Session Details"}</SheetTitle>
           <SheetDescription asChild>

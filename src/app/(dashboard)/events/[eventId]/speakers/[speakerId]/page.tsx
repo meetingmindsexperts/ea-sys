@@ -637,7 +637,15 @@ export default function SpeakerDetailPage() {
             return (
               <Card>
                 <CardHeader>
-                  <CardTitle>Sessions ({allSessions.length})</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Sessions ({allSessions.length})</CardTitle>
+                    {allSessions.length > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Pencil className="h-3 w-3" />
+                        Click a session to edit
+                      </span>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {allSessions.length === 0 ? (
@@ -647,33 +655,46 @@ export default function SpeakerDetailPage() {
                       {allSessions.map((session) => (
                         <div
                           key={session.id}
-                          className="flex items-center justify-between p-3 bg-muted rounded-lg cursor-pointer hover:bg-muted/70 transition-colors"
+                          role="button"
+                          tabIndex={0}
+                          title="Click to edit this session"
+                          className="group flex items-center justify-between p-3 bg-muted rounded-lg border border-transparent cursor-pointer hover:bg-muted/70 hover:border-primary/30 hover:shadow-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           onClick={() => {
                             setSelectedSessionId(session.id);
                             setSessionSheetOpen(true);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setSelectedSessionId(session.id);
+                              setSessionSheetOpen(true);
+                            }
+                          }}
                         >
-                          <div>
+                          <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm">{session.name}</p>
                             <p className="text-sm text-muted-foreground">
                               {new Date(session.startTime).toLocaleString()}
                               {session.track && ` · ${session.track.name}`}
                             </p>
                           </div>
-                          {session.role && (() => {
-                            const roleColors: Record<string, string> = {
-                              CHAIRPERSON: "bg-violet-100 text-violet-700 border-violet-200",
-                              MODERATOR: "bg-amber-100 text-amber-700 border-amber-200",
-                              PANELIST: "bg-sky-100 text-sky-700 border-sky-200",
-                              SPEAKER: "bg-emerald-100 text-emerald-700 border-emerald-200",
-                            };
-                            const colors = roleColors[session.role!] || "bg-slate-100 text-slate-700 border-slate-200";
-                            return (
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors}`}>
-                                {session.role!.toLowerCase().replace("_", " ")}
-                              </span>
-                            );
-                          })()}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {session.role && (() => {
+                              const roleColors: Record<string, string> = {
+                                CHAIRPERSON: "bg-violet-100 text-violet-700 border-violet-200",
+                                MODERATOR: "bg-amber-100 text-amber-700 border-amber-200",
+                                PANELIST: "bg-sky-100 text-sky-700 border-sky-200",
+                                SPEAKER: "bg-emerald-100 text-emerald-700 border-emerald-200",
+                              };
+                              const colors = roleColors[session.role!] || "bg-slate-100 text-slate-700 border-slate-200";
+                              return (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors}`}>
+                                  {session.role!.toLowerCase().replace("_", " ")}
+                                </span>
+                              );
+                            })()}
+                            <Pencil className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
                         </div>
                       ))}
                     </div>
