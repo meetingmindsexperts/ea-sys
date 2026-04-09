@@ -93,7 +93,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventVenue: event.venue || "TBA",
       eventAddress: event.address || "",
       ticketType: registration.ticketType?.name || "General Admission",
-      registrationId: registration.id.slice(-8).toUpperCase(),
+      registrationId: registration.serialId != null
+        ? String(registration.serialId).padStart(3, "0")
+        : registration.id.slice(-8).toUpperCase(),
     };
 
     const slugMap: Record<string, string> = {

@@ -32,6 +32,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
 interface Registration {
   id: string;
+  serialId: number | null;
   status: string;
   paymentStatus: string;
   qrCode: string | null;
@@ -328,13 +329,15 @@ export default function MyRegistrationPage() {
                 </div>
               )}
 
-              {/* Confirmation Number + Download Quote */}
+              {/* Registration ID + Download Quote */}
               <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
                 <div className="flex items-center gap-3">
                   <Barcode className="h-5 w-5 text-slate-500" />
                   <div>
-                    <p className="text-xs text-muted-foreground">Barcode</p>
-                    <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
+                    <p className="text-xs text-muted-foreground">Registration ID</p>
+                    <p className="font-mono text-sm font-medium tracking-wider">
+                      {reg.serialId != null ? String(reg.serialId).padStart(3, "0") : reg.id.toUpperCase()}
+                    </p>
                   </div>
                 </div>
                 {price > 0 && (

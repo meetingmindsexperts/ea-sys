@@ -112,7 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       : "TBA";
     const eventVenue = event.venue || "TBA";
 
-    let recipients: Array<{ id: string; email: string; firstName: string; lastName: string; ticketType?: string }> = [];
+    let recipients: Array<{ id: string; email: string; firstName: string; lastName: string; ticketType?: string; serialId?: number | null }> = [];
     let successCount = 0;
     let failureCount = 0;
     const errors: Array<{ email: string; error: string }> = [];
@@ -182,6 +182,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       recipients = registrations.map((r) => ({
         id: r.id, email: r.attendee.email, firstName: r.attendee.firstName,
         lastName: r.attendee.lastName, ticketType: r.ticketType?.name,
+        serialId: r.serialId,
       }));
     }
 
@@ -224,7 +225,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizerEmail,
         personalMessage: customMessage || "",
         ticketType: recipient.ticketType || "General Admission",
-        registrationId: recipient.id.slice(-8).toUpperCase(),
+        registrationId: recipient.serialId != null
+          ? String(recipient.serialId).padStart(3, "0")
+          : recipient.id.slice(-8).toUpperCase(),
         daysUntilEvent: daysUntil,
       };
 

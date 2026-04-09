@@ -219,6 +219,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
       select: {
         id: true,
+        serialId: true,
         status: true,
         userId: true,
         attendeeId: true,
@@ -389,6 +390,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: registration.ticketType?.name ?? "General",
         pricingTierName: registration.pricingTier?.name || null,
         registrationId,
+        serialId: registration.serialId,
         qrCode: "",
         eventId: registration.event.id,
         eventSlug: registration.event.slug,

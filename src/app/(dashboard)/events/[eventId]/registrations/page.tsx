@@ -44,6 +44,7 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
+import { formatSerialId } from "@/lib/registration-serial";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -120,6 +121,7 @@ export default function RegistrationsPage() {
   const exportToCSV = () => {
     const headers = [
       "Registration ID",
+      "Serial ID",
       "Title",
       "First Name",
       "Last Name",
@@ -146,6 +148,7 @@ export default function RegistrationsPage() {
 
     const rows = filteredRegistrations.map((r) => [
       r.id,
+      formatSerialId(r.serialId),
       r.attendee.title || "",
       r.attendee.firstName,
       r.attendee.lastName,
@@ -527,6 +530,7 @@ export default function RegistrationsPage() {
                       />
                     </TableHead>
                   )}
+                  <TableHead className="w-16">ID</TableHead>
                   <TableHead>Attendee</TableHead>
                   <TableHead>Specialty</TableHead>
                   <TableHead>Tags</TableHead>
@@ -552,6 +556,11 @@ export default function RegistrationsPage() {
                         />
                       </TableCell>
                     )}
+                    <TableCell>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {formatSerialId(registration.serialId)}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       <div>
                         <div className="font-medium">

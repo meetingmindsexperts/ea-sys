@@ -536,6 +536,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: tierLabel,
         pricingTierName: pricingTier?.name || null,
         registrationId: registration.id,
+        serialId: registration.serialId,
         qrCode: registration.qrCode || "",
         eventId: event.id,
         eventSlug: slug,
@@ -572,6 +573,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         success: true,
         registration: {
           id: registration.id,
+          serialId: registration.serialId,
           status: registration.status,
           paymentStatus: registration.paymentStatus,
           qrCode: registration.qrCode,

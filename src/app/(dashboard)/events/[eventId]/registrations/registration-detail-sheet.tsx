@@ -63,6 +63,7 @@ import {
   Eye,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
+import { formatSerialId } from "@/lib/registration-serial";
 import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -728,6 +729,14 @@ export function RegistrationDetailSheet({
               </div>
 
               <div className="border-t" />
+
+              {/* Registration ID */}
+              {selectedRegistration.serialId != null && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Registration ID:</span>
+                  <span className="font-mono font-medium">{formatSerialId(selectedRegistration.serialId)}</span>
+                </div>
+              )}
 
               {/* Registration Type + Badge Type (side by side) */}
               {!isReviewer ? (

@@ -99,6 +99,7 @@ interface Event {
   taxLabel: string | null;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
+  hasPromoCodes?: boolean;
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
@@ -333,6 +334,29 @@ function CategoryRegistrationContent() {
       }
     }
 
+    // Validate billing fields when not using personal details
+    if (!billingSame) {
+      const billingRequired: { field: keyof RegistrationForm; label: string }[] = [
+        { field: "billingFirstName", label: "Billing first name" },
+        { field: "billingLastName", label: "Billing last name" },
+        { field: "billingEmail", label: "Billing email" },
+        { field: "billingPhone", label: "Billing phone" },
+        { field: "billingAddress", label: "Billing address" },
+        { field: "billingCity", label: "Billing city" },
+        { field: "billingState", label: "Billing state" },
+        { field: "billingZipCode", label: "Billing zip code" },
+        { field: "billingCountry", label: "Billing country" },
+      ];
+      let hasError = false;
+      for (const { field, label } of billingRequired) {
+        if (!data[field]?.toString().trim()) {
+          form.setError(field, { message: `${label} is required` });
+          hasError = true;
+        }
+      }
+      if (hasError) return;
+    }
+
     setSubmitting(true);
     // Copy personal details to billing if "same as above" is checked
     if (billingSame) {
@@ -377,6 +401,7 @@ function CategoryRegistrationContent() {
       const confirmParams = new URLSearchParams({
         id: reg.id,
         name: data.firstName,
+        ...(reg.serialId ? { serialId: String(reg.serialId) } : {}),
         ...(reg.status ? { status: reg.status } : {}),
         ...(reg.ticketPrice > 0 ? { price: String(reg.ticketPrice), currency: reg.ticketCurrency } : {}),
       });
@@ -421,6 +446,7 @@ function CategoryRegistrationContent() {
 
   const purchasableOptions = regTypeOptions.filter((o) => o.canPurchase);
   const selectedTicketId = form.watch("ticketTypeId");
+  const selectedSpecialty = form.watch("specialty");
   const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
   const isMember = selectedRegTypeName.includes("member");
   const isStudent = selectedRegTypeName.includes("student");
@@ -695,14 +721,16 @@ function CategoryRegistrationContent() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                      <FormField control={form.control} name="customSpecialty"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Specialty (Specific)</FormLabel>
-                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                      {selectedSpecialty === "Others" && (
+                        <FormField control={form.control} name="customSpecialty"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">Others (specify)</FormLabel>
+                              <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      )}
                       <FormField control={form.control} name="dietaryReqs"
                         render={({ field }) => (
                           <FormItem>
@@ -740,7 +768,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingFirstName"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">First Name</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">First Name <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="Billing first name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -748,7 +776,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingLastName"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Last Name</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">Last Name <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="Billing last name" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -759,7 +787,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingEmail"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Email</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">Email <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input type="email" placeholder="billing@company.com" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -767,7 +795,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingPhone"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Phone</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">Phone <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="+971..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -777,7 +805,7 @@ function CategoryRegistrationContent() {
                         <FormField control={form.control} name="billingAddress"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Address</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Address <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="Street address" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -787,7 +815,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingCountry"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Country</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">Country <span className="text-red-400">*</span></FormLabel>
                                 <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                                 <FormMessage />
                               </FormItem>
@@ -795,7 +823,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingCity"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="City" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -806,7 +834,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingState"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">State / Province</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">State / Province <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="State" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -814,7 +842,7 @@ function CategoryRegistrationContent() {
                           <FormField control={form.control} name="billingZipCode"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code</FormLabel>
+                                <FormLabel className="text-sm font-medium text-slate-600">Zip / Postal Code <span className="text-red-400">*</span></FormLabel>
                                 <FormControl><Input placeholder="00000" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -898,14 +926,14 @@ function CategoryRegistrationContent() {
                       )}
                     />
 
-                    {selectedTicketId && !isMember && !isStudent && (
+                    {selectedTicketId && (
                       <p className="text-xs text-slate-500 italic">
                         Your professional ID may be required at the time of check-in. Always carry your ID to avoid inconvenience.
                       </p>
                     )}
 
                     {/* Promo Code */}
-                    {selectedTicketId && (
+                    {selectedTicketId && event?.hasPromoCodes && (
                       <div className="mt-2">
                         {!showPromoInput ? (
                           <button type="button" onClick={() => setShowPromoInput(true)} className="text-sm text-primary hover:underline font-medium">

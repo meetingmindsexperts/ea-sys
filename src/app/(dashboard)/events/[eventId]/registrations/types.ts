@@ -61,6 +61,7 @@ export interface Accommodation {
 
 export interface Registration {
   id: string;
+  serialId: number | null;
   status: string;
   paymentStatus: string;
   qrCode: string | null;

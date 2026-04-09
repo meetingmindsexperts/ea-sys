@@ -45,6 +45,7 @@ function ConfirmationContent() {
   const params = useParams();
   const slug = params.slug as string;
   const registrationId = searchParams.get("id");
+  const serialIdParam = searchParams.get("serialId");
   const firstName = searchParams.get("name");
   const paymentParam = searchParams.get("payment"); // "success" | "cancelled" | null
   const statusParam = searchParams.get("status"); // "PENDING" | "CONFIRMED" | null
@@ -222,14 +223,14 @@ function ConfirmationContent() {
               </p>
             </div>
 
-            {/* Confirmation number */}
-            {registrationId && (
+            {/* Registration ID */}
+            {(serialIdParam || registrationId) && (
               <div className="mx-6 mb-5 bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
                 <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
-                  Confirmation Number
+                  Registration ID
                 </p>
                 <p className="font-mono font-bold text-slate-900 text-sm tracking-wider">
-                  {registrationId.toUpperCase()}
+                  {serialIdParam ? serialIdParam.padStart(3, "0") : registrationId!.toUpperCase()}
                 </p>
               </div>
             )}

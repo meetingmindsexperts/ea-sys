@@ -1141,6 +1141,7 @@ export async function sendRegistrationConfirmation(params: {
   ticketType: string;
   pricingTierName?: string | null;
   registrationId: string;
+  serialId?: number | null;
   qrCode: string;
   eventId?: string;
   eventSlug?: string;
@@ -1205,7 +1206,9 @@ export async function sendRegistrationConfirmation(params: {
     eventDate,
     eventVenue: [params.eventVenue, params.eventCity].filter(Boolean).join(", "),
     ticketType: params.ticketType,
-    registrationId: params.registrationId,
+    registrationId: params.serialId != null
+      ? String(params.serialId).padStart(3, "0")
+      : params.registrationId,
     paymentBlock,
   };
 

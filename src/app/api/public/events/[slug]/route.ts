@@ -117,6 +117,20 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const now = new Date();
 
+    // Check if event has active promo codes mapped to ticket types
+    const promoCodeCount = await db.promoCode.count({
+      where: {
+        eventId: event.id,
+        isActive: true,
+        ticketTypes: { some: {} },
+        OR: [
+          { validUntil: null },
+          { validUntil: { gte: now } },
+        ],
+      },
+    });
+    const hasPromoCodes = promoCodeCount > 0;
+
     // Calculate availability for each registration type and its pricing tiers
     const ticketTypes = event.ticketTypes.map((ticket) => {
       // Compute availability per pricing tier
@@ -157,6 +171,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       ...event,
       settings: undefined,
       ticketTypes,
+      hasPromoCodes,
       abstractSettings: {
         allowAbstractSubmissions: settings.allowAbstractSubmissions === true,
         abstractDeadline: settings.abstractDeadline || null,
