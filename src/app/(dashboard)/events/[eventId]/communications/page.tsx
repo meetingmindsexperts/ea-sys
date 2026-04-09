@@ -37,6 +37,7 @@ import {
   useTickets,
 } from "@/hooks/use-api";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
@@ -429,6 +430,9 @@ export default function CommunicationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Scheduled Emails */}
+      <ScheduledEmailsList eventId={eventId} />
 
       {/* Bulk Email Dialog */}
       <BulkEmailDialog

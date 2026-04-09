@@ -20,9 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
+import { Calendar, Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { useBulkEmail, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { useBulkEmail, usePreviewEmailBySlug, useScheduleBulkEmail } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
@@ -98,6 +98,46 @@ function getRecipientLabel(recipientType: RecipientType): string {
   }
 }
 
+const MIN_LEAD_MS = 5 * 60 * 1000;
+
+function computeMinScheduledFor(): string {
+  const d = new Date(Date.now() + MIN_LEAD_MS);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isAtLeastMinLeadTime(when: Date): boolean {
+  return when.getTime() >= Date.now() + MIN_LEAD_MS;
+}
+
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
+const MAX_FILES = 5;
+
+// Static map: emailType → template slug used by the preview endpoint.
+// Speaker invitations use a dedicated template; other types reuse common slugs.
+function emailTypeToSlug(emailType: string, recipientType: RecipientType): string | null {
+  switch (emailType) {
+    case "invitation":
+      return recipientType === "speakers" ? "speaker-invitation" : "custom-notification";
+    case "agreement":
+      return "speaker-agreement";
+    case "confirmation":
+      return "registration-confirmation";
+    case "reminder":
+      return "event-reminder";
+    case "custom":
+      return "custom-notification";
+    case "abstract-accepted":
+    case "abstract-rejected":
+    case "abstract-revision":
+      return "abstract-status-update";
+    case "abstract-reminder":
+      return "abstract-submission-confirmation";
+    default:
+      return null;
+  }
+}
+
 export function BulkEmailDialog({
   open,
   onOpenChange,
@@ -113,19 +153,22 @@ export function BulkEmailDialog({
   const [customSubject, setCustomSubject] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
+  const [sendMode, setSendMode] = useState<"now" | "later">("now");
+  const [scheduledFor, setScheduledFor] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
+  const scheduleEmail = useScheduleBulkEmail(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
 
+  // Computed once on mount; server-side validation re-checks at submit time.
+  const [minScheduledFor] = useState(() => computeMinScheduledFor());
+
   const emailTypes = getEmailTypes(recipientType);
   const isCustom = emailType === "custom";
   const label = getRecipientLabel(recipientType);
-
-  const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
-  const MAX_FILES = 5;
 
   const totalAttachmentSize = attachments.reduce((sum, a) => sum + a.size, 0);
 
@@ -143,14 +186,20 @@ export function BulkEmailDialog({
         break;
       }
 
-      const base64 = await new Promise<string>((resolve) => {
+      const base64 = await new Promise<string | null>((resolve) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
-          resolve(result.split(",")[1]); // strip data:...;base64, prefix
+          resolve(result.split(",")[1] ?? null); // strip data:...;base64, prefix
+        };
+        reader.onerror = () => {
+          toast.error(`Failed to read ${file.name}`);
+          resolve(null);
         };
         reader.readAsDataURL(file);
       });
+
+      if (!base64) continue;
 
       setAttachments((prev) => [
         ...prev,
@@ -166,20 +215,8 @@ export function BulkEmailDialog({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const emailTypeToSlug: Record<string, string> = {
-    invitation: recipientType === "speakers" ? "speaker-invitation" : "custom-notification",
-    agreement: "speaker-agreement",
-    confirmation: "registration-confirmation",
-    reminder: "event-reminder",
-    custom: "custom-notification",
-    "abstract-accepted": "abstract-status-update",
-    "abstract-rejected": "abstract-status-update",
-    "abstract-revision": "abstract-status-update",
-    "abstract-reminder": "abstract-submission-confirmation",
-  };
-
   const handlePreview = async () => {
-    const slug = emailTypeToSlug[emailType];
+    const slug = emailTypeToSlug(emailType, recipientType);
     if (!slug) return;
     try {
       const result = await previewMutation.mutateAsync({
@@ -189,8 +226,8 @@ export function BulkEmailDialog({
       });
       setPreviewData(result);
       setPreviewOpen(true);
-    } catch {
-      toast.error("Failed to generate preview");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
   };
 
@@ -200,26 +237,58 @@ export function BulkEmailDialog({
       return;
     }
 
-    try {
-      const result = await bulkEmail.mutateAsync({
-        recipientType,
-        recipientIds: selectionMode === "selected" ? recipientIds : undefined,
-        emailType: emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom",
-        customSubject: isCustom ? customSubject.trim() : undefined,
-        customMessage: isCustom ? customMessage.trim() : emailType === "invitation" ? customMessage.trim() || undefined : undefined,
-        attachments: attachments.length > 0
+    if (sendMode === "later") {
+      if (!scheduledFor) {
+        toast.error("Please pick a date and time to schedule the email");
+        return;
+      }
+      const when = new Date(scheduledFor);
+      if (!isAtLeastMinLeadTime(when)) {
+        toast.error("Scheduled time must be at least 5 minutes in the future");
+        return;
+      }
+    }
+
+    const payload = {
+      recipientType,
+      recipientIds: selectionMode === "selected" ? recipientIds : undefined,
+      emailType,
+      customSubject: isCustom ? customSubject.trim() : undefined,
+      customMessage: isCustom
+        ? customMessage.trim()
+        : emailType === "invitation"
+        ? customMessage.trim() || undefined
+        : undefined,
+      attachments:
+        attachments.length > 0
           ? attachments.map(({ name, content, contentType }) => ({ name, content, contentType }))
           : undefined,
-        filters: {
-          ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
-          ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
-        },
-      });
+      filters: {
+        ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
+        ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
+      },
+    };
 
-      if (result.success) {
-        toast.success(result.message);
+    try {
+      if (sendMode === "later") {
+        const when = new Date(scheduledFor);
+        await scheduleEmail.mutateAsync({
+          ...payload,
+          scheduledFor: when.toISOString(),
+        });
+        toast.success(`Scheduled for ${when.toLocaleString()}`);
         onOpenChange(false);
         resetForm();
+      } else {
+        const result = await bulkEmail.mutateAsync({
+          ...payload,
+          emailType: payload.emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom",
+        });
+        if (result.success) {
+          toast.success(result.message);
+          onOpenChange(false);
+          resetForm();
+        }
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send emails");
@@ -231,6 +300,8 @@ export function BulkEmailDialog({
     setCustomSubject("");
     setCustomMessage("");
     setAttachments([]);
+    setSendMode("now");
+    setScheduledFor("");
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -383,13 +454,66 @@ export function BulkEmailDialog({
               <p className="text-muted-foreground">Filtered by status: {statusFilter}</p>
             )}
           </div>
+
+          {/* Send mode toggle */}
+          <div className="space-y-2">
+            <Label>Delivery</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSendMode("now")}
+                className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                  sendMode === "now"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-input hover:bg-accent"
+                }`}
+              >
+                <Send className="h-4 w-4" />
+                Send now
+              </button>
+              <button
+                type="button"
+                onClick={() => setSendMode("later")}
+                className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                  sendMode === "later"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-input hover:bg-accent"
+                }`}
+              >
+                <Calendar className="h-4 w-4" />
+                Schedule for later
+              </button>
+            </div>
+            {sendMode === "later" && (
+              <div className="space-y-1">
+                <Input
+                  type="datetime-local"
+                  value={scheduledFor}
+                  min={minScheduledFor}
+                  onChange={(e) => setScheduledFor(e.target.value)}
+                  aria-label="Scheduled send time"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Recipients are re-evaluated at send time so this list will reflect the latest data.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={bulkEmail.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={bulkEmail.isPending || scheduleEmail.isPending}
+          >
             Cancel
           </Button>
-          <Button variant="outline" onClick={handlePreview} disabled={previewMutation.isPending || bulkEmail.isPending}>
+          <Button
+            variant="outline"
+            onClick={handlePreview}
+            disabled={previewMutation.isPending || bulkEmail.isPending || scheduleEmail.isPending}
+          >
             {previewMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -397,11 +521,16 @@ export function BulkEmailDialog({
             )}
             Preview
           </Button>
-          <Button onClick={handleSend} disabled={bulkEmail.isPending}>
-            {bulkEmail.isPending ? (
+          <Button onClick={handleSend} disabled={bulkEmail.isPending || scheduleEmail.isPending}>
+            {bulkEmail.isPending || scheduleEmail.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending...
+                {sendMode === "later" ? "Scheduling..." : "Sending..."}
+              </>
+            ) : sendMode === "later" ? (
+              <>
+                <Calendar className="mr-2 h-4 w-4" />
+                Schedule Email
               </>
             ) : (
               <>

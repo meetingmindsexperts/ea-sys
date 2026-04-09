@@ -31,12 +31,13 @@ model Organization {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  users      User[]
-  events     Event[]
-  contacts   Contact[]
-  apiKeys    ApiKey[]
-  mediaFiles MediaFile[]
-  invoices   Invoice[]
+  users           User[]
+  events          Event[]
+  contacts        Contact[]
+  apiKeys         ApiKey[]
+  mediaFiles      MediaFile[]
+  invoices        Invoice[]
+  scheduledEmails ScheduledEmail[]
 }
 
 model User {
@@ -55,15 +56,16 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  organization  Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  speakers      Speaker[]
-  registrations Registration[]
-  auditLogs     AuditLog[]
-  accounts      Account[]
-  sessions      AuthSession[]
-  notifications Notification[]
-  mediaFiles    MediaFile[]
-  deviceTokens  DeviceToken[]
+  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  speakers        Speaker[]
+  registrations   Registration[]
+  auditLogs       AuditLog[]
+  accounts        Account[]
+  sessions        AuthSession[]
+  notifications   Notification[]
+  mediaFiles      MediaFile[]
+  deviceTokens    DeviceToken[]
+  scheduledEmails ScheduledEmail[]
 
   @@index([organizationId])
   @@index([email])
@@ -197,6 +199,7 @@ model Event {
   invoiceCounters InvoiceCounter[]
   zoomMeetings    ZoomMeeting[]
   promoCodes      PromoCode[]
+  scheduledEmails ScheduledEmail[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1113,4 +1116,47 @@ model PromoCodeRedemption {
 
   @@index([promoCodeId])
   @@index([email])
+}
+
+// ==================== SCHEDULED COMMUNICATIONS ====================
+
+enum ScheduledEmailStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model ScheduledEmail {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String
+  createdById    String
+
+  recipientType  String   // "speakers" | "registrations" | "reviewers" | "abstracts"
+  emailType      String   // matches bulkEmailSchema.emailType values
+  customSubject  String?
+  customMessage  String?  @db.Text
+  attachments    Json?    // [{ name, content (base64), contentType }]
+  filters        Json?    // { status?, ticketTypeId? }
+
+  scheduledFor   DateTime
+  status         ScheduledEmailStatus @default(PENDING)
+  sentAt         DateTime?
+  successCount   Int?
+  failureCount   Int?
+  totalCount     Int?
+  lastError      String?  @db.Text
+  retryCount     Int      @default(0)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation(fields: [createdById], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([eventId, status])
 }

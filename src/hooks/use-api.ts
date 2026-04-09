@@ -71,6 +71,7 @@ export const queryKeys = {
   importLogs: (eventId: string) => ["events", eventId, "import-logs"] as const,
   emailTemplates: (eventId: string) => ["events", eventId, "email-templates"] as const,
   emailTemplate: (eventId: string, templateId: string) => ["events", eventId, "email-templates", templateId] as const,
+  scheduledEmails: (eventId: string) => ["events", eventId, "scheduled-emails"] as const,
   registrationTypes: ["registration-types"] as const,
   notifications: ["notifications"] as const,
   organizations: ["organizations"] as const,
@@ -837,6 +838,127 @@ export function useBulkEmail(eventId: string) {
           body: JSON.stringify(data),
         }
       ),
+  });
+}
+
+// ============ SCHEDULED EMAILS ============
+export interface ScheduledEmailItem {
+  id: string;
+  recipientType: "speakers" | "registrations" | "reviewers" | "abstracts";
+  emailType: string;
+  customSubject: string | null;
+  customMessage: string | null;
+  filters: { status?: string; ticketTypeId?: string } | null;
+  scheduledFor: string;
+  status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "CANCELLED";
+  sentAt: string | null;
+  successCount: number | null;
+  failureCount: number | null;
+  totalCount: number | null;
+  lastError: string | null;
+  retryCount: number;
+  createdAt: string;
+  createdBy: { firstName: string; lastName: string; email: string } | null;
+}
+
+export function useScheduledEmails(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.scheduledEmails(eventId),
+    queryFn: () =>
+      fetchApi<{ scheduledEmails: ScheduledEmailItem[] }>(
+        `/api/events/${eventId}/emails/schedule`
+      ).then((d) => d.scheduledEmails),
+    enabled: !!eventId,
+    // Poll every 15s while there are in-flight rows so the UI reflects the
+    // cron worker's progress without forcing the user to refresh. Idle when
+    // every row is in a terminal state (SENT/FAILED/CANCELLED).
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || data.length === 0) return false;
+      const hasActive = data.some((r) => r.status === "PENDING" || r.status === "PROCESSING");
+      return hasActive ? 15_000 : false;
+    },
+  });
+}
+
+export function useScheduleBulkEmail(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      recipientType: "speakers" | "registrations" | "reviewers" | "abstracts";
+      recipientIds?: string[];
+      emailType: string;
+      customSubject?: string;
+      customMessage?: string;
+      attachments?: Array<{ name: string; content: string; contentType?: string }>;
+      filters?: { status?: string; ticketTypeId?: string };
+      scheduledFor: string; // ISO datetime
+    }) =>
+      fetchApi<{ success: boolean; scheduledEmail: ScheduledEmailItem }>(
+        `/api/events/${eventId}/emails/schedule`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.scheduledEmails(eventId) });
+    },
+  });
+}
+
+export function useUpdateScheduledEmail(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      customSubject?: string | null;
+      customMessage?: string | null;
+      scheduledFor?: string;
+    }) =>
+      fetchApi<{ success: boolean; scheduledEmail: ScheduledEmailItem }>(
+        `/api/events/${eventId}/emails/schedule/${id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.scheduledEmails(eventId) });
+    },
+  });
+}
+
+export function useCancelScheduledEmail(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      fetchApi<{ success: boolean }>(
+        `/api/events/${eventId}/emails/schedule/${id}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.scheduledEmails(eventId) });
+    },
+  });
+}
+
+export function useRetryScheduledEmail(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      fetchApi<{ success: boolean; scheduledEmail: ScheduledEmailItem }>(
+        `/api/events/${eventId}/emails/schedule/${id}/retry`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.scheduledEmails(eventId) });
+    },
   });
 }
 
