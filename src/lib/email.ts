@@ -1154,7 +1154,20 @@ export async function sendRegistrationConfirmation(params: {
   taxLabel?: string | null;
   bankDetails?: string | null;
   supportEmail?: string | null;
+  // Issuing organization (company block + logo for the quote PDF attachment)
   organizationName?: string;
+  companyName?: string | null;
+  companyAddress?: string | null;
+  companyCity?: string | null;
+  companyState?: string | null;
+  companyZipCode?: string | null;
+  companyCountry?: string | null;
+  taxId?: string | null;
+  logoPath?: string | null;
+  // Bill-to extras
+  jobTitle?: string | null;
+  billingCity?: string | null;
+  billingCountry?: string | null;
 }) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -1255,6 +1268,9 @@ export async function sendRegistrationConfirmation(params: {
         email: params.to,
         organization: params.organization || null,
         title: params.title || null,
+        jobTitle: params.jobTitle || null,
+        billingCity: params.billingCity || null,
+        billingCountry: params.billingCountry || null,
         registrationType: params.ticketType,
         pricingTier: params.pricingTierName || null,
         price: params.ticketPrice,
@@ -1263,7 +1279,15 @@ export async function sendRegistrationConfirmation(params: {
         taxLabel: params.taxLabel || "VAT",
         bankDetails: params.bankDetails || null,
         supportEmail: params.supportEmail || null,
-        organizationName: params.organizationName,
+        organizationName: params.organizationName ?? "",
+        companyName: params.companyName || null,
+        companyAddress: params.companyAddress || null,
+        companyCity: params.companyCity || null,
+        companyState: params.companyState || null,
+        companyZipCode: params.companyZipCode || null,
+        companyCountry: params.companyCountry || null,
+        taxId: params.taxId || null,
+        logoPath: params.logoPath || null,
       });
       attachments = [{
         name: `quote-${params.registrationId.slice(-8)}.pdf`,

@@ -140,7 +140,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         taxLabel: true,
         bankDetails: true,
         supportEmail: true,
-        organization: { select: { name: true } },
+        organization: {
+          select: {
+            name: true,
+            companyName: true,
+            companyAddress: true,
+            companyCity: true,
+            companyState: true,
+            companyZipCode: true,
+            companyCountry: true,
+            taxId: true,
+            logo: true,
+          },
+        },
       },
     });
 
@@ -547,6 +559,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         bankDetails: event.bankDetails,
         supportEmail: event.supportEmail,
         organizationName: event.organization.name,
+        companyName: event.organization.companyName,
+        companyAddress: event.organization.companyAddress,
+        companyCity: event.organization.companyCity,
+        companyState: event.organization.companyState,
+        companyZipCode: event.organization.companyZipCode,
+        companyCountry: event.organization.companyCountry,
+        taxId: event.organization.taxId,
+        logoPath: event.organization.logo,
+        billingCity: null,
+        billingCountry: null,
+        jobTitle: null,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });

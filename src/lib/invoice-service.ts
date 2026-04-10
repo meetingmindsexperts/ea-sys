@@ -15,6 +15,7 @@ const registrationInclude = {
   attendee: {
     select: {
       firstName: true, lastName: true, email: true, organization: true, title: true,
+      jobTitle: true,
     },
   },
   ticketType: { select: { name: true, price: true, currency: true } },
@@ -23,11 +24,12 @@ const registrationInclude = {
   event: {
     select: {
       name: true, code: true, startDate: true, venue: true, city: true,
-      taxRate: true, taxLabel: true, bankDetails: true, supportEmail: true,
+      taxRate: true, taxLabel: true,
+      bankDetails: true, supportEmail: true,
       organizationId: true,
       organization: {
         select: {
-          name: true, primaryColor: true,
+          name: true, primaryColor: true, logo: true,
           companyName: true, companyAddress: true, companyCity: true,
           companyState: true, companyZipCode: true, companyCountry: true,
           companyPhone: true, companyEmail: true, taxId: true,
@@ -352,11 +354,13 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     companyEmail: org.companyEmail,
     taxId: org.taxId,
     primaryColor: org.primaryColor,
+    logoPath: org.logo,
     firstName: reg.attendee.firstName,
     lastName: reg.attendee.lastName,
     email: reg.attendee.email,
     organization: reg.attendee.organization,
     title: titleLabel || null,
+    jobTitle: reg.attendee.jobTitle,
     billingAddress: reg.billingAddress,
     billingCity: reg.billingCity,
     billingState: reg.billingState,

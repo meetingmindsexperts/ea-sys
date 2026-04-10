@@ -1,203 +1,184 @@
 import PDFDocument from "pdfkit";
-import { formatDate } from "@/lib/utils";
+import { apiLogger } from "./logger";
+import {
+  PAGE_MARGIN,
+  drawHeader,
+  drawInfoBoxes,
+  drawLineItemsTable,
+  drawTotals,
+  drawNotesAndDisclaimer,
+  drawBankDetails,
+  drawFooters,
+  ensureSpace,
+  loadLocalLogo,
+  formatDateShort,
+} from "./pdf/document-layout";
 
 interface QuoteData {
+  // Document identity
   quoteNumber: string;
   date: Date;
   validUntil?: Date;
+
   // Event
   eventName: string;
   eventDate: Date;
   eventVenue: string | null;
   eventCity: string | null;
-  // Registrant
+
+  // Registrant (bill-to)
   firstName: string;
   lastName: string;
   email: string;
   organization: string | null;
   title: string | null;
-  // Line items
+  jobTitle: string | null;
+  billingCity: string | null;
+  billingCountry: string | null;
+
+  // Line item
   registrationType: string;
   pricingTier: string | null;
   price: number;
   currency: string;
+
+  // Tax
   taxRate: number | null;
   taxLabel: string;
+
   // Payment info
   bankDetails: string | null;
   supportEmail: string | null;
-  // Organization
+
+  // Issuing organization
   organizationName: string;
+  companyName: string | null;
+  companyAddress: string | null;
+  companyCity: string | null;
+  companyState: string | null;
+  companyZipCode: string | null;
+  companyCountry: string | null;
+  taxId: string | null;
+  logoPath: string | null;
 }
 
+const QUOTE_NOTES = [
+  "For immediate payment.",
+  "Bookings and registrations cannot be confirmed until full receipt of payment or Purchase Order.",
+  "All charges (including those of the beneficiary's bank) are to be paid by the sender.",
+  "Please ensure you mention your quote reference in your bank transfer. Once you have processed the bank transfer please provide us the SWIFT message copy for the same from the bank in order for us to be able to allocate the payment.",
+];
+
 /**
- * Generates a registration quote/proforma invoice as a PDF buffer.
+ * Generates a registration quote/proforma invoice as a PDF buffer matching
+ * the Meeting Minds reference layout.
  */
 export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
+  // Logo is loaded before opening the doc — fs is async, can't be done inline.
+  const logoBuffer = await loadLocalLogo(data.logoPath);
+
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: "A4", margin: 50 });
+      // bufferPages: true so drawFooters can iterate via bufferedPageRange()
+      // and stamp the correct "Page N/M" on every page after content is laid out.
+      const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN, bufferPages: true });
       const chunks: Buffer[] = [];
-
       doc.on("data", (chunk: Buffer) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
+      doc.on("error", (err: Error) => {
+        apiLogger.error({
+          err,
+          msg: "quote-pdf:stream-error",
+          quoteNumber: data.quoteNumber,
+          eventName: data.eventName,
+        });
+        reject(err);
+      });
 
-      const pageWidth = doc.page.width - 100; // 50 margin each side
-      const primaryColor = "#00aade";
+      // ── 1. Header (3 columns: company / centered title / logo) ──
+      const addressLines = [
+        data.companyAddress,
+        [data.companyCity, data.companyZipCode].filter(Boolean).join(" "),
+        data.companyCountry,
+      ].filter((line): line is string => !!line && line.trim().length > 0);
 
-      // ── Header ──
-      doc.rect(0, 0, doc.page.width, 4).fill(primaryColor);
+      let y = drawHeader(doc, {
+        companyBlock: {
+          companyName: data.companyName || data.organizationName,
+          addressLines,
+          taxId: data.taxId,
+        },
+        centerTitle: data.eventName,
+        documentTitle: "QUOTE",
+        logoBuffer,
+      });
 
-      doc.fontSize(20).fillColor(primaryColor).font("Helvetica-Bold")
-        .text(data.organizationName, 50, 30);
+      // ── 2. Bill-to + meta boxes ──
+      const namePart = [data.title, data.firstName].filter(Boolean).join(" ");
+      const nameLine = namePart ? `${data.lastName}, ${namePart}` : data.lastName;
+      const locationLine = [data.billingCity, data.billingCountry]
+        .filter(Boolean)
+        .join(" ") || null;
 
-      doc.fontSize(10).fillColor("#64748b").font("Helvetica")
-        .text("REGISTRATION QUOTE", 50, 55);
+      y = ensureSpace(doc, y, 80);
+      y = drawInfoBoxes(doc, y, {
+        billTo: {
+          nameLine,
+          secondLine: data.jobTitle || data.organization,
+          locationLine,
+        },
+        meta: [
+          { label: "Date", value: formatDateShort(data.date) },
+          { label: "Quote Reference", value: data.quoteNumber },
+        ],
+      });
 
-      // Quote info box (right aligned)
-      const infoX = 350;
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-        .text("Quote Number:", infoX, 30)
-        .text("Date:", infoX, 44)
-        .text("Valid Until:", infoX, 58);
-
-      doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold")
-        .text(data.quoteNumber, infoX + 80, 30)
-        .text(formatDate(data.date), infoX + 80, 44)
-        .text(data.validUntil ? formatDate(data.validUntil) : "30 days", infoX + 80, 58);
-
-      // ── Divider ──
-      doc.moveTo(50, 80).lineTo(50 + pageWidth, 80).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
-
-      // ── Event Details ──
-      let y = 95;
-      doc.fontSize(11).fillColor(primaryColor).font("Helvetica-Bold")
-        .text(data.eventName, 50, y);
-      y += 18;
-
-      const eventDetails = [
-        formatDate(data.eventDate),
-        data.eventVenue,
-        data.eventCity,
-      ].filter(Boolean).join(" · ");
-
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-        .text(eventDetails, 50, y);
-      y += 25;
-
-      // ── Bill To ──
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica-Bold")
-        .text("BILL TO", 50, y);
-      y += 14;
-
-      const nameStr = [data.title, data.firstName, data.lastName].filter(Boolean).join(" ");
-      doc.fontSize(10).fillColor("#1e293b").font("Helvetica-Bold")
-        .text(nameStr, 50, y);
-      y += 14;
-
-      doc.fontSize(9).fillColor("#475569").font("Helvetica");
-      if (data.organization) {
-        doc.text(data.organization, 50, y);
-        y += 13;
-      }
-      doc.text(data.email, 50, y);
-      y += 25;
-
-      // ── Line Items Table ──
-      const tableTop = y;
-      const colDesc = 50;
-      const colQty = 340;
-      const colRate = 400;
-      const colAmount = 470;
-
-      // Table header
-      doc.rect(50, tableTop, pageWidth, 22).fill("#f8fafc");
-      doc.fontSize(8).fillColor("#64748b").font("Helvetica-Bold")
-        .text("DESCRIPTION", colDesc + 8, tableTop + 7)
-        .text("QTY", colQty, tableTop + 7)
-        .text("RATE", colRate, tableTop + 7)
-        .text("AMOUNT", colAmount, tableTop + 7);
-
-      // Line item
-      const rowY = tableTop + 28;
-      const itemDesc = data.pricingTier
-        ? `${data.registrationType} — ${data.pricingTier}`
+      // ── 3. Line items ──
+      const itemDescription = data.pricingTier
+        ? `${data.registrationType} - ${data.pricingTier}`
         : data.registrationType;
 
-      doc.fontSize(9).fillColor("#1e293b").font("Helvetica")
-        .text(itemDesc, colDesc + 8, rowY)
-        .text("1", colQty, rowY)
-        .text(`${data.currency} ${data.price.toFixed(2)}`, colRate, rowY)
-        .text(`${data.currency} ${data.price.toFixed(2)}`, colAmount, rowY);
+      y = ensureSpace(doc, y, 80);
+      y = drawLineItemsTable(doc, y, data.currency, [
+        {
+          name: "Registration",
+          items: [{ description: itemDescription, amount: data.price }],
+        },
+      ]);
 
-      // Subtotal / Tax / Total
-      y = rowY + 30;
-      doc.moveTo(50, y).lineTo(50 + pageWidth, y).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
-      y += 12;
+      // ── 4. Totals — always Subtotal + (Discount) + VAT + Total ──
+      y = ensureSpace(doc, y, 90);
+      y = drawTotals(doc, y, {
+        currency: data.currency,
+        subtotal: data.price,
+        discountAmount: 0,
+        discountLabel: null,
+        taxRate: data.taxRate,
+        taxLabel: data.taxLabel,
+      });
 
-      const subtotal = data.price;
-      const taxAmount = data.taxRate ? subtotal * (data.taxRate / 100) : 0;
-      const total = subtotal + taxAmount;
+      // ── 5. Important notes (matches sample) + VAT disclaimer ──
+      const showVatDisclaimer = !!data.taxRate && data.taxRate > 0;
+      y = ensureSpace(doc, y, 120);
+      y = drawNotesAndDisclaimer(doc, y, QUOTE_NOTES, showVatDisclaimer);
 
-      // Subtotal
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-        .text("Subtotal", colRate, y);
-      doc.fillColor("#1e293b").font("Helvetica")
-        .text(`${data.currency} ${subtotal.toFixed(2)}`, colAmount, y);
-      y += 16;
-
-      // Tax
-      if (data.taxRate && data.taxRate > 0) {
-        doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-          .text(`${data.taxLabel} (${data.taxRate}%)`, colRate, y);
-        doc.fillColor("#1e293b").font("Helvetica")
-          .text(`${data.currency} ${taxAmount.toFixed(2)}`, colAmount, y);
-        y += 16;
-      }
-
-      // Total
-      doc.rect(colRate - 10, y - 2, pageWidth - colRate + 60, 22).fill(primaryColor);
-      doc.fontSize(10).fillColor("#ffffff").font("Helvetica-Bold")
-        .text("TOTAL", colRate, y + 3)
-        .text(`${data.currency} ${total.toFixed(2)}`, colAmount, y + 3);
-
-      y += 40;
-
-      // ── Payment Instructions ──
+      // ── 6. Bank details ──
       if (data.bankDetails) {
-        doc.fontSize(9).fillColor("#64748b").font("Helvetica-Bold")
-          .text("PAYMENT INSTRUCTIONS", 50, y);
-        y += 14;
-
-        doc.fontSize(8).fillColor("#475569").font("Helvetica");
-        const bankLines = data.bankDetails.split("\n");
-        for (const line of bankLines) {
-          doc.text(line.trim(), 50, y, { width: pageWidth });
-          y += 12;
-        }
-        y += 10;
+        y = ensureSpace(doc, y, 90);
+        drawBankDetails(doc, y, data.bankDetails);
       }
 
-      // ── Notes ──
-      doc.fontSize(8).fillColor("#94a3b8").font("Helvetica")
-        .text("• Payment can be made via credit card, bank transfer, or onsite.", 50, y);
-      y += 12;
-      doc.text("• Registration will only be confirmed once full payment has been received.", 50, y);
-      y += 12;
-      doc.text("• Please quote the reference number above when making payment.", 50, y);
-
-      if (data.supportEmail) {
-        y += 20;
-        doc.fontSize(8).fillColor("#64748b").font("Helvetica")
-          .text(`For inquiries: ${data.supportEmail}`, 50, y);
-      }
-
-      // ── Footer bar ──
-      doc.rect(0, doc.page.height - 4, doc.page.width, 4).fill(primaryColor);
+      // ── 7. Footers — written after content so Page N/M reflects real layout ──
+      drawFooters(doc, data.date);
 
       doc.end();
     } catch (err) {
+      apiLogger.error({
+        err,
+        msg: "quote-pdf:render-failed",
+        quoteNumber: data.quoteNumber,
+        eventName: data.eventName,
+      });
       reject(err);
     }
   });

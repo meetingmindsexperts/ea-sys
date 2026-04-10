@@ -80,6 +80,7 @@ const fakeRegistration = {
     email: "john@example.com",
     organization: "ACME Corp",
     title: "DR",
+    jobTitle: "CEO",
   },
   ticketType: { name: "Standard", price: "100.00", currency: "USD" },
   pricingTier: null,
@@ -96,6 +97,7 @@ const fakeRegistration = {
     organization: {
       name: "MeetingMinds",
       primaryColor: "#00aade",
+      logo: null,
       invoicePrefix: "MM",
       companyName: "MeetingMinds Group LLC",
       companyAddress: "123 Business Bay",

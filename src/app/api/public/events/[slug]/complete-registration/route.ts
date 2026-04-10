@@ -103,7 +103,20 @@ export async function GET(req: Request, { params }: RouteParams) {
             supportEmail: true,
             taxRate: true,
             taxLabel: true,
-            organization: { select: { name: true, logo: true } },
+            bankDetails: true,
+            organization: {
+              select: {
+                name: true,
+                logo: true,
+                companyName: true,
+                companyAddress: true,
+                companyCity: true,
+                companyState: true,
+                companyZipCode: true,
+                companyCountry: true,
+                taxId: true,
+              },
+            },
           },
         },
       },
@@ -223,6 +236,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         status: true,
         userId: true,
         attendeeId: true,
+        billingCity: true,
+        billingCountry: true,
         attendee: {
           select: {
             email: true, firstName: true, lastName: true, title: true,
@@ -235,6 +250,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: {
             id: true, name: true, slug: true, startDate: true,
             venue: true, city: true, country: true, organizationId: true,
+            taxRate: true, taxLabel: true,
+            bankDetails: true, supportEmail: true,
+            organization: {
+              select: {
+                name: true, logo: true,
+                companyName: true, companyAddress: true, companyCity: true,
+                companyState: true, companyZipCode: true, companyCountry: true,
+                taxId: true,
+              },
+            },
           },
         },
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
@@ -377,6 +402,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const finalPrice = registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
       const finalCurrency = registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
 
+      const org = registration.event.organization;
       await sendRegistrationConfirmation({
         to: email,
         firstName,
@@ -396,6 +422,22 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,
+        taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
+        taxLabel: registration.event.taxLabel,
+        bankDetails: registration.event.bankDetails,
+        supportEmail: registration.event.supportEmail,
+        organizationName: org.name,
+        companyName: org.companyName,
+        companyAddress: org.companyAddress,
+        companyCity: org.companyCity,
+        companyState: org.companyState,
+        companyZipCode: org.companyZipCode,
+        companyCountry: org.companyCountry,
+        taxId: org.taxId,
+        logoPath: org.logo,
+        jobTitle: registration.attendee.jobTitle,
+        billingCity: registration.billingCity || registration.attendee.city,
+        billingCountry: registration.billingCountry || registration.attendee.country,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email after registration completion" });

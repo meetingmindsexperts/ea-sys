@@ -46,7 +46,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
             taxLabel: true,
             bankDetails: true,
             supportEmail: true,
-            organization: { select: { name: true } },
+            organization: {
+              select: {
+                name: true,
+                companyName: true,
+                companyAddress: true,
+                companyCity: true,
+                companyState: true,
+                companyZipCode: true,
+                companyCountry: true,
+                taxId: true,
+                logo: true,
+              },
+            },
           },
         },
       },
@@ -69,6 +81,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       ? formatQuoteNumber(eventCode, registration.serialId)
       : `${eventCode}-Q-${registration.id.slice(-4).toUpperCase()}`;
 
+    const org = registration.event.organization;
+
     const pdfBuffer = await generateQuotePDF({
       quoteNumber,
       date: registration.createdAt,
@@ -81,6 +95,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       email: registration.attendee.email,
       organization: registration.attendee.organization,
       title: registration.attendee.title,
+      jobTitle: registration.attendee.jobTitle,
+      billingCity: registration.billingCity || registration.attendee.city,
+      billingCountry: registration.billingCountry || registration.attendee.country,
       registrationType: registration.ticketType?.name ?? "General",
       pricingTier: registration.pricingTier?.name || null,
       price,
@@ -89,7 +106,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
       taxLabel: registration.event.taxLabel || "VAT",
       bankDetails: registration.event.bankDetails,
       supportEmail: registration.event.supportEmail,
-      organizationName: registration.event.organization.name,
+      organizationName: org.name,
+      companyName: org.companyName,
+      companyAddress: org.companyAddress,
+      companyCity: org.companyCity,
+      companyState: org.companyState,
+      companyZipCode: org.companyZipCode,
+      companyCountry: org.companyCountry,
+      taxId: org.taxId,
+      logoPath: org.logo,
     });
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
