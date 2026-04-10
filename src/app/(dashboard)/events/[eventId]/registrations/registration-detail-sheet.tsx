@@ -762,7 +762,7 @@ export function RegistrationDetailSheet({
                   <div className="space-y-2">
                     <Label>Registration Type</Label>
                     <Select
-                      value={selectedRegistration.ticketType.id}
+                      value={selectedRegistration.ticketType?.id ?? ""}
                       onValueChange={(value) =>
                         updateRegistration.mutate({
                           id: selectedRegistration.id,
@@ -848,7 +848,7 @@ export function RegistrationDetailSheet({
               ) : (
                 <div className="flex items-center gap-3">
                   <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                  <div className="font-medium">{selectedRegistration.ticketType.name}</div>
+                  <div className="font-medium">{selectedRegistration.ticketType?.name ?? "—"}</div>
                 </div>
               )}
 

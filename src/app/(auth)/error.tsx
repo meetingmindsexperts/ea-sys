@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
+import { useEffect } from "react";
 
-export default function DashboardError({
+export default function AuthError({
   error,
   reset,
 }: {
@@ -11,22 +11,21 @@ export default function DashboardError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Surface to Sentry so it shows up in server-side logs
     Sentry.captureException(error, {
-      tags: { boundary: "dashboard" },
+      tags: { boundary: "auth" },
       extra: { digest: error.digest, message: error.message, stack: error.stack },
     });
-    console.error("Dashboard error:", error);
+    console.error("Auth error:", error);
   }, [error]);
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center p-4">
-      <div className="mx-auto w-full max-w-lg rounded-lg border bg-white p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
+      <div className="mx-auto w-full max-w-md rounded-lg border bg-white p-8 shadow-sm">
         <h2 className="mb-2 text-xl font-semibold text-gray-900">
           Something went wrong
         </h2>
         <p className="mb-4 text-sm text-gray-600">
-          An error occurred while loading this page. Please try again.
+          We couldn&apos;t load this page. Please try again.
         </p>
         {error.message && (
           <details className="mb-4 rounded-md border bg-red-50 p-3 text-xs text-red-800">

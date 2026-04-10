@@ -75,7 +75,7 @@ export interface Registration {
   notes: string | null;
   createdAt: string;
   attendee: Attendee;
-  ticketType: TicketType;
+  ticketType: TicketType | null;
   pricingTier?: PricingTier | null;
   payments?: Payment[];
   accommodation?: Accommodation | null;

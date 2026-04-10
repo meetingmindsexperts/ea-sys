@@ -223,7 +223,78 @@ function initLogger(): pino.Logger {
 
 export const logger = initLogger();
 
-export const createLogger = (module: string) => logger.child({ module });
+/**
+ * Forward an error log entry to Sentry on the server.
+ * Lazy-imports @sentry/nextjs to avoid pulling Sentry into client bundles
+ * (logger.ts is server-only but the lazy import keeps tree-shaking honest).
+ */
+function forwardToSentry(module: string, args: unknown[]): void {
+  // Only run server-side; Sentry's client init lives elsewhere
+  if (typeof window !== "undefined") return;
+
+  // Best-effort, never block the log call on Sentry availability
+  void (async () => {
+    try {
+      const Sentry = await import("@sentry/nextjs");
+      const first = args[0];
+
+      // Pino's error API: logger.error({ err, msg, ...ctx }, message?) or logger.error(error, message?)
+      let error: unknown;
+      let context: Record<string, unknown> = {};
+      let message: string | undefined;
+
+      if (first instanceof Error) {
+        error = first;
+        message = typeof args[1] === "string" ? args[1] : undefined;
+      } else if (typeof first === "object" && first !== null) {
+        const obj = first as Record<string, unknown>;
+        error = obj.err ?? obj.error;
+        message = typeof obj.msg === "string" ? obj.msg : (typeof args[1] === "string" ? args[1] : undefined);
+        // Copy all other fields as context, redacting known sensitive keys
+        const REDACTED_KEYS = new Set(["password", "passwordHash", "token", "accessToken", "refreshToken", "authorization", "cookie"]);
+        for (const [k, v] of Object.entries(obj)) {
+          if (k === "err" || k === "error" || k === "msg") continue;
+          if (REDACTED_KEYS.has(k)) continue;
+          context[k] = v;
+        }
+      } else if (typeof first === "string") {
+        message = first;
+        context = { args: args.slice(1) };
+      }
+
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: { module, source: "pino" },
+          extra: { ...context, message },
+        });
+      } else {
+        // No Error object — capture as a message
+        Sentry.captureMessage(message || `${module} error`, {
+          level: "error",
+          tags: { module, source: "pino" },
+          extra: { ...context, error },
+        });
+      }
+    } catch {
+      // Sentry forwarding must never break logging
+    }
+  })();
+}
+
+/**
+ * Wraps a Pino child logger so that every .error() call also forwards
+ * to Sentry as an exception capture. .warn(), .info(), etc. are untouched.
+ */
+function withSentryForwarding(child: pino.Logger, module: string): pino.Logger {
+  const originalError = child.error.bind(child);
+  child.error = ((...args: unknown[]) => {
+    forwardToSentry(module, args);
+    return (originalError as (...a: unknown[]) => void)(...args);
+  }) as typeof child.error;
+  return child;
+}
+
+export const createLogger = (module: string) => withSentryForwarding(logger.child({ module }), module);
 
 export const dbLogger   = createLogger("database");
 export const authLogger = createLogger("auth");

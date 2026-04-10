@@ -161,7 +161,7 @@ export default function RegistrationsPage() {
       r.attendee.bio || "",
       r.attendee.specialty || "",
       r.attendee.tags.join(", "),
-      r.ticketType.name,
+      r.ticketType?.name ?? "",
       r.status,
       r.paymentStatus,
       r.dtcmBarcode || "",
@@ -199,7 +199,7 @@ export default function RegistrationsPage() {
 
     const matchesStatus = statusFilter === "all" || r.status === statusFilter;
     const matchesPayment = paymentFilter === "all" || r.paymentStatus === paymentFilter;
-    const matchesTicket = ticketFilter === "all" || r.ticketType.id === ticketFilter;
+    const matchesTicket = ticketFilter === "all" || r.ticketType?.id === ticketFilter;
 
     return matchesSearch && matchesStatus && matchesPayment && matchesTicket;
   });
@@ -590,7 +590,7 @@ export default function RegistrationsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{registration.ticketType.name}</Badge>
+                      <Badge variant="outline">{registration.ticketType?.name ?? "—"}</Badge>
                     </TableCell>
                     <TableCell>
                       <Badge className={registrationStatusColors[registration.status]} variant="outline">
