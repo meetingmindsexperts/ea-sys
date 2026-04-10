@@ -69,7 +69,7 @@ interface Registration {
     studentIdExpiry: string | null;
     registrationType: string | null;
   };
-  ticketType: { id: string; name: string; price?: string; currency?: string };
+  ticketType: { id: string; name: string; price?: string; currency?: string } | null;
   pricingTier: { id: string; name: string; price: string; currency: string } | null;
   payments: { id: string; amount: string; currency: string; status: string; receiptUrl: string | null; createdAt: string }[];
 }
@@ -226,7 +226,7 @@ export default function MyRegistrationPage() {
               </div>
               <div className="flex gap-2 mt-3">
                 <Badge className={statusColors[reg.status]} variant="outline">{reg.status}</Badge>
-                <Badge variant="outline">{reg.ticketType.name}</Badge>
+                <Badge variant="outline">{reg.ticketType?.name ?? "—"}</Badge>
                 {reg.pricingTier && <Badge variant="secondary">{reg.pricingTier.name}</Badge>}
               </div>
             </div>
@@ -428,7 +428,7 @@ export default function MyRegistrationPage() {
                       <Label className="text-xs">Dietary Requirements</Label>
                       <Input value={editData.dietaryReqs || ""} onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })} />
                     </div>
-                    {reg.ticketType.name?.toLowerCase().includes("member") && (
+                    {reg.ticketType?.name?.toLowerCase().includes("member") && (
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs">Association Name</Label>
@@ -440,7 +440,7 @@ export default function MyRegistrationPage() {
                         </div>
                       </div>
                     )}
-                    {reg.ticketType.name?.toLowerCase().includes("student") && (
+                    {reg.ticketType?.name?.toLowerCase().includes("student") && (
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs">Student ID</Label>

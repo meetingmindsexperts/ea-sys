@@ -45,7 +45,7 @@ interface Registration {
   };
   ticketType: {
     name: string;
-  };
+  } | null;
 }
 
 export function ImportRegistrationsDialog({
@@ -74,7 +74,7 @@ export function ImportRegistrationsDialog({
       r.attendee.lastName.toLowerCase().includes(q) ||
       r.attendee.email.toLowerCase().includes(q) ||
       (r.attendee.organization && r.attendee.organization.toLowerCase().includes(q)) ||
-      r.ticketType.name.toLowerCase().includes(q)
+      (r.ticketType?.name?.toLowerCase().includes(q) ?? false)
     );
   });
 
@@ -253,7 +253,7 @@ export function ImportRegistrationsDialog({
                       </td>
                       <td className="px-3 py-2.5 hidden md:table-cell">
                         <span className="text-xs bg-muted px-2 py-0.5 rounded-md font-medium">
-                          {reg.ticketType.name}
+                          {reg.ticketType?.name ?? "—"}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 hidden md:table-cell">

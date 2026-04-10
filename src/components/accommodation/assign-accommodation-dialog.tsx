@@ -62,7 +62,7 @@ interface Registration {
   };
   ticketType: {
     name: string;
-  };
+  } | null;
   accommodation?: { id: string } | null;
 }
 
@@ -330,7 +330,7 @@ export function AssignAccommodationDialog({
                               {formatPersonName(reg.attendee.title, reg.attendee.firstName, reg.attendee.lastName)}
                             </span>
                             <Badge variant="outline" className="text-[10px]">
-                              {reg.ticketType.name}
+                              {reg.ticketType?.name ?? "—"}
                             </Badge>
                           </div>
                           <span className="text-xs text-muted-foreground">{reg.attendee.email}</span>
