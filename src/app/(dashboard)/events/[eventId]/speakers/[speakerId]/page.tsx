@@ -44,6 +44,7 @@ import {
   FileText,
   Loader2,
   ChevronDown,
+  ChevronUp,
   Pencil,
   X,
   Stethoscope,
@@ -168,6 +169,7 @@ export default function SpeakerDetailPage() {
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
+  const [showAgreementHelp, setShowAgreementHelp] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const previewMutation = usePreviewEmailBySlug(eventId);
@@ -878,6 +880,45 @@ export default function SpeakerDetailPage() {
                     {updatingAgreement ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                     Mark as Accepted
                   </Button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowAgreementHelp((v) => !v)}
+                className="mt-4 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                aria-expanded={showAgreementHelp}
+              >
+                <span>How this works</span>
+                {showAgreementHelp ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+
+              {showAgreementHelp && (
+                <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-600">
+                  <div>
+                    <p className="font-semibold text-slate-800">What it is</p>
+                    <p className="mt-0.5">
+                      A record that this speaker accepted the event&apos;s speaker agreement. We store the timestamp, the IP that accepted, who accepted (speaker or organizer), and a frozen snapshot of the agreement text at the moment of acceptance.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">Send the agreement email</p>
+                    <p className="mt-0.5">
+                      Use <span className="font-medium">Email Speaker → Speaker Agreement</span>. The speaker receives a one-time link (valid 30 days). When they review and accept on the public page, the status flips to <span className="font-medium">Accepted (by speaker)</span> automatically.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">Mark as Accepted (manual override)</p>
+                    <p className="mt-0.5">
+                      Use this when the speaker has already signed via another channel — a PDF, in person, or a prior system. The record shows <span className="font-medium">(by organizer)</span> so the audit trail distinguishes it from a self-signed acceptance. <span className="font-medium">Revoke</span> clears the record entirely.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800">Editing the agreement text</p>
+                    <p className="mt-0.5">
+                      The agreement template is per-event and lives under <span className="font-medium">Content → Speakers</span>. Speakers who have already accepted keep the snapshot of the version they signed, so editing the template later doesn&apos;t change their record.
+                    </p>
+                  </div>
                 </div>
               )}
             </CardContent>
