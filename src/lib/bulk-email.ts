@@ -24,7 +24,24 @@ export type BulkEmailType =
   | "abstract-accepted"
   | "abstract-rejected"
   | "abstract-revision"
-  | "abstract-reminder";
+  | "abstract-reminder"
+  | "webinar-confirmation"
+  | "webinar-reminder-24h"
+  | "webinar-reminder-1h"
+  | "webinar-live-now"
+  | "webinar-thank-you";
+
+export const WEBINAR_EMAIL_TYPES = [
+  "webinar-confirmation",
+  "webinar-reminder-24h",
+  "webinar-reminder-1h",
+  "webinar-live-now",
+  "webinar-thank-you",
+] as const;
+
+export function isWebinarEmailType(t: string): boolean {
+  return (WEBINAR_EMAIL_TYPES as readonly string[]).includes(t);
+}
 
 export interface BulkEmailAttachment {
   name: string;
@@ -79,6 +96,11 @@ export const bulkEmailSchema = z.object({
     "abstract-rejected",
     "abstract-revision",
     "abstract-reminder",
+    "webinar-confirmation",
+    "webinar-reminder-24h",
+    "webinar-reminder-1h",
+    "webinar-live-now",
+    "webinar-thank-you",
   ]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
@@ -148,6 +170,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
   // Only fetch the columns we render into the email — avoids dragging back HTML
   // template fields, banner image, terms HTML, etc.
+  // Include per-event sender fields + email branding so the `from` address
+  // respects the event's configured sender (not just provider defaults).
   const event = await db.event.findFirst({
     where: { id: eventId },
     select: {
@@ -157,6 +181,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       venue: true,
       address: true,
       settings: true,
+      emailFromAddress: true,
+      emailFromName: true,
+      emailHeaderImage: true,
+      emailFooterHtml: true,
     },
   });
   if (!event) {
@@ -285,6 +313,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     confirmation: "registration-confirmation",
     reminder: "event-reminder",
     custom: "custom-notification",
+    "webinar-confirmation": "webinar-confirmation",
+    "webinar-reminder-24h": "webinar-reminder-24h",
+    "webinar-reminder-1h": "webinar-reminder-1h",
+    "webinar-live-now": "webinar-live-now",
+    "webinar-thank-you": "webinar-thank-you",
   };
   const templateSlug = slugMap[emailType];
   if (!templateSlug) {
@@ -306,8 +339,99 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       )
     : 1;
 
+  // Event-level branding: prefer the explicit branding shipped with a rendered
+  // event template (e.g. from /api/templates/preview), else build one from the
+  // event columns we just fetched. The from/name fields are what power
+  // `brandingFrom()` — without them `sendEmail` falls back to provider defaults
+  // and hits "Forbidden" if the default sender isn't authorized.
   const branding: EmailBranding =
-    "branding" in tpl ? (tpl as { branding: EmailBranding }).branding : { eventName: event.name };
+    "branding" in tpl
+      ? (tpl as { branding: EmailBranding }).branding
+      : {
+          eventName: event.name,
+          emailFromAddress: event.emailFromAddress,
+          emailFromName: event.emailFromName,
+          emailHeaderImage: event.emailHeaderImage,
+          emailFooterHtml: event.emailFooterHtml,
+        };
+
+  // ── Webinar enrichment ────────────────────────────────────────────
+  // For webinar-* types, look up the anchor session + ZoomMeeting ONCE
+  // (not per recipient) and inject join URL / passcode / recording into vars.
+  let webinarEnrichment: {
+    joinUrl: string;
+    passcode: string;
+    webinarDate: string;
+    webinarTime: string;
+    recordingUrl: string;
+    passcodeBlockHtml: string;
+    passcodeBlockText: string;
+    recordingBlockHtml: string;
+    recordingBlockText: string;
+  } | null = null;
+
+  if (isWebinarEmailType(emailType)) {
+    const webinarSettings = (event.settings as { webinar?: { sessionId?: string } } | null)?.webinar;
+    const anchorSessionId = webinarSettings?.sessionId;
+    if (!anchorSessionId) {
+      throw new BulkEmailError(
+        "Webinar email requested but event has no anchor session. Run the webinar provisioner first.",
+        400,
+      );
+    }
+    const [anchorSession, zoomMeeting] = await Promise.all([
+      db.eventSession.findFirst({
+        where: { id: anchorSessionId, eventId },
+        select: { startTime: true, endTime: true },
+      }),
+      db.zoomMeeting.findUnique({
+        where: { sessionId: anchorSessionId },
+        // Recording fields land in Phase 4 — soft-read via Prisma select on id + joinUrl for now.
+        select: { joinUrl: true, passcode: true },
+      }),
+    ]);
+    if (!zoomMeeting) {
+      throw new BulkEmailError(
+        "Webinar email requested but no Zoom webinar is attached to the anchor session.",
+        400,
+      );
+    }
+    const webinarDate = anchorSession?.startTime
+      ? new Date(anchorSession.startTime).toLocaleDateString(undefined, {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : "TBA";
+    const webinarTime = anchorSession?.startTime
+      ? new Date(anchorSession.startTime).toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZoneName: "short",
+        })
+      : "TBA";
+    const passcode = zoomMeeting.passcode ?? "";
+    // Phase 4 will populate recordingUrl via a new field on ZoomMeeting. Until then, empty.
+    const recordingUrl = "";
+    webinarEnrichment = {
+      joinUrl: zoomMeeting.joinUrl,
+      passcode,
+      webinarDate,
+      webinarTime,
+      recordingUrl,
+      passcodeBlockHtml: passcode
+        ? `<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">${passcode}</strong></div>`
+        : "",
+      passcodeBlockText: passcode ? `Passcode: ${passcode}` : "",
+      recordingBlockHtml: recordingUrl
+        ? `<div style="text-align:center; margin:20px 0;"><a href="${recordingUrl}" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>`
+        : `<p style="color:#6b7280;">The recording will be available shortly. We'll send it to you as soon as it's ready.</p>`,
+      recordingBlockText: recordingUrl
+        ? `Watch replay: ${recordingUrl}`
+        : "The recording will be available shortly. We'll send it to you as soon as it's ready.",
+    };
+  }
 
   const generateEmailForRecipient = (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
@@ -334,6 +458,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       }
       vars.subject = customSubject;
       vars.message = customMessage;
+    }
+
+    if (webinarEnrichment) {
+      vars.joinUrl = webinarEnrichment.joinUrl;
+      vars.passcode = webinarEnrichment.passcode;
+      vars.webinarDate = webinarEnrichment.webinarDate;
+      vars.webinarTime = webinarEnrichment.webinarTime;
+      vars.recordingUrl = webinarEnrichment.recordingUrl;
+      vars.passcodeBlock = webinarEnrichment.passcodeBlockHtml;
+      vars.passcodeBlockText = webinarEnrichment.passcodeBlockText;
+      vars.recordingBlock = webinarEnrichment.recordingBlockHtml;
+      vars.recordingBlockText = webinarEnrichment.recordingBlockText;
     }
 
     return renderAndWrap(tpl, vars, branding);

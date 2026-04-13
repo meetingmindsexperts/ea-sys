@@ -10,6 +10,7 @@ import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
+import { provisionWebinar } from "@/lib/webinar-provisioner";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -182,6 +183,14 @@ export async function POST(req: Request) {
         })
       )
     ).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
+
+    // Auto-provision webinar setup (anchor session + Zoom webinar + email
+    // sequence) — non-blocking. Idempotent; safe to re-run from the Webinar Console.
+    if (event.eventType === "WEBINAR") {
+      provisionWebinar(event.id, { actorUserId: session.user.id }).catch((err) =>
+        apiLogger.error({ err, eventId: event.id }, "webinar:auto-provision-failed"),
+      );
+    }
 
     return NextResponse.json(event, { status: 201 });
   } catch (error) {

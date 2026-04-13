@@ -837,6 +837,144 @@ Amount Due: {{amount}}
 
 If you have already made the payment, please disregard this email.`,
   },
+
+  // ── Webinar sequence ──────────────────────────────────────────────────────
+  {
+    slug: "webinar-confirmation",
+    name: "Webinar Registration Confirmation",
+    subject: "You're registered for {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>You're confirmed for <strong>{{eventName}}</strong>. Save this email — it contains your join link.</p>
+    <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
+      <h3 style="margin-top: 0; color: #075985;">Webinar Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">{{webinarDate}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Time:</td><td style="padding: 8px 0; font-weight: 500;">{{webinarTime}}</td></tr>
+      </table>
+    </div>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join Webinar</a>
+    </div>
+    {{passcodeBlock}}
+    <p style="color: #6b7280; font-size: 13px;">You can join up to 15 minutes before the scheduled start time. We'll also send you reminders 24 hours and 1 hour before the webinar begins.</p>
+    <p style="margin-bottom: 0;">See you online!</p>
+  </div>`,
+    textContent: `You're registered for {{eventName}}
+
+Dear {{firstName}},
+
+You're confirmed for {{eventName}}.
+
+Date: {{webinarDate}}
+Time: {{webinarTime}}
+
+Join link: {{joinUrl}}
+{{passcodeBlock}}
+
+You can join up to 15 minutes before the scheduled start time. We'll send reminders 24 hours and 1 hour before the webinar begins.`,
+  },
+
+  {
+    slug: "webinar-reminder-24h",
+    name: "Webinar Reminder — 24 hours",
+    subject: "Tomorrow: {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Hi <strong>{{firstName}}</strong>,</p>
+    <p>Just a reminder that <strong>{{eventName}}</strong> starts tomorrow.</p>
+    <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">{{webinarDate}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Time:</td><td style="padding: 8px 0; font-weight: 500;">{{webinarTime}}</td></tr>
+      </table>
+    </div>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Save Join Link</a>
+    </div>
+    {{passcodeBlock}}
+    <p style="color: #6b7280; font-size: 13px;">Add it to your calendar so you don't miss it.</p>
+  </div>`,
+    textContent: `Tomorrow: {{eventName}}
+
+Hi {{firstName}},
+
+Just a reminder that {{eventName}} starts tomorrow.
+
+Date: {{webinarDate}}
+Time: {{webinarTime}}
+
+Join link: {{joinUrl}}
+{{passcodeBlock}}`,
+  },
+
+  {
+    slug: "webinar-reminder-1h",
+    name: "Webinar Reminder — 1 hour",
+    subject: "Starting in 1 hour: {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Hi <strong>{{firstName}}</strong>,</p>
+    <p><strong>{{eventName}}</strong> starts in about 1 hour. Get ready!</p>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join Webinar</a>
+    </div>
+    {{passcodeBlock}}
+    <p style="color: #6b7280; font-size: 13px;">Doors open 15 minutes before the scheduled start. See you there.</p>
+  </div>`,
+    textContent: `Starting in 1 hour: {{eventName}}
+
+Hi {{firstName}},
+
+{{eventName}} starts in about 1 hour. Get ready!
+
+Join link: {{joinUrl}}
+{{passcodeBlock}}
+
+Doors open 15 minutes before the scheduled start.`,
+  },
+
+  {
+    slug: "webinar-live-now",
+    name: "Webinar Live Now",
+    subject: "We're live: {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Hi <strong>{{firstName}}</strong>,</p>
+    <p><strong>{{eventName}}</strong> is starting now. Click below to join.</p>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 18px;">Join Now</a>
+    </div>
+    {{passcodeBlock}}
+  </div>`,
+    textContent: `We're live: {{eventName}}
+
+Hi {{firstName}},
+
+{{eventName}} is starting now.
+
+Join now: {{joinUrl}}
+{{passcodeBlock}}`,
+  },
+
+  {
+    slug: "webinar-thank-you",
+    name: "Webinar Thank You",
+    subject: "Thank you for joining {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Thank you for joining <strong>{{eventName}}</strong>. We hope you found it valuable.</p>
+    {{recordingBlock}}
+    <p>If you have any feedback, we'd love to hear from you.</p>
+    <p style="margin-bottom: 0;">See you at the next one!</p>
+  </div>`,
+    textContent: `Thank you for joining {{eventName}}
+
+Dear {{firstName}},
+
+Thank you for joining {{eventName}}. We hope you found it valuable.
+
+{{recordingBlock}}
+
+If you have any feedback, we'd love to hear from you.`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────

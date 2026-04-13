@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useOrgBranding, useOrganizations } from "@/hooks/use-api";
+import { useOrgBranding, useOrganizations, useEvent } from "@/hooks/use-api";
 import { useActiveOrg } from "@/contexts/active-org-context";
+import { webinarModuleFilter } from "@/lib/webinar";
 import {
   Home,
   Settings,
@@ -30,6 +31,7 @@ import {
   ChevronsUpDown,
   ImageIcon,
   Tag,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -60,11 +62,19 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
 ];
 
 // Event nav split into sections for visual grouping
-const eventNavigationSections = [
+type EventNavItem = {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  webinarOnly?: boolean;
+};
+
+const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
   {
     label: "",
     items: [
       { name: "Overview", href: "", icon: LayoutDashboard },
+      { name: "Webinar Console", href: "/webinar", icon: Video, webinarOnly: true },
     ],
   },
   {
@@ -124,6 +134,15 @@ export function Sidebar() {
   // Fetch all orgs for SUPER_ADMIN switcher
   const { data: allOrgs } = useOrganizations(isSuperAdmin);
 
+  const eventMatch = pathname.match(/^\/events\/([^/]+)/);
+  const eventId    = eventMatch ? eventMatch[1] : null;
+  const isEventPage = Boolean(eventId && eventId !== "new");
+
+  // Fetch event to know eventType (cached by React Query across navigation).
+  // Skip fetch on non-event pages and for restricted roles whose sidebar doesn't branch.
+  const { data: currentEvent } = useEvent(isEventPage && !isRestricted ? (eventId as string) : "");
+  const webinarFilter = webinarModuleFilter(currentEvent?.eventType ?? null);
+
   const handleOrgSwitch = (orgId: string | null) => {
     setActiveOrgId(orgId);
     // Invalidate all cached queries so they refetch with the new org header
@@ -132,10 +151,6 @@ export function Sidebar() {
 
   // REGISTRANT sees no sidebar — only the portal page
   if (isRegistrant) return null;
-
-  const eventMatch = pathname.match(/^\/events\/([^/]+)/);
-  const eventId    = eventMatch ? eventMatch[1] : null;
-  const isEventPage = eventId && eventId !== "new";
 
   const restrictedNavigation = navigation.filter((item) => ["Events"].includes(item.name));
   const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
@@ -153,7 +168,12 @@ export function Sidebar() {
   // Build sections for event nav
   const visibleEventSections = isRestricted
     ? [{ label: "Abstracts", items: restrictedEventItems }]
-    : eventNavigationSections;
+    : eventNavigationSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter(webinarFilter),
+        }))
+        .filter((section) => section.items.length > 0);
 
   const flatEventItems = visibleEventSections.flatMap((s) =>
     s.items.map((item) => ({ ...item, href: `/events/${eventId}${item.href}` }))

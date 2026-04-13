@@ -6,6 +6,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -131,6 +132,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         name: true,
+        eventType: true,
         startDate: true,
         endDate: true,
         venue: true,
@@ -533,46 +535,64 @@ export async function POST(req: Request, { params }: RouteParams) {
     const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;
     const tierLabel = pricingTier ? `${ticketType.name} (${pricingTier.name})` : ticketType.name;
 
-    // Send confirmation email
-    try {
-      await sendRegistrationConfirmation({
-        to: email,
-        firstName,
-        lastName,
-        title: title || null,
-        organization: organization || null,
-        eventName: event.name,
-        eventDate: event.startDate,
-        eventVenue: event.venue || "",
-        eventCity: event.city || "",
-        ticketType: tierLabel,
-        pricingTierName: pricingTier?.name || null,
-        registrationId: registration.id,
-        serialId: registration.serialId,
-        qrCode: registration.qrCode || "",
-        eventId: event.id,
-        eventSlug: slug,
-        ticketPrice: finalPrice,
-        ticketCurrency: finalCurrency,
-        taxRate: event.taxRate ? Number(event.taxRate) : null,
-        taxLabel: event.taxLabel,
-        bankDetails: event.bankDetails,
-        supportEmail: event.supportEmail,
-        organizationName: event.organization.name,
-        companyName: event.organization.companyName,
-        companyAddress: event.organization.companyAddress,
-        companyCity: event.organization.companyCity,
-        companyState: event.organization.companyState,
-        companyZipCode: event.organization.companyZipCode,
-        companyCountry: event.organization.companyCountry,
-        taxId: event.organization.taxId,
-        logoPath: event.organization.logo,
-        billingCity: null,
-        billingCountry: null,
-        jobTitle: null,
-      });
-    } catch (emailError) {
-      apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });
+    // Send confirmation email.
+    // WEBINAR events get the webinar-confirmation template (with join URL +
+    // passcode, no PDF quote). All other event types get the standard
+    // registration confirmation with PDF quote attached.
+    if (event.eventType === "WEBINAR") {
+      try {
+        await sendWebinarConfirmationForRegistration({
+          eventId: event.id,
+          registrationId: registration.id,
+          organizerName: event.organization.name,
+          organizerEmail: event.supportEmail || "",
+        });
+      } catch (emailError) {
+        apiLogger.error(
+          { err: emailError, msg: "Failed to send webinar confirmation email", registrationId: registration.id },
+        );
+      }
+    } else {
+      try {
+        await sendRegistrationConfirmation({
+          to: email,
+          firstName,
+          lastName,
+          title: title || null,
+          organization: organization || null,
+          eventName: event.name,
+          eventDate: event.startDate,
+          eventVenue: event.venue || "",
+          eventCity: event.city || "",
+          ticketType: tierLabel,
+          pricingTierName: pricingTier?.name || null,
+          registrationId: registration.id,
+          serialId: registration.serialId,
+          qrCode: registration.qrCode || "",
+          eventId: event.id,
+          eventSlug: slug,
+          ticketPrice: finalPrice,
+          ticketCurrency: finalCurrency,
+          taxRate: event.taxRate ? Number(event.taxRate) : null,
+          taxLabel: event.taxLabel,
+          bankDetails: event.bankDetails,
+          supportEmail: event.supportEmail,
+          organizationName: event.organization.name,
+          companyName: event.organization.companyName,
+          companyAddress: event.organization.companyAddress,
+          companyCity: event.organization.companyCity,
+          companyState: event.organization.companyState,
+          companyZipCode: event.organization.companyZipCode,
+          companyCountry: event.organization.companyCountry,
+          taxId: event.organization.taxId,
+          logoPath: event.organization.logo,
+          billingCity: null,
+          billingCountry: null,
+          jobTitle: null,
+        });
+      } catch (emailError) {
+        apiLogger.error({ err: emailError, msg: "Failed to send confirmation email" });
+      }
     }
 
     // Auto-create invoice for paid tickets (non-blocking)

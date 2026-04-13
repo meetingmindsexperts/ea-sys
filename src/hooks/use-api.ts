@@ -80,6 +80,8 @@ export const queryKeys = {
   zoomCredentials: ["zoom", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
+  webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
+  webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1367,5 +1369,117 @@ export function useSyncZoomPanelists(eventId: string, sessionId: string) {
         `/api/events/${eventId}/sessions/${sessionId}/zoom/panelists`,
         { method: "POST" },
       ),
+  });
+}
+
+// ── Webinar Console ─────────────────────────────────────────────────
+
+export interface WebinarConsoleData {
+  event: { id: string; name: string; slug: string; eventType: string | null };
+  webinar: {
+    autoCreated?: boolean;
+    sessionId?: string;
+    autoProvisionZoom?: boolean;
+    defaultPasscode?: string;
+    waitingRoom?: boolean;
+    autoRecording?: "none" | "local" | "cloud";
+    automationEnabled?: boolean;
+  };
+  anchorSession: {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    description: string | null;
+  } | null;
+  zoomMeeting: {
+    id: string;
+    zoomMeetingId: string;
+    meetingType: string;
+    joinUrl: string;
+    startUrl: string | null;
+    passcode: string | null;
+    duration: number | null;
+  } | null;
+}
+
+export function useWebinar(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.webinar(eventId),
+    queryFn: () => fetchApi<WebinarConsoleData>(`/api/events/${eventId}/webinar`),
+    enabled: !!eventId,
+  });
+}
+
+export function useUpdateWebinarSettings(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<WebinarConsoleData["webinar"]>) =>
+      fetchApi<{ webinar: WebinarConsoleData["webinar"] }>(
+        `/api/events/${eventId}/webinar`,
+        { method: "PUT", body: JSON.stringify(data), headers: { "Content-Type": "application/json" } },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+export function useProvisionWebinar(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        sessionId?: string;
+        zoomMeetingId?: string | null;
+        zoomStatus?: "created" | "already-attached" | "not-configured" | "failed";
+        durationMs?: number;
+        reason?: string;
+      }>(
+        `/api/events/${eventId}/webinar`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
+    },
+  });
+}
+
+export interface WebinarSequenceRow {
+  id: string;
+  emailType: string;
+  status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "CANCELLED";
+  scheduledFor: string;
+  sentAt: string | null;
+  totalCount: number | null;
+  successCount: number | null;
+  failureCount: number | null;
+  lastError: string | null;
+  retryCount: number;
+}
+
+export function useWebinarSequence(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.webinarSequence(eventId),
+    queryFn: () => fetchApi<{ rows: WebinarSequenceRow[] }>(`/api/events/${eventId}/webinar/sequence`),
+    enabled: !!eventId,
+  });
+}
+
+export function useReenqueueWebinarSequence(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        deleted: number;
+        created: number;
+        skipped: string | null;
+      }>(`/api/events/${eventId}/webinar/sequence`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
+    },
   });
 }

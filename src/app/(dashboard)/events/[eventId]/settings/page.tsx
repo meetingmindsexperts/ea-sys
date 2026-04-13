@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
+import { isWebinar } from "@/lib/webinar";
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -496,12 +497,16 @@ export default function EventSettingsPage() {
             <Bell className="h-4 w-4" />
             Notifications
           </TabsTrigger>
-          <TabsTrigger value="abstract-themes" className="flex items-center gap-2">
-            Abstract Themes
-          </TabsTrigger>
-          <TabsTrigger value="review-criteria" className="flex items-center gap-2">
-            Review Criteria
-          </TabsTrigger>
+          {!isWebinar(event) && (
+            <>
+              <TabsTrigger value="abstract-themes" className="flex items-center gap-2">
+                Abstract Themes
+              </TabsTrigger>
+              <TabsTrigger value="review-criteria" className="flex items-center gap-2">
+                Review Criteria
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <ImageIcon className="h-4 w-4" />
             Branding
