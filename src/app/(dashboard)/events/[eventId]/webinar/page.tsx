@@ -36,6 +36,9 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  Users,
+  Download,
+  TrendingUp,
 } from "lucide-react";
 import {
   useWebinar,
@@ -44,7 +47,10 @@ import {
   useWebinarSequence,
   useReenqueueWebinarSequence,
   useFetchWebinarRecording,
+  useWebinarAttendance,
+  useSyncWebinarAttendance,
   type WebinarSequenceRow,
+  type WebinarAttendeeRow,
 } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -365,6 +371,13 @@ export default function WebinarConsolePage() {
         eventId={eventId}
         zoom={data?.zoomMeeting ?? null}
         sessionEnded={status === "ended"}
+      />
+
+      {/* Attendance */}
+      <AttendanceCard
+        eventId={eventId}
+        sessionEnded={status === "ended"}
+        hasZoom={hasZoom}
       />
 
       {/* Email Sequence */}
@@ -739,6 +752,213 @@ function RecordingCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+}
+
+function AttendanceCard({
+  eventId,
+  sessionEnded,
+  hasZoom,
+}: {
+  eventId: string;
+  sessionEnded: boolean;
+  hasZoom: boolean;
+}) {
+  const { data, isLoading, isFetching } = useWebinarAttendance(eventId);
+  const sync = useSyncWebinarAttendance(eventId);
+
+  const handleSync = async () => {
+    try {
+      const result = await sync.mutateAsync();
+      if (result.status === "synced") {
+        toast.success(
+          `Synced — fetched ${result.fetched ?? 0} participants, matched ${result.matched ?? 0} to registrations`,
+        );
+      } else if (result.status === "pending") {
+        toast.warning(result.reason || "Attendance report not ready yet");
+      } else {
+        toast.error(result.reason || "Failed to sync attendance");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to sync attendance");
+    }
+  };
+
+  const handleExportCsv = () => {
+    window.open(`/api/events/${eventId}/webinar/attendance?export=csv`, "_blank");
+  };
+
+  const kpis = data?.kpis;
+  const rows = data?.rows ?? [];
+  const canSync = sessionEnded && hasZoom;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Attendance
+              {isFetching && !isLoading && (
+                <ReloadingSpinner className="ml-1 inline-block" />
+              )}
+            </CardTitle>
+            <CardDescription>
+              Pulled from Zoom&apos;s participant report. Polled automatically once the session has been over for 30 min.
+              {kpis?.lastSyncedAt ? (
+                <> Last synced {new Date(kpis.lastSyncedAt).toLocaleString()}.</>
+              ) : null}
+            </CardDescription>
+          </div>
+          <div className="flex gap-2">
+            {rows.length > 0 ? (
+              <Button variant="outline" size="sm" onClick={handleExportCsv}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={sync.isPending || !canSync}
+              title={
+                !hasZoom
+                  ? "Attach a Zoom webinar first"
+                  : !sessionEnded
+                    ? "Available after the session ends"
+                    : undefined
+              }
+            >
+              {sync.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RotateCw className="h-4 w-4 mr-2" />
+              )}
+              Sync now
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : !hasZoom ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No Zoom webinar attached yet.
+          </div>
+        ) : !sessionEnded && rows.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Attendance will appear here after the session ends and Zoom finalizes the participant report (typically ~30 min).
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* KPI grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiTile label="Registered" value={kpis?.registered ?? 0} />
+              <KpiTile label="Attended" value={kpis?.attended ?? 0} />
+              <KpiTile
+                label="Attendance rate"
+                value={`${kpis?.attendanceRate ?? 0}%`}
+                accent={
+                  (kpis?.attendanceRate ?? 0) >= 50 ? "text-green-600" : "text-amber-600"
+                }
+              />
+              <KpiTile
+                label="Avg. watch time"
+                value={formatDuration(kpis?.avgWatchSeconds ?? 0)}
+                icon={TrendingUp}
+              />
+            </div>
+
+            {/* Attendees table */}
+            {rows.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No participants yet. Click Sync to fetch from Zoom.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase tracking-wide">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Name</th>
+                      <th className="px-3 py-2 text-left font-medium">Email</th>
+                      <th className="px-3 py-2 text-left font-medium">Joined</th>
+                      <th className="px-3 py-2 text-left font-medium">Watched</th>
+                      <th className="px-3 py-2 text-left font-medium">Reg #</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {rows.map((row) => (
+                      <AttendeeRowView key={row.id} row={row} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  accent,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  accent?: string;
+  icon?: typeof TrendingUp;
+}) {
+  return (
+    <div className="border rounded-lg p-3">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wide">
+        {Icon ? <Icon className="h-3 w-3" /> : null}
+        {label}
+      </div>
+      <div className={`text-2xl font-semibold mt-1 ${accent ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
+  return (
+    <tr className="hover:bg-muted/30">
+      <td className="px-3 py-2 font-medium">{row.name}</td>
+      <td className="px-3 py-2 text-muted-foreground">{row.email ?? "—"}</td>
+      <td className="px-3 py-2 text-xs text-muted-foreground">
+        {new Date(row.joinTime).toLocaleString(undefined, {
+          dateStyle: "short",
+          timeStyle: "short",
+        })}
+      </td>
+      <td className="px-3 py-2">{formatDuration(row.durationSeconds)}</td>
+      <td className="px-3 py-2 text-xs">
+        {row.registrationSerialId ? (
+          <span className="font-mono">
+            {String(row.registrationSerialId).padStart(3, "0")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+    </tr>
   );
 }
 

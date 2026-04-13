@@ -82,6 +82,7 @@ export const queryKeys = {
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
   webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
   webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
+  webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1501,6 +1502,59 @@ export function useFetchWebinarRecording(eventId: string) {
         durationMs?: number;
       }>(`/api/events/${eventId}/webinar/recording/fetch`, { method: "POST" }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+export interface WebinarAttendeeRow {
+  id: string;
+  name: string;
+  email: string | null;
+  joinTime: string;
+  leaveTime: string | null;
+  durationSeconds: number;
+  attentivenessScore: number | null;
+  registrationId: string | null;
+  registrationSerialId: number | null;
+}
+
+export interface WebinarAttendanceData {
+  kpis: {
+    registered: number;
+    attended: number;
+    attendanceRate: number;
+    avgWatchSeconds: number;
+    totalWatchSeconds: number;
+    peakConcurrent: number;
+    lastSyncedAt: string | null;
+  };
+  rows: WebinarAttendeeRow[];
+}
+
+export function useWebinarAttendance(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.webinarAttendance(eventId),
+    queryFn: () => fetchApi<WebinarAttendanceData>(`/api/events/${eventId}/webinar/attendance`),
+    enabled: !!eventId,
+  });
+}
+
+export function useSyncWebinarAttendance(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        status: "synced" | "pending" | "failed";
+        fetched?: number;
+        upserted?: number;
+        matched?: number;
+        reason?: string;
+        durationMs?: number;
+      }>(`/api/events/${eventId}/webinar/attendance`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarAttendance(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },
   });

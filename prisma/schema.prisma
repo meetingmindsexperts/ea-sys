@@ -198,6 +198,7 @@ model Event {
   invoices        Invoice[]
   invoiceCounters InvoiceCounter[]
   zoomMeetings    ZoomMeeting[]
+  zoomAttendances ZoomAttendance[]
   promoCodes      PromoCode[]
   scheduledEmails ScheduledEmail[]
 
@@ -363,6 +364,7 @@ model Registration {
   accommodation   Accommodation?
   invoices        Invoice[]
   promoRedemption PromoCodeRedemption?
+  zoomAttendances ZoomAttendance[]
 
   @@unique([eventId, serialId])
   @@index([eventId])
@@ -594,6 +596,7 @@ model EventSession {
   speakers    SessionSpeaker[]
   topics      SessionTopic[]
   zoomMeeting ZoomMeeting?
+  zoomAttendances ZoomAttendance[]
 
   @@index([eventId])
   @@index([startTime])
@@ -1031,15 +1034,50 @@ model ZoomMeeting {
   recordingDuration    Int?             // seconds
   recordingFetchedAt   DateTime?
   recordingStatus      RecordingStatus  @default(NOT_REQUESTED)
+  // Attendance tracking (fetched by /api/cron/webinar-attendance post-event)
+  lastAttendanceSyncAt DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session     EventSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event       Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  attendances ZoomAttendance[]
 
   @@index([eventId])
   @@index([zoomMeetingId])
   @@index([recordingStatus])
+  @@index([lastAttendanceSyncAt])
+}
+
+// ── Per-attendee join/leave records pulled from Zoom's participant report ──
+model ZoomAttendance {
+  id                 String   @id @default(cuid())
+  zoomMeetingId      String
+  eventId            String
+  sessionId          String
+  registrationId     String?               // best-effort match by email
+  zoomParticipantId  String?               // Zoom's per-session participant id
+  name               String
+  email              String?
+  joinTime           DateTime
+  leaveTime          DateTime?
+  durationSeconds    Int                   // sum from Zoom report
+  attentivenessScore Int?                  // Zoom returns this for some webinars
+  createdAt          DateTime @default(now())
+
+  zoomMeeting  ZoomMeeting   @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  // A single Zoom participant id can join+leave multiple times; the report
+  // returns one row per join/leave segment, so the unique key includes joinTime
+  // to keep them distinct without losing the rejoin history.
+  @@unique([zoomMeetingId, zoomParticipantId, joinTime])
+  @@index([zoomMeetingId])
+  @@index([eventId, sessionId])
+  @@index([email])
+  @@index([registrationId])
 }
 
 enum RecordingStatus {
