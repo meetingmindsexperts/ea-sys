@@ -96,6 +96,9 @@ export function checkRateLimit({
 }
 
 export function hashVerificationToken(token: string): string {
-  const pepper = process.env.NEXTAUTH_SECRET || "";
+  const pepper = process.env.NEXTAUTH_SECRET;
+  if (!pepper) {
+    throw new Error("NEXTAUTH_SECRET environment variable is required for token hashing");
+  }
   return crypto.createHash("sha256").update(`${token}:${pepper}`).digest("hex");
 }

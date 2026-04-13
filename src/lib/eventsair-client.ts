@@ -57,19 +57,36 @@ export interface EventsAirContact {
 
 const ALGORITHM = "aes-256-gcm";
 
-function deriveKey(): Buffer {
-  const secret = process.env.NEXTAUTH_SECRET || "Krrishnap2402#"; // Must be 32 bytes for AES-256  
+function deriveKeyFrom(secret: string): Buffer {
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+function getPrimaryKey(): Buffer {
+  const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
     throw new Error("NEXTAUTH_SECRET environment variable is required for credential encryption");
   }
-  return crypto
-    .createHash("sha256")
-    .update(secret)
-    .digest();
+  return deriveKeyFrom(secret);
+}
+
+// Returns decryption keys in priority order: primary first, optional fallback second.
+// Set NEXTAUTH_SECRET_FALLBACK to the *previous* NEXTAUTH_SECRET during a rotation
+// to allow ciphertexts encrypted under the old secret to continue decrypting.
+// Encryption always uses the primary only; the fallback is decryption-only.
+function getDecryptionKeys(): Buffer[] {
+  const keys: Buffer[] = [];
+  const primary = process.env.NEXTAUTH_SECRET;
+  const fallback = process.env.NEXTAUTH_SECRET_FALLBACK;
+  if (primary) keys.push(deriveKeyFrom(primary));
+  if (fallback) keys.push(deriveKeyFrom(fallback));
+  if (keys.length === 0) {
+    throw new Error("NEXTAUTH_SECRET environment variable is required for credential decryption");
+  }
+  return keys;
 }
 
 export function encryptSecret(plaintext: string): string {
-  const key = deriveKey();
+  const key = getPrimaryKey();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   let encrypted = cipher.update(plaintext, "utf8", "hex");
@@ -82,12 +99,27 @@ export function decryptSecret(ciphertext: string): string {
   const parts = ciphertext.split(":");
   if (parts.length !== 3) throw new Error("Invalid encrypted format");
   const [ivHex, authTagHex, encrypted] = parts;
-  const key = deriveKey();
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, Buffer.from(ivHex, "hex"));
-  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  const iv = Buffer.from(ivHex, "hex");
+  const authTag = Buffer.from(authTagHex, "hex");
+
+  const keys = getDecryptionKeys();
+  let lastError: unknown = null;
+  for (const key of keys) {
+    try {
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(encrypted, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      return decrypted;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw new Error(
+    `Failed to decrypt credential with any configured secret: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`
+  );
 }
 
 // ── Fetch with timeout ────────────────────────────────────────────

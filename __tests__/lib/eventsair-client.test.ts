@@ -17,6 +17,7 @@ describe("encryptSecret / decryptSecret", () => {
   beforeEach(() => {
     // Set a consistent NEXTAUTH_SECRET for deterministic key derivation
     process.env.NEXTAUTH_SECRET = "test-secret-key-for-encryption";
+    delete process.env.NEXTAUTH_SECRET_FALLBACK;
   });
 
   it("encrypts and decrypts a secret successfully", () => {
@@ -119,5 +120,29 @@ describe("encryptSecret / decryptSecret", () => {
     process.env.NEXTAUTH_SECRET = "different-secret-key";
 
     expect(() => decryptSecret(encrypted)).toThrow();
+  });
+
+  it("decrypts via NEXTAUTH_SECRET_FALLBACK after primary rotation", () => {
+    const plaintext = "credential-encrypted-under-old-key";
+    // Encrypt with the original secret
+    const encrypted = encryptSecret(plaintext);
+
+    // Rotate: new primary, old secret becomes fallback
+    process.env.NEXTAUTH_SECRET = "new-primary-secret";
+    process.env.NEXTAUTH_SECRET_FALLBACK = "test-secret-key-for-encryption";
+
+    // Decryption tries primary first (fails), then fallback (succeeds)
+    expect(decryptSecret(encrypted)).toBe(plaintext);
+  });
+
+  it("throws when neither NEXTAUTH_SECRET nor NEXTAUTH_SECRET_FALLBACK is set", () => {
+    const encrypted = encryptSecret("value-captured-before-unset");
+
+    delete process.env.NEXTAUTH_SECRET;
+    delete process.env.NEXTAUTH_SECRET_FALLBACK;
+
+    expect(() => decryptSecret(encrypted)).toThrow(
+      /NEXTAUTH_SECRET environment variable is required/
+    );
   });
 });
