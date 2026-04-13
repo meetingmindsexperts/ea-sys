@@ -386,8 +386,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       }),
       db.zoomMeeting.findUnique({
         where: { sessionId: anchorSessionId },
-        // Recording fields land in Phase 4 — soft-read via Prisma select on id + joinUrl for now.
-        select: { joinUrl: true, passcode: true },
+        select: {
+          joinUrl: true,
+          passcode: true,
+          recordingUrl: true,
+          recordingPassword: true,
+          recordingStatus: true,
+        },
       }),
     ]);
     if (!zoomMeeting) {
@@ -412,8 +417,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         })
       : "TBA";
     const passcode = zoomMeeting.passcode ?? "";
-    // Phase 4 will populate recordingUrl via a new field on ZoomMeeting. Until then, empty.
-    const recordingUrl = "";
+    // Recording URL is only populated once the webinar has ended AND the
+    // cron worker has successfully fetched it from Zoom. Until then, the
+    // template renders a "coming soon" fallback via recordingBlock.
+    const recordingUrl =
+      zoomMeeting.recordingStatus === "AVAILABLE" && zoomMeeting.recordingUrl
+        ? zoomMeeting.recordingUrl
+        : "";
     webinarEnrichment = {
       joinUrl: zoomMeeting.joinUrl,
       passcode,

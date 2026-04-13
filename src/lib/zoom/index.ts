@@ -37,6 +37,13 @@ export {
   generateZoomSignatureForOrg,
 } from "./signature";
 
+// Cloud recordings
+export {
+  getZoomRecordings,
+  pickBestRecordingFile,
+} from "./recordings";
+export type { ZoomRecordingFile, ZoomRecordingsResponse } from "./recordings";
+
 // Types
 export type {
   ZoomOAuthTokenResponse,

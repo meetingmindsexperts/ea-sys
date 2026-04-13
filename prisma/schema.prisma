@@ -1024,6 +1024,13 @@ model ZoomMeeting {
   liveStreamEnabled Boolean       @default(false)
   streamKey         String?       // unique key for RTMP path
   streamStatus      StreamStatus  @default(IDLE)
+  // Cloud recording (fetched by /api/cron/webinar-recordings post-event)
+  recordingUrl         String?          @db.Text
+  recordingPassword    String?
+  recordingDownloadUrl String?          @db.Text
+  recordingDuration    Int?             // seconds
+  recordingFetchedAt   DateTime?
+  recordingStatus      RecordingStatus  @default(NOT_REQUESTED)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -1032,6 +1039,15 @@ model ZoomMeeting {
 
   @@index([eventId])
   @@index([zoomMeetingId])
+  @@index([recordingStatus])
+}
+
+enum RecordingStatus {
+  NOT_REQUESTED  // cloud recording not enabled for this webinar
+  PENDING        // webinar ended but recording not yet available
+  AVAILABLE      // recording fetched and URL stored
+  FAILED         // fetch attempts exhausted
+  EXPIRED        // recording fetch window closed (>7 days post-event)
 }
 
 enum ZoomMeetingType {

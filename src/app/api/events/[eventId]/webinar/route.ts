@@ -63,6 +63,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
               startUrl: true,
               passcode: true,
               duration: true,
+              recordingUrl: true,
+              recordingPassword: true,
+              recordingDuration: true,
+              recordingFetchedAt: true,
+              recordingStatus: true,
             },
           })
         : Promise.resolve(null),

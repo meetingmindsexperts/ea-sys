@@ -43,6 +43,7 @@ import {
   useProvisionWebinar,
   useWebinarSequence,
   useReenqueueWebinarSequence,
+  useFetchWebinarRecording,
   type WebinarSequenceRow,
 } from "@/hooks/use-api";
 import { toast } from "sonner";
@@ -359,6 +360,13 @@ export default function WebinarConsolePage() {
         </CardContent>
       </Card>
 
+      {/* Recording */}
+      <RecordingCard
+        eventId={eventId}
+        zoom={data?.zoomMeeting ?? null}
+        sessionEnded={status === "ended"}
+      />
+
       {/* Email Sequence */}
       <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
 
@@ -531,6 +539,206 @@ function StatusPill({ status }: { status: WebinarSequenceRow["status"] }) {
     <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide ${variants[status]}`}>
       {status}
     </span>
+  );
+}
+
+function RecordingCard({
+  eventId,
+  zoom,
+  sessionEnded,
+}: {
+  eventId: string;
+  zoom:
+    | {
+        recordingUrl: string | null;
+        recordingPassword: string | null;
+        recordingDuration: number | null;
+        recordingFetchedAt: string | null;
+        recordingStatus: "NOT_REQUESTED" | "PENDING" | "AVAILABLE" | "FAILED" | "EXPIRED";
+      }
+    | null;
+  sessionEnded: boolean;
+}) {
+  const fetchRecording = useFetchWebinarRecording(eventId);
+
+  const handleFetch = async () => {
+    try {
+      const result = await fetchRecording.mutateAsync();
+      if (result.status === "available") {
+        toast.success("Recording fetched");
+      } else if (result.status === "pending") {
+        toast.warning(result.reason || "Recording not ready yet");
+      } else if (result.status === "expired") {
+        toast.error("Recording fetch window expired (>7 days after session)");
+      } else {
+        toast.error(result.reason || "Failed to fetch recording");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to fetch recording");
+    }
+  };
+
+  const handleCopy = async (value: string | null, label: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? `Failed to copy ${label}: ${err.message}`
+          : `Failed to copy ${label}`,
+      );
+    }
+  };
+
+  const canFetch = sessionEnded && !!zoom;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <PlayCircle className="h-5 w-5" />
+              Recording
+            </CardTitle>
+            <CardDescription>
+              Zoom cloud recording — polled automatically after the session ends.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleFetch}
+            disabled={fetchRecording.isPending || !canFetch}
+            title={
+              !zoom
+                ? "Attach a Zoom webinar first"
+                : !sessionEnded
+                  ? "Available after the session ends"
+                  : undefined
+            }
+          >
+            {fetchRecording.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RotateCw className="h-4 w-4 mr-2" />
+            )}
+            Refetch now
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!zoom ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No Zoom webinar attached yet.
+          </div>
+        ) : zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Status
+                </Label>
+                <p>
+                  <StatusPill status="SENT" />
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {zoom.recordingFetchedAt
+                      ? `Fetched ${new Date(zoom.recordingFetchedAt).toLocaleString()}`
+                      : null}
+                  </span>
+                </p>
+              </div>
+              {zoom.recordingDuration ? (
+                <div>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                    Duration
+                  </Label>
+                  <p className="font-medium">
+                    {Math.round(zoom.recordingDuration / 60)} min
+                  </p>
+                </div>
+              ) : null}
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Play URL
+                </Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <Input value={zoom.recordingUrl} readOnly className="font-mono text-xs" />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={() => handleCopy(zoom.recordingUrl, "Recording URL")}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              {zoom.recordingPassword ? (
+                <div>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                    Passcode
+                  </Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input value={zoom.recordingPassword} readOnly className="font-mono" />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      onClick={() => handleCopy(zoom.recordingPassword, "Recording passcode")}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="pt-2 border-t">
+              <Button asChild>
+                <a href={zoom.recordingUrl} target="_blank" rel="noopener noreferrer">
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Watch Replay
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                </a>
+              </Button>
+            </div>
+          </div>
+        ) : zoom.recordingStatus === "PENDING" ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-6 text-center">
+            <Loader2 className="h-6 w-6 text-amber-600 animate-spin mx-auto mb-2" />
+            <p className="text-sm font-medium">Recording processing</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Zoom is still finalizing the recording. The cron worker will keep polling every 5 min for up to 7 days.
+            </p>
+          </div>
+        ) : zoom.recordingStatus === "FAILED" ? (
+          <div className="rounded-lg border border-red-200 bg-red-50/50 p-6 text-center">
+            <XCircle className="h-6 w-6 text-red-600 mx-auto mb-2" />
+            <p className="text-sm font-medium">Fetch failed</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Click Refetch to try again. Clicking Refetch resets the status so the cron can retry too.
+            </p>
+          </div>
+        ) : zoom.recordingStatus === "EXPIRED" ? (
+          <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-6 text-center">
+            <XCircle className="h-6 w-6 text-gray-500 mx-auto mb-2" />
+            <p className="text-sm font-medium">Fetch window expired</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              More than 7 days have passed since the session. Click Refetch to try one more time if the recording is still on Zoom.
+            </p>
+          </div>
+        ) : (
+          // NOT_REQUESTED — session not ended yet, or cloud recording is off
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            {sessionEnded
+              ? "Cloud recording not yet polled. Click Refetch to start."
+              : "Recording will be fetched automatically after the session ends (if cloud recording is enabled)."}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   Calendar,
   Shield,
+  PlayCircle,
 } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
@@ -59,11 +60,22 @@ interface SessionDetail {
   status: string;
   speakers: SpeakerInfo[];
   track?: { name: string; color: string };
+  zoomMeeting?: {
+    recordingUrl: string | null;
+    recordingPassword: string | null;
+    recordingStatus:
+      | "NOT_REQUESTED"
+      | "PENDING"
+      | "AVAILABLE"
+      | "FAILED"
+      | "EXPIRED";
+  } | null;
 }
 
 interface EventDetail {
   name: string;
   slug: string;
+  eventType?: string | null;
   bannerImage?: string;
   organization?: { name: string; logo?: string };
 }
@@ -298,8 +310,52 @@ export default function PublicSessionPage() {
               />
             )}
 
+            {/* Watch Replay — shown when the session ended and a recording is available */}
+            {isPast && session?.zoomMeeting?.recordingStatus === "AVAILABLE" && session?.zoomMeeting?.recordingUrl && (
+              <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm">
+                <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
+                  <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                    <PlayCircle className="h-7 w-7 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 text-center sm:text-left">
+                    <p className="font-semibold text-lg">Recording available</p>
+                    <p className="text-sm text-muted-foreground">
+                      Missed the live session? Watch the recording on Zoom.
+                    </p>
+                    {session.zoomMeeting.recordingPassword && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Passcode: <span className="font-mono">{session.zoomMeeting.recordingPassword}</span>
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="lg"
+                    className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 shadow-md"
+                    onClick={() => session.zoomMeeting?.recordingUrl && window.open(session.zoomMeeting.recordingUrl, "_blank")}
+                  >
+                    <PlayCircle className="h-5 w-5" />
+                    Watch Replay
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Recording processing — shown when session ended but no URL yet */}
+            {isPast && (session?.zoomMeeting?.recordingStatus === "PENDING" || session?.zoomMeeting?.recordingStatus === "NOT_REQUESTED") && !session?.zoomMeeting?.recordingUrl && (
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
+                  <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
+                  <p className="font-medium">Recording processing</p>
+                  <p className="text-sm text-muted-foreground">
+                    The replay will be available here shortly. Check back in a few minutes.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Join button — prominent CTA (shown when no live stream, or as fallback) */}
-            {joinInfo && (
+            {joinInfo && !isPast && (
               <Card className={`border-blue-200 bg-blue-50/50 shadow-sm ${joinInfo.liveStreamEnabled ? "mt-2" : ""}`}>
                 <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
                   <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center shrink-0">

@@ -17,6 +17,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         id: true,
         name: true,
         slug: true,
+        eventType: true,
         bannerImage: true,
         organization: { select: { name: true } },
       },
@@ -52,6 +53,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
             },
           },
         },
+        zoomMeeting: {
+          select: {
+            recordingUrl: true,
+            recordingPassword: true,
+            recordingStatus: true,
+          },
+        },
       },
     });
 
@@ -63,6 +71,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       event: {
         name: event.name,
         slug: event.slug,
+        eventType: event.eventType,
         bannerImage: event.bannerImage,
         organization: event.organization,
       },

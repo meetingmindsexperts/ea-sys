@@ -1400,6 +1400,11 @@ export interface WebinarConsoleData {
     startUrl: string | null;
     passcode: string | null;
     duration: number | null;
+    recordingUrl: string | null;
+    recordingPassword: string | null;
+    recordingDuration: number | null;
+    recordingFetchedAt: string | null;
+    recordingStatus: "NOT_REQUESTED" | "PENDING" | "AVAILABLE" | "FAILED" | "EXPIRED";
   } | null;
 }
 
@@ -1480,6 +1485,23 @@ export function useReenqueueWebinarSequence(eventId: string) {
       }>(`/api/events/${eventId}/webinar/sequence`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
+    },
+  });
+}
+
+export function useFetchWebinarRecording(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        status: "available" | "pending" | "expired" | "failed";
+        recordingUrl?: string;
+        reason?: string;
+        durationMs?: number;
+      }>(`/api/events/${eventId}/webinar/recording/fetch`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },
   });
 }
