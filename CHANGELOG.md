@@ -10,6 +10,84 @@ _Nothing pending._
 
 ---
 
+## [2026-04-14] - Public Registration Required Fields
+
+Tightened client + server validation on all three public registration entry
+points so attendees, abstract submitters, and CSV-imported registrants must
+provide their full contact details. Admin dashboard, CSV import, and registrant
+self-service forms are intentionally **not** affected — they use separate Zod
+schemas and keep their existing permissive rules.
+
+### Changed
+
+**Newly-required fields on public forms** (previously optional):
+- `jobTitle` (Position)
+- `organization` (Organization)
+- `city` (City)
+- `phone` (Mobile Number)
+
+Fields already required (unchanged, listed for completeness): `title`,
+`firstName`, `lastName`, `email`, `country`, `specialty`, `role`.
+
+**Conditional validation** (new): `customSpecialty` is now required when
+`specialty === "Others"` — enforced via `.refine()` on both client and
+server schemas. Before, it was always optional and silently dropped.
+
+### Files modified
+
+**Main registration form** (`/e/[slug]/register/[category]`):
+- `src/app/e/[slug]/register/[category]/page.tsx` — client Zod schema
+  tightened; asterisks added to Position / Organization / Mobile Number /
+  City / Others (specify) labels
+- `src/app/api/public/events/[slug]/register/route.ts` — server Zod schema
+  mirrored; `customSpecialty` refine added at the bottom of the object
+
+**Abstract submitter form** (`/e/[slug]/abstract/register`):
+- `src/app/e/[slug]/abstract/register/page.tsx` — client schema tightened;
+  labels updated
+- `src/app/api/public/events/[slug]/submitter/route.ts` — server schema
+  tightened (was more permissive than the client — `title` and `role` were
+  `.optional()` on the server even though the client required them; now
+  strict on both sides). Fixed a pre-existing bug where `customSpecialty`
+  was validated but never persisted to `Speaker` or synced to `Contact`.
+  Dropped the now-redundant `...(data.organization && { organization: ... })`
+  conditional spreads since these fields are now guaranteed non-empty
+
+**Token-based completion form** (`/e/[slug]/complete-registration`):
+- `src/app/e/[slug]/complete-registration/page.tsx` — schema tightened; also
+  promoted `role` and `specialty` from read-only display to editable form
+  fields (they were only shown as read-only when pre-filled from CSV,
+  leaving no way for the registrant to supply them if the CSV didn't
+  include them). Added `RoleSelect`, `SpecialtySelect`, and the conditional
+  "Others (specify)" input. Removed the dead read-only block
+- `src/app/api/public/events/[slug]/complete-registration/route.ts` —
+  server schema tightened; `attendee.update` now writes `role`, `specialty`,
+  `customSpecialty`; `syncToContact` receives all of them; confirmation
+  email uses the newly-submitted values instead of stale `attendee.*`
+  snapshots; `GET` response selects `customSpecialty` so the client can
+  pre-fill it
+
+### Not affected (intentional)
+
+- `src/app/api/events/[eventId]/registrations/route.ts` — admin
+  `createRegistrationSchema` still requires only `email` / `firstName` /
+  `lastName`
+- `src/lib/csv-parser.ts` + CSV import dialog — no changes; CSV import still
+  accepts sparse rows
+- `src/app/api/registrant/registrations/route.ts` — registrant self-edit
+  still permissive
+
+### Rationale
+
+The exploration phase confirmed all three public forms use separate Zod
+schemas from the admin/CSV/self-service paths, so tightening public
+validation had zero blast radius on non-public flows. The user's intent:
+collect full contact details up front from anyone registering themselves
+via the public web forms, without making admin-side bulk operations
+harder.
+
+---
+
 ## [2026-04-13] - Webinar Events as First-Class (Phases 1–5)
 
 Turns `eventType = 'WEBINAR'` from a cosmetic label into a differentiated

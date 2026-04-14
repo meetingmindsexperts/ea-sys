@@ -67,17 +67,23 @@ const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  phone: z.string().optional(),
-  city: z.string().optional(),
+  organization: z.string().min(1, "Organization is required"),
+  jobTitle: z.string().min(1, "Position is required"),
+  phone: z.string().min(1, "Mobile number is required"),
+  city: z.string().min(1, "City is required"),
   country: z.string().min(1, "Country is required"),
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-});
+}).refine(
+  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
+  {
+    message: "Please specify your specialty",
+    path: ["customSpecialty"],
+  },
+);
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
@@ -422,7 +428,7 @@ export default function AbstractRegisterPage() {
                         <FormField control={form.control} name="jobTitle"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Position</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Position <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="Professor, Researcher..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -430,7 +436,7 @@ export default function AbstractRegisterPage() {
                         <FormField control={form.control} name="organization"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Organization</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Organization <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="University of..." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -441,7 +447,7 @@ export default function AbstractRegisterPage() {
                         <FormField control={form.control} name="phone"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Mobile Number <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>
@@ -468,7 +474,7 @@ export default function AbstractRegisterPage() {
                         <FormField control={form.control} name="city"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>

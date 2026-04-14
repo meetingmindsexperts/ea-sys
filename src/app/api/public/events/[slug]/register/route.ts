@@ -22,10 +22,10 @@ const registrationSchema = z.object({
   lastName: z.string().min(1, "Last name is required").max(100),
   email: z.string().email("Valid email is required").max(255),
   additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
-  organization: z.string().max(255).optional(),
-  jobTitle: z.string().max(255).optional(),
-  phone: z.string().max(50).optional(),
-  city: z.string().max(255).optional(),
+  organization: z.string().min(1, "Organization is required").max(255),
+  jobTitle: z.string().min(1, "Position is required").max(255),
+  phone: z.string().min(1, "Mobile number is required").max(50),
+  city: z.string().min(1, "City is required").max(255),
   state: z.string().max(255).optional(),
   zipCode: z.string().max(20).optional(),
   country: z.string().min(1, "Country is required").max(255),
@@ -58,7 +58,13 @@ const registrationSchema = z.object({
   utmSource: z.string().max(255).optional(),
   utmMedium: z.string().max(255).optional(),
   utmCampaign: z.string().max(255).optional(),
-});
+}).refine(
+  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
+  {
+    message: "Please specify your specialty",
+    path: ["customSpecialty"],
+  },
+);
 
 interface RouteParams {
   params: Promise<{ slug: string }>;

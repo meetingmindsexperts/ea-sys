@@ -127,10 +127,10 @@ const registrationSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Valid email is required"),
   additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
-  organization: z.string().optional(),
-  jobTitle: z.string().optional(),
-  phone: z.string().optional(),
-  city: z.string().optional(),
+  organization: z.string().min(1, "Organization is required"),
+  jobTitle: z.string().min(1, "Position is required"),
+  phone: z.string().min(1, "Mobile number is required"),
+  city: z.string().min(1, "City is required"),
   state: z.string().optional(),
   zipCode: z.string().optional(),
   country: z.string().min(1, "Country is required"),
@@ -160,7 +160,13 @@ const registrationSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-});
+}).refine(
+  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
+  {
+    message: "Please specify your specialty",
+    path: ["customSpecialty"],
+  },
+);
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
 
@@ -630,7 +636,7 @@ function CategoryRegistrationContent() {
                       <FormField control={form.control} name="jobTitle"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Position</FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Position <span className="text-red-400">*</span></FormLabel>
                             <FormControl><Input placeholder="Physician" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
@@ -638,7 +644,7 @@ function CategoryRegistrationContent() {
                       <FormField control={form.control} name="organization"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Organization</FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Organization <span className="text-red-400">*</span></FormLabel>
                             <FormControl><Input placeholder="Acme Inc." className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
@@ -649,7 +655,7 @@ function CategoryRegistrationContent() {
                       <FormField control={form.control} name="phone"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">Mobile Number</FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">Mobile Number <span className="text-red-400">*</span></FormLabel>
                             <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
@@ -676,7 +682,7 @@ function CategoryRegistrationContent() {
                       <FormField control={form.control} name="city"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm font-medium text-slate-600">City</FormLabel>
+                            <FormLabel className="text-sm font-medium text-slate-600">City <span className="text-red-400">*</span></FormLabel>
                             <FormControl><Input placeholder="Dubai" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
@@ -725,7 +731,7 @@ function CategoryRegistrationContent() {
                         <FormField control={form.control} name="customSpecialty"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm font-medium text-slate-600">Others (specify)</FormLabel>
+                              <FormLabel className="text-sm font-medium text-slate-600">Others (specify) <span className="text-red-400">*</span></FormLabel>
                               <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                               <FormMessage />
                             </FormItem>

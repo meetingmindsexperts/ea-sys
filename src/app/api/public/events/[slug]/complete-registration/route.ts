@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -81,6 +81,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             zipCode: true,
             country: true,
             specialty: true,
+            customSpecialty: true,
             dietaryReqs: true,
             associationName: true,
             memberId: true,
@@ -155,14 +156,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
 const completionSchema = z.object({
   token: z.string().min(1),
-  title: titleEnum.optional(),
-  jobTitle: z.string().max(255).optional(),
-  organization: z.string().max(255).optional(),
-  phone: z.string().max(50).optional(),
-  city: z.string().max(255).optional(),
+  title: titleEnum,
+  role: attendeeRoleEnum,
+  jobTitle: z.string().min(1, "Position is required").max(255),
+  organization: z.string().min(1, "Organization is required").max(255),
+  phone: z.string().min(1, "Mobile number is required").max(50),
+  city: z.string().min(1, "City is required").max(255),
   state: z.string().max(255).optional(),
   zipCode: z.string().max(20).optional(),
-  country: z.string().max(255).optional(),
+  country: z.string().min(1, "Country is required").max(255),
+  specialty: z.string().min(1, "Specialty is required").max(255),
+  customSpecialty: z.string().max(255).optional(),
   dietaryReqs: z.string().max(2000).optional(),
   associationName: z.string().max(255).optional(),
   memberId: z.string().max(100).optional(),
@@ -174,7 +178,13 @@ const completionSchema = z.object({
 }).refine((data) => !data.password || data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
-});
+}).refine(
+  (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
+  {
+    message: "Please specify your specialty",
+    path: ["customSpecialty"],
+  },
+);
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -196,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const { token: rawToken, title, jobTitle, organization, phone, city, state, zipCode, country, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password } = validated.data;
+    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
@@ -287,14 +297,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       await tx.attendee.update({
         where: { id: registration.attendeeId },
         data: {
-          ...(title !== undefined && { title: title || null }),
-          ...(jobTitle !== undefined && { jobTitle: jobTitle || null }),
-          ...(organization !== undefined && { organization: organization || null }),
-          ...(phone !== undefined && { phone: phone || null }),
-          ...(city !== undefined && { city: city || null }),
+          title: title || null,
+          role,
+          jobTitle,
+          organization,
+          phone,
+          city,
           ...(state !== undefined && { state: state || null }),
           ...(zipCode !== undefined && { zipCode: zipCode || null }),
-          ...(country !== undefined && { country: country || null }),
+          country,
+          specialty,
+          customSpecialty: customSpecialty || null,
           ...(dietaryReqs !== undefined && { dietaryReqs: dietaryReqs || null }),
           ...(associationName !== undefined && { associationName: associationName || null }),
           ...(memberId !== undefined && { memberId: memberId || null }),
@@ -353,7 +366,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               lastName,
               role: "REGISTRANT",
               organizationId: null,
-              specialty: registration.attendee.specialty || null,
+              specialty,
               termsAcceptedAt: new Date(),
               termsAcceptedIp: clientIp,
             },
@@ -383,13 +396,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       email,
       firstName,
       lastName,
-      title: title || registration.attendee.title,
-      organization: organization || registration.attendee.organization,
-      jobTitle: jobTitle || registration.attendee.jobTitle,
-      phone: phone || registration.attendee.phone,
-      city: city || registration.attendee.city,
-      country: country || registration.attendee.country,
-      specialty: registration.attendee.specialty,
+      title: title || null,
+      organization,
+      jobTitle,
+      phone,
+      city,
+      country,
+      specialty,
+      customSpecialty: customSpecialty || null,
       registrationType: registration.attendee.registrationType,
       associationName: associationName || registration.attendee.associationName,
       memberId: memberId || registration.attendee.memberId,
@@ -407,8 +421,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         to: email,
         firstName,
         lastName,
-        title: title || registration.attendee.title || null,
-        organization: organization || registration.attendee.organization || null,
+        title: title || null,
+        organization,
         eventName: registration.event.name,
         eventDate: registration.event.startDate,
         eventVenue: registration.event.venue || "",
@@ -435,9 +449,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         companyCountry: org.companyCountry,
         taxId: org.taxId,
         logoPath: org.logo,
-        jobTitle: registration.attendee.jobTitle,
-        billingCity: registration.billingCity || registration.attendee.city,
-        billingCountry: registration.billingCountry || registration.attendee.country,
+        jobTitle,
+        billingCity: registration.billingCity || city,
+        billingCountry: registration.billingCountry || country,
       });
     } catch (emailError) {
       apiLogger.error({ err: emailError, msg: "Failed to send confirmation email after registration completion" });
