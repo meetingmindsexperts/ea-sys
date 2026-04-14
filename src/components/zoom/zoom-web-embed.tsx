@@ -20,9 +20,19 @@ import { Button } from "@/components/ui/button";
  *   component is safe to import normally, but callers should still wrap
  *   it in `next/dynamic({ ssr: false })` so the bundle doesn't land in
  *   the server build or on unrelated pages.
- * - Dev-mode StrictMode double-invoke is handled by `destroyOnUnmount` in
- *   cleanup; the second effect run will see the old client already gone.
+ * - StrictMode double-invoke is handled via a module-level destroy promise
+ *   (`pendingDestroy`) that subsequent mounts await before creating a new
+ *   client. Without this, cleanup 1's async destroy could race cleanup 2's
+ *   createClient and leave a dangling client handle.
+ * - The SDK's `connection-change` event is our source of truth for when
+ *   the user clicks Zoom's in-meeting Leave button. We call `onLeave`
+ *   when state becomes `Closed` so the parent can unmount this component.
  */
+
+// Module-level handle to the destroy in flight. Subsequent mounts await
+// this before creating a new client, so StrictMode's double-invoke can't
+// end up with cleanup-1 destroying effect-2's freshly-created client.
+let pendingDestroy: Promise<void> | null = null;
 
 interface ZoomWebEmbedProps {
   sdkKey: string;
@@ -58,6 +68,11 @@ export function ZoomWebEmbed({
   const clientRef = useRef<any>(null);
   const [state, setState] = useState<LoadState>({ phase: "loading" });
 
+  // Pin onLeave in a ref so the mount-once effect can read the latest
+  // handler without forcing a re-mount when the parent re-renders.
+  const onLeaveRef = useRef(onLeave);
+  onLeaveRef.current = onLeave;
+
   useEffect(() => {
     let cancelled = false;
 
@@ -65,6 +80,18 @@ export function ZoomWebEmbed({
       if (!containerRef.current) return;
 
       try {
+        // Wait for any in-flight destroy from a previous mount (StrictMode
+        // double-invoke). Without this, cleanup 1's async destroy could
+        // race against effect 2's createClient → init.
+        if (pendingDestroy) {
+          try {
+            await pendingDestroy;
+          } catch {
+            // Ignore — pending destroy errors shouldn't block a fresh mount.
+          }
+        }
+        if (cancelled) return;
+
         // Dynamic import keeps the 3 MB+ SDK bundle out of the page's
         // initial chunk. Top-level await would pull it into every build.
         const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded"))
@@ -81,6 +108,21 @@ export function ZoomWebEmbed({
 
         const client = ZoomMtgEmbedded.createClient();
         clientRef.current = client;
+
+        // Subscribe to connection-change so we can tell the parent when
+        // the user clicks Zoom's in-meeting Leave button. Without this,
+        // the embed would tear itself down internally while the parent
+        // still thought `isJoining === true`, leaving a black box.
+        try {
+          client.on("connection-change", (payload: { state?: string }) => {
+            if (payload?.state === "Closed") {
+              onLeaveRef.current?.();
+            }
+          });
+        } catch {
+          // Older SDK builds may throw here; ignore — the parent can still
+          // unmount via its own Leave button.
+        }
 
         await client.init({
           zoomAppRoot: containerRef.current,
@@ -121,9 +163,9 @@ export function ZoomWebEmbed({
     return () => {
       cancelled = true;
       // Tell the SDK we're leaving so it closes the AV stream cleanly.
-      // Wrapped because leaveMeeting rejects if the client was never
-      // joined (e.g. init failed) — in that case, just destroy.
-      (async () => {
+      // Serialized through the module-level pendingDestroy promise so
+      // StrictMode's re-mount doesn't race this cleanup.
+      pendingDestroy = (async () => {
         try {
           if (clientRef.current) {
             try {
@@ -132,9 +174,6 @@ export function ZoomWebEmbed({
               // Swallow — either never joined or already left.
             }
           }
-          // Dynamic import again because destroyClient is a module-level
-          // method. The second import is cached from the first, so it's
-          // cheap.
           const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded"))
             .default;
           try {
@@ -144,19 +183,16 @@ export function ZoomWebEmbed({
           }
         } finally {
           clientRef.current = null;
+          // Clear the shared handle so future mounts don't block on a
+          // resolved promise forever (micro-task overhead is negligible,
+          // but tidy).
+          pendingDestroy = null;
         }
       })();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally mount-once — prop changes would require a full
   // remount anyway (Zoom client can't rejoin a different meeting).
-
-  // Notify parent when the user leaves the meeting. The SDK emits a
-  // 'connection-change' event with state === 'Closed' which we could
-  // hook into, but a simpler approach is: the parent unmounts this
-  // component when the user clicks a dismiss button, so onLeave isn't
-  // called from inside here today. Kept in the prop list for future wiring.
-  void onLeave;
 
   return (
     <div className="relative w-full bg-black rounded-lg overflow-hidden">
@@ -191,14 +227,16 @@ export function ZoomWebEmbed({
           <p className="text-xs text-gray-300 text-center max-w-md">
             {state.message}
           </p>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => window.open(joinUrl, "_blank", "noopener,noreferrer")}
-          >
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Open in Zoom app instead
-          </Button>
+          {joinUrl ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.open(joinUrl, "_blank", "noopener,noreferrer")}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Open in Zoom app instead
+            </Button>
+          ) : null}
         </div>
       )}
     </div>
