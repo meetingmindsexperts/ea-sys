@@ -52,7 +52,7 @@
     "@tiptap/pm": "^2.27.2",
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
-    "@zoom/meetingsdk": "^5.1.4",
+    "@zoom/meetingsdk": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "bwip-js": "^4.8.0",
     "class-variance-authority": "^0.7.1",
