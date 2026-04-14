@@ -32,6 +32,7 @@ import {
   ImageIcon,
   Tag,
   Video,
+  Award,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -101,6 +102,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
     items: [
       { name: "Communications", href: "/communications", icon: Mail },
       { name: "Media",          href: "/media",          icon: ImageIcon },
+      { name: "Sponsors",       href: "/sponsors",       icon: Award },
       { name: "AI Agent",       href: "/agent",          icon: Bot },
     ],
   },

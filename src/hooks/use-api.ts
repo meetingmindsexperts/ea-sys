@@ -85,6 +85,7 @@ export const queryKeys = {
   webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
+  sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1739,6 +1740,45 @@ export function useSyncSpeakersToPanelists(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
+    },
+  });
+}
+
+// ── Sponsors (event.settings.sponsors JSON) ────────────────────────
+// Re-export the canonical type from src/lib/webinar.ts so there's one
+// source of truth. Consumers that import SponsorEntry from this hooks
+// file don't need to change.
+import type { SponsorEntry, SponsorTier } from "@/lib/webinar";
+export type { SponsorEntry, SponsorTier };
+
+export function useSponsors(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.sponsors(eventId),
+    queryFn: () =>
+      fetchApi<{ sponsors: SponsorEntry[] }>(
+        `/api/events/${eventId}/sponsors`,
+      ),
+    enabled: !!eventId,
+  });
+}
+
+export function useUpdateSponsors(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sponsors: SponsorEntry[]) =>
+      fetchApi<{ sponsors: SponsorEntry[] }>(
+        `/api/events/${eventId}/sponsors`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ sponsors }),
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    onSuccess: (data) => {
+      // Write the server response back into the cache — it carries the
+      // normalized sortOrder indices + trimmed strings, so the UI
+      // reflects exactly what was persisted without a second roundtrip.
+      queryClient.setQueryData(queryKeys.sponsors(eventId), data);
     },
   });
 }

@@ -49,3 +49,55 @@ export function readWebinarSettings(
   if (!w || typeof w !== "object") return null;
   return w as WebinarSettings;
 }
+
+// ── Sponsors / exhibitors ─────────────────────────────────────────
+// Stored as a JSON array on `Event.settings.sponsors`. No dedicated
+// Prisma model — this is the escape hatch for rapid iteration. If
+// querying or cross-event aggregation becomes a need later, promote
+// to a real table without breaking this shape.
+
+export const SPONSOR_TIERS = [
+  "platinum",
+  "gold",
+  "silver",
+  "bronze",
+  "partner",
+  "exhibitor",
+] as const;
+
+export type SponsorTier = (typeof SPONSOR_TIERS)[number];
+
+export interface SponsorEntry {
+  id: string;
+  name: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  tier?: SponsorTier;
+  description?: string;
+  sortOrder: number;
+}
+
+/**
+ * Read the sponsor list off an event's settings JSON. Returns an empty
+ * array (not null) when the field is missing so callers can always map
+ * over it without a guard.
+ */
+export function readSponsors(settings: unknown): SponsorEntry[] {
+  if (!settings || typeof settings !== "object") return [];
+  const raw = (settings as Record<string, unknown>).sponsors;
+  if (!Array.isArray(raw)) return [];
+  // Shallow-validate each row; drop anything missing the required fields
+  // rather than throwing, since old rows could be malformed.
+  return raw
+    .filter(
+      (r): r is SponsorEntry =>
+        Boolean(
+          r &&
+            typeof r === "object" &&
+            typeof (r as SponsorEntry).id === "string" &&
+            typeof (r as SponsorEntry).name === "string" &&
+            typeof (r as SponsorEntry).sortOrder === "number",
+        ),
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
