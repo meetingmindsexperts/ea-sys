@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** April 8, 2026
+**Last Updated:** April 14, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -279,7 +279,82 @@ This document outlines the current development status of the Event Administratio
 
 ---
 
-## Recent Updates (April 2, 2026)
+## Recent Updates (April 14, 2026)
+
+### Webinar Events as First-Class (April 13–14, 2026) — Phases 1–5
+
+Turns `eventType === 'WEBINAR'` from a cosmetic label into a fully
+differentiated event mode. Creating a webinar now auto-provisions an anchor
+session + Zoom webinar, wires up a 5-phase email sequence, polls Zoom for
+the cloud recording, pulls the attendance report, and surfaces everything
+in a dedicated Webinar Console at `/events/[eventId]/webinar`.
+
+**Phase 1 — Conditional UI** (no schema)
+- [x] `src/lib/webinar.ts` — `isWebinar()`, `webinarModuleFilter()`, `WEBINAR_HIDDEN_MODULES`
+- [x] Sidebar filters Accommodation/Check-In/Promo Codes/Abstracts/Reviewers for webinar events
+- [x] Settings page hides Abstract Themes + Review Criteria tabs
+- [x] Symmetric filter handles `webinarOnly: true` so non-webinar events drop the new Webinar Console link
+
+**Phase 2 — Auto-provisioning + Webinar Console** (no schema; `Event.settings.webinar` JSON)
+- [x] `src/lib/webinar-provisioner.ts` — idempotent `provisionWebinar(eventId, { actorUserId })`; creates anchor `EventSession`, calls `createZoomWebinar()` if org has Zoom, persists `settings.webinar`, logs `zoomStatus` + `zoomDurationMs` + overall `durationMs`
+- [x] `POST /api/events` fires provisioner fire-and-forget on `eventType === 'WEBINAR'`
+- [x] `GET/PUT/POST /api/events/[eventId]/webinar` — settings + anchor session + Zoom meeting (parallelized); `denyReviewer`, 20/hr settings rate limit, 10/hr manual re-provision rate limit
+- [x] Webinar Console page with status badge, anchor session card, Zoom join URL + passcode (copy buttons), Start-as-Host, Re-run provisioner, settings form (child component with lazy-init state to avoid setState-in-effect anti-pattern)
+
+**Phase 3 — Email sequence** (no schema; uses existing `ScheduledEmail` cron)
+- [x] 5 default templates: `webinar-confirmation`, `webinar-reminder-24h`, `webinar-reminder-1h`, `webinar-live-now`, `webinar-thank-you`
+- [x] Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, `{{recordingUrl}}` + conditional `{{passcodeBlock}}` / `{{recordingBlock}}`
+- [x] `BulkEmailType` + Zod + `slugMap` extended; `executeBulkEmail` loads anchor session + ZoomMeeting once (not per recipient) and enriches `vars` when `emailType` starts with `webinar-`
+- [x] **Sender fix**: `executeBulkEmail` event fetch now includes `emailFromAddress`/`emailFromName`/`emailHeaderImage`/`emailFooterHtml` so `brandingFrom()` resolves to the per-event sender instead of provider defaults (fixes "Forbidden" errors from unauthorized default senders; silently improves every other bulk-email type)
+- [x] `src/lib/webinar-email-sequence.ts` — `enqueueWebinarSequenceForEvent()` (idempotent, creates 4 future rows, drops past phases, resolves creator from event admins), `sendWebinarConfirmationForRegistration()` (immediate direct send, no cron latency), `clearPendingWebinarSequence()`
+- [x] Public register route branches on `eventType` — WEBINAR events get `sendWebinarConfirmationForRegistration()`, all others keep `sendRegistrationConfirmation`
+- [x] `GET/POST /api/events/[eventId]/webinar/sequence` — list + re-enqueue (5/hr rate limit)
+- [x] Webinar Console `EmailSequenceCard` with per-phase status, scheduled/sent times, counts, failure errors, Re-enqueue button
+
+**Phase 4 — Cloud recording retrieval** (schema: 6 new `ZoomMeeting` columns + `RecordingStatus` enum)
+- [x] `ZoomMeeting.recordingUrl`, `recordingPassword`, `recordingDownloadUrl`, `recordingDuration`, `recordingFetchedAt`, `recordingStatus` (enum: `NOT_REQUESTED`/`PENDING`/`AVAILABLE`/`FAILED`/`EXPIRED`) + index
+- [x] Migration `20260413000000_add_webinar_recording_fields` (idempotent)
+- [x] `src/lib/zoom/recordings.ts` — `getZoomRecordings()` (uses `/meetings/{id}/recordings`, works for meetings and webinars, null on 404), `pickBestRecordingFile()` (speaker-view MP4 → any MP4 → any playable)
+- [x] `src/lib/webinar-recording-sync.ts` — `syncRecordingForZoomMeeting()` idempotent state machine; 10-min min delay after session end, 7-day fetch window, emit structured logs on every return path
+- [x] `POST /api/cron/webinar-recordings` — Bearer-auth, up to 10 candidates per tick, serial loop with 500ms delay when batch >3, per-row try/catch
+- [x] `POST /api/events/[eventId]/webinar/recording/fetch` — manual refetch (10/hr rate limit); resets `FAILED`/`EXPIRED` → `NOT_REQUESTED` before calling sync helper
+- [x] Public session page emerald "Watch Replay" card when session is past and recording is `AVAILABLE`; amber "Recording processing" when past + `PENDING`; Join CTA hidden for past sessions (kills dead-link problem)
+- [x] `bulk-email.ts` webinar enrichment reads `recordingUrl` from ZoomMeeting; thank-you email `{{recordingBlock}}` renders Watch Replay button when available, "coming soon" fallback otherwise
+- [x] Webinar Console `RecordingCard` with 5 UI states (AVAILABLE/PENDING/FAILED/EXPIRED/NOT_REQUESTED), Refetch button gated on session-ended
+- [x] EC2 crontab: `*/5 * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" .../api/cron/webinar-recordings`
+
+**Phase 5 — Attendance tracking** (schema: `ZoomMeeting.lastAttendanceSyncAt` + new `ZoomAttendance` model)
+- [x] `ZoomAttendance` model with unique key `(zoomMeetingId, zoomParticipantId, joinTime)` — rejoin history preserved as multiple segments
+- [x] Reverse relations on `Event`, `EventSession`, `Registration`
+- [x] Migration `20260413010000_add_zoom_attendance` (idempotent)
+- [x] `src/lib/zoom/reports.ts` — `getZoomParticipants()` walks `next_page_token` cursor (`page_size=300`, 100-page hard stop = 30k attendees max), null on 404
+- [x] `src/lib/webinar-attendance.ts` — `syncWebinarAttendance()` idempotent state machine; 30-min min delay, 30-day fetch window, case-insensitive email → registrationId lookup, per-row upsert try/catch (one bad row never aborts the batch), `attentivenessScore` parser handles `"85"`/`"85%"`/`85`
+- [x] `POST /api/cron/webinar-attendance` — Bearer-auth. Candidate query re-syncs hourly **only within 24h of session end** (audit fix) so old webinars don't get polled forever — ~97% reduction in post-48h Zoom API traffic. Serial loop with 500ms delay, per-row try/catch
+- [x] `GET /api/events/[eventId]/webinar/attendance` — returns `{ kpis, rows }` or CSV via `?export=csv`. KPIs: registered / attended (unique by email) / rate / avg watch / total watch / **peak concurrent** (edge-event sweep handles rejoin segments correctly) / lastSyncedAt. Parallelized
+- [x] `POST` manual re-sync (denyReviewer, 10/hr rate limit)
+- [x] CSV export uses RFC-4180 field escaping
+- [x] Webinar Console `AttendanceCard` with 4-tile KPI grid, attendee table (Name/Email/Joined/Watched/Reg#), Export CSV, Sync now button (gated)
+- [x] EC2 crontab: `*/10 * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" .../api/cron/webinar-attendance`
+
+**Audit fixes (second pass on each phase)**
+- [x] Phase 4: EXPIRED marker update wrapped in try/catch (was outside, could crash cron tick); 5 silent state transitions now emit info/warn logs with `zoomMeetingDbId` + `durationMs`
+- [x] Phase 5: Both `lastAttendanceSyncAt` marker updates wrapped; "outside fetch window" now logs; 24h cap on attendance re-sync
+- [x] All cron workers: per-row defensive try/catch so one bad row can't kill the tick
+- [x] Manual refetch routes: warn logs on 400 "no anchor session" / "no zoom meeting" paths
+
+**Observability**
+- Every sync helper emits structured logs with `durationMs` + context on every return path. Grep `webinar-recording:` or `webinar-attendance:` to trace any single row's full state history
+- All POST/PUT/DELETE routes: `denyReviewer` + `checkRateLimit` + Zod + `apiLogger.warn` on rate-limit rejection
+
+**Decouplability**
+All Phase 1–5 code lives under tightly-scoped namespaces (`src/lib/webinar*`, `src/app/api/events/[eventId]/webinar/*`, `src/app/(dashboard)/events/[eventId]/webinar/*`, `src/app/api/cron/webinar-*`, `src/lib/zoom/{recordings,reports}.ts`) with one-way imports from core. Estimate for later microservice extraction: 1–2 days.
+
+**Remaining**
+- **Phase 6** — Polls/Q&A reports from Zoom + panelist management UI (existing panelists API just needs a dashboard CRUD page)
+
+**Commits**: `f3921d7` (phases 1–3), `8e212f7` (phase 4), `12497fa` (phase 5)
+
+---
 
 ### Event-Scoped Media Library (April 2, 2026)
 - [x] `eventId` (nullable FK, CASCADE) added to `MediaFile` model; existing org-wide media unaffected
