@@ -21,19 +21,24 @@ const addPanelistSchema = z.object({
 
 /**
  * Resolve the webinar's anchor Zoom meeting for an event.
- * Returns { error: NextResponse } when any step fails so callers can early-return.
+ * Returns a tagged union — callers can early-return the error branch into a
+ * NextResponse. Exported so sibling routes (sync-speakers) can reuse the same
+ * 4-step lookup (event access → anchor session → zoom meeting → meeting type
+ * is WEBINAR) without duplicating it.
  */
-async function resolveAnchorZoomMeeting(
-  eventId: string,
-  organizationId: string,
-): Promise<
+export type ResolvedAnchor =
   | {
       ok: true;
       event: { id: string; organizationId: string };
+      anchorSessionId: string;
       zoomMeetingId: string;
     }
-  | { ok: false; status: number; error: string }
-> {
+  | { ok: false; status: number; error: string };
+
+export async function resolveAnchorZoomMeeting(
+  eventId: string,
+  organizationId: string,
+): Promise<ResolvedAnchor> {
   const event = await db.event.findFirst({
     where: { id: eventId, organizationId },
     select: { id: true, organizationId: true, settings: true },
@@ -74,6 +79,7 @@ async function resolveAnchorZoomMeeting(
   return {
     ok: true,
     event: { id: event.id, organizationId: event.organizationId },
+    anchorSessionId,
     zoomMeetingId: zoomMeeting.zoomMeetingId,
   };
 }

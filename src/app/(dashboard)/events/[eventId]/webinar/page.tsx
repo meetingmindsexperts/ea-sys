@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Video,
   Copy,
@@ -43,6 +44,11 @@ import {
   Trash2,
   BarChart3,
   MessageSquare,
+  Wrench,
+  LineChart,
+  Settings as SettingsIcon,
+  CircleDot,
+  CheckCircle,
 } from "lucide-react";
 import {
   useWebinar,
@@ -58,6 +64,8 @@ import {
   useWebinarPanelists,
   useAddWebinarPanelist,
   useRemoveWebinarPanelist,
+  useSyncSpeakersToPanelists,
+  OPTIMISTIC_PANELIST_PREFIX,
   type WebinarSequenceRow,
   type WebinarAttendeeRow,
   type WebinarPollRow,
@@ -196,12 +204,15 @@ export default function WebinarConsolePage() {
 
   const anchor = data?.anchorSession;
   const zoom = data?.zoomMeeting;
+  // Tabs are status-driven: Scheduled/Live → Setup, Ended → Analytics.
+  // User can switch at will (local state, no URL pin).
+  const defaultTab = status === "ended" ? "analytics" : "setup";
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Video className="h-8 w-8" />
             Webinar Console
@@ -213,205 +224,531 @@ export default function WebinarConsolePage() {
             )}
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleProvision}
-          disabled={provision.isPending}
-        >
-          {provision.isPending ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RotateCw className="h-4 w-4 mr-2" />
-          )}
-          Re-run provisioner
-        </Button>
+        <div className="flex items-center gap-2">
+          <GlobalRefreshButton
+            eventId={eventId}
+            sessionEnded={status === "ended"}
+            hasZoom={hasZoom}
+          />
+          <Button
+            variant="outline"
+            onClick={handleProvision}
+            disabled={provision.isPending}
+          >
+            {provision.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RotateCw className="h-4 w-4 mr-2" />
+            )}
+            Re-run provisioner
+          </Button>
+        </div>
       </div>
 
-      {/* Status + Anchor Session */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Anchor Session
-            </CardTitle>
-            <StatusBadge status={status} />
-          </div>
-          <CardDescription>
-            The single EventSession that represents this webinar.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {anchor ? (
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <Label className="text-muted-foreground">Name</Label>
-                <p className="font-medium">{anchor.name}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Status</Label>
-                <p className="font-medium capitalize">{status}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Starts</Label>
-                <p className="font-medium">{formatDateTime(anchor.startTime)}</p>
-              </div>
-              <div>
-                <Label className="text-muted-foreground">Ends</Label>
-                <p className="font-medium">{formatDateTime(anchor.endTime)}</p>
-              </div>
+      {/* Sticky status bar — always visible summary + primary action */}
+      <WebinarStatusBar
+        status={status}
+        anchor={anchor ?? null}
+        zoom={zoom ?? null}
+        eventSlug={data?.event?.slug ?? null}
+        hasZoom={hasZoom}
+        provisionPending={provision.isPending}
+        onProvision={handleProvision}
+        onCopy={handleCopy}
+      />
+
+      {/* Tabs — collapse 7 cards of equal weight into 3 grouped views */}
+      <Tabs defaultValue={defaultTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="setup" className="flex items-center gap-2">
+            <Wrench className="h-4 w-4" />
+            Setup
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="flex items-center gap-2">
+            <LineChart className="h-4 w-4" />
+            Analytics
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="flex items-center gap-2">
+            <SettingsIcon className="h-4 w-4" />
+            Settings
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="setup" className="space-y-6 mt-4">
+          <OverviewCard
+            status={status}
+            anchor={anchor ?? null}
+            zoom={zoom ?? null}
+            eventSlug={data?.event?.slug ?? null}
+            hasZoom={hasZoom}
+            provisionPending={provision.isPending}
+            onProvision={handleProvision}
+            onCopy={handleCopy}
+          />
+          <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
+          <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
+        </TabsContent>
+
+        <TabsContent value="analytics" className="space-y-6 mt-4">
+          <RecordingCard
+            eventId={eventId}
+            zoom={data?.zoomMeeting ?? null}
+            sessionEnded={status === "ended"}
+          />
+          <AttendanceCard
+            eventId={eventId}
+            sessionEnded={status === "ended"}
+            hasZoom={hasZoom}
+          />
+          <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+          <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-4">
+          {data ? (
+            <WebinarSettingsCard
+              eventId={eventId}
+              initialSettings={data.webinar || {}}
+            />
+          ) : null}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Shape aliases — exactly what WebinarConsoleData returns for the two fields.
+// Extracted so the status bar + overview card both use the same types.
+type AnchorSession = NonNullable<
+  ReturnType<typeof useWebinar>["data"]
+>["anchorSession"];
+type ZoomMeetingLite = NonNullable<
+  ReturnType<typeof useWebinar>["data"]
+>["zoomMeeting"];
+
+type WebinarStatus = "scheduled" | "live" | "ended";
+
+function formatSessionWindow(
+  start: string | undefined,
+  end: string | undefined,
+): string {
+  if (!start || !end) return "";
+  try {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const dateLabel = startDate.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year:
+        startDate.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
+    });
+    const startTime = startDate.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const endTime = endDate.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `${dateLabel} · ${startTime} – ${endTime}`;
+  } catch {
+    return "";
+  }
+}
+
+// ── Sticky status bar — always visible summary + primary action ────
+function WebinarStatusBar({
+  status,
+  anchor,
+  zoom,
+  eventSlug,
+  hasZoom,
+  provisionPending,
+  onProvision,
+  onCopy,
+}: {
+  status: WebinarStatus;
+  anchor: AnchorSession;
+  zoom: ZoomMeetingLite;
+  eventSlug: string | null;
+  hasZoom: boolean;
+  provisionPending: boolean;
+  onProvision: () => void;
+  onCopy: (value: string | null | undefined, label: string) => void;
+}) {
+  // No Zoom attached → collapse to a "Configure Zoom" banner with provisioner retry.
+  if (!hasZoom || !zoom) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/50">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+            <div className="min-w-0">
+              <p className="font-medium text-sm">Zoom webinar not provisioned</p>
+              <p className="text-xs text-muted-foreground">
+                Either Zoom isn&apos;t configured for this organization, or the
+                provisioner hasn&apos;t run yet.
+              </p>
             </div>
-          ) : (
-            <EmptyAnchorState onProvision={handleProvision} pending={provision.isPending} />
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/settings">Configure Zoom</Link>
+            </Button>
+            <Button
+              size="sm"
+              onClick={onProvision}
+              disabled={provisionPending}
+            >
+              {provisionPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Run provisioner
+            </Button>
+          </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      {/* Zoom Join Details */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Video className="h-5 w-5" />
-            Zoom Webinar
-          </CardTitle>
-          <CardDescription>
-            Join link and passcode. Share the public session page URL with attendees (not the Zoom URL directly).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!hasZoom ? (
-            <div className="rounded-lg border border-dashed p-6 text-center space-y-3">
-              <p className="text-sm text-muted-foreground">
-                No Zoom webinar attached. Either Zoom isn&apos;t configured for
-                this organization, or the provisioner hasn&apos;t run yet.
-              </p>
-              <div className="flex justify-center gap-2">
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/settings">Configure Zoom</Link>
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleProvision}
-                  disabled={provision.isPending}
-                >
-                  {provision.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : null}
-                  Run provisioner
-                </Button>
-              </div>
+  const hasRecording = zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl;
+  const sessionWindow = formatSessionWindow(anchor?.startTime, anchor?.endTime);
+
+  return (
+    <Card
+      className={
+        status === "live"
+          ? "border-red-200 bg-red-50/30"
+          : status === "ended"
+            ? "border-gray-200"
+            : "border-blue-200 bg-blue-50/30"
+      }
+    >
+      <CardContent className="py-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          {/* Status pill */}
+          <div className="flex items-center gap-2 shrink-0">
+            {status === "live" ? (
+              <CircleDot className="h-4 w-4 text-red-600 animate-pulse" />
+            ) : status === "ended" ? (
+              <CheckCircle className="h-4 w-4 text-gray-500" />
+            ) : (
+              <Clock className="h-4 w-4 text-blue-600" />
+            )}
+            <StatusBadge status={status} />
+          </div>
+
+          {/* Session window */}
+          {sessionWindow ? (
+            <div className="text-sm text-muted-foreground shrink-0">
+              {sessionWindow}
             </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ) : null}
+
+          {/* Join URL with copy + passcode (takes remaining width) */}
+          <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+            <Input
+              value={zoom.joinUrl}
+              readOnly
+              className="font-mono text-xs h-9"
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={() => onCopy(zoom.joinUrl, "Join URL")}
+              title="Copy join URL"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            {zoom.passcode ? (
+              <Badge variant="outline" className="shrink-0 font-mono text-xs">
+                🔒 {zoom.passcode}
+              </Badge>
+            ) : null}
+          </div>
+
+          {/* Context-aware primary action */}
+          <div className="flex items-center gap-2 shrink-0">
+            {status === "ended" && hasRecording ? (
+              <Button asChild>
+                <a
+                  href={zoom.recordingUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Watch Replay
+                </a>
+              </Button>
+            ) : zoom.startUrl ? (
+              <Button asChild>
+                <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Start as Host
+                </a>
+              </Button>
+            ) : null}
+            {eventSlug && anchor ? (
+              <Button asChild variant="outline" size="icon" title="Open public session page">
+                <Link
+                  href={`/e/${eventSlug}/session/${anchor.id}`}
+                  target="_blank"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Overview card — combines Anchor Session + Zoom Meeting details ──
+// Previously two separate cards; merged so the Setup tab isn't visually split.
+function OverviewCard({
+  status,
+  anchor,
+  zoom,
+  eventSlug,
+  hasZoom,
+  provisionPending,
+  onProvision,
+  onCopy,
+}: {
+  status: WebinarStatus;
+  anchor: AnchorSession;
+  zoom: ZoomMeetingLite;
+  eventSlug: string | null;
+  hasZoom: boolean;
+  provisionPending: boolean;
+  onProvision: () => void;
+  onCopy: (value: string | null | undefined, label: string) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Overview
+          </CardTitle>
+          <StatusBadge status={status} />
+        </div>
+        <CardDescription>
+          Anchor session and Zoom webinar details for this event.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Anchor session details */}
+        {anchor ? (
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                Session Name
+              </Label>
+              <p className="font-medium">{anchor.name}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                Status
+              </Label>
+              <p className="font-medium capitalize">{status}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                Starts
+              </Label>
+              <p className="font-medium">{formatDateTime(anchor.startTime)}</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                Ends
+              </Label>
+              <p className="font-medium">{formatDateTime(anchor.endTime)}</p>
+            </div>
+          </div>
+        ) : (
+          <EmptyAnchorState onProvision={onProvision} pending={provisionPending} />
+        )}
+
+        {/* Zoom details — only when attached */}
+        {hasZoom && zoom ? (
+          <div className="pt-5 border-t space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Meeting Type
+                </Label>
+                <p className="font-medium">{zoom.meetingType}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Duration
+                </Label>
+                <p className="font-medium">{zoom.duration ?? "—"} min</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Attendee Join URL
+                </Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <Input value={zoom.joinUrl} readOnly className="font-mono text-xs" />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={() => onCopy(zoom.joinUrl, "Join URL")}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              {zoom.passcode ? (
                 <div>
                   <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                    Meeting Type
-                  </Label>
-                  <p className="font-medium">{zoom?.meetingType}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                    Duration
-                  </Label>
-                  <p className="font-medium">{zoom?.duration ?? "—"} min</p>
-                </div>
-                <div className="md:col-span-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                    Attendee Join URL
+                    Passcode
                   </Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Input value={zoom?.joinUrl ?? ""} readOnly className="font-mono text-xs" />
+                    <Input value={zoom.passcode} readOnly className="font-mono" />
                     <Button
                       type="button"
                       size="icon"
                       variant="outline"
-                      onClick={() => handleCopy(zoom?.joinUrl, "Join URL")}
+                      onClick={() => onCopy(zoom.passcode, "Passcode")}
                     >
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-                {zoom?.passcode ? (
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">
-                      Passcode
-                    </Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Input value={zoom.passcode} readOnly className="font-mono" />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="outline"
-                        onClick={() => handleCopy(zoom.passcode, "Passcode")}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
+            </div>
 
-              <div className="flex flex-wrap gap-2 pt-2 border-t">
-                {zoom?.startUrl ? (
-                  <Button asChild>
-                    <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
-                      <PlayCircle className="h-4 w-4 mr-2" />
-                      Start as Host
-                    </a>
-                  </Button>
-                ) : null}
-                {data?.event?.slug && anchor ? (
-                  <Button asChild variant="outline">
-                    <Link
-                      href={`/e/${data.event.slug}/session/${anchor.id}`}
-                      target="_blank"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Open Public Page
-                    </Link>
-                  </Button>
-                ) : null}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex flex-wrap gap-2 pt-2 border-t">
+              {zoom.startUrl ? (
+                <Button asChild>
+                  <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
+                    <PlayCircle className="h-4 w-4 mr-2" />
+                    Start as Host
+                  </a>
+                </Button>
+              ) : null}
+              {eventSlug && anchor ? (
+                <Button asChild variant="outline">
+                  <Link
+                    href={`/e/${eventSlug}/session/${anchor.id}`}
+                    target="_blank"
+                  >
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open Public Page
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
 
-      {/* Recording */}
-      <RecordingCard
-        eventId={eventId}
-        zoom={data?.zoomMeeting ?? null}
-        sessionEnded={status === "ended"}
-      />
+// ── Global refresh button — fires recording + attendance + engagement in parallel
+function GlobalRefreshButton({
+  eventId,
+  sessionEnded,
+  hasZoom,
+}: {
+  eventId: string;
+  sessionEnded: boolean;
+  hasZoom: boolean;
+}) {
+  const fetchRecording = useFetchWebinarRecording(eventId);
+  const syncAttendance = useSyncWebinarAttendance(eventId);
+  const syncEngagement = useSyncWebinarEngagement(eventId);
 
-      {/* Attendance */}
-      <AttendanceCard
-        eventId={eventId}
-        sessionEnded={status === "ended"}
-        hasZoom={hasZoom}
-      />
+  // Only meaningful post-event — before the session ends, the three syncs
+  // all return `pending` and hitting the button produces three useless
+  // toasts. Disable and let the tooltip explain why.
+  const canRefresh = hasZoom && sessionEnded;
 
-      {/* Panelists */}
-      <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
+  const pending =
+    fetchRecording.isPending || syncAttendance.isPending || syncEngagement.isPending;
 
-      {/* Polls */}
-      <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+  const handleRefresh = async () => {
+    const results = await Promise.allSettled([
+      fetchRecording.mutateAsync(),
+      syncAttendance.mutateAsync(),
+      syncEngagement.mutateAsync(),
+    ]);
 
-      {/* Q&A */}
-      <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+    // Summarize in one toast. Each sub-sync logs its own detail internally
+    // via its hook; this is just the top-line summary.
+    const [rec, att, eng] = results;
+    const parts: string[] = [];
 
-      {/* Email Sequence */}
-      <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
+    if (rec.status === "fulfilled") {
+      parts.push(
+        rec.value.status === "available"
+          ? "recording ready"
+          : `recording: ${rec.value.status}`,
+      );
+    } else {
+      parts.push("recording failed");
+    }
 
-      {/* Webinar Settings — child owns its own state, initialized once from loaded data */}
-      {data ? (
-        <WebinarSettingsCard
-          eventId={eventId}
-          initialSettings={data.webinar || {}}
-        />
-      ) : null}
-    </div>
+    if (att.status === "fulfilled") {
+      parts.push(
+        att.value.status === "synced"
+          ? `attendance ${att.value.fetched ?? 0} rows`
+          : `attendance: ${att.value.status}`,
+      );
+    } else {
+      parts.push("attendance failed");
+    }
+
+    if (eng.status === "fulfilled") {
+      if (eng.value.status === "synced") {
+        const pollCount = eng.value.pollResponsesPersisted ?? 0;
+        const qaCount = eng.value.questionsPersisted ?? 0;
+        parts.push(`polls ${pollCount}, Q&A ${qaCount}`);
+      } else {
+        parts.push(`engagement: ${eng.value.status}`);
+      }
+    } else {
+      parts.push("engagement failed");
+    }
+
+    const anyFailed = results.some((r) => r.status === "rejected");
+    if (anyFailed) {
+      toast.warning(`Refreshed with errors — ${parts.join(" · ")}`);
+    } else {
+      toast.success(`Refreshed · ${parts.join(" · ")}`);
+    }
+  };
+
+  return (
+    <Button
+      variant="outline"
+      size="default"
+      onClick={handleRefresh}
+      disabled={pending || !canRefresh}
+      title={
+        !hasZoom
+          ? "Attach a Zoom webinar first"
+          : !sessionEnded
+            ? "Session hasn't ended — some sources will be pending"
+            : "Refresh recording + attendance + polls/Q&A"
+      }
+    >
+      {pending ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <RotateCw className="h-4 w-4 mr-2" />
+      )}
+      Refresh
+    </Button>
   );
 }
 
@@ -477,15 +814,15 @@ function EmailSequenceCard({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <CardLoading />
         ) : rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No sequence rows queued yet. {hasZoom
-              ? "Click Re-enqueue to schedule the 24h/1h/live-now/thank-you emails."
-              : "Attach a Zoom webinar first — the sequence needs a join link to render."}
-          </div>
+          <CardEmpty
+            message={
+              hasZoom
+                ? "No sequence rows queued yet. Click Re-enqueue to schedule the 24h / 1h / live-now / thank-you emails."
+                : "No sequence rows queued yet. Attach a Zoom webinar first — the sequence needs a join link to render."
+            }
+          />
         ) : (
           <div className="divide-y">
             {rows.map((row) => (
@@ -665,9 +1002,7 @@ function RecordingCard({
       </CardHeader>
       <CardContent>
         {!zoom ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No Zoom webinar attached yet.
-          </div>
+          <CardEmpty message="No Zoom webinar attached yet." />
         ) : zoom.recordingStatus === "AVAILABLE" && zoom.recordingUrl ? (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -873,17 +1208,11 @@ function AttendanceCard({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <CardLoading />
         ) : !hasZoom ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No Zoom webinar attached yet.
-          </div>
+          <CardEmpty message="No Zoom webinar attached yet." />
         ) : !sessionEnded && rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Attendance will appear here after the session ends and Zoom finalizes the participant report (typically ~30 min).
-          </div>
+          <CardEmpty message="Attendance will appear here after the session ends and Zoom finalizes the participant report (typically ~30 min)." />
         ) : (
           <div className="space-y-6">
             {/* KPI grid */}
@@ -995,6 +1324,7 @@ function PanelistsCard({
   const { data, isLoading, error } = useWebinarPanelists(eventId);
   const addPanelist = useAddWebinarPanelist(eventId);
   const removePanelist = useRemoveWebinarPanelist(eventId);
+  const syncSpeakers = useSyncSpeakersToPanelists(eventId);
 
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -1005,13 +1335,21 @@ function PanelistsCard({
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newEmail.trim()) return;
+    const name = newName.trim();
+    const email = newEmail.trim();
+    // Clear the form immediately — the optimistic update (via onMutate in
+    // the hook) already inserts a greyed-out row, so the user sees the row
+    // appear and the form reset at the same moment.
+    setNewName("");
+    setNewEmail("");
     try {
-      await addPanelist.mutateAsync({ name: newName.trim(), email: newEmail.trim() });
-      toast.success(`Added ${newName.trim()} as panelist`);
-      setNewName("");
-      setNewEmail("");
+      await addPanelist.mutateAsync({ name, email });
+      toast.success(`Added ${name} as panelist`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add panelist");
+      // Restore form so the user doesn't have to retype on failure
+      setNewName(name);
+      setNewEmail(email);
     }
   };
 
@@ -1024,27 +1362,61 @@ function PanelistsCard({
     }
   };
 
+  const handleSyncSpeakers = async () => {
+    try {
+      const result = await syncSpeakers.mutateAsync();
+      if (result.added > 0) {
+        const skipNotes: string[] = [];
+        if (result.skippedNoEmail) skipNotes.push(`${result.skippedNoEmail} no email`);
+        if (result.skippedAlreadyPanelist) {
+          skipNotes.push(`${result.skippedAlreadyPanelist} already panelist`);
+        }
+        const skipped = skipNotes.length ? ` (${skipNotes.join(", ")})` : "";
+        toast.success(
+          `Added ${result.added} speaker${result.added === 1 ? "" : "s"} as panelist${result.added === 1 ? "" : "s"}${skipped}`,
+        );
+      } else {
+        toast.warning(result.reason ?? "No speakers to import");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import speakers");
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <UserPlus className="h-5 w-5" />
-          Panelists
-        </CardTitle>
-        <CardDescription>
-          Zoom webinar panelists receive a privileged join link and can present on screen.
-          Add them here or sync from session speakers in the Agenda view.
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Panelists
+            </CardTitle>
+            <CardDescription>
+              Panelists get a privileged Zoom join link and can present on screen.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncSpeakers}
+            disabled={disabled || syncSpeakers.isPending}
+            title={disabled ? "Attach a Zoom webinar first" : "Import all session speakers with an email address"}
+          >
+            {syncSpeakers.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Users className="h-4 w-4 mr-2" />
+            )}
+            Import from Speakers
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {!hasZoom ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No Zoom webinar attached yet.
-          </div>
+          <CardEmpty message="No Zoom webinar attached yet." />
         ) : isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <CardLoading />
         ) : error ? (
           <div className="rounded-lg border border-red-200 bg-red-50/50 p-4 text-sm text-red-700">
             {error instanceof Error ? error.message : "Failed to load panelists"}
@@ -1056,34 +1428,26 @@ function PanelistsCard({
                 placeholder="Name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                disabled={disabled || addPanelist.isPending}
+                disabled={disabled}
               />
               <Input
                 type="email"
                 placeholder="Email"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
-                disabled={disabled || addPanelist.isPending}
+                disabled={disabled}
               />
               <Button
                 type="submit"
-                disabled={
-                  disabled || addPanelist.isPending || !newName.trim() || !newEmail.trim()
-                }
+                disabled={disabled || !newName.trim() || !newEmail.trim()}
               >
-                {addPanelist.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <UserPlus className="h-4 w-4 mr-2" />
-                )}
+                <UserPlus className="h-4 w-4 mr-2" />
                 Add
               </Button>
             </form>
 
             {panelists.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                No panelists yet. Add one above.
-              </div>
+              <CardEmpty message="No panelists yet. Add one above or import from speakers." />
             ) : (
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
@@ -1095,23 +1459,39 @@ function PanelistsCard({
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {panelists.map((p) => (
-                      <tr key={p.id} className="hover:bg-muted/30">
-                        <td className="px-3 py-2 font-medium">{p.name}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{p.email}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleRemove(p)}
-                            disabled={removePanelist.isPending}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {panelists.map((p) => {
+                      const isOptimistic = p.id.startsWith(OPTIMISTIC_PANELIST_PREFIX);
+                      return (
+                        <tr
+                          key={p.id}
+                          className={
+                            isOptimistic
+                              ? "bg-muted/20 text-muted-foreground italic"
+                              : "hover:bg-muted/30"
+                          }
+                          title={isOptimistic ? "Saving…" : undefined}
+                        >
+                          <td className="px-3 py-2 font-medium">
+                            {p.name}
+                            {isOptimistic ? (
+                              <Loader2 className="inline-block h-3 w-3 ml-2 animate-spin" />
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{p.email}</td>
+                          <td className="px-3 py-2 text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleRemove(p)}
+                              disabled={removePanelist.isPending || isOptimistic}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1201,19 +1581,17 @@ function PollsCard({
       </CardHeader>
       <CardContent>
         {!hasZoom ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No Zoom webinar attached yet.
-          </div>
+          <CardEmpty message="No Zoom webinar attached yet." />
         ) : isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <CardLoading />
         ) : polls.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {sessionEnded
-              ? "No poll results yet. Click Sync to fetch from Zoom (or wait for the cron)."
-              : "Poll results will appear here after the session ends."}
-          </div>
+          <CardEmpty
+            message={
+              sessionEnded
+                ? "No poll results yet. Click Sync to fetch from Zoom (or wait for the cron)."
+                : "Poll results will appear here after the session ends."
+            }
+          />
         ) : (
           <div className="space-y-6">
             {polls.map((poll) => (
@@ -1323,19 +1701,17 @@ function QaCard({
       </CardHeader>
       <CardContent>
         {!hasZoom ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            No Zoom webinar attached yet.
-          </div>
+          <CardEmpty message="No Zoom webinar attached yet." />
         ) : isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <CardLoading />
         ) : questions.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {sessionEnded
-              ? "No Q&A yet. Sync polls/Q&A from the Polls card to fetch the report."
-              : "Q&A will appear here after the session ends."}
-          </div>
+          <CardEmpty
+            message={
+              sessionEnded
+                ? "No Q&A yet. Sync polls/Q&A from the Polls card to fetch the report."
+                : "Q&A will appear here after the session ends."
+            }
+          />
         ) : (
           <div className="space-y-3">
             <Input
@@ -1475,6 +1851,40 @@ function StatusBadge({ status }: { status: "scheduled" | "live" | "ended" }) {
     return <Badge variant="secondary">Ended</Badge>;
   }
   return <Badge variant="outline">Scheduled</Badge>;
+}
+
+// ── Consistent loading + empty state primitives ────────────────────
+// Every data-backed card uses one of these instead of ad-hoc markup so
+// scanning the page feels calm and predictable.
+function CardLoading() {
+  return (
+    <div className="flex items-center justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function CardEmpty({
+  message,
+  actionLabel,
+  onAction,
+  actionDisabled,
+}: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  actionDisabled?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed p-6 text-center space-y-3">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      {actionLabel && onAction ? (
+        <Button size="sm" onClick={onAction} disabled={actionDisabled}>
+          {actionLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function EmptyAnchorState({

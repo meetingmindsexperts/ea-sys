@@ -1647,6 +1647,10 @@ export function useWebinarPanelists(eventId: string) {
   });
 }
 
+// Local sentinel ID prefix so the UI can detect and grey out rows we inserted
+// optimistically (they have no real Zoom panelist id yet).
+export const OPTIMISTIC_PANELIST_PREFIX = "optimistic:";
+
 export function useAddWebinarPanelist(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1656,7 +1660,30 @@ export function useAddWebinarPanelist(eventId: string) {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
       }),
-    onSuccess: () => {
+    // Optimistically append the new panelist so the table updates instantly,
+    // then reconcile after the GET refetch returns the real Zoom row.
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
+      const previous = queryClient.getQueryData<{ panelists: WebinarPanelist[] }>(
+        queryKeys.webinarPanelists(eventId),
+      );
+      const optimisticRow: WebinarPanelist = {
+        id: `${OPTIMISTIC_PANELIST_PREFIX}${Date.now()}`,
+        name: data.name,
+        email: data.email,
+      };
+      queryClient.setQueryData<{ panelists: WebinarPanelist[] }>(
+        queryKeys.webinarPanelists(eventId),
+        (old) => ({ panelists: [...(old?.panelists ?? []), optimisticRow] }),
+      );
+      return { previous };
+    },
+    onError: (_err, _data, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.webinarPanelists(eventId), context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
     },
   });
@@ -1670,6 +1697,46 @@ export function useRemoveWebinarPanelist(eventId: string) {
         `/api/events/${eventId}/webinar/panelists?panelistId=${encodeURIComponent(panelistId)}`,
         { method: "DELETE" },
       ),
+    // Optimistically drop the row so the table updates instantly. Rolled back
+    // on error (e.g. Zoom API failure) before the refetch reconciles.
+    onMutate: async (panelistId) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
+      const previous = queryClient.getQueryData<{ panelists: WebinarPanelist[] }>(
+        queryKeys.webinarPanelists(eventId),
+      );
+      queryClient.setQueryData<{ panelists: WebinarPanelist[] }>(
+        queryKeys.webinarPanelists(eventId),
+        (old) => ({
+          panelists: (old?.panelists ?? []).filter((p) => p.id !== panelistId),
+        }),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.webinarPanelists(eventId), context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
+    },
+  });
+}
+
+export function useSyncSpeakersToPanelists(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        added: number;
+        totalSpeakers: number;
+        skippedNoEmail: number;
+        skippedAlreadyPanelist?: number;
+        reason?: string;
+      }>(`/api/events/${eventId}/webinar/panelists/sync-speakers`, {
+        method: "POST",
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
     },
