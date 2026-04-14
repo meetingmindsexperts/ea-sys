@@ -3,14 +3,13 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-const LivePlayer = dynamic(
-  () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
-  { ssr: false },
-);
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Video,
   ExternalLink,
@@ -20,12 +19,30 @@ import {
   Loader2,
   ArrowLeft,
   Calendar,
-  Shield,
   PlayCircle,
+  Award,
+  ListOrdered,
 } from "lucide-react";
-import { format } from "date-fns";
-import Link from "next/link";
-import Image from "next/image";
+import type { SponsorEntry } from "@/lib/webinar";
+
+// The live-stream player is client-only (hls.js pulls ArrayBuffer refs
+// from window) so we dynamically import it. The Zoom Component View embed
+// is ALSO dynamically imported to keep the ~3 MB SDK bundle out of this
+// page's initial JS payload — users who never open a webinar never
+// download it.
+const LivePlayer = dynamic(
+  () => import("@/components/zoom/live-player").then((m) => ({ default: m.LivePlayer })),
+  { ssr: false },
+);
+const ZoomWebEmbed = dynamic(
+  () =>
+    import("@/components/zoom/zoom-web-embed").then((m) => ({
+      default: m.ZoomWebEmbed,
+    })),
+  { ssr: false },
+);
+
+// ── Types mirroring the detail API response ──────────────────────
 
 interface JoinInfo {
   mode: "sdk" | "url";
@@ -45,21 +62,40 @@ interface SpeakerInfo {
   id: string;
   firstName: string;
   lastName: string;
-  jobTitle?: string;
-  organization?: string;
-  photo?: string;
+  jobTitle?: string | null;
+  organization?: string | null;
+  photo?: string | null;
+  bio?: string | null;
+  role?: string;
+}
+
+interface TopicInfo {
+  id: string;
+  title: string;
+  sortOrder: number;
+  duration: number | null;
+  speakers: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    photo?: string | null;
+    jobTitle?: string | null;
+    organization?: string | null;
+  }>;
 }
 
 interface SessionDetail {
+  id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   startTime: string;
   endTime: string;
-  location?: string;
-  capacity?: number;
+  location?: string | null;
+  capacity?: number | null;
   status: string;
   speakers: SpeakerInfo[];
-  track?: { name: string; color: string };
+  topics: TopicInfo[];
+  track?: { name: string; color: string } | null;
   zoomMeeting?: {
     recordingUrl: string | null;
     recordingPassword: string | null;
@@ -80,6 +116,26 @@ interface EventDetail {
   organization?: { name: string; logo?: string };
 }
 
+const SPONSOR_TIER_ORDER: Record<string, number> = {
+  platinum: 0,
+  gold: 1,
+  silver: 2,
+  bronze: 3,
+  partner: 4,
+  exhibitor: 5,
+};
+
+const SPONSOR_TIER_LABELS: Record<string, string> = {
+  platinum: "Platinum",
+  gold: "Gold",
+  silver: "Silver",
+  bronze: "Bronze",
+  partner: "Partners",
+  exhibitor: "Exhibitors",
+};
+
+// ── Page ────────────────────────────────────────────────────────
+
 export default function PublicSessionPage() {
   const params = useParams<{ slug: string; sessionId: string }>();
   const { slug, sessionId } = params;
@@ -87,14 +143,18 @@ export default function PublicSessionPage() {
   const [joinInfo, setJoinInfo] = useState<JoinInfo | null>(null);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [sponsors, setSponsors] = useState<SponsorEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [joinableAt, setJoinableAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // "isJoining" means the user has clicked Join and the embed is mounted.
+  // We don't auto-mount the embed on page load because we don't want to
+  // pull the ~3 MB Zoom bundle for users just looking at session details.
+  const [isJoining, setIsJoining] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch join info and session details in parallel
         const [joinRes, detailRes] = await Promise.all([
           fetch(`/api/public/events/${slug}/sessions/${sessionId}/zoom-join`),
           fetch(`/api/public/events/${slug}/sessions/${sessionId}/detail`),
@@ -104,48 +164,18 @@ export default function PublicSessionPage() {
 
         if (joinRes.ok) {
           setJoinInfo(joinData);
-        } else {
-          // Not joinable yet — show the landing page anyway
-          if (joinData.joinableAt) {
-            setJoinableAt(joinData.joinableAt);
-          }
+        } else if (joinData.joinableAt) {
+          setJoinableAt(joinData.joinableAt);
         }
 
         if (detailRes.ok) {
           const detailData = await detailRes.json();
           setSession(detailData.session);
           setEvent(detailData.event);
-        } else {
-          // Fallback — try schedule API
-          try {
-            const scheduleRes = await fetch(`/api/public/events/${slug}/agenda`);
-            if (scheduleRes.ok) {
-              const scheduleData = await scheduleRes.json();
-              setEvent({ name: scheduleData.name, slug: scheduleData.slug });
-              const s = scheduleData.eventSessions?.find(
-                (s: { id: string }) => s.id === sessionId,
-              );
-              if (s) {
-                setSession({
-                  name: s.name,
-                  description: s.description,
-                  startTime: s.startTime,
-                  endTime: s.endTime,
-                  location: s.location,
-                  capacity: s.capacity,
-                  status: s.status,
-                  speakers: s.speakers?.map((sp: { speaker: SpeakerInfo }) => sp.speaker) || [],
-                  track: s.track,
-                });
-              }
-            }
-          } catch {
-            // Non-critical
+          if (Array.isArray(detailData.sponsors)) {
+            setSponsors(detailData.sponsors);
           }
-        }
-
-        // If we have nothing at all
-        if (!joinRes.ok && !detailRes.ok) {
+        } else if (!joinRes.ok) {
           setError(joinData.error || "Session not found");
         }
       } catch {
@@ -199,6 +229,20 @@ export default function PublicSessionPage() {
     );
   }
 
+  const hasRecording =
+    session?.zoomMeeting?.recordingStatus === "AVAILABLE" &&
+    Boolean(session?.zoomMeeting?.recordingUrl);
+  const isRecordingProcessing =
+    isPast &&
+    !hasRecording &&
+    (session?.zoomMeeting?.recordingStatus === "PENDING" ||
+      session?.zoomMeeting?.recordingStatus === "NOT_REQUESTED");
+
+  // Canonical attendee name for Zoom. We don't have an authenticated session
+  // on the public side, so default to "Attendee" — users can be prompted
+  // by Zoom itself to enter their name inside the embed UI.
+  const zoomUserName = "Attendee";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Event banner / header */}
@@ -214,7 +258,7 @@ export default function PublicSessionPage() {
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
           </div>
         )}
-        <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center gap-3">
             <Link
               href={`/e/${slug}/agenda`}
@@ -230,78 +274,115 @@ export default function PublicSessionPage() {
       </div>
 
       {/* Main content */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left — Session info + Join */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Session header */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                {isLive && (
-                  <Badge className="bg-green-100 text-green-800 border-green-200 gap-1">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                    Live Now
-                  </Badge>
-                )}
-                {isUpcoming && !joinInfo && (
-                  <Badge variant="outline" className="text-blue-700 border-blue-200 bg-blue-50">
-                    Upcoming
-                  </Badge>
-                )}
-                {isPast && (
-                  <Badge variant="secondary">Ended</Badge>
-                )}
-                {session?.track && (
-                  <Badge
-                    variant="outline"
-                    style={{ borderColor: session.track.color, color: session.track.color }}
-                  >
-                    {session.track.name}
-                  </Badge>
-                )}
-                {joinInfo && (
-                  <Badge variant="outline" className="text-blue-600 border-blue-200 gap-1">
-                    <Video className="h-3 w-3" />
-                    {joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
-                      ? "Webinar"
-                      : "Meeting"}
-                  </Badge>
-                )}
-              </div>
+      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* Session title + metadata */}
+        <div>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {isLive && (
+              <Badge className="bg-green-100 text-green-800 border-green-200 gap-1">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                Live Now
+              </Badge>
+            )}
+            {isUpcoming && (
+              <Badge variant="outline" className="text-blue-700 border-blue-200 bg-blue-50">
+                Upcoming
+              </Badge>
+            )}
+            {isPast && <Badge variant="secondary">Ended</Badge>}
+            {session?.track && (
+              <Badge
+                variant="outline"
+                style={{ borderColor: session.track.color, color: session.track.color }}
+              >
+                {session.track.name}
+              </Badge>
+            )}
+            {joinInfo && (
+              <Badge variant="outline" className="text-blue-600 border-blue-200 gap-1">
+                <Video className="h-3 w-3" />
+                {joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
+                  ? "Webinar"
+                  : "Meeting"}
+              </Badge>
+            )}
+          </div>
 
-              <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-                {session?.name || joinInfo?.sessionName || "Session"}
-              </h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+            {session?.name || joinInfo?.sessionName || "Session"}
+          </h1>
 
-              {session && (
-                <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="h-4 w-4" />
-                    {format(new Date(session.startTime), "EEEE, MMMM d, yyyy")}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="h-4 w-4" />
-                    {format(new Date(session.startTime), "h:mm a")} &ndash;{" "}
-                    {format(new Date(session.endTime), "h:mm a")}
-                  </span>
-                  {session.location && (
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="h-4 w-4" />
-                      {session.location}
-                    </span>
-                  )}
-                  {session.capacity && (
-                    <span className="flex items-center gap-1.5">
-                      <Users className="h-4 w-4" />
-                      {session.capacity} seats
-                    </span>
-                  )}
-                </div>
+          {session && (
+            <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="h-4 w-4" />
+                {format(new Date(session.startTime), "EEEE, MMMM d, yyyy")}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Clock className="h-4 w-4" />
+                {format(new Date(session.startTime), "h:mm a")} &ndash;{" "}
+                {format(new Date(session.endTime), "h:mm a")}
+              </span>
+              {session.location && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4" />
+                  {session.location}
+                </span>
+              )}
+              {session.capacity && (
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-4 w-4" />
+                  {session.capacity} seats
+                </span>
               )}
             </div>
+          )}
+        </div>
 
-            {/* Live stream player */}
-            {joinInfo?.liveStreamEnabled && (
+        {/* Sticky CTA — stays pinned at the top of the content area so the
+             primary action is always visible regardless of which tab the
+             user scrolled to. `top-0 z-10` keeps it above the tabs while
+             scrolling; the `-mx-4 px-4` bleed plus backdrop-blur prevents
+             content from showing through when the user scrolls past the
+             session header. */}
+        <div className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm">
+          <StickyCta
+            isLive={isLive}
+            isPast={isPast}
+            isUpcoming={isUpcoming}
+            joinableAt={joinableAt}
+            joinInfo={joinInfo}
+            hasRecording={hasRecording}
+            recordingUrl={session?.zoomMeeting?.recordingUrl ?? null}
+            recordingPassword={session?.zoomMeeting?.recordingPassword ?? null}
+            isJoining={isJoining}
+            onJoin={() => setIsJoining(true)}
+            onLeave={() => setIsJoining(false)}
+          />
+        </div>
+
+        {/* Tabs */}
+        <Tabs defaultValue="video" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="video" className="gap-2">
+              <Video className="h-4 w-4" />
+              Live Video
+            </TabsTrigger>
+            <TabsTrigger value="details" className="gap-2">
+              <ListOrdered className="h-4 w-4" />
+              Session Details
+            </TabsTrigger>
+            <TabsTrigger value="sponsors" className="gap-2">
+              <Award className="h-4 w-4" />
+              Sponsors
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Tab 1 — Live Video */}
+          <TabsContent value="video" className="space-y-4">
+            {/* HLS stream takes precedence when configured — it's the
+                 branded full-screen experience */}
+            {joinInfo?.liveStreamEnabled && !isPast && (
               <LivePlayer
                 hlsUrl={joinInfo.hlsPlaybackUrl || ""}
                 slug={slug}
@@ -310,8 +391,26 @@ export default function PublicSessionPage() {
               />
             )}
 
-            {/* Watch Replay — shown when the session ended and a recording is available */}
-            {isPast && session?.zoomMeeting?.recordingStatus === "AVAILABLE" && session?.zoomMeeting?.recordingUrl && (
+            {/* Embedded Zoom — only mounts after user clicks Join in the
+                 sticky CTA. This keeps the 3 MB SDK bundle off first load. */}
+            {isJoining &&
+              joinInfo?.mode === "sdk" &&
+              joinInfo.sdkKey &&
+              joinInfo.signature &&
+              joinInfo.meetingNumber && (
+                <ZoomWebEmbed
+                  sdkKey={joinInfo.sdkKey}
+                  signature={joinInfo.signature}
+                  meetingNumber={joinInfo.meetingNumber}
+                  passcode={joinInfo.passcode || ""}
+                  userName={zoomUserName}
+                  joinUrl={joinInfo.joinUrl}
+                  onLeave={() => setIsJoining(false)}
+                />
+              )}
+
+            {/* Recording replay */}
+            {hasRecording && !isJoining && (
               <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm">
                 <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
                   <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
@@ -322,16 +421,22 @@ export default function PublicSessionPage() {
                     <p className="text-sm text-muted-foreground">
                       Missed the live session? Watch the recording on Zoom.
                     </p>
-                    {session.zoomMeeting.recordingPassword && (
+                    {session?.zoomMeeting?.recordingPassword && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Passcode: <span className="font-mono">{session.zoomMeeting.recordingPassword}</span>
+                        Passcode:{" "}
+                        <span className="font-mono">
+                          {session.zoomMeeting.recordingPassword}
+                        </span>
                       </p>
                     )}
                   </div>
                   <Button
                     size="lg"
                     className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 shadow-md"
-                    onClick={() => session.zoomMeeting?.recordingUrl && window.open(session.zoomMeeting.recordingUrl, "_blank")}
+                    onClick={() =>
+                      session?.zoomMeeting?.recordingUrl &&
+                      window.open(session.zoomMeeting.recordingUrl, "_blank")
+                    }
                   >
                     <PlayCircle className="h-5 w-5" />
                     Watch Replay
@@ -341,10 +446,10 @@ export default function PublicSessionPage() {
               </Card>
             )}
 
-            {/* Recording processing — shown when session ended but no URL yet */}
-            {isPast && (session?.zoomMeeting?.recordingStatus === "PENDING" || session?.zoomMeeting?.recordingStatus === "NOT_REQUESTED") && !session?.zoomMeeting?.recordingUrl && (
+            {/* Recording processing placeholder */}
+            {isRecordingProcessing && !isJoining && (
               <Card className="border-amber-200 bg-amber-50/50">
-                <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
+                <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
                   <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
                   <p className="font-medium">Recording processing</p>
                   <p className="text-sm text-muted-foreground">
@@ -354,151 +459,421 @@ export default function PublicSessionPage() {
               </Card>
             )}
 
-            {/* Join button — prominent CTA (shown when no live stream, or as fallback) */}
-            {joinInfo && !isPast && (
-              <Card className={`border-blue-200 bg-blue-50/50 shadow-sm ${joinInfo.liveStreamEnabled ? "mt-2" : ""}`}>
-                <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-6">
-                  <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                    <Video className="h-7 w-7 text-blue-600" />
+            {/* Upcoming session placeholder — no embed, no recording */}
+            {isUpcoming && !joinInfo?.liveStreamEnabled && (
+              <Card className="border-slate-200 bg-white">
+                <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+                  <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Clock className="h-8 w-8 text-blue-600" />
                   </div>
-                  <div className="flex-1 text-center sm:text-left">
-                    <p className="font-semibold text-lg">
-                      {joinInfo.liveStreamEnabled ? "Want to participate?" : "Ready to join?"}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {joinInfo.liveStreamEnabled
-                        ? "Join via Zoom to interact with speakers (audio/video). Or watch the live stream above."
-                        : joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
-                          ? "This webinar will open in Zoom. You can watch as an attendee."
-                          : "This meeting will open in Zoom. You can participate with audio and video."}
-                    </p>
-                  </div>
-                  <Button
-                    size="lg"
-                    className="gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 shadow-md"
-                    onClick={() => window.open(joinInfo.joinUrl, "_blank")}
-                  >
-                    <Video className="h-5 w-5" />
-                    {joinInfo.liveStreamEnabled ? "Join in Zoom" : "Join Meeting"}
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Not yet joinable */}
-            {!joinInfo && joinableAt && (
-              <Card className="border-amber-200 bg-amber-50/50">
-                <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
-                  <Clock className="h-8 w-8 text-amber-600" />
-                  <p className="font-medium">Session hasn&apos;t started yet</p>
-                  <p className="text-sm text-muted-foreground">
-                    The join button will appear at{" "}
-                    <strong>{format(new Date(joinableAt), "h:mm a 'on' MMM d")}</strong>
+                  <p className="font-medium text-lg">Session hasn&apos;t started yet</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    {joinableAt
+                      ? `You'll be able to join at ${format(new Date(joinableAt), "h:mm a 'on' MMM d")}.`
+                      : `Check back shortly before ${format(new Date(startMs), "h:mm a")}.`}
                   </p>
                 </CardContent>
               </Card>
             )}
 
-            {/* Description */}
-            {session?.description && (
-              <div>
-                <h2 className="text-lg font-semibold mb-2">About this session</h2>
-                <p className="text-muted-foreground leading-relaxed">{session.description}</p>
-              </div>
-            )}
-          </div>
+            {/* Live but user hasn't clicked Join yet — render a placeholder
+                 that reinforces the CTA above rather than a blank space */}
+            {(isLive || (isUpcoming && joinInfo)) &&
+              !isJoining &&
+              !joinInfo?.liveStreamEnabled &&
+              !hasRecording &&
+              !isRecordingProcessing && (
+                <Card className="border-slate-200 bg-white">
+                  <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+                    <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
+                      <Video className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <p className="font-medium text-lg">Ready to join?</p>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      Click <strong>Join Webinar</strong> above to open the embedded
+                      meeting right here on this page.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+          </TabsContent>
 
-          {/* Right sidebar */}
-          <div className="space-y-4">
-            {/* Speakers */}
-            {session?.speakers && session.speakers.length > 0 && (
-              <Card>
-                <CardContent className="pt-5">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-                    <Users className="h-4 w-4 text-blue-600" />
-                    Speakers
-                  </h3>
-                  <div className="space-y-3">
-                    {session.speakers.map((speaker) => (
-                      <div key={speaker.id} className="flex items-center gap-3">
-                        {speaker.photo ? (
-                          <Image
-                            src={speaker.photo}
-                            alt={`${speaker.firstName} ${speaker.lastName}`}
-                            width={40}
-                            height={40}
-                            className="rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
-                            {speaker.firstName[0]}
-                            {speaker.lastName[0]}
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-sm font-medium">
-                            {speaker.firstName} {speaker.lastName}
+          {/* Tab 2 — Session Details */}
+          <TabsContent value="details" className="space-y-6">
+            {session?.description && (
+              <section>
+                <h2 className="text-lg font-semibold mb-2">About this session</h2>
+                <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                  {session.description}
+                </p>
+              </section>
+            )}
+
+            {session && session.topics.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <ListOrdered className="h-5 w-5 text-blue-600" />
+                  Topics
+                </h2>
+                <ol className="space-y-3">
+                  {session.topics.map((topic, idx) => (
+                    <li
+                      key={topic.id}
+                      className="border rounded-lg bg-white p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">
+                            <span className="text-muted-foreground mr-2">
+                              {idx + 1}.
+                            </span>
+                            {topic.title}
                           </p>
-                          {(speaker.jobTitle || speaker.organization) && (
-                            <p className="text-xs text-muted-foreground">
-                              {[speaker.jobTitle, speaker.organization].filter(Boolean).join(" at ")}
+                          {topic.duration ? (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {topic.duration} min
                             </p>
-                          )}
+                          ) : null}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                      {topic.speakers.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {topic.speakers.map((sp) => (
+                            <div
+                              key={sp.id}
+                              className="flex items-center gap-2 text-xs text-muted-foreground"
+                            >
+                              {sp.photo ? (
+                                <Image
+                                  src={sp.photo}
+                                  alt={`${sp.firstName} ${sp.lastName}`}
+                                  width={20}
+                                  height={20}
+                                  className="rounded-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-[10px] font-medium">
+                                  {sp.firstName[0]}
+                                </div>
+                              )}
+                              <span>
+                                {sp.firstName} {sp.lastName}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </section>
             )}
 
-            {/* Meeting details */}
-            {joinInfo && (
-              <Card>
-                <CardContent className="pt-5">
-                  <h3 className="text-sm font-semibold mb-3">Meeting Details</h3>
-                  <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Type</dt>
-                      <dd className="font-medium">
-                        {joinInfo.meetingType === "WEBINAR" || joinInfo.meetingType === "WEBINAR_SERIES"
-                          ? "Webinar"
-                          : "Meeting"}
-                      </dd>
+            {session && session.speakers.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Speakers
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {session.speakers.map((speaker) => (
+                    <div
+                      key={speaker.id}
+                      className="border rounded-lg bg-white p-4 flex gap-3"
+                    >
+                      {speaker.photo ? (
+                        <Image
+                          src={speaker.photo}
+                          alt={`${speaker.firstName} ${speaker.lastName}`}
+                          width={64}
+                          height={64}
+                          className="rounded-full object-cover h-16 w-16 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-base font-medium shrink-0">
+                          {speaker.firstName[0]}
+                          {speaker.lastName[0]}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium">
+                          {speaker.firstName} {speaker.lastName}
+                        </p>
+                        {(speaker.jobTitle || speaker.organization) && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {[speaker.jobTitle, speaker.organization]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        )}
+                        {speaker.bio && (
+                          <p className="text-xs text-muted-foreground mt-2 line-clamp-4">
+                            {speaker.bio}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    {joinInfo.meetingNumber && (
-                      <div className="flex justify-between">
-                        <dt className="text-muted-foreground">Meeting ID</dt>
-                        <dd className="font-mono text-xs">{joinInfo.meetingNumber}</dd>
-                      </div>
-                    )}
-                    {joinInfo.passcode && (
-                      <div className="flex justify-between">
-                        <dt className="text-muted-foreground">Passcode</dt>
-                        <dd className="font-mono text-xs">{joinInfo.passcode}</dd>
-                      </div>
-                    )}
-                  </dl>
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
+              </section>
             )}
 
-            {/* Info note */}
-            <Card className="border-slate-200">
-              <CardContent className="pt-5">
-                <div className="flex gap-2">
-                  <Shield className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <p className="text-xs text-muted-foreground">
-                    This session is powered by Zoom. Clicking &ldquo;Join Meeting&rdquo; will open the Zoom app or web client.
-                    You may need to sign in to your Zoom account.
-                  </p>
+            {!session?.description &&
+              (!session || session.topics.length === 0) &&
+              (!session || session.speakers.length === 0) && (
+                <div className="text-center py-12 text-sm text-muted-foreground">
+                  No additional details for this session yet.
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+              )}
+          </TabsContent>
+
+          {/* Tab 3 — Sponsors */}
+          <TabsContent value="sponsors">
+            <SponsorsTab sponsors={sponsors} />
+          </TabsContent>
+        </Tabs>
       </div>
+    </div>
+  );
+}
+
+// ── Sticky CTA card ────────────────────────────────────────────
+
+function StickyCta({
+  isLive,
+  isPast,
+  isUpcoming,
+  joinableAt,
+  joinInfo,
+  hasRecording,
+  recordingUrl,
+  recordingPassword,
+  isJoining,
+  onJoin,
+  onLeave,
+}: {
+  isLive: boolean;
+  isPast: boolean;
+  isUpcoming: boolean;
+  joinableAt: string | null;
+  joinInfo: JoinInfo | null;
+  hasRecording: boolean;
+  recordingUrl: string | null;
+  recordingPassword: string | null;
+  isJoining: boolean;
+  onJoin: () => void;
+  onLeave: () => void;
+}) {
+  // Ended + recording → Watch Replay
+  if (isPast && hasRecording && recordingUrl) {
+    return (
+      <Card className="border-emerald-200 bg-emerald-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+            <PlayCircle className="h-6 w-6 text-emerald-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">Recording available</p>
+            {recordingPassword && (
+              <p className="text-xs text-muted-foreground">
+                Passcode: <span className="font-mono">{recordingPassword}</span>
+              </p>
+            )}
+          </div>
+          <Button
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => window.open(recordingUrl, "_blank")}
+          >
+            <PlayCircle className="h-4 w-4" />
+            Watch Replay
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Ended + no recording → muted banner
+  if (isPast) {
+    return (
+      <Card className="border-slate-200 bg-slate-50/70">
+        <CardContent className="flex items-center gap-3 py-4">
+          <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
+          <p className="text-sm text-muted-foreground flex-1">
+            This session has ended.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Upcoming, not yet joinable
+  if (isUpcoming && !joinInfo) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/70">
+        <CardContent className="flex items-center gap-3 py-4">
+          <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium">Session hasn&apos;t started yet</p>
+            {joinableAt && (
+              <p className="text-xs text-muted-foreground">
+                Join opens at {format(new Date(joinableAt), "h:mm a 'on' MMM d")}
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Live or upcoming-and-joinable — Join CTA
+  if (joinInfo) {
+    const isWebinar =
+      joinInfo.meetingType === "WEBINAR" ||
+      joinInfo.meetingType === "WEBINAR_SERIES";
+    const canEmbed = joinInfo.mode === "sdk" && joinInfo.sdkKey && joinInfo.signature;
+
+    return (
+      <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+            {isLive ? (
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+              </span>
+            ) : (
+              <Video className="h-6 w-6 text-blue-600" />
+            )}
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">
+              {isLive ? "Live now" : "Ready to join"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {canEmbed
+                ? `Join the ${isWebinar ? "webinar" : "meeting"} without leaving this page.`
+                : `This ${isWebinar ? "webinar" : "meeting"} will open in Zoom.`}
+            </p>
+          </div>
+          {isJoining ? (
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-100 text-green-800 border-green-200">
+                In meeting
+              </Badge>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onLeave}
+                title="Unmount the embed and return to the session page"
+              >
+                Leave
+              </Button>
+            </div>
+          ) : canEmbed ? (
+            <Button
+              size="lg"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={onJoin}
+            >
+              <Video className="h-4 w-4" />
+              {isWebinar ? "Join Webinar" : "Join Meeting"}
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => window.open(joinInfo.joinUrl, "_blank")}
+            >
+              <Video className="h-4 w-4" />
+              {isWebinar ? "Join Webinar" : "Join Meeting"}
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return null;
+}
+
+// ── Sponsors tab ───────────────────────────────────────────────
+
+function SponsorsTab({ sponsors }: { sponsors: SponsorEntry[] }) {
+  if (sponsors.length === 0) {
+    return (
+      <div className="text-center py-16 text-sm text-muted-foreground">
+        <Award className="h-10 w-10 mx-auto mb-2 opacity-40" />
+        No sponsors for this event yet.
+      </div>
+    );
+  }
+
+  // Group by tier for visual priority
+  const grouped = new Map<string, SponsorEntry[]>();
+  for (const sponsor of sponsors) {
+    const tier = sponsor.tier ?? "partner";
+    const list = grouped.get(tier) ?? [];
+    list.push(sponsor);
+    grouped.set(tier, list);
+  }
+
+  const tierOrder = Array.from(grouped.keys()).sort(
+    (a, b) => (SPONSOR_TIER_ORDER[a] ?? 999) - (SPONSOR_TIER_ORDER[b] ?? 999),
+  );
+
+  return (
+    <div className="space-y-8">
+      {tierOrder.map((tier) => {
+        const tierSponsors = grouped.get(tier) ?? [];
+        return (
+          <section key={tier}>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+              {SPONSOR_TIER_LABELS[tier] ?? tier}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {tierSponsors.map((sponsor) => {
+                const card = (
+                  <div className="border rounded-lg bg-white p-4 h-full flex flex-col items-center text-center hover:border-blue-300 hover:shadow-md transition-all">
+                    {sponsor.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={sponsor.logoUrl}
+                        alt={sponsor.name}
+                        className="h-16 object-contain mb-3"
+                      />
+                    ) : (
+                      <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-3">
+                        <Award className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <p className="font-semibold">{sponsor.name}</p>
+                    {sponsor.description && (
+                      <p className="text-xs text-muted-foreground mt-2 line-clamp-3">
+                        {sponsor.description}
+                      </p>
+                    )}
+                  </div>
+                );
+                return sponsor.websiteUrl ? (
+                  <a
+                    key={sponsor.id}
+                    href={sponsor.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    {card}
+                  </a>
+                ) : (
+                  <div key={sponsor.id}>{card}</div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
