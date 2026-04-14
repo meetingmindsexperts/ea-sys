@@ -10,6 +10,104 @@ _Nothing pending._
 
 ---
 
+## [2026-04-14] - Abstracts flow audit + fixes
+
+End-to-end audit of the abstracts feature surfaced four issues — one
+regression from the prior public-registration task, one genuine IDOR, one
+missing notification path in the AI agent, and an HTML escaping gap in
+review emails. All four landed in this change. No schema migration.
+
+### Fixed
+
+- **Regression: `/e/[slug]/submitAbstract` form failed server validation.**
+  The prior public-registration task tightened the submitter server schema
+  (title/role/organization/jobTitle/phone/city/country/specialty required)
+  but only updated the canonical `/e/[slug]/abstract/register` form. A
+  second public form at [src/app/e/[slug]/submitAbstract/page.tsx](src/app/e/[slug]/submitAbstract/page.tsx) —
+  reachable from external bookmarks and old emails — kept its permissive
+  schema and broke every submission with 400 "Invalid input". Brought it
+  to parity: added `TitleSelect`/`RoleSelect`/`customSpecialty`, flipped
+  org/jobTitle/phone/city/country from `.optional()` to `.min(1, ...)`,
+  added the same `customSpecialty`-required-when-"Others" `.refine()`,
+  updated `STEP_FIELDS.details` so "Continue" validates the full detail
+  set, added asterisks to all newly-required labels, and rewired the POST
+  payload to send the new fields explicitly.
+
+- **IDOR on `GET /api/events/[eventId]/abstracts/[abstractId]`.** The
+  handler validated event access via `buildEventAccessWhere()` but did
+  **not** check that the abstract's speaker belonged to the current
+  SUBMITTER. A submitter with a speaker record in an event could fetch
+  any abstract ID in that event — including `reviewNotes`, `reviewScore`,
+  `criteriaScores`, and other speakers' identities. The PUT handler
+  correctly had the ownership check at
+  [abstractId/route.ts:146-149](src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts#L146-L149);
+  GET now mirrors it at
+  [abstractId/route.ts:82-87](src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts#L82-L87)
+  and returns 404 (not 403) to avoid existence leak.
+
+- **AI agent `update_abstract_status` tool skipped the speaker
+  notification + audit log.** When an organizer used the agent
+  ("accept all abstracts from track X") instead of the dashboard UI,
+  the speaker was never told their abstract had been accepted/rejected
+  and no audit row was written. The dashboard PUT route and the agent
+  tool were two entry points doing different things. Extracted the
+  notification side effects into a shared helper
+  [src/lib/abstract-notifications.ts](src/lib/abstract-notifications.ts)
+  called from both places — dashboard and agent now produce identical
+  speaker emails + admin notifications. Agent tool also now writes an
+  audit log row with `changes.source: "agent"` so admin actions made via
+  the agent show up in the audit trail.
+
+- **`reviewNotes` HTML interpolation in speaker emails was unescaped.**
+  A reviewer submitting
+  `<a href="https://evil.example/phish">Click here</a>` as their notes
+  got their HTML delivered verbatim. Real risk was phishing-via-injected-
+  link rather than script execution (email clients sanitize `<script>`).
+  Fixed inside the new notification helper via a local `escapeHtml()`
+  that replaces `& < > " '` before interpolation. One fix covers both
+  dashboard and agent code paths.
+
+### Changed
+
+- `PUT /api/events/[eventId]/abstracts/[abstractId]` now delegates the
+  post-update email/notification block to
+  `notifyAbstractStatusChange()`. Behavior unchanged for callers; the
+  ~45-line inline block is now a single call. Imports in
+  [abstractId/route.ts](src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts)
+  were pruned (`sendEmail`, `getEventTemplate`, `getDefaultTemplate`,
+  `renderAndWrap`, `getAbstractStatusInfo`, `brandingFrom`,
+  `notifyEventAdmins`) — all now live behind the helper.
+
+- `src/lib/agent/event-tools.ts` `updateAbstractStatus` tool now fetches
+  `speaker.email`/`firstName`/`lastName` + `event.name`/`slug` in the
+  pre-check query so it can pass them to the helper. Audit log write was
+  added.
+
+### Not changed (deferred / out of scope)
+
+- **`GET /api/events/[eventId]/abstracts` list has no pagination cap** —
+  admin-only endpoint; the AI agent's `list_abstracts` already caps at
+  200 but the dashboard-facing API route doesn't. Documented in the plan
+  file for future work.
+- **Zod error details returned in 400 responses** — pre-existing
+  project-wide convention; the dashboard form uses `details` to highlight
+  invalid fields.
+- **Non-blocking email sends that `.catch` → `apiLogger.error`** —
+  pre-existing pattern project-wide; not specific to abstracts.
+- **Concurrent-edit race on `reviewedAt`** — vanishingly unlikely in a
+  single-reviewer-per-abstract workflow.
+
+### Verified not a problem
+
+- POST /abstracts correctly calls `denyReviewer()` at
+  [abstracts/route.ts:107-109](src/app/api/events/[eventId]/abstracts/route.ts#L107-L109)
+- CSV import status validation correctly uppercases before the set check
+  at [import/abstracts/route.ts:132-133](src/app/api/events/[eventId]/import/abstracts/route.ts#L132-L133)
+- DELETE handler correctly enforces SUPER_ADMIN at
+  [abstractId/route.ts:334-339](src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts#L334-L339)
+
+---
+
 ## [2026-04-14] - Public Registration Required Fields
 
 Tightened client + server validation on all three public registration entry

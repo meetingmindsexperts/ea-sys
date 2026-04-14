@@ -5,6 +5,7 @@ import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 
 const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
@@ -1331,22 +1332,67 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid status. Must be one of: ${[...ABSTRACT_UPDATE_STATUSES].join(", ")}` };
     }
 
+    const reviewNotes = input.reviewNotes ? String(input.reviewNotes).slice(0, 2000) : undefined;
+
     const abstract = await db.abstract.findFirst({
       where: { id: abstractId, eventId: ctx.eventId },
-      select: { id: true, title: true, status: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        reviewNotes: true,
+        reviewScore: true,
+        event: { select: { id: true, name: true, slug: true } },
+        speaker: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
     if (!abstract) return { error: `Abstract ${abstractId} not found` };
+
+    const previousStatus = abstract.status;
 
     const updated = await db.abstract.update({
       where: { id: abstractId },
       data: {
         status: status as never,
-        reviewNotes: input.reviewNotes ? String(input.reviewNotes).slice(0, 2000) : undefined,
+        ...(reviewNotes !== undefined && { reviewNotes }),
         reviewedAt: new Date(),
       },
       select: { id: true, title: true, status: true },
     });
-    return { abstract: updated, previousStatus: abstract.status };
+
+    await db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "REVIEW",
+        entityType: "Abstract",
+        entityId: abstract.id,
+        changes: {
+          before: { status: previousStatus, reviewNotes: abstract.reviewNotes },
+          after: { status, reviewNotes: reviewNotes ?? abstract.reviewNotes },
+          source: "agent",
+        },
+      },
+    });
+
+    await notifyAbstractStatusChange({
+      eventId: ctx.eventId,
+      eventName: abstract.event.name,
+      eventSlug: abstract.event.slug,
+      abstractId: abstract.id,
+      abstractTitle: abstract.title,
+      previousStatus,
+      newStatus: status,
+      reviewNotes: reviewNotes ?? abstract.reviewNotes ?? null,
+      reviewScore: abstract.reviewScore ?? null,
+      speaker: {
+        email: abstract.speaker?.email ?? null,
+        firstName: abstract.speaker?.firstName ?? "",
+        lastName: abstract.speaker?.lastName ?? "",
+      },
+    });
+
+    return { abstract: updated, previousStatus };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_abstract_status failed");
     return { error: "Failed to update abstract status" };

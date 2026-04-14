@@ -4,9 +4,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, getAbstractStatusInfo, brandingFrom } from "@/lib/email";
 import { getClientIp } from "@/lib/security";
-import { notifyEventAdmins } from "@/lib/notifications";
+import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 
 const criteriaScoreItemSchema = z.object({
   criterionId: z.string(),
@@ -74,6 +73,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     if (!abstract) {
+      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+    }
+
+    if (
+      session.user.role === "SUBMITTER" &&
+      abstract.speaker?.userId !== session.user.id
+    ) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
     }
 
@@ -249,60 +255,29 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Send notification email to speaker on review actions OR when feedback is added
     const hasFeedbackUpdate = !isReview && (data.reviewNotes !== undefined || data.reviewScore !== undefined);
-    const shouldNotify = (isReview && data.status) || hasFeedbackUpdate;
+    const shouldNotify = (isReview && !!data.status) || hasFeedbackUpdate;
 
-    if (shouldNotify && abstract.speaker?.email) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const managementLink = abstract.event?.slug
-        ? `${appUrl}/e/${abstract.event.slug}/login?redirect=abstracts`
-        : `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
-
-      const effectiveStatus = data.status || abstract.status;
-      const statusInfo = getAbstractStatusInfo(effectiveStatus);
-      const reviewNotesHtml = (data.reviewNotes ?? abstract.reviewNotes)
-        ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${data.reviewNotes ?? abstract.reviewNotes}</span></div>`
-        : "";
-      const effectiveScore = data.reviewScore ?? abstract.reviewScore;
-      const vars: Record<string, string | number | undefined> = {
-        firstName: abstract.speaker.firstName,
-        lastName: abstract.speaker.lastName,
+    if (shouldNotify) {
+      notifyAbstractStatusChange({
+        eventId,
         eventName: event.name,
+        eventSlug: abstract.event?.slug ?? null,
+        abstractId: abstract.id,
         abstractTitle: abstract.title,
-        newStatus: effectiveStatus.replace(/_/g, " "),
-        statusHeading: hasFeedbackUpdate ? "Reviewer Feedback Received" : statusInfo.heading,
-        statusMessage: hasFeedbackUpdate
-          ? "A reviewer has provided feedback on your abstract. Log in to view the details."
-          : statusInfo.message,
-        reviewNotes: reviewNotesHtml,
-        reviewScore: effectiveScore ?? undefined,
-        managementLink,
-      };
-
-      getEventTemplate(eventId, "abstract-status-update").then((tpl) => {
-        const t = tpl || getDefaultTemplate("abstract-status-update");
-        if (!t) { apiLogger.warn({ msg: "No template found for abstract-status-update" }); return; }
-        const branding = tpl?.branding || { eventName: event.name };
-        const rendered = renderAndWrap(t, vars, branding);
-        return sendEmail({
-          to: [{ email: abstract.speaker.email, name: `${abstract.speaker.firstName} ${abstract.speaker.lastName}` }],
-          ...rendered,
-          from: brandingFrom(branding),
-        });
+        previousStatus: existingAbstract.status,
+        newStatus: data.status || abstract.status,
+        reviewNotes: data.reviewNotes ?? abstract.reviewNotes ?? null,
+        reviewScore: data.reviewScore ?? abstract.reviewScore ?? null,
+        speaker: {
+          email: abstract.speaker?.email ?? null,
+          firstName: abstract.speaker?.firstName ?? "",
+          lastName: abstract.speaker?.lastName ?? "",
+        },
+        feedbackOnly: hasFeedbackUpdate,
       }).catch((err) => {
-        apiLogger.error({ err, msg: "Failed to send abstract notification email" });
+        apiLogger.error({ err, msg: "notifyAbstractStatusChange failed", eventId, abstractId });
       });
-    }
-
-    // Notify admins/organizers on review (non-blocking)
-    if (isReview || hasFeedbackUpdate) {
-      notifyEventAdmins(eventId, {
-        type: "REVIEW",
-        title: "Abstract Reviewed",
-        message: `Abstract "${abstract.title}" reviewed${data.reviewScore != null ? ` — Score: ${data.reviewScore}/100` : ""}`,
-        link: `/events/${eventId}/abstracts`,
-      }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract review notification" }));
     }
 
     apiLogger.info({ msg: "Abstract updated", eventId, abstractId, userId: session.user.id, changes: Object.keys(data) });

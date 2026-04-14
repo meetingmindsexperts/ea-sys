@@ -40,6 +40,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -65,22 +67,32 @@ interface Event {
 
 const registerSchema = z
   .object({
+    title: z.string().min(1, "Title is required"),
+    role: z.string().min(1, "Role is required"),
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().min(1, "Last name is required"),
     email: z.string().email("Valid email is required"),
-    organization: z.string().optional(),
-    jobTitle: z.string().optional(),
-    phone: z.string().optional(),
-    city: z.string().optional(),
-    country: z.string().optional(),
-    specialty: z.string().optional(),
+    organization: z.string().min(1, "Organization is required"),
+    jobTitle: z.string().min(1, "Position is required"),
+    phone: z.string().min(1, "Mobile number is required"),
+    city: z.string().min(1, "City is required"),
+    country: z.string().min(1, "Country is required"),
+    specialty: z.string().min(1, "Specialty is required"),
+    customSpecialty: z.string().optional(),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string().min(1, "Please confirm your password"),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
-  });
+  })
+  .refine(
+    (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
+    {
+      message: "Please specify your specialty",
+      path: ["customSpecialty"],
+    },
+  );
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
@@ -91,8 +103,8 @@ const STEPS = [
 ] as const;
 
 const STEP_FIELDS: Record<string, (keyof RegisterForm)[]> = {
-  identity: ["firstName", "lastName", "email"],
-  details: [],
+  identity: ["title", "firstName", "lastName", "email"],
+  details: ["organization", "jobTitle", "phone", "city", "country", "specialty", "customSpecialty", "role"],
   security: ["password", "confirmPassword"],
 };
 
@@ -110,9 +122,10 @@ export default function SubmitAbstractPage() {
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
+      title: "", role: "",
       firstName: "", lastName: "", email: "",
       organization: "", jobTitle: "", phone: "",
-      city: "", country: "", specialty: "",
+      city: "", country: "", specialty: "", customSpecialty: "",
       password: "", confirmPassword: "",
     },
   });
@@ -175,16 +188,19 @@ export default function SubmitAbstractPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          title: data.title,
+          role: data.role,
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
           password: data.password,
-          organization: data.organization || undefined,
-          jobTitle: data.jobTitle || undefined,
-          phone: data.phone || undefined,
-          city: data.city || undefined,
-          country: data.country || undefined,
-          specialty: data.specialty || undefined,
+          organization: data.organization,
+          jobTitle: data.jobTitle,
+          phone: data.phone,
+          city: data.city,
+          country: data.country,
+          specialty: data.specialty,
+          customSpecialty: data.customSpecialty || undefined,
         }),
       });
 
@@ -367,6 +383,16 @@ export default function SubmitAbstractPage() {
                 {/* Step 1: Identity */}
                 {STEPS[step].id === "identity" && (
                   <>
+                    <FormField control={form.control} name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">
+                            Title <span className="text-red-400">*</span>
+                          </FormLabel>
+                          <TitleSelect value={field.value || ""} onChange={field.onChange} />
+                          <FormMessage />
+                        </FormItem>
+                      )} />
                     <div className="grid grid-cols-2 gap-3">
                       <FormField control={form.control} name="firstName"
                         render={({ field }) => (
@@ -410,7 +436,7 @@ export default function SubmitAbstractPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Building2 className="h-3 w-3" /> Institution
+                              <Building2 className="h-3 w-3" /> Institution <span className="text-red-400">*</span>
                             </FormLabel>
                             <FormControl><Input placeholder="University of..." className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
@@ -420,7 +446,7 @@ export default function SubmitAbstractPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <User className="h-3 w-3" /> Position
+                              <User className="h-3 w-3" /> Position <span className="text-red-400">*</span>
                             </FormLabel>
                             <FormControl><Input placeholder="Professor, Researcher..." className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
@@ -431,28 +457,52 @@ export default function SubmitAbstractPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                            <Phone className="h-3 w-3" /> Phone
+                            <Phone className="h-3 w-3" /> Mobile Number <span className="text-red-400">*</span>
                           </FormLabel>
                           <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
-                    <FormField control={form.control} name="specialty"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                            <Stethoscope className="h-3 w-3" /> Specialty
-                          </FormLabel>
-                          <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
-                          <FormMessage />
-                        </FormItem>
-                      )} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="specialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                              <Stethoscope className="h-3 w-3" /> Specialty <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <SpecialtySelect value={field.value ?? ""} onChange={field.onChange} />
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      <FormField control={form.control} name="role"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">
+                              Role <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <RoleSelect value={field.value} onChange={field.onChange} />
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    </div>
+                    {form.watch("specialty") === "Others" && (
+                      <FormField control={form.control} name="customSpecialty"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-medium text-slate-600">
+                              Others (specify) <span className="text-red-400">*</span>
+                            </FormLabel>
+                            <FormControl><Input placeholder="e.g. Interventional Cardiology" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <FormField control={form.control} name="city"
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> City
+                              <MapPin className="h-3 w-3" /> City <span className="text-red-400">*</span>
                             </FormLabel>
                             <FormControl><Input placeholder="New York" className="rounded-lg border-slate-200" {...field} /></FormControl>
                             <FormMessage />
@@ -462,7 +512,7 @@ export default function SubmitAbstractPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-xs font-medium text-slate-600 flex items-center gap-1">
-                              <Globe className="h-3 w-3" /> Country
+                              <Globe className="h-3 w-3" /> Country <span className="text-red-400">*</span>
                             </FormLabel>
                             <CountrySelect value={field.value ?? ""} onChange={field.onChange} />
                             <FormMessage />
