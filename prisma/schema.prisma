@@ -1036,17 +1036,69 @@ model ZoomMeeting {
   recordingStatus      RecordingStatus  @default(NOT_REQUESTED)
   // Attendance tracking (fetched by /api/cron/webinar-attendance post-event)
   lastAttendanceSyncAt DateTime?
+  // Engagement (polls + Q&A, fetched alongside attendance post-event)
+  lastEngagementSyncAt DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  session     EventSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  event       Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session     EventSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
   attendances ZoomAttendance[]
+  polls       WebinarPoll[]
+  questions   WebinarQuestion[]
 
   @@index([eventId])
   @@index([zoomMeetingId])
   @@index([recordingStatus])
   @@index([lastAttendanceSyncAt])
+}
+
+// ── Webinar polls (fetched from Zoom's /report/webinars/{id}/polls) ──
+model WebinarPoll {
+  id             String   @id @default(cuid())
+  zoomMeetingId  String
+  zoomPollId     String?  // Zoom's poll id (nullable for imported/legacy rows)
+  title          String
+  questions      Json     @default("[]")  // [{ name, question_type, answer_details?: [] }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  zoomMeeting ZoomMeeting           @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+  responses   WebinarPollResponse[]
+
+  @@unique([zoomMeetingId, zoomPollId])
+  @@index([zoomMeetingId])
+}
+
+// One row per participant per poll submission
+model WebinarPollResponse {
+  id               String   @id @default(cuid())
+  pollId           String
+  participantName  String
+  participantEmail String?
+  answers          Json     @default("{}") // { questionName: answer[] }
+  submittedAt      DateTime
+
+  poll WebinarPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  @@index([pollId])
+}
+
+// ── Webinar Q&A (fetched from Zoom's /report/webinars/{id}/qa) ──
+model WebinarQuestion {
+  id             String   @id @default(cuid())
+  zoomMeetingId  String
+  askerName      String
+  askerEmail     String?
+  question       String   @db.Text
+  answer         String?  @db.Text
+  answeredByName String?
+  askedAt        DateTime
+
+  zoomMeeting ZoomMeeting @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
+
+  @@unique([zoomMeetingId, askerName, askedAt])
+  @@index([zoomMeetingId])
 }
 
 // ── Per-attendee join/leave records pulled from Zoom's participant report ──

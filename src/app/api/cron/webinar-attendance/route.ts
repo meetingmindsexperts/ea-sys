@@ -6,6 +6,7 @@ import {
   ATTENDANCE_FETCH_MIN_DELAY_MS,
   ATTENDANCE_FETCH_WINDOW_MS,
 } from "@/lib/webinar-attendance";
+import { syncWebinarEngagement } from "@/lib/webinar-engagement";
 
 const MAX_PER_TICK = 10;
 const SERIAL_DELAY_MS = 500;
@@ -88,12 +89,20 @@ async function handleCron(req: Request) {
 
     // Serial processing with delay between rows when batch >3 to respect Zoom
     // rate limits. Per-row try/catch so one bad row can't kill the tick.
+    // Each row runs attendance sync first, then engagement sync (polls + Q&A)
+    // piggybacked on the same tick — two extra Zoom API calls per row.
     const results: Array<{
       id: string;
       status: string;
       fetched?: number;
       upserted?: number;
       matched?: number;
+      engagement?: {
+        status: string;
+        pollsPersisted?: number;
+        pollResponsesPersisted?: number;
+        questionsPersisted?: number;
+      };
       reason?: string;
     }> = [];
 
@@ -101,14 +110,42 @@ async function handleCron(req: Request) {
       const candidate = candidates[i];
       try {
         const result = await syncWebinarAttendance(candidate.id);
-        results.push({
+        const resultRow: (typeof results)[number] = {
           id: candidate.id,
           status: result.status,
           fetched: "fetched" in result ? result.fetched : undefined,
           upserted: "upserted" in result ? result.upserted : undefined,
           matched: "matched" in result ? result.matched : undefined,
           reason: "reason" in result ? result.reason : undefined,
-        });
+        };
+
+        // Piggyback engagement sync onto the same tick. Own try/catch so a
+        // polls/Q&A failure never masks or overrides the attendance result.
+        try {
+          const engagement = await syncWebinarEngagement(candidate.id);
+          resultRow.engagement = {
+            status: engagement.status,
+            pollsPersisted:
+              "pollsPersisted" in engagement ? engagement.pollsPersisted : undefined,
+            pollResponsesPersisted:
+              "pollResponsesPersisted" in engagement
+                ? engagement.pollResponsesPersisted
+                : undefined,
+            questionsPersisted:
+              "questionsPersisted" in engagement ? engagement.questionsPersisted : undefined,
+          };
+        } catch (engagementErr) {
+          apiLogger.error(
+            {
+              err: engagementErr,
+              zoomMeetingDbId: candidate.id,
+              msg: "webinar-attendance:engagement-row-crashed",
+            },
+          );
+          resultRow.engagement = { status: "failed" };
+        }
+
+        results.push(resultRow);
       } catch (rowErr) {
         apiLogger.error(
           {

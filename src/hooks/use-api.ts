@@ -83,6 +83,8 @@ export const queryKeys = {
   webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
   webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
   webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
+  webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
+  webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1556,6 +1558,120 @@ export function useSyncWebinarAttendance(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarAttendance(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+// ── Webinar engagement (polls + Q&A) ────────────────────────────────
+
+export interface WebinarPollResponseRow {
+  id: string;
+  participantName: string;
+  participantEmail: string | null;
+  answers: Record<string, string>;
+  submittedAt: string;
+}
+
+export interface WebinarPollRow {
+  id: string;
+  title: string;
+  questions: string[];
+  createdAt: string;
+  responses: WebinarPollResponseRow[];
+}
+
+export interface WebinarQaRow {
+  id: string;
+  askerName: string;
+  askerEmail: string | null;
+  question: string;
+  answer: string | null;
+  answeredByName: string | null;
+  askedAt: string;
+}
+
+export interface WebinarEngagementData {
+  polls: WebinarPollRow[];
+  questions: WebinarQaRow[];
+  lastSyncedAt: string | null;
+}
+
+export function useWebinarEngagement(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.webinarEngagement(eventId),
+    queryFn: () =>
+      fetchApi<WebinarEngagementData>(`/api/events/${eventId}/webinar/engagement`),
+    enabled: !!eventId,
+  });
+}
+
+export function useSyncWebinarEngagement(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        ok: boolean;
+        status: "synced" | "pending" | "failed";
+        pollsPersisted?: number;
+        pollResponsesPersisted?: number;
+        questionsPersisted?: number;
+        pollsReportNotReady?: boolean;
+        qaReportNotReady?: boolean;
+        reason?: string;
+        durationMs?: number;
+      }>(`/api/events/${eventId}/webinar/engagement`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarEngagement(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
+    },
+  });
+}
+
+// ── Webinar panelists ──────────────────────────────────────────────
+
+export interface WebinarPanelist {
+  id: string;
+  name: string;
+  email: string;
+  join_url?: string;
+}
+
+export function useWebinarPanelists(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.webinarPanelists(eventId),
+    queryFn: () =>
+      fetchApi<{ panelists: WebinarPanelist[] }>(
+        `/api/events/${eventId}/webinar/panelists`,
+      ),
+    enabled: !!eventId,
+  });
+}
+
+export function useAddWebinarPanelist(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; email: string }) =>
+      fetchApi<{ ok: boolean }>(`/api/events/${eventId}/webinar/panelists`, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
+    },
+  });
+}
+
+export function useRemoveWebinarPanelist(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (panelistId: string) =>
+      fetchApi<{ ok: boolean }>(
+        `/api/events/${eventId}/webinar/panelists?panelistId=${encodeURIComponent(panelistId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
     },
   });
 }

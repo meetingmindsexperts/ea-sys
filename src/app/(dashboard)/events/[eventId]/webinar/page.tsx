@@ -39,6 +39,10 @@ import {
   Users,
   Download,
   TrendingUp,
+  UserPlus,
+  Trash2,
+  BarChart3,
+  MessageSquare,
 } from "lucide-react";
 import {
   useWebinar,
@@ -49,8 +53,16 @@ import {
   useFetchWebinarRecording,
   useWebinarAttendance,
   useSyncWebinarAttendance,
+  useWebinarEngagement,
+  useSyncWebinarEngagement,
+  useWebinarPanelists,
+  useAddWebinarPanelist,
+  useRemoveWebinarPanelist,
   type WebinarSequenceRow,
   type WebinarAttendeeRow,
+  type WebinarPollRow,
+  type WebinarQaRow,
+  type WebinarPanelist,
 } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -379,6 +391,15 @@ export default function WebinarConsolePage() {
         sessionEnded={status === "ended"}
         hasZoom={hasZoom}
       />
+
+      {/* Panelists */}
+      <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
+
+      {/* Polls */}
+      <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+
+      {/* Q&A */}
+      <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
 
       {/* Email Sequence */}
       <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
@@ -959,6 +980,407 @@ function AttendeeRowView({ row }: { row: WebinarAttendeeRow }) {
         )}
       </td>
     </tr>
+  );
+}
+
+// ── Panelists ──────────────────────────────────────────────────────
+
+function PanelistsCard({
+  eventId,
+  hasZoom,
+}: {
+  eventId: string;
+  hasZoom: boolean;
+}) {
+  const { data, isLoading, error } = useWebinarPanelists(eventId);
+  const addPanelist = useAddWebinarPanelist(eventId);
+  const removePanelist = useRemoveWebinarPanelist(eventId);
+
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+
+  const panelists: WebinarPanelist[] = data?.panelists ?? [];
+  const disabled = !hasZoom;
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim()) return;
+    try {
+      await addPanelist.mutateAsync({ name: newName.trim(), email: newEmail.trim() });
+      toast.success(`Added ${newName.trim()} as panelist`);
+      setNewName("");
+      setNewEmail("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add panelist");
+    }
+  };
+
+  const handleRemove = async (panelist: WebinarPanelist) => {
+    try {
+      await removePanelist.mutateAsync(panelist.id);
+      toast.success(`Removed ${panelist.name}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove panelist");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <UserPlus className="h-5 w-5" />
+          Panelists
+        </CardTitle>
+        <CardDescription>
+          Zoom webinar panelists receive a privileged join link and can present on screen.
+          Add them here or sync from session speakers in the Agenda view.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!hasZoom ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No Zoom webinar attached yet.
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50/50 p-4 text-sm text-red-700">
+            {error instanceof Error ? error.message : "Failed to load panelists"}
+          </div>
+        ) : (
+          <>
+            <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+              <Input
+                placeholder="Name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                disabled={disabled || addPanelist.isPending}
+              />
+              <Input
+                type="email"
+                placeholder="Email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                disabled={disabled || addPanelist.isPending}
+              />
+              <Button
+                type="submit"
+                disabled={
+                  disabled || addPanelist.isPending || !newName.trim() || !newEmail.trim()
+                }
+              >
+                {addPanelist.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <UserPlus className="h-4 w-4 mr-2" />
+                )}
+                Add
+              </Button>
+            </form>
+
+            {panelists.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No panelists yet. Add one above.
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase tracking-wide">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Name</th>
+                      <th className="px-3 py-2 text-left font-medium">Email</th>
+                      <th className="px-3 py-2 text-right font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {panelists.map((p) => (
+                      <tr key={p.id} className="hover:bg-muted/30">
+                        <td className="px-3 py-2 font-medium">{p.name}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{p.email}</td>
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRemove(p)}
+                            disabled={removePanelist.isPending}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Polls ──────────────────────────────────────────────────────────
+
+function PollsCard({
+  eventId,
+  sessionEnded,
+  hasZoom,
+}: {
+  eventId: string;
+  sessionEnded: boolean;
+  hasZoom: boolean;
+}) {
+  const { data, isLoading } = useWebinarEngagement(eventId);
+  const sync = useSyncWebinarEngagement(eventId);
+
+  const handleSync = async () => {
+    try {
+      const result = await sync.mutateAsync();
+      if (result.status === "synced") {
+        const polls = result.pollsPersisted ?? 0;
+        const responses = result.pollResponsesPersisted ?? 0;
+        const qa = result.questionsPersisted ?? 0;
+        toast.success(
+          `Engagement synced — ${polls} poll(s), ${responses} response(s), ${qa} Q&A`,
+        );
+      } else if (result.status === "pending") {
+        toast.warning(result.reason || "Report not ready yet");
+      } else {
+        toast.error(result.reason || "Failed to sync engagement");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to sync engagement");
+    }
+  };
+
+  const polls: WebinarPollRow[] = data?.polls ?? [];
+  const canSync = sessionEnded && hasZoom;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Polls
+            </CardTitle>
+            <CardDescription>
+              Results from polls run during the webinar. Pulled from Zoom alongside
+              attendance (~30 min after session ends).
+              {data?.lastSyncedAt ? (
+                <> Last synced {new Date(data.lastSyncedAt).toLocaleString()}.</>
+              ) : null}
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={sync.isPending || !canSync}
+            title={
+              !hasZoom
+                ? "Attach a Zoom webinar first"
+                : !sessionEnded
+                  ? "Available after the session ends"
+                  : undefined
+            }
+          >
+            {sync.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RotateCw className="h-4 w-4 mr-2" />
+            )}
+            Sync now
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasZoom ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No Zoom webinar attached yet.
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : polls.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            {sessionEnded
+              ? "No poll results yet. Click Sync to fetch from Zoom (or wait for the cron)."
+              : "Poll results will appear here after the session ends."}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {polls.map((poll) => (
+              <PollView key={poll.id} poll={poll} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PollView({ poll }: { poll: WebinarPollRow }) {
+  // Build a distribution: question → { answer → count }
+  const distribution: Record<string, Record<string, number>> = {};
+  for (const q of poll.questions) {
+    distribution[q] = {};
+  }
+  for (const response of poll.responses) {
+    for (const [question, answer] of Object.entries(response.answers)) {
+      if (!distribution[question]) distribution[question] = {};
+      const key = String(answer);
+      distribution[question][key] = (distribution[question][key] ?? 0) + 1;
+    }
+  }
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="bg-muted/40 px-4 py-2 flex items-center justify-between">
+        <h4 className="font-semibold text-sm">{poll.title}</h4>
+        <span className="text-xs text-muted-foreground">
+          {poll.responses.length} response{poll.responses.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="p-4 space-y-4">
+        {poll.questions.map((q) => {
+          const answers = distribution[q] ?? {};
+          const entries = Object.entries(answers).sort((a, b) => b[1] - a[1]);
+          const maxCount = entries[0]?.[1] ?? 1;
+          return (
+            <div key={q}>
+              <p className="text-sm font-medium mb-2">{q}</p>
+              {entries.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No responses</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {entries.map(([answer, count]) => (
+                    <div key={answer} className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between text-xs mb-0.5">
+                          <span className="text-foreground">{answer}</span>
+                          <span className="text-muted-foreground">{count}</span>
+                        </div>
+                        <div className="w-full h-2 bg-muted rounded overflow-hidden">
+                          <div
+                            className="h-full bg-primary"
+                            style={{ width: `${(count / maxCount) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Q&A ────────────────────────────────────────────────────────────
+
+function QaCard({
+  eventId,
+  sessionEnded,
+  hasZoom,
+}: {
+  eventId: string;
+  sessionEnded: boolean;
+  hasZoom: boolean;
+}) {
+  const { data, isLoading } = useWebinarEngagement(eventId);
+  const [search, setSearch] = useState("");
+
+  const questions: WebinarQaRow[] = data?.questions ?? [];
+  const filtered = search
+    ? questions.filter(
+        (q) =>
+          q.question.toLowerCase().includes(search.toLowerCase()) ||
+          q.askerName.toLowerCase().includes(search.toLowerCase()) ||
+          (q.answer?.toLowerCase().includes(search.toLowerCase()) ?? false),
+      )
+    : questions;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MessageSquare className="h-5 w-5" />
+          Q&amp;A
+        </CardTitle>
+        <CardDescription>
+          Questions asked during the webinar and their answers. Pulled from Zoom alongside polls.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!hasZoom ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No Zoom webinar attached yet.
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : questions.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            {sessionEnded
+              ? "No Q&A yet. Sync polls/Q&A from the Polls card to fetch the report."
+              : "Q&A will appear here after the session ends."}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <Input
+              placeholder="Search questions…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {filtered.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No questions match &quot;{search}&quot;
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map((q) => (
+                  <div key={q.id} className="border rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="text-sm font-medium">{q.askerName}</div>
+                      <div className="text-xs text-muted-foreground shrink-0">
+                        {new Date(q.askedAt).toLocaleString(undefined, {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </div>
+                    </div>
+                    <p className="text-sm">{q.question}</p>
+                    {q.answer ? (
+                      <div className="mt-2 pt-2 border-t text-sm text-muted-foreground">
+                        <span className="text-xs font-medium uppercase tracking-wide text-green-700 mr-1">
+                          Answer:
+                        </span>
+                        {q.answer}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-1 italic">
+                        Unanswered
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

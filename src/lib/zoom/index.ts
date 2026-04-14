@@ -47,6 +47,15 @@ export type { ZoomRecordingFile, ZoomRecordingsResponse } from "./recordings";
 // Reports (participants, polls, Q&A)
 export { getZoomParticipants } from "./reports";
 export type { ZoomParticipant } from "./reports";
+export { getWebinarPollReport, getWebinarQaReport } from "./polls-qa";
+export type {
+  ZoomPollReport,
+  ZoomPollSubmission,
+  ZoomPollAnswer,
+  ZoomQaReport,
+  ZoomQaParticipant,
+  ZoomQaDetail,
+} from "./polls-qa";
 
 // Types
 export type {

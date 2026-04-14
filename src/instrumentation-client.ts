@@ -10,7 +10,9 @@ Sentry.init({
   replaysOnErrorSampleRate: 1.0,
 
   // Only enable if DSN is configured
-  enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN,
+  enabled:
+    process.env.NODE_ENV === "production" &&
+    !!process.env.NEXT_PUBLIC_SENTRY_DSN,
 
   enableLogs: true,
 });
