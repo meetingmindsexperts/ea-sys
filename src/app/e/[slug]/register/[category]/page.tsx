@@ -458,6 +458,12 @@ function CategoryRegistrationContent() {
   const isStudent = selectedRegTypeName.includes("student");
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   const isClosed = purchasableOptions.length === 0;
+  // When every purchasable option is free, "Free" on each row is noise —
+  // hide the price column entirely. If even one option costs money, keep
+  // the per-row label so users can see which is which at a glance.
+  const allOptionsFree =
+    purchasableOptions.length > 0 &&
+    purchasableOptions.every((o) => o.price === 0);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
@@ -898,27 +904,29 @@ function CategoryRegistrationContent() {
                                         )}
                                       </div>
                                     </div>
-                                    <div className="text-right shrink-0 ml-4">
-                                      <div className="text-[10px] uppercase text-slate-400 font-medium">Amount</div>
-                                      <div className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
-                                        {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price.toFixed(2)}`}
+                                    {!allOptionsFree && (
+                                      <div className="text-right shrink-0 ml-4">
+                                        <div className="text-[10px] uppercase text-slate-400 font-medium">Amount</div>
+                                        <div className={cn("text-lg font-bold", isSelected ? "text-primary" : "text-slate-800")}>
+                                          {opt.price === 0 ? "Free" : `${opt.currency} ${opt.price.toFixed(2)}`}
+                                        </div>
+                                        {opt.price > 0 && event.taxRate != null && event.taxRate > 0 && (() => {
+                                          const taxAmount = opt.price * event.taxRate / 100;
+                                          const total = opt.price + taxAmount;
+                                          const label = event.taxLabel || "VAT";
+                                          return (
+                                            <div className="mt-0.5 space-y-0.5">
+                                              <div className="text-[11px] text-slate-400">
+                                                {label} ({event.taxRate}%): {opt.currency} {taxAmount.toFixed(2)}
+                                              </div>
+                                              <div className="text-xs font-semibold text-slate-600">
+                                                Total: {opt.currency} {total.toFixed(2)}
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
-                                      {opt.price > 0 && event.taxRate != null && event.taxRate > 0 && (() => {
-                                        const taxAmount = opt.price * event.taxRate / 100;
-                                        const total = opt.price + taxAmount;
-                                        const label = event.taxLabel || "VAT";
-                                        return (
-                                          <div className="mt-0.5 space-y-0.5">
-                                            <div className="text-[11px] text-slate-400">
-                                              {label} ({event.taxRate}%): {opt.currency} {taxAmount.toFixed(2)}
-                                            </div>
-                                            <div className="text-xs font-semibold text-slate-600">
-                                              Total: {opt.currency} {total.toFixed(2)}
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
-                                    </div>
+                                    )}
                                   </div>
                                   {opt.available <= 0 && (
                                     <p className="text-xs text-red-500 mt-1 ml-8">Sold out</p>

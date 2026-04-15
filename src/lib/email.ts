@@ -231,7 +231,14 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
       : `${appUrl}${branding.emailHeaderImage}`
     : null;
 
-  const headerBlock = headerSrc
+  // If the template body already opens with an <img> tag (e.g. an admin
+  // pasted a banner into the WYSIWYG editor), skip our auto-injected header
+  // to avoid rendering two banners stacked on top of each other. We check
+  // the first ~400 chars so a body-image counts only when it's clearly at
+  // the top of the content, not a footer logo or inline icon further down.
+  const bodyOpensWithImage = /^[\s\S]{0,400}<img\b/i.test(bodyHtml);
+
+  const headerBlock = headerSrc && !bodyOpensWithImage
     ? `<tr><td style="padding: 0;">
         <img src="${escapeHtml(headerSrc)}" alt="${escapeHtml(branding.eventName || "Event")}" style="display: block; width: 100%; max-width: 600px; height: auto;" />
       </td></tr>`

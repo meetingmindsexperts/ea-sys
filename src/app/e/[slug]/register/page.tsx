@@ -298,7 +298,10 @@ export default function RegisterOverviewPage() {
                       </div>
                     </div>
 
-                    {/* Pricing table */}
+                    {/* Pricing table. When the whole group is free, the
+                         group-level "Free" badge already communicates price —
+                         we only show the per-row price column if at least
+                         one row has a non-zero price (or is closed). */}
                     {group.regTypes.length > 0 && (
                       <div className="grid gap-1.5 mb-4">
                         {group.regTypes.map((rt) => (
@@ -307,9 +310,11 @@ export default function RegisterOverviewPage() {
                               <Users className="h-3.5 w-3.5 text-slate-400" />
                               <span className={cn("text-sm font-medium", rt.canPurchase ? "text-slate-700" : "text-slate-400 line-through")}>{rt.name}</span>
                             </div>
-                            <span className={cn("text-sm font-semibold", rt.canPurchase ? "text-slate-900" : "text-slate-400")}>
-                              {rt.canPurchase ? (rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`) : "Closed"}
-                            </span>
+                            {(!group.allFree || !rt.canPurchase) && (
+                              <span className={cn("text-sm font-semibold", rt.canPurchase ? "text-slate-900" : "text-slate-400")}>
+                                {rt.canPurchase ? (rt.price === 0 ? "Free" : `${rt.currency} ${rt.price}`) : "Closed"}
+                              </span>
+                            )}
                           </div>
                         ))}
                       </div>
