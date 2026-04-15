@@ -1,5 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { validateApiKey } from "@/lib/api-key";
+import { validateOAuthAccessToken } from "@/lib/mcp-oauth";
+import { handlePreflight, withCors } from "@/lib/mcp-cors";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { buildMcpServer } from "@/lib/agent/mcp-server-builder";
@@ -20,31 +22,70 @@ async function authenticate(req: Request): Promise<{ organizationId: string; key
   const apiKeyHeader = req.headers.get("x-api-key");
   const key = apiKeyHeader || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
   if (!key) return null;
-  const result = await validateApiKey(key);
-  if (!result) return null;
-  return { organizationId: result.organizationId, keyPrefix: key.slice(0, 12) };
+
+  // Try API-key path first (backward-compat for Claude Desktop + mcp-remote + n8n)
+  const apiKey = await validateApiKey(key);
+  if (apiKey) {
+    return { organizationId: apiKey.organizationId, keyPrefix: key.slice(0, 12) };
+  }
+
+  // Fall back to OAuth 2.1 Bearer access token (claude.ai web, Anthropic Console)
+  const oauth = await validateOAuthAccessToken(key);
+  if (oauth) {
+    return { organizationId: oauth.organizationId, keyPrefix: "oauth-" + key.slice(0, 10) };
+  }
+
+  return null;
+}
+
+/**
+ * Build the RFC 6750 WWW-Authenticate challenge header pointing at our
+ * OAuth protected-resource metadata so spec-compliant MCP clients (claude.ai
+ * web, etc.) can discover the authorization server and start the OAuth flow.
+ */
+function wwwAuthenticate(req: Request): string {
+  const base = new URL(req.url).origin;
+  return `Bearer realm="mcp", resource_metadata="${base}/.well-known/oauth-protected-resource"`;
 }
 
 async function handleMcp(req: Request): Promise<Response> {
   const authResult = await authenticate(req);
   if (!authResult) {
-    return new Response(JSON.stringify({ error: "Unauthorized. Provide API key via x-api-key header or Authorization: Bearer." }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    // Emit the WWW-Authenticate challenge so spec-compliant clients (claude.ai
+    // web, Anthropic Console) can discover the OAuth server and start the flow.
+    // The existing x-api-key path for Claude Desktop / mcp-remote / n8n still
+    // works; this just unblocks the browser-based clients.
+    return withCors(
+      req,
+      new Response(
+        JSON.stringify({
+          error: "Unauthorized. Provide API key via x-api-key header, or OAuth Bearer token via Authorization header.",
+        }),
+        {
+          status: 401,
+          headers: {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": wwwAuthenticate(req),
+          },
+        },
+      ),
+    );
   }
 
-  // Rate limit: 100 MCP requests per hour per API key
+  // Rate limit: 100 MCP requests per hour per API key / OAuth token
   const rl = checkRateLimit({
     key: `mcp-${authResult.keyPrefix}`,
     limit: 100,
     windowMs: 60 * 60 * 1000,
   });
   if (!rl.allowed) {
-    return new Response(JSON.stringify({ error: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.` }), {
-      status: 429,
-      headers: { "Content-Type": "application/json" },
-    });
+    return withCors(
+      req,
+      new Response(
+        JSON.stringify({ error: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.` }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      ),
+    );
   }
 
   apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix });
@@ -70,9 +111,9 @@ async function handleMcp(req: Request): Promise<Response> {
       const headers = new Headers(response.headers);
       headers.set("X-Accel-Buffering", "no");
       headers.set("Cache-Control", "no-cache, no-transform");
-      return new Response(response.body, { status: response.status, headers });
+      return withCors(req, new Response(response.body, { status: response.status, headers }));
     }
-    return response;
+    return withCors(req, response);
   }
 
   // New session — create transport with session ID generation
@@ -104,10 +145,10 @@ async function handleMcp(req: Request): Promise<Response> {
     const headers = new Headers(response.headers);
     headers.set("X-Accel-Buffering", "no");
     headers.set("Cache-Control", "no-cache, no-transform");
-    return new Response(response.body, { status: response.status, headers });
+    return withCors(req, new Response(response.body, { status: response.status, headers }));
   }
 
-  return response;
+  return withCors(req, response);
 }
 
 export async function GET(req: Request) {
@@ -123,7 +164,13 @@ export async function DELETE(req: Request) {
   const sessionId = req.headers.get("mcp-session-id");
   if (sessionId && sessions.has(sessionId)) {
     sessions.delete(sessionId);
-    return new Response(null, { status: 204 });
+    return withCors(req, new Response(null, { status: 204 }));
   }
   return handleMcp(req);
+}
+
+export async function OPTIONS(req: Request) {
+  // CORS preflight — required for claude.ai web and any browser-based MCP
+  // client. Without this, the browser blocks every subsequent request.
+  return handlePreflight(req);
 }

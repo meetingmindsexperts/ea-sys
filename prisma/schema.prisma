@@ -67,6 +67,8 @@ model User {
   mediaFiles      MediaFile[]
   deviceTokens    DeviceToken[]
   scheduledEmails ScheduledEmail[]
+  mcpOAuthAuthCodes    McpOAuthAuthCode[]
+  mcpOAuthAccessTokens McpOAuthAccessToken[]
 
   @@index([organizationId])
   @@index([email])
@@ -1267,4 +1269,65 @@ model ScheduledEmail {
 
   @@index([status, scheduledFor])
   @@index([eventId, status])
+}
+
+// ==================== MCP OAUTH 2.1 (RFC 7591 DCR + PKCE) ====================
+
+model McpOAuthClient {
+  id                      String   @id @default(cuid())
+  clientId                String   @unique
+  clientSecretHash        String?
+  clientName              String?
+  redirectUris            String[]
+  grantTypes              String[] @default(["authorization_code", "refresh_token"])
+  tokenEndpointAuthMethod String   @default("none")
+  scope                   String   @default("mcp")
+  createdAt               DateTime @default(now())
+
+  authCodes    McpOAuthAuthCode[]
+  accessTokens McpOAuthAccessToken[]
+
+  @@index([clientId])
+}
+
+model McpOAuthAuthCode {
+  id                  String   @id @default(cuid())
+  codeHash            String   @unique
+  clientId            String
+  userId              String
+  organizationId      String
+  codeChallenge       String
+  codeChallengeMethod String   @default("S256")
+  redirectUri         String
+  scope               String   @default("mcp")
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+
+  client McpOAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model McpOAuthAccessToken {
+  id             String    @id @default(cuid())
+  tokenHash      String    @unique
+  refreshHash    String?   @unique
+  clientId       String
+  userId         String
+  organizationId String
+  scope          String    @default("mcp")
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  client McpOAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([expiresAt])
 }

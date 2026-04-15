@@ -44,6 +44,15 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const origin = req.headers.get("origin");
 
+  // ── Pass-through for MCP + MCP OAuth routes ──
+  // These routes have their own CORS handling via src/lib/mcp-cors.ts — the
+  // mobile-only MOBILE_ALLOWED_ORIGINS list doesn't include claude.ai, so
+  // intercepting here would block every browser-based MCP client. Let each
+  // route's OPTIONS handler do the right thing.
+  if (pathname.startsWith("/api/mcp")) {
+    return NextResponse.next();
+  }
+
   // ── CORS preflight for mobile clients ──
   if (req.method === "OPTIONS" && pathname.startsWith("/api/")) {
     const response = new NextResponse(null, { status: 204 });
