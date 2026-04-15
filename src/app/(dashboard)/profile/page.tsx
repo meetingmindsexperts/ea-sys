@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,12 +10,21 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
+  { ssr: false, loading: () => <div className="h-40 rounded-md border bg-muted/30" /> },
+);
+
 interface ProfileUser {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
   role: string;
+}
+
+interface ProfileSignature {
+  emailSignature: string | null;
 }
 
 export default function ProfilePage() {
@@ -26,18 +36,27 @@ export default function ProfilePage() {
     firstName: "",
     lastName: "",
   });
+  const [signature, setSignature] = useState<string>("");
+  const [savingSignature, setSavingSignature] = useState(false);
 
   useEffect(() => {
     if (!session?.user?.id) return;
     const fetchUser = async () => {
       try {
-        const res = await fetch(`/api/organization/users/${session.user.id}`);
-        if (!res.ok) {
+        const [userRes, profileRes] = await Promise.all([
+          fetch(`/api/organization/users/${session.user.id}`),
+          fetch(`/api/profile`),
+        ]);
+        if (!userRes.ok) {
           throw new Error("Failed to load profile");
         }
-        const data = (await res.json()) as ProfileUser;
+        const data = (await userRes.json()) as ProfileUser;
         setUser(data);
         setFormData({ firstName: data.firstName || "", lastName: data.lastName || "" });
+        if (profileRes.ok) {
+          const sig = (await profileRes.json()) as ProfileSignature;
+          setSignature(sig.emailSignature ?? "");
+        }
       } catch (error) {
         console.error(error);
         toast.error("Failed to load profile");
@@ -48,6 +67,27 @@ export default function ProfilePage() {
 
     fetchUser();
   }, [session?.user?.id]);
+
+  const handleSaveSignature = async () => {
+    setSavingSignature(true);
+    try {
+      const res = await fetch(`/api/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailSignature: signature || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data?.error || "Failed to save signature");
+      }
+      toast.success("Email signature saved");
+    } catch (error) {
+      console.error(error);
+      toast.error(error instanceof Error ? error.message : "Failed to save signature");
+    } finally {
+      setSavingSignature(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!session?.user?.id) return;
@@ -132,6 +172,29 @@ export default function ProfilePage() {
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save Changes
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Email Signature</CardTitle>
+          <CardDescription>
+            Appended to speaker emails you send (invitations and agreements). Each organizer has
+            their own signature.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <TiptapEditor
+            content={signature}
+            onChange={setSignature}
+            placeholder="e.g. Best regards, Dr. Jane Smith — Conference Chair"
+          />
+          <div className="flex justify-end">
+            <Button onClick={handleSaveSignature} disabled={savingSignature}>
+              {savingSignature ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Signature
             </Button>
           </div>
         </CardContent>

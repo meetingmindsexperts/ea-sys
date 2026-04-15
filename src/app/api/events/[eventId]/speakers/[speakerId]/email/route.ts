@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
+import { buildSpeakerEmailContext, generateSpeakerAgreementDocx, SPEAKER_AGREEMENT_DOCX_MIME } from "@/lib/speaker-agreement";
 
 const sendEmailSchema = z.object({
   type: z.enum(["invitation", "agreement", "custom"]),
@@ -55,7 +56,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.user.findUnique({
         where: { id: session.user.id },
-        select: { firstName: true, lastName: true, email: true },
+        select: { firstName: true, lastName: true, email: true, emailSignature: true },
       }),
     ]);
 
@@ -118,6 +119,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Build the rich speaker context (title, full name, presentation block, etc.)
+    // for invitation/agreement templates. Custom emails get the basic vars only.
+    const context = type === "custom" ? null : await buildSpeakerEmailContext(eventId, speakerId);
+
     const vars: Record<string, string> = {
       firstName: speaker.firstName,
       lastName: speaker.lastName,
@@ -129,6 +134,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       personalMessage: customMessage || "",
       sessionDetails,
       agreementLink,
+      title: context?.title ?? "",
+      speakerName: context?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
+      presentationDetails: context?.presentationDetails ?? "",
+      presentationDetailsText: context?.presentationDetailsText ?? "",
+      organizerSignature: user?.emailSignature ?? "",
     };
 
     const slugMap: Record<string, string> = {
@@ -154,13 +164,49 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
-    const rendered = renderAndWrap(tpl, vars, branding);
+    const rendered = renderAndWrap(
+      tpl,
+      vars,
+      branding,
+      new Set(["presentationDetails", "organizerSignature", "personalMessage"]),
+    );
+
+    // For agreement emails, mail-merge the personalized .docx and attach it.
+    let attachments: { name: string; content: string; contentType?: string }[] | undefined;
+    if (type === "agreement") {
+      try {
+        const doc = await generateSpeakerAgreementDocx({ eventId, speakerId });
+        if (!doc) {
+          return NextResponse.json(
+            {
+              error:
+                "Upload a speaker agreement template under Event Settings → Email Branding → Speaker Agreement Template first.",
+            },
+            { status: 400 },
+          );
+        }
+        attachments = [
+          {
+            name: doc.filename,
+            content: doc.buffer.toString("base64"),
+            contentType: SPEAKER_AGREEMENT_DOCX_MIME,
+          },
+        ];
+      } catch (docErr) {
+        apiLogger.error({ err: docErr, msg: "speaker-agreement:generate-failed", eventId, speakerId });
+        return NextResponse.json(
+          { error: docErr instanceof Error ? docErr.message : "Failed to generate agreement document" },
+          { status: 500 },
+        );
+      }
+    }
 
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
       ...rendered,
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
+      attachments,
     });
 
     if (!result.success) {

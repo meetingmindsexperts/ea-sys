@@ -68,7 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.user.findUnique({
         where: { id: session.user.id },
-        select: { firstName: true, lastName: true, email: true },
+        select: { firstName: true, lastName: true, email: true, emailSignature: true },
       }),
     ]);
 
@@ -79,6 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const organizerName = user?.firstName && user?.lastName
       ? `${user.firstName} ${user.lastName}` : "Event Organizer";
     const organizerEmail = user?.email || "";
+    const organizerSignature = user?.emailSignature ?? undefined;
 
     let result;
     try {
@@ -93,6 +94,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         filters,
         organizerName,
         organizerEmail,
+        organizerSignature,
       });
     } catch (err) {
       if (err instanceof BulkEmailError) {
@@ -120,7 +122,9 @@ export async function POST(req: Request, { params }: RouteParams) {
             successCount: result.successCount,
             failureCount: result.failureCount,
             customSubject,
-            hasAttachments: !!attachments?.length,
+            hasAttachments:
+              !!attachments?.length ||
+              (emailType === "agreement" && recipientType === "speakers"),
             ip: getClientIp(req),
           },
         },

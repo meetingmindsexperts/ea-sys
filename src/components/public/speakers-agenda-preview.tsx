@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
+import { formatPersonName } from "@/lib/utils";
 
 /**
  * Speakers + Agenda preview block for the public registration pages.
@@ -31,6 +32,7 @@ import {
 
 interface Speaker {
   id: string;
+  title: string | null;
   firstName: string;
   lastName: string;
   jobTitle: string | null;
@@ -174,7 +176,7 @@ export function SpeakersAndAgendaPreview({ slug }: SpeakersAndAgendaPreviewProps
                 {speaker.photo ? (
                   <Image
                     src={speaker.photo}
-                    alt={`${speaker.firstName} ${speaker.lastName}`}
+                    alt={formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                     width={48}
                     height={48}
                     className="rounded-full object-cover h-12 w-12 shrink-0"
@@ -187,7 +189,7 @@ export function SpeakersAndAgendaPreview({ slug }: SpeakersAndAgendaPreviewProps
                 )}
                 <div className="min-w-0">
                   <p className="font-medium text-sm text-slate-900 truncate">
-                    {speaker.firstName} {speaker.lastName}
+                    {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                   </p>
                   {(speaker.jobTitle || speaker.organization) && (
                     <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">

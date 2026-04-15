@@ -10,6 +10,7 @@ import {
   brandingFrom,
   type EmailBranding,
 } from "./email";
+import { buildSpeakerEmailContext, generateSpeakerAgreementDocx, SPEAKER_AGREEMENT_DOCX_MIME } from "./speaker-agreement";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -65,6 +66,7 @@ export interface BulkEmailInput {
   filters?: BulkEmailFilters;
   organizerName: string;
   organizerEmail: string;
+  organizerSignature?: string;
 }
 
 export interface BulkEmailResult {
@@ -158,7 +160,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     filters,
     organizerName,
     organizerEmail,
+    organizerSignature,
   } = input;
+
+  // Speaker-agreement bulk sends require an uploaded .docx template — fail
+  // fast before resolving recipients so we don't half-process and stress
+  // Zoom/email rate limits with errors.
+  const needsAgreementDocx = emailType === "agreement" && recipientType === "speakers";
 
   // Validate attachment size
   if (attachments?.length) {
@@ -185,10 +193,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       emailFromName: true,
       emailHeaderImage: true,
       emailFooterHtml: true,
+      speakerAgreementTemplate: true,
     },
   });
   if (!event) {
     throw new BulkEmailError("Event not found", 404);
+  }
+
+  if (needsAgreementDocx && !event.speakerAgreementTemplate) {
+    throw new BulkEmailError(
+      "Upload a speaker agreement template under Event Settings → Email Branding → Speaker Agreement Template before sending agreement emails.",
+      400,
+    );
   }
 
   const eventDate = event.startDate
@@ -443,7 +459,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     };
   }
 
-  const generateEmailForRecipient = (recipient: ResolvedRecipient) => {
+  // For speaker-targeted templates (invitation/agreement), build the rich
+  // per-speaker context so greetings include the title prefix and the body
+  // shows their actual sessions/topics/dates.
+  const isSpeakerContextNeeded =
+    recipientType === "speakers" && (emailType === "invitation" || emailType === "agreement");
+
+  const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
       firstName: recipient.firstName,
       lastName: recipient.lastName,
@@ -453,6 +475,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       eventAddress: event.address || "",
       organizerName,
       organizerEmail,
+      organizerSignature: organizerSignature ?? "",
       personalMessage: customMessage || "",
       ticketType: recipient.ticketType || "General Admission",
       registrationId:
@@ -460,7 +483,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           ? String(recipient.serialId).padStart(3, "0")
           : recipient.id.slice(-8).toUpperCase(),
       daysUntilEvent: daysUntil,
+      title: "",
+      speakerName: `${recipient.firstName} ${recipient.lastName}`,
+      presentationDetails: "",
+      presentationDetailsText: "",
+      sessionDetails: "",
     };
+
+    if (isSpeakerContextNeeded) {
+      const ctx = await buildSpeakerEmailContext(eventId, recipient.id);
+      if (ctx) {
+        vars.title = ctx.title;
+        vars.speakerName = ctx.speakerName;
+        vars.presentationDetails = ctx.presentationDetails;
+        vars.presentationDetailsText = ctx.presentationDetailsText;
+        vars.sessionDetails = ctx.sessionTitles.replace(/\n/g, ", ");
+      }
+    }
 
     if (emailType === "custom") {
       if (!customSubject || !customMessage) {
@@ -482,7 +521,18 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.recordingBlockText = webinarEnrichment.recordingBlockText;
     }
 
-    return renderAndWrap(tpl, vars, branding);
+    return renderAndWrap(
+      tpl,
+      vars,
+      branding,
+      new Set([
+        "presentationDetails",
+        "organizerSignature",
+        "personalMessage",
+        "passcodeBlock",
+        "recordingBlock",
+      ]),
+    );
   };
 
   // ── Send in batches of 25 ──
@@ -497,13 +547,34 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     const batchResults = await Promise.allSettled(
       batch.map(async (recipient) => {
         try {
-          const emailContent = generateEmailForRecipient(recipient);
+          const emailContent = await generateEmailForRecipient(recipient);
+
+          // Per-recipient personalized .docx attachment for speaker agreements
+          let recipientAttachments: BulkEmailAttachment[] | undefined = attachments;
+          if (needsAgreementDocx) {
+            const doc = await generateSpeakerAgreementDocx({
+              eventId,
+              speakerId: recipient.id,
+            });
+            if (!doc) {
+              throw new Error("Failed to generate agreement document");
+            }
+            const personalizedAttachment: BulkEmailAttachment = {
+              name: doc.filename,
+              content: doc.buffer.toString("base64"),
+              contentType: SPEAKER_AGREEMENT_DOCX_MIME,
+            };
+            recipientAttachments = attachments
+              ? [...attachments, personalizedAttachment]
+              : [personalizedAttachment];
+          }
+
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,
             textContent: emailContent.textContent,
-            attachments,
+            attachments: recipientAttachments,
             from: brandingFrom(branding),
             replyTo:
               (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
@@ -517,7 +588,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             msg: "Failed to send email to recipient",
             email: recipient.email,
           });
-          return { recipient, result: { success: false, error: "Failed to send email" } };
+          return {
+            recipient,
+            result: {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to send email",
+            },
+          };
         }
       })
     );

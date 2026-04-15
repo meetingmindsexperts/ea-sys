@@ -24,6 +24,7 @@ import {
   ListOrdered,
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
+import { formatPersonName } from "@/lib/utils";
 
 // The live-stream player is client-only (hls.js pulls ArrayBuffer refs
 // from window) so we dynamically import it. The Zoom Component View embed
@@ -60,6 +61,7 @@ interface JoinInfo {
 
 interface SpeakerInfo {
   id: string;
+  title?: string | null;
   firstName: string;
   lastName: string;
   jobTitle?: string | null;
@@ -76,6 +78,7 @@ interface TopicInfo {
   duration: number | null;
   speakers: Array<{
     id: string;
+    title?: string | null;
     firstName: string;
     lastName: string;
     photo?: string | null;
@@ -546,7 +549,7 @@ export default function PublicSessionPage() {
                               {sp.photo ? (
                                 <Image
                                   src={sp.photo}
-                                  alt={`${sp.firstName} ${sp.lastName}`}
+                                  alt={formatPersonName(sp.title, sp.firstName, sp.lastName)}
                                   width={20}
                                   height={20}
                                   className="rounded-full object-cover"
@@ -557,7 +560,7 @@ export default function PublicSessionPage() {
                                 </div>
                               )}
                               <span>
-                                {sp.firstName} {sp.lastName}
+                                {formatPersonName(sp.title, sp.firstName, sp.lastName)}
                               </span>
                             </div>
                           ))}
@@ -584,7 +587,7 @@ export default function PublicSessionPage() {
                       {speaker.photo ? (
                         <Image
                           src={speaker.photo}
-                          alt={`${speaker.firstName} ${speaker.lastName}`}
+                          alt={formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                           width={64}
                           height={64}
                           className="rounded-full object-cover h-16 w-16 shrink-0"
@@ -597,7 +600,7 @@ export default function PublicSessionPage() {
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="font-medium">
-                          {speaker.firstName} {speaker.lastName}
+                          {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </p>
                         {(speaker.jobTitle || speaker.organization) && (
                           <p className="text-xs text-muted-foreground mt-0.5">

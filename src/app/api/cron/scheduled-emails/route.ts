@@ -40,7 +40,7 @@ async function processRow(row: {
   customMessage: string | null;
   attachments: unknown;
   filters: unknown;
-}, organizer: { firstName: string; lastName: string; email: string } | null): Promise<TickResult> {
+}, organizer: { firstName: string; lastName: string; email: string; emailSignature: string | null } | null): Promise<TickResult> {
   // Atomic claim — only proceed if we flipped PENDING→PROCESSING.
   const claim = await db.scheduledEmail.updateMany({
     where: { id: row.id, status: "PENDING" },
@@ -64,6 +64,7 @@ async function processRow(row: {
           ? `${organizer.firstName} ${organizer.lastName}`
           : "Event Organizer",
       organizerEmail: organizer?.email ?? "",
+      organizerSignature: organizer?.emailSignature ?? undefined,
     });
 
     await db.scheduledEmail.update({
@@ -197,7 +198,7 @@ async function handleCron(req: Request) {
     const organizerIds = [...new Set(due.map((r) => r.createdById))];
     const organizers = await db.user.findMany({
       where: { id: { in: organizerIds } },
-      select: { id: true, firstName: true, lastName: true, email: true },
+      select: { id: true, firstName: true, lastName: true, email: true, emailSignature: true },
     });
     const organizerMap = new Map(organizers.map((u) => [u.id, u]));
 

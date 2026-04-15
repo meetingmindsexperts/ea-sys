@@ -52,6 +52,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
             speaker: {
               select: {
                 id: true,
+                title: true,
                 firstName: true,
                 lastName: true,
                 jobTitle: true,
@@ -74,6 +75,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
                 speaker: {
                   select: {
                     id: true,
+                    title: true,
                     firstName: true,
                     lastName: true,
                     photo: true,

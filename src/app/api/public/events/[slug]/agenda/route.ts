@@ -62,6 +62,7 @@ export async function GET(req: Request, { params }: RouteParams) {
                 speaker: {
                   select: {
                     id: true,
+                    title: true,
                     firstName: true,
                     lastName: true,
                     jobTitle: true,

@@ -16,7 +16,7 @@ import {
   Clock,
   Mail,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatPersonName } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,7 @@ interface Track {
 
 interface Speaker {
   id: string;
+  title: string | null;
   firstName: string;
   lastName: string;
   jobTitle: string | null;
@@ -481,7 +482,7 @@ function SessionRow({ session }: { session: Session }) {
                         {speaker.photo ? (
                           <Image
                             src={speaker.photo}
-                            alt={`${speaker.firstName} ${speaker.lastName}`}
+                            alt={formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                             width={18}
                             height={18}
                             className="rounded-full object-cover"
@@ -495,7 +496,7 @@ function SessionRow({ session }: { session: Session }) {
                           </div>
                         )}
                         <span className="text-xs text-slate-700 font-medium">
-                          {speaker.firstName} {speaker.lastName}
+                          {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </span>
                         {speaker.jobTitle && (
                           <span className="text-xs text-slate-400 hidden sm:inline">

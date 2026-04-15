@@ -317,25 +317,33 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "paymentBlock", description: "Payment pending block (auto-generated for paid tickets)" },
   ],
   "speaker-invitation": [
+    { key: "title", description: "Speaker title prefix (e.g. Dr.)" },
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
+    { key: "speakerName", description: "Full prefixed speaker name" },
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "personalMessage", description: "Personal message from organizer" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
     { key: "organizerName", description: "Organizer name" },
     { key: "organizerEmail", description: "Organizer email" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
   ],
   "speaker-agreement": [
+    { key: "title", description: "Speaker title prefix (e.g. Dr.)" },
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
+    { key: "speakerName", description: "Full prefixed speaker name" },
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "sessionDetails", description: "Session details" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
     { key: "agreementLink", description: "Agreement link URL" },
     { key: "organizerName", description: "Organizer name" },
     { key: "organizerEmail", description: "Organizer email" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
   ],
   "event-reminder": [
     { key: "firstName", description: "Recipient first name" },
@@ -473,9 +481,10 @@ See you at the event!`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You&apos;re Invited to Speak!</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
     <p>We would be honored to have you as a speaker at <strong>{{eventName}}</strong>!</p>
     {{personalMessage}}
+    {{presentationDetails}}
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
@@ -486,14 +495,17 @@ See you at the event!`,
     </div>
     <p>Please let us know if you&apos;re interested in speaking at our event. We look forward to hearing from you!</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Speaker Invitation - {{eventName}}
 
-Dear {{firstName}},
+Dear {{speakerName}},
 
 We would be honored to have you as a speaker at {{eventName}}!
 
 {{personalMessage}}
+
+{{presentationDetailsText}}
 
 Event Details:
 - Event: {{eventName}}
@@ -513,8 +525,9 @@ Best regards,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Speaker Agreement</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
     <p>Thank you for agreeing to speak at <strong>{{eventName}}</strong>. We are excited to have you as part of our event!</p>
+    {{presentationDetails}}
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
@@ -523,26 +536,32 @@ Best regards,
         <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
       </table>
     </div>
-    <p>Please review and confirm the speaker agreement by clicking the button below:</p>
+    <p><strong>Your personalized speaker agreement is attached to this email.</strong> Please review it, sign, and return it at your earliest convenience.</p>
+    <p>You can also review and confirm the agreement online by clicking the button below:</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{agreementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Accept Agreement</a>
     </div>
     <p style="color: #6b7280; font-size: 13px; text-align: center;">This link is unique to you and will expire in 30 days.</p>
     <p>If you have any questions, please don&apos;t hesitate to reach out.</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Speaker Agreement - {{eventName}}
 
-Dear {{firstName}},
+Dear {{speakerName}},
 
 Thank you for agreeing to speak at {{eventName}}.
+
+{{presentationDetailsText}}
 
 Event Details:
 - Event: {{eventName}}
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
 
-Please review and confirm the speaker agreement here:
+Your personalized speaker agreement is attached to this email. Please review it, sign, and return it at your earliest convenience.
+
+You can also review and confirm the agreement online here:
 {{agreementLink}}
 
 This link is unique to you and will expire in 30 days.

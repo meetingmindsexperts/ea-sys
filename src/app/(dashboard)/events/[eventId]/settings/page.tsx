@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
+import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { isWebinar } from "@/lib/webinar";
 import Image from "next/image";
 import Link from "next/link";
@@ -1319,6 +1320,10 @@ export default function EventSettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <div className="mt-6">
+            <SpeakerAgreementTemplateCard eventId={eventId} />
+          </div>
         </TabsContent>
 
         {/* Email Templates */}
