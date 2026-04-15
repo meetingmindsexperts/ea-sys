@@ -1,7 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { validateApiKey } from "@/lib/api-key";
 import { validateOAuthAccessToken } from "@/lib/mcp-oauth";
-import { handlePreflight, withCors } from "@/lib/mcp-cors";
+import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { buildMcpServer } from "@/lib/agent/mcp-server-builder";
@@ -42,9 +42,14 @@ async function authenticate(req: Request): Promise<{ organizationId: string; key
  * Build the RFC 6750 WWW-Authenticate challenge header pointing at our
  * OAuth protected-resource metadata so spec-compliant MCP clients (claude.ai
  * web, etc.) can discover the authorization server and start the OAuth flow.
+ *
+ * Uses `publicBaseUrl()` because `new URL(req.url).origin` inside a Docker
+ * container behind nginx resolves to the internal address (e.g.
+ * `http://0.0.0.0:3000`) rather than the public hostname — which breaks
+ * discovery on every client.
  */
 function wwwAuthenticate(req: Request): string {
-  const base = new URL(req.url).origin;
+  const base = publicBaseUrl(req);
   return `Bearer realm="mcp", resource_metadata="${base}/.well-known/oauth-protected-resource"`;
 }
 

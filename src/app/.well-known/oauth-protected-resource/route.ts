@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handlePreflight, withCors } from "@/lib/mcp-cors";
+import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
 
 /**
  * OAuth 2.0 Protected Resource Metadata (RFC 9728).
@@ -9,7 +9,7 @@ import { handlePreflight, withCors } from "@/lib/mcp-cors";
  * document to discover the authorization server(s) that protect the resource.
  */
 export async function GET(req: Request) {
-  const base = new URL(req.url).origin;
+  const base = publicBaseUrl(req);
   const body = {
     resource: `${base}/api/mcp`,
     authorization_servers: [base],

@@ -76,6 +76,33 @@ export function handlePreflight(req: Request): Response {
 }
 
 /**
+ * Resolve the public-facing base URL of this server.
+ *
+ * Critical for OAuth discovery metadata + WWW-Authenticate header: if we
+ * advertise the wrong URL (e.g. `http://0.0.0.0:3000` because the Docker
+ * container doesn't know its public hostname), clients like claude.ai web
+ * will try to hit the bogus URL and fail with "Couldn't reach MCP server".
+ *
+ * Resolution order:
+ *   1. `NEXTAUTH_URL` env var (set in production `.env`)
+ *   2. `NEXT_PUBLIC_APP_URL` env var (fallback)
+ *   3. `X-Forwarded-Proto` + `X-Forwarded-Host` (if nginx sets them)
+ *   4. `new URL(req.url).origin` (for local dev where nothing is configured)
+ */
+export function publicBaseUrl(req: Request): string {
+  const fromEnv = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+  if (fromEnv) {
+    return fromEnv.replace(/\/+$/, "");
+  }
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, "");
+  }
+  return new URL(req.url).origin;
+}
+
+/**
  * Wrap an existing Response with CORS headers for the given request origin.
  * Returns a new Response (Response.headers is immutable after construction in
  * some runtimes, so we rebuild it).

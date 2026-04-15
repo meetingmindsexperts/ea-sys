@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handlePreflight, withCors } from "@/lib/mcp-cors";
+import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
 
 /**
  * OAuth 2.0 Authorization Server Metadata (RFC 8414).
@@ -9,7 +9,7 @@ import { handlePreflight, withCors } from "@/lib/mcp-cors";
  * Dynamic Client Registration, authorization, token exchange, and revocation.
  */
 export async function GET(req: Request) {
-  const base = new URL(req.url).origin;
+  const base = publicBaseUrl(req);
   const body = {
     issuer: base,
     authorization_endpoint: `${base}/mcp-authorize`,
