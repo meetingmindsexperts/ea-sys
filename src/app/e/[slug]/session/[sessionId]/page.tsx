@@ -22,6 +22,8 @@ import {
   PlayCircle,
   Award,
   ListOrdered,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { formatPersonName } from "@/lib/utils";
@@ -54,10 +56,17 @@ interface JoinInfo {
   joinUrl: string;
   meetingType: string;
   sessionName: string;
+  userName?: string;
+  userEmail?: string;
   liveStreamEnabled?: boolean;
   hlsPlaybackUrl?: string;
   streamStatus?: string;
 }
+
+type JoinAuthState =
+  | { kind: "ok" }
+  | { kind: "needs-login" }
+  | { kind: "needs-registration" };
 
 interface SpeakerInfo {
   id: string;
@@ -154,6 +163,11 @@ export default function PublicSessionPage() {
   // We don't auto-mount the embed on page load because we don't want to
   // pull the ~3 MB Zoom bundle for users just looking at session details.
   const [isJoining, setIsJoining] = useState(false);
+  // Tracks whether the current viewer is allowed to pull an SDK signature.
+  // The zoom-join endpoint is gated to logged-in registrants of the event,
+  // so unauthenticated or unregistered visitors see a login / register CTA
+  // in place of the Join button instead of an error screen.
+  const [authState, setAuthState] = useState<JoinAuthState>({ kind: "ok" });
 
   useEffect(() => {
     async function fetchData() {
@@ -167,6 +181,10 @@ export default function PublicSessionPage() {
 
         if (joinRes.ok) {
           setJoinInfo(joinData);
+        } else if (joinRes.status === 401 || joinData.code === "UNAUTHENTICATED") {
+          setAuthState({ kind: "needs-login" });
+        } else if (joinData.code === "NOT_REGISTERED") {
+          setAuthState({ kind: "needs-registration" });
         } else if (joinData.joinableAt) {
           setJoinableAt(joinData.joinableAt);
         }
@@ -241,10 +259,11 @@ export default function PublicSessionPage() {
     (session?.zoomMeeting?.recordingStatus === "PENDING" ||
       session?.zoomMeeting?.recordingStatus === "NOT_REQUESTED");
 
-  // Canonical attendee name for Zoom. We don't have an authenticated session
-  // on the public side, so default to "Attendee" — users can be prompted
-  // by Zoom itself to enter their name inside the embed UI.
-  const zoomUserName = "Attendee";
+  // The zoom-join endpoint returns the real attendee name/email for the
+  // authenticated registration. Fall back to "Attendee" only if the API
+  // response was older or staff-initiated without an email on the user.
+  const zoomUserName = joinInfo?.userName?.trim() || "Attendee";
+  const zoomUserEmail = joinInfo?.userEmail || "";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -350,11 +369,14 @@ export default function PublicSessionPage() {
              session header. */}
         <div className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-gradient-to-br from-slate-50/90 to-blue-50/90 backdrop-blur-sm">
           <StickyCta
+            slug={slug}
+            sessionId={sessionId}
             isLive={isLive}
             isPast={isPast}
             isUpcoming={isUpcoming}
             joinableAt={joinableAt}
             joinInfo={joinInfo}
+            authState={authState}
             hasRecording={hasRecording}
             recordingUrl={session?.zoomMeeting?.recordingUrl ?? null}
             recordingPassword={session?.zoomMeeting?.recordingPassword ?? null}
@@ -407,6 +429,7 @@ export default function PublicSessionPage() {
                   meetingNumber={joinInfo.meetingNumber}
                   passcode={joinInfo.passcode || ""}
                   userName={zoomUserName}
+                  userEmail={zoomUserEmail}
                   joinUrl={joinInfo.joinUrl}
                   onLeave={() => setIsJoining(false)}
                 />
@@ -643,11 +666,14 @@ export default function PublicSessionPage() {
 // ── Sticky CTA card ────────────────────────────────────────────
 
 function StickyCta({
+  slug,
+  sessionId,
   isLive,
   isPast,
   isUpcoming,
   joinableAt,
   joinInfo,
+  authState,
   hasRecording,
   recordingUrl,
   recordingPassword,
@@ -655,11 +681,14 @@ function StickyCta({
   onJoin,
   onLeave,
 }: {
+  slug: string;
+  sessionId: string;
   isLive: boolean;
   isPast: boolean;
   isUpcoming: boolean;
   joinableAt: string | null;
   joinInfo: JoinInfo | null;
+  authState: JoinAuthState;
   hasRecording: boolean;
   recordingUrl: string | null;
   recordingPassword: string | null;
@@ -705,6 +734,65 @@ function StickyCta({
           <p className="text-sm text-muted-foreground flex-1">
             This session has ended.
           </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Live or upcoming, but the viewer is not signed in — show a login CTA.
+  // The zoom-join endpoint is gated to logged-in registrants, so there's
+  // no way to get an SDK signature without this step.
+  if (!joinInfo && authState.kind === "needs-login" && !isPast) {
+    const redirectTarget = `/e/${slug}/session/${sessionId}`;
+    return (
+      <Card className="border-blue-200 bg-blue-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+            <LogIn className="h-6 w-6 text-blue-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">Sign in to join</p>
+            <p className="text-xs text-muted-foreground">
+              This webinar is open to registered attendees only.
+            </p>
+          </div>
+          <Link href={`/e/${slug}/login?redirect=${encodeURIComponent(redirectTarget)}`}>
+            <Button
+              size="lg"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <LogIn className="h-4 w-4" />
+              Sign in
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Live or upcoming, viewer is signed in but not registered for this event.
+  if (!joinInfo && authState.kind === "needs-registration" && !isPast) {
+    return (
+      <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
+        <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <UserPlus className="h-6 w-6 text-amber-600" />
+          </div>
+          <div className="flex-1 text-center sm:text-left">
+            <p className="font-semibold">Register to join</p>
+            <p className="text-xs text-muted-foreground">
+              You must be registered for this event before joining the webinar.
+            </p>
+          </div>
+          <Link href={`/e/${slug}/register`}>
+            <Button
+              size="lg"
+              className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <UserPlus className="h-4 w-4" />
+              Register
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     );

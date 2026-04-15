@@ -24,6 +24,7 @@ export {
   getZoomWebinar,
   updateZoomWebinar,
   deleteZoomWebinar,
+  enableWebinarQA,
   addWebinarPanelists,
   listWebinarPanelists,
   removeWebinarPanelist,

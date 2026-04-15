@@ -78,6 +78,21 @@ export async function deleteZoomMeeting(
 
 // ── Webinars ───────────────────────────────────────────────────────
 
+// Q&A settings applied to every webinar we create so attendees can ask
+// questions via Zoom's native panel inside the Component View embed.
+// Zoom's account default is not guaranteed across orgs.
+const WEBINAR_QA_SETTINGS = {
+  question_and_answer: {
+    enable: true,
+    allow_anonymous_questions: true,
+    answer_questions: "all",
+    attendees_can_upvote: true,
+    attendees_can_comment: true,
+  },
+  hd_video: true,
+  meeting_authentication: false,
+} as const;
+
 export async function createZoomWebinar(
   organizationId: string,
   params: CreateZoomWebinarParams,
@@ -93,8 +108,9 @@ export async function createZoomWebinar(
     agenda: params.agenda,
     settings: {
       auto_recording: params.autoRecording || "none",
-      approval_type: 2, // no registration required
+      approval_type: 2, // no registration required — we gate on our side
       panelists_invitation_email_notification: false,
+      ...WEBINAR_QA_SETTINGS,
     },
   });
 }
@@ -121,7 +137,21 @@ export async function createWebinarSeries(
       auto_recording: params.autoRecording || "none",
       approval_type: 2,
       panelists_invitation_email_notification: false,
+      ...WEBINAR_QA_SETTINGS,
     },
+  });
+}
+
+// Backfill Q&A (and related) settings on an existing webinar.
+// Used by the manual "Re-run provisioner" button so organizers can push
+// Q&A onto webinars that were created before we explicitly enabled it.
+export async function enableWebinarQA(
+  organizationId: string,
+  webinarId: string,
+): Promise<void> {
+  apiLogger.info({ orgId: organizationId, webinarId }, "zoom:enabling-qa");
+  await zoomApiRequest<void>(organizationId, "PATCH", `/webinars/${webinarId}`, {
+    settings: WEBINAR_QA_SETTINGS,
   });
 }
 

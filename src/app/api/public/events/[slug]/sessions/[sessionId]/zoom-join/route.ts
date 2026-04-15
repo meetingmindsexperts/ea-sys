@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -8,9 +9,11 @@ type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
 const JOINABLE_BEFORE_START_MS = 15 * 60 * 1000; // 15 minutes before start
 
+const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { slug, sessionId } = await params;
+    const [{ slug, sessionId }, authSession] = await Promise.all([params, auth()]);
 
     // Rate limit by IP
     const ip = getClientIp(req);
@@ -27,6 +30,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Require a logged-in user — we gate attendees on our side rather than
+    // through Zoom's registrant flow, so the SDK signature endpoint is the
+    // single chokepoint.
+    if (!authSession?.user) {
+      apiLogger.warn({ ip, sessionId }, "zoom:join-denied:unauthenticated");
+      return NextResponse.json(
+        { error: "Sign in required to join this webinar", code: "UNAUTHENTICATED" },
+        { status: 401 },
+      );
+    }
+
     // Find event by slug — include organizationId for SDK credentials
     const event = await db.event.findFirst({
       where: {
@@ -38,6 +52,47 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Authorization: either the user is org staff (for QA / host testing)
+    // or they have a non-cancelled Registration for this event.
+    const isOrgStaff =
+      ORG_STAFF_ROLES.has(authSession.user.role ?? "") &&
+      authSession.user.organizationId === event.organizationId;
+
+    let attendeeName = "";
+    let attendeeEmail = "";
+    if (isOrgStaff) {
+      attendeeName = `${authSession.user.firstName ?? ""} ${authSession.user.lastName ?? ""}`.trim();
+      attendeeEmail = authSession.user.email ?? "";
+    } else {
+      const registration = await db.registration.findFirst({
+        where: {
+          eventId: event.id,
+          userId: authSession.user.id,
+          status: { not: "CANCELLED" },
+        },
+        select: {
+          id: true,
+          attendee: { select: { firstName: true, lastName: true, email: true } },
+        },
+      });
+      if (!registration?.attendee) {
+        apiLogger.warn(
+          { userId: authSession.user.id, eventId: event.id, sessionId },
+          "zoom:join-denied:not-registered",
+        );
+        return NextResponse.json(
+          {
+            error: "You must be registered for this event to join the webinar",
+            code: "NOT_REGISTERED",
+          },
+          { status: 403 },
+        );
+      }
+      attendeeName =
+        `${registration.attendee.firstName} ${registration.attendee.lastName}`.trim();
+      attendeeEmail = registration.attendee.email;
     }
 
     // Find session with its Zoom meeting
@@ -120,11 +175,16 @@ export async function GET(req: Request, { params }: RouteParams) {
         passcode: session.zoomMeeting.passcode,
         meetingType: session.zoomMeeting.meetingType,
         sessionName: session.name,
+        userName: attendeeName,
+        userEmail: attendeeEmail,
         ...streamingFields,
       });
     }
 
-    apiLogger.info({ sessionId, meetingType: session.zoomMeeting.meetingType }, "zoom:join-via-sdk");
+    apiLogger.info(
+      { sessionId, meetingType: session.zoomMeeting.meetingType, userId: authSession.user.id },
+      "zoom:join-via-sdk",
+    );
 
     return NextResponse.json({
       mode: "sdk",
@@ -135,6 +195,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       meetingType: session.zoomMeeting.meetingType,
       sessionName: session.name,
       joinUrl: session.zoomMeeting.joinUrl,
+      userName: attendeeName,
+      userEmail: attendeeEmail,
       ...streamingFields,
     });
   } catch (error) {

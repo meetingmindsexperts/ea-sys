@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
+import { enableWebinarQA } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -185,7 +186,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -195,6 +196,25 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!result.ok) {
       return NextResponse.json({ error: result.reason }, { status: 500 });
     }
+
+    // Backfill Q&A on a pre-existing webinar that was created before we
+    // explicitly enabled it. Newly-created webinars already get Q&A via
+    // createZoomWebinar's settings payload, so skip them.
+    if (result.zoomStatus === "already-attached" && result.zoomMeetingId) {
+      try {
+        await enableWebinarQA(event.organizationId, result.zoomMeetingId);
+        apiLogger.info(
+          { eventId, zoomMeetingId: result.zoomMeetingId },
+          "webinar:qa-backfilled",
+        );
+      } catch (err) {
+        apiLogger.warn(
+          { err, eventId, zoomMeetingId: result.zoomMeetingId },
+          "webinar:qa-backfill-failed",
+        );
+      }
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:manual-provision-failed");
