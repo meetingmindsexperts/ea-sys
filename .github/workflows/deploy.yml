@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       # Cache the full node_modules dir keyed on lockfile.
       # On hit, npm ci is skipped entirely (~30-40s saved).
@@ -37,6 +37,17 @@ jobs:
       - name: Install dependencies
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: npm ci
+
+      # Catch the drift CASE we hit twice already: a contributor on a different
+      # Node/npm version commits a lockfile that npm 10 cannot consume. Re-resolve
+      # under THIS runner's npm and fail loudly if the result differs.
+      - name: Verify lockfile is in sync
+        run: |
+          npm install --package-lock-only --no-audit --no-fund
+          if ! git diff --exit-code package-lock.json; then
+            echo "::error::package-lock.json is out of sync with package.json. Run 'npm install' under Node $(node --version) and commit the result."
+            exit 1
+          fi
 
       # Always run prisma generate — on cache miss it ran via postinstall,
       # but on cache hit postinstall was skipped. This is fast (~3s).
