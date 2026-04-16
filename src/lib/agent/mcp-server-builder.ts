@@ -124,6 +124,72 @@ export function buildMcpServer(organizationId: string): McpServer {
     }
   );
 
+  // ── Org-level write: update_contact (contacts are org-scoped, not event-scoped) ──
+  server.tool(
+    "update_contact",
+    "Update a contact's details. Pass contactId and any subset of: title, firstName, lastName, organization, jobTitle, bio, specialty, phone, photo, city, state, zipCode, country, notes, tags. Email is immutable here — use the dashboard merge flow if you need to change it.",
+    {
+      contactId: z.string(),
+      title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      organization: z.string().optional(),
+      jobTitle: z.string().optional(),
+      bio: z.string().optional(),
+      specialty: z.string().optional(),
+      phone: z.string().optional(),
+      photo: z.string().nullable().optional(),
+      city: z.string().optional(),
+      state: z.string().optional(),
+      zipCode: z.string().optional(),
+      country: z.string().optional(),
+      notes: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+    },
+    async (input) => {
+      const result = await runTool("update_contact", input, {
+        eventId: "",
+        organizationId,
+        userId: SYSTEM_USER_ID,
+        counters: { creates: 0, emailsSent: 0 },
+      });
+      return { content: [{ type: "text" as const, text: result }] };
+    },
+  );
+
+  // ── Org-level write: update_event (safe-fields whitelist) ──
+  // Rejects slug / startDate / endDate / eventType / timezone because they
+  // cascade to public URLs, scheduled emails, webinar provisioning, and
+  // timezone math. Use the dashboard Settings page for those.
+  server.tool(
+    "update_event",
+    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
+    {
+      eventId: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullable().optional(),
+      venue: z.string().nullable().optional(),
+      address: z.string().nullable().optional(),
+      city: z.string().nullable().optional(),
+      country: z.string().nullable().optional(),
+      tag: z.string().nullable().optional(),
+      specialty: z.string().nullable().optional(),
+      taxRate: z.number().nullable().optional(),
+      taxLabel: z.string().nullable().optional(),
+      bankDetails: z.string().nullable().optional(),
+      badgeVerticalOffset: z.number().optional(),
+    },
+    async (input) => {
+      const result = await runTool("update_event", input, {
+        eventId: input.eventId as string,
+        organizationId,
+        userId: SYSTEM_USER_ID,
+        counters: { creates: 0, emailsSent: 0 },
+      });
+      return { content: [{ type: "text" as const, text: result }] };
+    },
+  );
+
   // ── Event-level read tools ──
 
   const readTools: Array<{ name: string; description: string; params: Record<string, z.ZodTypeAny>; agentTool?: string }> = [
@@ -385,6 +451,36 @@ export function buildMcpServer(organizationId: string): McpServer {
     }},
     { name: "reset_email_template", description: "Remove the event-specific override for an email template. Subsequent sends will use the system default.", params: {
       slug: z.string(),
+    }},
+    // ─── Sprint B Tranche 2: bulk creates ───
+    { name: "create_speakers_bulk", description: "Bulk-create up to 100 speakers in one call. Returns per-row { created, errors } so one bad row doesn't kill the batch. Pre-dedups by email within the payload. Each speaker needs email/firstName/lastName; optional title, bio, organization, jobTitle, phone, specialty, status (INVITED/CONFIRMED).", params: {
+      speakers: z.array(z.object({
+        email: z.string(),
+        firstName: z.string(),
+        lastName: z.string(),
+        title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
+        bio: z.string().optional(),
+        organization: z.string().optional(),
+        jobTitle: z.string().optional(),
+        phone: z.string().optional(),
+        specialty: z.string().optional(),
+        status: z.enum(["INVITED", "CONFIRMED"]).optional(),
+      })).min(1).max(100),
+    }},
+    { name: "create_registrations_bulk", description: "Bulk-create up to 100 registrations in one call. Returns per-row { created, errors }. Pre-dedups by email within the payload. Each row needs email/firstName/lastName/ticketTypeId; optional title, organization, jobTitle, phone, country, specialty, status (PENDING/CONFIRMED/WAITLISTED, default CONFIRMED). Use list_ticket_types to get ticketTypeId.", params: {
+      registrations: z.array(z.object({
+        email: z.string(),
+        firstName: z.string(),
+        lastName: z.string(),
+        ticketTypeId: z.string(),
+        title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
+        organization: z.string().optional(),
+        jobTitle: z.string().optional(),
+        phone: z.string().optional(),
+        country: z.string().optional(),
+        specialty: z.string().optional(),
+        status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
+      })).min(1).max(100),
     }},
   ];
 

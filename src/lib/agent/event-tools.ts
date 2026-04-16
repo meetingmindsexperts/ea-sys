@@ -4363,6 +4363,492 @@ const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ─── Tranche 2: bulk creates + update_contact + update_event ─────────────────
+
+const BULK_MAX = 100;
+
+const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
+  try {
+    const items = Array.isArray(input.speakers) ? (input.speakers as unknown[]) : null;
+    if (!items || !items.length) return { error: "speakers must be a non-empty array", code: "MISSING_SPEAKERS" };
+    if (items.length > BULK_MAX) {
+      return { error: `Max ${BULK_MAX} speakers per call; got ${items.length}`, code: "TOO_MANY_ROWS" };
+    }
+
+    // Pre-flight: de-dup the input by lowercased email so a duplicate row in
+    // the same payload doesn't race against itself with a unique-constraint 500.
+    const seenEmails = new Set<string>();
+    const created: Array<{ index: number; id: string; email: string; firstName: string; lastName: string }> = [];
+    const errors: Array<{ index: number; email?: string; error: string; code?: string }> = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i] as Record<string, unknown>;
+      try {
+        const email = String(row.email ?? "").trim().toLowerCase();
+        const firstName = String(row.firstName ?? "").trim();
+        const lastName = String(row.lastName ?? "").trim();
+        if (!email || !firstName || !lastName) {
+          errors.push({ index: i, email: email || undefined, error: "email, firstName, lastName required", code: "MISSING_FIELDS" });
+          continue;
+        }
+        if (!EMAIL_RE.test(email)) {
+          errors.push({ index: i, email, error: "Invalid email format", code: "INVALID_EMAIL" });
+          continue;
+        }
+        if (seenEmails.has(email)) {
+          errors.push({ index: i, email, error: "Duplicate email in this batch", code: "DUPLICATE_IN_BATCH" });
+          continue;
+        }
+        seenEmails.add(email);
+
+        const title = row.title ? String(row.title) : undefined;
+        if (title && !TITLE_VALUES.has(title)) {
+          errors.push({ index: i, email, error: `Invalid title; must be one of ${[...TITLE_VALUES].join(", ")}`, code: "INVALID_TITLE" });
+          continue;
+        }
+        const status = row.status ? String(row.status) : undefined;
+        if (status && !SPEAKER_STATUSES.has(status)) {
+          errors.push({ index: i, email, error: `Invalid status; must be one of ${[...SPEAKER_STATUSES].join(", ")}`, code: "INVALID_STATUS" });
+          continue;
+        }
+
+        const existing = await db.speaker.findFirst({
+          where: { eventId: ctx.eventId, email },
+          select: { id: true },
+        });
+        if (existing) {
+          errors.push({ index: i, email, error: `Speaker with email ${email} already exists`, code: "ALREADY_EXISTS" });
+          continue;
+        }
+
+        const speaker = await db.speaker.create({
+          data: {
+            eventId: ctx.eventId,
+            email,
+            firstName,
+            lastName,
+            title: (title as never) ?? null,
+            bio: row.bio ? String(row.bio).slice(0, 5000) : null,
+            organization: row.organization ? String(row.organization).slice(0, 255) : null,
+            jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
+            phone: row.phone ? String(row.phone).slice(0, 50) : null,
+            specialty: row.specialty ? String(row.specialty).slice(0, 255) : null,
+            status: (status as never) ?? "INVITED",
+          },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        });
+        created.push({ index: i, ...speaker });
+      } catch (err) {
+        errors.push({
+          index: i,
+          email: (items[i] as { email?: string }).email,
+          error: err instanceof Error ? err.message : "Unknown error",
+          code: "ROW_FAILED",
+        });
+      }
+    }
+
+    apiLogger.info(
+      { eventId: ctx.eventId, created: created.length, failed: errors.length, total: items.length },
+      "agent:create_speakers_bulk",
+    );
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Speaker",
+        entityId: `bulk:${created.length}`,
+        changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk audit-log-failed"));
+
+    return {
+      success: true,
+      createdCount: created.length,
+      failedCount: errors.length,
+      created,
+      errors,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_speakers_bulk failed");
+    return { error: err instanceof Error ? err.message : "Failed to bulk-create speakers" };
+  }
+};
+
+const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
+  try {
+    const items = Array.isArray(input.registrations) ? (input.registrations as unknown[]) : null;
+    if (!items || !items.length) return { error: "registrations must be a non-empty array", code: "MISSING_REGISTRATIONS" };
+    if (items.length > BULK_MAX) {
+      return { error: `Max ${BULK_MAX} registrations per call; got ${items.length}`, code: "TOO_MANY_ROWS" };
+    }
+
+    // Pre-load the event's ticket types once so we can validate ticketTypeId
+    // without hitting the DB N times.
+    const ticketTypes = await db.ticketType.findMany({
+      where: { eventId: ctx.eventId },
+      select: { id: true, name: true },
+    });
+    const ticketTypeById = new Map(ticketTypes.map((t) => [t.id, t]));
+
+    const seenEmails = new Set<string>();
+    const created: Array<{ index: number; registrationId: string; email: string; attendeeId: string }> = [];
+    const errors: Array<{ index: number; email?: string; error: string; code?: string }> = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i] as Record<string, unknown>;
+      try {
+        const email = String(row.email ?? "").trim().toLowerCase();
+        const firstName = String(row.firstName ?? "").trim();
+        const lastName = String(row.lastName ?? "").trim();
+        const ticketTypeId = String(row.ticketTypeId ?? "").trim();
+        if (!email || !firstName || !lastName || !ticketTypeId) {
+          errors.push({ index: i, email: email || undefined, error: "email, firstName, lastName, ticketTypeId required", code: "MISSING_FIELDS" });
+          continue;
+        }
+        if (!EMAIL_RE.test(email)) {
+          errors.push({ index: i, email, error: "Invalid email format", code: "INVALID_EMAIL" });
+          continue;
+        }
+        if (seenEmails.has(email)) {
+          errors.push({ index: i, email, error: "Duplicate email in this batch", code: "DUPLICATE_IN_BATCH" });
+          continue;
+        }
+        seenEmails.add(email);
+
+        const ticketType = ticketTypeById.get(ticketTypeId);
+        if (!ticketType) {
+          errors.push({ index: i, email, error: `Ticket type ${ticketTypeId} not found for this event`, code: "INVALID_TICKET_TYPE" });
+          continue;
+        }
+
+        const rawTitle = row.title ? String(row.title) : undefined;
+        if (rawTitle && !TITLE_VALUES.has(rawTitle)) {
+          errors.push({ index: i, email, error: `Invalid title`, code: "INVALID_TITLE" });
+          continue;
+        }
+        const rawStatus = row.status ? String(row.status) : "CONFIRMED";
+        if (!MANUAL_REGISTRATION_STATUSES.has(rawStatus)) {
+          errors.push({ index: i, email, error: `Invalid status`, code: "INVALID_STATUS" });
+          continue;
+        }
+
+        const duplicate = await db.registration.findFirst({
+          where: { eventId: ctx.eventId, attendee: { email } },
+          select: { id: true },
+        });
+        if (duplicate) {
+          errors.push({ index: i, email, error: `Registration for ${email} already exists`, code: "ALREADY_EXISTS" });
+          continue;
+        }
+
+        const result = await db.$transaction(async (tx) => {
+          const attendee = await tx.attendee.create({
+            data: {
+              email,
+              firstName,
+              lastName,
+              title: (rawTitle as never) ?? null,
+              organization: row.organization ? String(row.organization).slice(0, 255) : null,
+              jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
+              phone: row.phone ? String(row.phone).slice(0, 50) : null,
+              country: row.country ? String(row.country).slice(0, 255) : null,
+              specialty: row.specialty ? String(row.specialty).slice(0, 255) : null,
+              registrationType: ticketType.name,
+            },
+            select: { id: true, email: true },
+          });
+          const serialId = await getNextSerialId(tx, ctx.eventId);
+          const registration = await tx.registration.create({
+            data: {
+              eventId: ctx.eventId,
+              ticketTypeId: ticketType.id,
+              attendeeId: attendee.id,
+              serialId,
+              status: rawStatus as never,
+            },
+            select: { id: true },
+          });
+          return { attendeeId: attendee.id, registrationId: registration.id };
+        });
+
+        created.push({ index: i, email, ...result });
+      } catch (err) {
+        errors.push({
+          index: i,
+          email: (items[i] as { email?: string }).email,
+          error: err instanceof Error ? err.message : "Unknown error",
+          code: "ROW_FAILED",
+        });
+      }
+    }
+
+    apiLogger.info(
+      { eventId: ctx.eventId, created: created.length, failed: errors.length, total: items.length },
+      "agent:create_registrations_bulk",
+    );
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Registration",
+        entityId: `bulk:${created.length}`,
+        changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk audit-log-failed"));
+
+    return {
+      success: true,
+      createdCount: created.length,
+      failedCount: errors.length,
+      created,
+      errors,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_registrations_bulk failed");
+    return { error: err instanceof Error ? err.message : "Failed to bulk-create registrations" };
+  }
+};
+
+const updateContact: ToolExecutor = async (input, ctx) => {
+  try {
+    const contactId = String(input.contactId ?? "").trim();
+    if (!contactId) return { error: "contactId is required", code: "MISSING_CONTACT_ID" };
+
+    const existing = await db.contact.findFirst({
+      where: { id: contactId, organizationId: ctx.organizationId },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+    if (!existing) return { error: `Contact ${contactId} not found or access denied`, code: "CONTACT_NOT_FOUND" };
+
+    const updates: Prisma.ContactUpdateInput = {};
+
+    if (input.firstName != null) updates.firstName = String(input.firstName).slice(0, 100);
+    if (input.lastName != null) updates.lastName = String(input.lastName).slice(0, 100);
+
+    if (input.title != null) {
+      const t = String(input.title);
+      if (t === "") updates.title = null;
+      else if (TITLE_VALUES.has(t)) updates.title = t as never;
+      else return { error: `Invalid title`, code: "INVALID_TITLE" };
+    }
+    if (input.organization != null) updates.organization = String(input.organization).slice(0, 255);
+    if (input.jobTitle != null) updates.jobTitle = String(input.jobTitle).slice(0, 255);
+    if (input.bio != null) updates.bio = String(input.bio).slice(0, 5000);
+    if (input.specialty != null) updates.specialty = String(input.specialty).slice(0, 255);
+    if (input.phone != null) updates.phone = String(input.phone).slice(0, 50);
+    if (input.photo !== undefined) updates.photo = input.photo as string | null;
+    if (input.city != null) updates.city = String(input.city).slice(0, 255);
+    if (input.state != null) updates.state = String(input.state).slice(0, 255);
+    if (input.zipCode != null) updates.zipCode = String(input.zipCode).slice(0, 50);
+    if (input.country != null) updates.country = String(input.country).slice(0, 255);
+    if (input.notes != null) updates.notes = String(input.notes).slice(0, 10000);
+    if (Array.isArray(input.tags)) {
+      updates.tags = (input.tags as unknown[])
+        .map((t) => normalizeTag(String(t).slice(0, 100)))
+        .filter(Boolean);
+    }
+    // Email updates go through a separate flow (dedup / merge) — keep immutable here.
+    if (input.email != null) {
+      return {
+        error: "email cannot be updated via this tool — use the dashboard contact merge flow",
+        code: "EMAIL_IMMUTABLE",
+      };
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update", code: "NO_FIELDS" };
+    }
+
+    const updated = await db.contact.update({
+      where: { id: contactId },
+      data: updates,
+      select: {
+        id: true,
+        title: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        organization: true,
+        jobTitle: true,
+        phone: true,
+        city: true,
+        country: true,
+        tags: true,
+      },
+    });
+
+    db.auditLog.create({
+      data: {
+        // Contacts are org-scoped, not event-scoped; we don't have an eventId
+        // to attribute to. Skip the eventId field (audit log is org-wide).
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Contact",
+        entityId: contactId,
+        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_contact audit-log-failed"));
+
+    return { success: true, contact: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_contact failed");
+    return { error: err instanceof Error ? err.message : "Failed to update contact" };
+  }
+};
+
+// Safe fields for update_event — everything in this set can be changed without
+// breaking public URLs, email scheduling, Zoom provisioning, or timezone math.
+// slug + startDate + endDate + eventType + timezone are intentionally excluded
+// because they cascade to registered URLs, scheduled-email fire times, webinar
+// provisioning, and session start/end math respectively.
+const EVENT_UPDATE_FIELD_WHITELIST = new Set([
+  "name",
+  "description",
+  "venue",
+  "address",
+  "city",
+  "country",
+  "tag",
+  "specialty",
+  "taxRate",
+  "taxLabel",
+  "bankDetails",
+  "badgeVerticalOffset",
+]);
+const EVENT_UPDATE_FIELD_BLACKLIST = new Set([
+  "slug",
+  "startDate",
+  "endDate",
+  "eventType",
+  "timezone",
+  "organizationId",
+  "id",
+]);
+
+const updateEvent: ToolExecutor = async (input, ctx) => {
+  try {
+    const eventId = String(input.eventId ?? "").trim();
+    if (!eventId) return { error: "eventId is required", code: "MISSING_EVENT_ID" };
+
+    const existing = await db.event.findFirst({
+      where: { id: eventId, organizationId: ctx.organizationId },
+      select: { id: true, name: true },
+    });
+    if (!existing) return { error: `Event ${eventId} not found or access denied`, code: "EVENT_NOT_FOUND" };
+
+    // Reject any blacklisted field explicitly so the caller learns why and can
+    // re-route through the dashboard (where cascading effects are handled).
+    for (const key of Object.keys(input)) {
+      if (key === "eventId") continue;
+      if (EVENT_UPDATE_FIELD_BLACKLIST.has(key)) {
+        return {
+          error:
+            `Field "${key}" cannot be changed via MCP because it cascades to ` +
+            `public URLs, scheduled emails, Zoom provisioning, or timezone math. ` +
+            `Use the dashboard Settings page instead.`,
+          code: "FIELD_NOT_ALLOWED",
+          field: key,
+        };
+      }
+      if (key !== "eventId" && !EVENT_UPDATE_FIELD_WHITELIST.has(key)) {
+        return {
+          error: `Unknown field "${key}". Allowed: ${[...EVENT_UPDATE_FIELD_WHITELIST].join(", ")}`,
+          code: "UNKNOWN_FIELD",
+          field: key,
+        };
+      }
+    }
+
+    const updates: Prisma.EventUpdateInput = {};
+
+    if (input.name != null) {
+      const n = String(input.name).trim();
+      if (n.length < 2 || n.length > 255) {
+        return { error: "name must be 2-255 chars", code: "INVALID_NAME" };
+      }
+      updates.name = n;
+    }
+    if (input.description !== undefined) {
+      updates.description = input.description === null ? null : String(input.description).slice(0, 5000);
+    }
+    if (input.venue !== undefined) updates.venue = input.venue === null ? null : String(input.venue).slice(0, 255);
+    if (input.address !== undefined) updates.address = input.address === null ? null : String(input.address).slice(0, 500);
+    if (input.city !== undefined) updates.city = input.city === null ? null : String(input.city).slice(0, 255);
+    if (input.country !== undefined) updates.country = input.country === null ? null : String(input.country).slice(0, 255);
+    if (input.tag !== undefined) updates.tag = input.tag === null ? null : String(input.tag).slice(0, 255);
+    if (input.specialty !== undefined) updates.specialty = input.specialty === null ? null : String(input.specialty).slice(0, 255);
+
+    if (input.taxRate !== undefined) {
+      if (input.taxRate === null) {
+        updates.taxRate = null;
+      } else {
+        const rate = Number(input.taxRate);
+        if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+          return { error: "taxRate must be between 0 and 100", code: "INVALID_TAX_RATE" };
+        }
+        updates.taxRate = rate;
+      }
+    }
+    if (input.taxLabel !== undefined) {
+      updates.taxLabel = input.taxLabel === null ? null : String(input.taxLabel).slice(0, 50);
+    }
+    if (input.bankDetails !== undefined) {
+      updates.bankDetails = input.bankDetails === null ? null : String(input.bankDetails).slice(0, 5000);
+    }
+    if (input.badgeVerticalOffset != null) {
+      const offset = Math.round(Number(input.badgeVerticalOffset));
+      if (!Number.isFinite(offset) || offset < -500 || offset > 500) {
+        return { error: "badgeVerticalOffset must be between -500 and 500", code: "INVALID_BADGE_OFFSET" };
+      }
+      updates.badgeVerticalOffset = offset;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update", code: "NO_FIELDS" };
+    }
+
+    const updated = await db.event.update({
+      where: { id: eventId },
+      data: updates,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        venue: true,
+        address: true,
+        city: true,
+        country: true,
+        tag: true,
+        specialty: true,
+        taxRate: true,
+        taxLabel: true,
+        badgeVerticalOffset: true,
+      },
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: updated.id,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Event",
+        entityId: updated.id,
+        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_event audit-log-failed"));
+
+    return { success: true, event: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_event failed");
+    return { error: err instanceof Error ? err.message : "Failed to update event" };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -4449,4 +4935,9 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   unassign_reviewer_from_abstract: unassignReviewerFromAbstract,
   submit_abstract_review: submitAbstractReview,
   get_abstract_scores: getAbstractScores,
+  // ─── Sprint B Tranche 2: bulk creates + update_contact + update_event ───
+  create_speakers_bulk: createSpeakersBulk,
+  create_registrations_bulk: createRegistrationsBulk,
+  update_contact: updateContact,
+  update_event: updateEvent,
 };
