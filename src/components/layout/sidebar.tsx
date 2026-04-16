@@ -30,7 +30,6 @@ import {
   PenLine,
   ChevronsUpDown,
   ImageIcon,
-  Tag,
   Video,
   Award,
   ClipboardCheck,
@@ -84,7 +83,6 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
     items: [
       { name: "Registrations",     href: "/registrations", icon: Users },
       { name: "Registration Types", href: "/tickets",       icon: Ticket },
-      { name: "Promo Codes",        href: "/promo-codes",   icon: Tag },
       { name: "Check-In",          href: "/check-in",      icon: ScanBarcode },
       { name: "Speakers",          href: "/speakers",      icon: Mic },
       { name: "Agenda",            href: "/agenda",        icon: Clock },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +48,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PromoCodesPanel } from "@/components/promo-codes/promo-codes-panel";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -90,6 +92,12 @@ function toSlug(name: string): string {
 export default function TicketsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // Allow ?tab=promos to deep-link into the Promo Codes tab (preserves the
+  // old /promo-codes URL via a redirect from that route).
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const initialTab = searchParams.get("tab") === "promos" ? "promos" : "types";
+  const [activeTab, setActiveTab] = useState<"types" | "promos">(initialTab);
 
   const queryClient = useQueryClient();
   const { data: ticketTypesData = [], isLoading, isFetching } = useTickets(eventId);
@@ -296,6 +304,16 @@ export default function TicketsPage() {
     );
   }
 
+  const handleTabChange = (v: string) => {
+    const tab = v === "promos" ? "promos" : "types";
+    setActiveTab(tab);
+    // Reflect the tab in the URL so deep-links + back/forward work.
+    const newUrl = tab === "promos"
+      ? `/events/${eventId}/tickets?tab=promos`
+      : `/events/${eventId}/tickets`;
+    router.replace(newUrl, { scroll: false });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -312,24 +330,34 @@ export default function TicketsPage() {
             {ticketTypes.length} types · {totalRegs} registrations
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          </Button>
-          <Button variant="outline" onClick={handleSeedDefaults}>
-            <Plus className="mr-2 h-4 w-4" />
-            Seed Defaults
-          </Button>
-          <Button variant="outline" onClick={() => { setUtmDialogOpen(true); setUtmTier(""); setUtmSource(""); setUtmMedium(""); setUtmCampaign(""); }}>
-            <Link2 className="mr-2 h-4 w-4" />
-            UTM Link Builder
-          </Button>
-          <Button onClick={openCreateType}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Type
-          </Button>
-        </div>
+        {/* Tab-specific action buttons live inside each TabsContent below. */}
       </div>
+
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList>
+          <TabsTrigger value="types">Registration Types</TabsTrigger>
+          <TabsTrigger value="promos">Promo Codes</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="types" className="space-y-6 mt-6">
+          {/* Action buttons for the Registration Types tab */}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="icon" onClick={invalidateAndRefetch} disabled={isFetching} title="Refresh">
+              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            </Button>
+            <Button variant="outline" onClick={handleSeedDefaults}>
+              <Plus className="mr-2 h-4 w-4" />
+              Seed Defaults
+            </Button>
+            <Button variant="outline" onClick={() => { setUtmDialogOpen(true); setUtmTier(""); setUtmSource(""); setUtmMedium(""); setUtmCampaign(""); }}>
+              <Link2 className="mr-2 h-4 w-4" />
+              UTM Link Builder
+            </Button>
+            <Button onClick={openCreateType}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Type
+            </Button>
+          </div>
 
       {/* Registration form overview link */}
       {event?.slug && (
@@ -497,6 +525,12 @@ export default function TicketsPage() {
           </li>
         </ul>
       </div>
+        </TabsContent>
+
+        <TabsContent value="promos" className="mt-6">
+          <PromoCodesPanel eventId={eventId} />
+        </TabsContent>
+      </Tabs>
 
       {/* Registration Type Dialog */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
