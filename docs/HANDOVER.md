@@ -615,6 +615,8 @@ Authentication is dual-path: `x-api-key` header for Claude Desktop + n8n + scrip
 
 See `docs/MCP_REFERENCE.md` (local-only) for the full tool inventory with schemas and `docs/MCP_OAUTH.html` (local-only) for the OAuth architectural detail. The canonical committed reference is the relevant section of `CLAUDE.md`.
 
+**Client caching caveat**: MCP clients cache the tool list at connection time. When this server adds or changes tools, existing connected clients must disconnect and reconnect to see the changes. Claude Desktop: fully quit and relaunch. claude.ai web: Settings → Integrations → disconnect the EA-SYS connector and re-add. We bump `package.json` version on every tool-changing deploy — it flows into `serverInfo.version` via `import pkg from "../../../package.json"` in `src/lib/agent/mcp-server-builder.ts` — as a best-effort cache-invalidation hint, but client caching is spec-allowed behavior and can't be force-invalidated from the server. Include this in user-facing release notes for any MCP tool changes.
+
 ### Webinar Events
 
 **Event type:** `Event.eventType === "WEBINAR"`

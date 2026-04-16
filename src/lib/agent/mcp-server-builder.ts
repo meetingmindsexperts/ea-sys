@@ -9,8 +9,14 @@ import { db } from "@/lib/db";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 
 import { apiLogger } from "@/lib/logger";
+import pkg from "../../../package.json";
 
 const SYSTEM_USER_ID = "mcp-remote";
+
+// Serves as a best-effort cache-invalidation hint to MCP clients. Bump
+// `package.json` version on every commit that adds/changes MCP tools so
+// connected clients (claude.ai web especially) may re-fetch the tool list.
+const MCP_SERVER_VERSION = pkg.version;
 
 async function runTool(name: string, input: Record<string, unknown>, ctx: AgentContext): Promise<string> {
   const executor = TOOL_EXECUTOR_MAP[name];
@@ -39,7 +45,7 @@ async function getOrgIdSecure(eventId: string, authenticatedOrgId: string): Prom
  * @param organizationId - The org ID from the validated API key. ALL queries are scoped to this org.
  */
 export function buildMcpServer(organizationId: string): McpServer {
-  const server = new McpServer({ name: "ea-sys", version: "1.0.0" });
+  const server = new McpServer({ name: "ea-sys", version: MCP_SERVER_VERSION });
 
   // ── Organization-level tools ──
 
