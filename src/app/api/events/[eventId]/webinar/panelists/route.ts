@@ -11,6 +11,7 @@ import {
   listWebinarPanelists,
   removeWebinarPanelist,
 } from "@/lib/zoom";
+import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -169,9 +170,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
 
-    await addWebinarPanelists(resolved.event.organizationId, resolved.zoomMeetingId, [
-      validated.data,
-    ]);
+    await addWebinarPanelists(
+      resolved.event.organizationId,
+      resolved.zoomMeetingId,
+      [validated.data],
+    );
 
     apiLogger.info(
       {
@@ -183,7 +186,45 @@ export async function POST(req: Request, { params }: RouteParams) {
       "webinar-panelists:added",
     );
 
-    return NextResponse.json({ ok: true });
+    // Zoom's POST /panelists does NOT reliably return join_url in the
+    // response body (known API quirk — Zoom staff's documented workaround
+    // is to GET the list after adding). Fetch the canonical list to pick
+    // up the newly-created row's privileged join_url.
+    let invitesQueued = 0;
+    try {
+      const currentPanelists = await listWebinarPanelists(
+        resolved.event.organizationId,
+        resolved.zoomMeetingId,
+      );
+      const created = currentPanelists.find(
+        (p) => p.email?.toLowerCase() === validated.data.email.toLowerCase(),
+      );
+      if (created?.join_url) {
+        invitesQueued = 1;
+        sendPanelistInvite({
+          eventId,
+          panelistName: created.name || validated.data.name,
+          panelistEmail: created.email || validated.data.email,
+          joinUrl: created.join_url,
+          actorUserId: session.user.id,
+        }).catch(() => {
+          // Already logged inside the helper; route still returns success.
+          // User can click Resend to retry.
+        });
+      } else {
+        apiLogger.warn(
+          { eventId, panelistEmail: validated.data.email },
+          "webinar-panelists:added-but-no-join-url",
+        );
+      }
+    } catch (listErr) {
+      apiLogger.warn(
+        { err: listErr, eventId, panelistEmail: validated.data.email },
+        "webinar-panelists:post-add-list-failed",
+      );
+    }
+
+    return NextResponse.json({ ok: true, invitesQueued });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:add-failed");
     const message = err instanceof Error ? err.message : "Failed to add panelist";

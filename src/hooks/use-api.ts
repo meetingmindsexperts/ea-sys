@@ -1656,11 +1656,14 @@ export function useAddWebinarPanelist(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { name: string; email: string }) =>
-      fetchApi<{ ok: boolean }>(`/api/events/${eventId}/webinar/panelists`, {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: { "Content-Type": "application/json" },
-      }),
+      fetchApi<{ ok: boolean; invitesQueued?: number }>(
+        `/api/events/${eventId}/webinar/panelists`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     // Optimistically append the new panelist so the table updates instantly,
     // then reconcile after the GET refetch returns the real Zoom row.
     onMutate: async (data) => {
@@ -1734,6 +1737,7 @@ export function useSyncSpeakersToPanelists(eventId: string) {
         totalSpeakers: number;
         skippedNoEmail: number;
         skippedAlreadyPanelist?: number;
+        invitesQueued?: number;
         reason?: string;
       }>(`/api/events/${eventId}/webinar/panelists/sync-speakers`, {
         method: "POST",
@@ -1741,6 +1745,19 @@ export function useSyncSpeakersToPanelists(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarPanelists(eventId) });
     },
+  });
+}
+
+// Resend the panelist invitation email. Does not mutate the panelist list —
+// no cache invalidation needed. Callers should surface success/failure via
+// sonner toasts.
+export function useResendPanelistInvite(eventId: string) {
+  return useMutation({
+    mutationFn: (panelistId: string) =>
+      fetchApi<{ ok: boolean }>(
+        `/api/events/${eventId}/webinar/panelists/${encodeURIComponent(panelistId)}/resend`,
+        { method: "POST" },
+      ),
   });
 }
 

@@ -229,6 +229,9 @@ export async function enableWebinarLiveStreaming(
 
 // ── Panelists ──────────────────────────────────────────────────────
 
+// NOTE: Zoom's POST /panelists response does NOT reliably include join_url
+// per panelist (known API quirk; Zoom staff recommend calling GET /panelists
+// afterwards). We return void and let callers do a follow-up list call.
 export async function addWebinarPanelists(
   organizationId: string,
   webinarId: string,

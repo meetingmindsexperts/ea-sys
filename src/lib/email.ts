@@ -1001,6 +1001,44 @@ Thank you for joining {{eventName}}. We hope you found it valuable.
 
 If you have any feedback, we'd love to hear from you.`,
   },
+
+  {
+    slug: "webinar-panelist-invitation",
+    name: "Webinar Panelist Invitation",
+    subject: "You're a panelist for {{eventName}}",
+    htmlContent: `<div style="padding: 20px 0;">
+    <p>Hi <strong>{{panelistName}}</strong>,</p>
+    <p>You've been added as a panelist for <strong>{{eventName}}</strong>.</p>
+    <p>As a panelist you can present, share your screen, unmute, and answer attendee Q&amp;A. Use the privileged link below to join &mdash; <em>please don't share it</em>.</p>
+    <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Session:</td><td style="padding: 8px 0; font-weight: 500;">{{sessionName}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Starts:</td><td style="padding: 8px 0; font-weight: 500;">{{sessionStart}}</td></tr>
+      </table>
+    </div>
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join as Panelist</a>
+    </div>
+    <p style="color: #6b7280; font-size: 12px; word-break: break-all;">
+      If the button doesn't work, paste this URL into your browser: <a href="{{joinUrl}}" style="color: #0284c7;">{{joinUrl}}</a>
+    </p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `You're a panelist for {{eventName}}
+
+Hi {{panelistName}},
+
+You've been added as a panelist for {{eventName}}.
+
+As a panelist you can present, share your screen, unmute, and answer attendee Q&A. Use the privileged link below to join — please don't share it.
+
+Session: {{sessionName}}
+Starts:  {{sessionStart}}
+
+Join as panelist: {{joinUrl}}
+
+{{organizerSignature}}`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────

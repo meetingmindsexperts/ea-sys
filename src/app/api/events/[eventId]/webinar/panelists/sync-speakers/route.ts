@@ -6,6 +6,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { addWebinarPanelists, listWebinarPanelists } from "@/lib/zoom";
 import { resolveAnchorZoomMeeting } from "../route";
+import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -127,12 +128,50 @@ export async function POST(_req: Request, { params }: RouteParams) {
       "webinar-panelists:sync-speakers-succeeded",
     );
 
+    // Zoom's POST /panelists doesn't reliably return join_url (known API
+    // quirk). Fetch the canonical list and match by email so each invite
+    // carries the right privileged URL. Non-blocking per row so one bad
+    // email doesn't taint the whole response; the Resend button in the
+    // Console covers any individual failure.
+    let invitesQueued = 0;
+    try {
+      const currentPanelists = await listWebinarPanelists(
+        resolved.event.organizationId,
+        resolved.zoomMeetingId,
+      );
+      const byEmail = new Map(
+        currentPanelists
+          .filter((p) => p.email)
+          .map((p) => [p.email.toLowerCase(), p]),
+      );
+      for (const added of toAdd) {
+        const p = byEmail.get(added.email.toLowerCase());
+        if (!p?.join_url) continue;
+        invitesQueued++;
+        sendPanelistInvite({
+          eventId,
+          panelistName: p.name || added.name,
+          panelistEmail: p.email || added.email,
+          joinUrl: p.join_url,
+          actorUserId: session.user.id,
+        }).catch(() => {
+          // Already logged inside the helper.
+        });
+      }
+    } catch (listErr) {
+      apiLogger.warn(
+        { err: listErr, eventId },
+        "webinar-panelists:sync-post-add-list-failed",
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       added: toAdd.length,
       totalSpeakers,
       skippedNoEmail,
       skippedAlreadyPanelist,
+      invitesQueued,
     });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:sync-speakers-failed");

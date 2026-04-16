@@ -65,6 +65,7 @@ import {
   useAddWebinarPanelist,
   useRemoveWebinarPanelist,
   useSyncSpeakersToPanelists,
+  useResendPanelistInvite,
   OPTIMISTIC_PANELIST_PREFIX,
   type WebinarSequenceRow,
   type WebinarAttendeeRow,
@@ -1325,6 +1326,8 @@ function PanelistsCard({
   const addPanelist = useAddWebinarPanelist(eventId);
   const removePanelist = useRemoveWebinarPanelist(eventId);
   const syncSpeakers = useSyncSpeakersToPanelists(eventId);
+  const resendInvite = useResendPanelistInvite(eventId);
+  const [pendingResendId, setPendingResendId] = useState<string | null>(null);
 
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -1343,8 +1346,12 @@ function PanelistsCard({
     setNewName("");
     setNewEmail("");
     try {
-      await addPanelist.mutateAsync({ name, email });
-      toast.success(`Added ${name} as panelist`);
+      const result = await addPanelist.mutateAsync({ name, email });
+      toast.success(
+        result.invitesQueued
+          ? `Added ${name} — invite email sent`
+          : `Added ${name} as panelist`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add panelist");
       // Restore form so the user doesn't have to retype on failure
@@ -1362,6 +1369,28 @@ function PanelistsCard({
     }
   };
 
+  const handleCopyJoinUrl = async (panelist: WebinarPanelist) => {
+    if (!panelist.join_url) return;
+    try {
+      await navigator.clipboard.writeText(panelist.join_url);
+      toast.success(`Copied join link for ${panelist.name}`);
+    } catch {
+      toast.error("Failed to copy link — try again");
+    }
+  };
+
+  const handleResendInvite = async (panelist: WebinarPanelist) => {
+    setPendingResendId(panelist.id);
+    try {
+      await resendInvite.mutateAsync(panelist.id);
+      toast.success(`Invite resent to ${panelist.email}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to resend invite");
+    } finally {
+      setPendingResendId(null);
+    }
+  };
+
   const handleSyncSpeakers = async () => {
     try {
       const result = await syncSpeakers.mutateAsync();
@@ -1372,8 +1401,11 @@ function PanelistsCard({
           skipNotes.push(`${result.skippedAlreadyPanelist} already panelist`);
         }
         const skipped = skipNotes.length ? ` (${skipNotes.join(", ")})` : "";
+        const invited = result.invitesQueued
+          ? `, ${result.invitesQueued} invite${result.invitesQueued === 1 ? "" : "s"} sent`
+          : "";
         toast.success(
-          `Added ${result.added} speaker${result.added === 1 ? "" : "s"} as panelist${result.added === 1 ? "" : "s"}${skipped}`,
+          `Added ${result.added} speaker${result.added === 1 ? "" : "s"} as panelist${result.added === 1 ? "" : "s"}${skipped}${invited}`,
         );
       } else {
         toast.warning(result.reason ?? "No speakers to import");
@@ -1455,12 +1487,14 @@ function PanelistsCard({
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Name</th>
                       <th className="px-3 py-2 text-left font-medium">Email</th>
-                      <th className="px-3 py-2 text-right font-medium">Action</th>
+                      <th className="px-3 py-2 text-right font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {panelists.map((p) => {
                       const isOptimistic = p.id.startsWith(OPTIMISTIC_PANELIST_PREFIX);
+                      const isResending =
+                        pendingResendId === p.id && resendInvite.isPending;
                       return (
                         <tr
                           key={p.id}
@@ -1478,16 +1512,45 @@ function PanelistsCard({
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">{p.email}</td>
-                          <td className="px-3 py-2 text-right">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleRemove(p)}
-                              disabled={removePanelist.isPending || isOptimistic}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleCopyJoinUrl(p)}
+                                disabled={isOptimistic || !p.join_url}
+                                title={
+                                  p.join_url
+                                    ? "Copy privileged panelist join link"
+                                    : "Join link not available yet"
+                                }
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleResendInvite(p)}
+                                disabled={isOptimistic || isResending}
+                                title="Resend the panelist invitation email"
+                              >
+                                {isResending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Mail className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleRemove(p)}
+                                disabled={removePanelist.isPending || isOptimistic}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                title="Remove panelist"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
