@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** April 14, 2026
+**Last Updated:** April 16, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -276,6 +276,74 @@ This document outlines the current development status of the Event Administratio
 - `GET /api/events/[eventId]/accommodations/[id]` - Get booking
 - `PUT /api/events/[eventId]/accommodations/[id]` - Update booking
 - `DELETE /api/events/[eventId]/accommodations/[id]` - Delete booking
+
+---
+
+## Recent Updates (April 15–16, 2026)
+
+### MCP Tool Expansion — Sprint A Complete (April 16, 2026)
+
+The MCP server grew from 35 → 65 tools across two coordinated releases, closing most of an external audit's Priority 1 findings. Claude.ai web and Claude Desktop can now drive an end-to-end event lifecycle through MCP.
+
+**Bulk expansion** (commit `3789256`) added **22 tools** across four tranches:
+
+- **Tranche 0** — `create_event` (the missing top-level CRUD): org-scoped, auto-generates unique slug with retries, seeds default terms + speaker agreement HTML, fires `provisionWebinar()` fire-and-forget on WEBINAR type.
+- **Tranche A** (orchestration reads) — `get_event_dashboard`, `list_unpaid_registrations`, `list_speaker_agreements`, `list_live_sessions_now`, `search_event`. Each collapses a multi-call sequence into a single natural-language answer.
+- **Tranche B** (action tools plugging read/write asymmetry) — `update_registration`, `update_speaker`, `update_session`, `bulk_update_registration_status`. All transactionally safe; `update_registration` auto-adjusts `TicketType.soldCount` on ticket-type change.
+- **Tranche C** (recently-shipped features) — webinar reads (info/attendance/engagement), sponsors (list + upsert), speaker agreement template (get), promo codes full CRUD, scheduled emails (list + cancel).
+
+**Sprint A batch 1** (commit `d1b0677`) — audit polish:
+- `create_session` + `update_session` now validate session falls within event's date range using the event's `timezone` field (default Asia/Dubai) via `Intl.DateTimeFormat`. Fixed a UTC-comparison bug that would reject legitimate late-evening Dubai sessions.
+- `create_speaker` / `create_registration` / `create_contact` return `existingId` on duplicate detection so Claude can auto-pivot to `update_*`.
+- `update_abstract_status` no longer swallows errors — three fixes: WITHDRAWN terminal-state guard with structured `code: "ABSTRACT_WITHDRAWN"`, isolated notification failures (DB success stands even if email fails, reports `notificationStatus: "failed"`), outer catch surfaces real Prisma error as `details`.
+
+**Sprint A batch 2** (commit `c226686`) — 8 new tools:
+- **Accommodation CREATE flow**: `list_room_types`, `create_accommodation` (atomic overbooking guard inside transaction), `update_accommodation_status` (releases room on cancel, re-checks availability on reinstate).
+- **Invoice CREATE / SEND flow**: `create_invoice`, `send_invoice`, `update_invoice_status`. `REFUNDED` is DB-only — does NOT call Stripe (documented in tool description and response).
+- **Email template editing**: `update_email_template` (creates override from default if missing), `reset_email_template` (deletes override so system default is used).
+
+**Architecture**: all 65 tools live in [src/lib/agent/event-tools.ts](src/lib/agent/event-tools.ts) as a single `TOOL_EXECUTOR_MAP`, shared between the MCP server and the in-app AI Agent. MCP HTTP registrations in [src/lib/agent/mcp-server-builder.ts](src/lib/agent/mcp-server-builder.ts). Every write tool writes `AuditLog` with `changes.source: "mcp"`. Stdio transport at `src/mcp/server.ts` intentionally not updated — pending consolidation PR.
+
+**Deferred to Sprint B**: reviewer assignment + abstract scoring (needs schema work — new `AbstractReviewer` + `AbstractScore` tables), bulk creates, hard deletes (safety rail).
+
+---
+
+### MCP OAuth 2.1 + DCR for claude.ai web (April 16, 2026)
+
+Claude Desktop connected to `/api/mcp` via `mcp-remote` with `x-api-key` headers, but **claude.ai web couldn't connect at all** because the browser-based connector UI has no way to send custom headers and requires OAuth 2.1 per the MCP spec. Live probes against production found three specific breakages: no `WWW-Authenticate` header on 401, `/.well-known/oauth-*` returning 404, and OPTIONS preflight with no CORS headers.
+
+Implemented spec-compliant OAuth 2.1 with:
+- **RFC 9728** Protected Resource Metadata at `/.well-known/oauth-protected-resource`
+- **RFC 8414** Authorization Server Metadata at `/.well-known/oauth-authorization-server`
+- **RFC 7591** Dynamic Client Registration at `/api/mcp/oauth/register`
+- **RFC 6749 §4.1** Authorization Code Grant with **mandatory PKCE S256** (plain PKCE rejected)
+- **RFC 6749 §6** Refresh Token Grant with refresh rotation
+- **RFC 7009** Token Revocation
+
+**Schema**: three new Prisma models — `McpOAuthClient` (DCR registrations), `McpOAuthAuthCode` (hashed one-time-use codes, 10-min TTL, stores PKCE challenge), `McpOAuthAccessToken` (hashed Bearer tokens, 30-day access TTL + 90-day refresh TTL + `revokedAt` + `lastUsedAt`). All lookups via SHA-256 hash — raw tokens never stored or logged.
+
+**Consent UI** at `/mcp-authorize` is a Next.js server-component page that enforces RBAC (ADMIN / SUPER_ADMIN / ORGANIZER only can grant MCP access). Reviewers / submitters / registrants see a clean access-denied page.
+
+**Backward compatibility**: `authenticate()` in the MCP route tries `validateApiKey()` first (existing Claude Desktop + mcp-remote + n8n path), falls back to `validateOAuthAccessToken()`. Both return `{ organizationId, keyPrefix }` so downstream tools don't care which path authenticated the request.
+
+**Middleware bypass**: early `if (pathname.startsWith("/api/mcp")) return NextResponse.next()` in `src/middleware.ts` so MCP routes handle their own CORS via route-level `OPTIONS` exports (the app-level mobile-only CORS allowlist was silently rejecting claude.ai).
+
+**Hourly cleanup cron** at `/api/cron/mcp-oauth-cleanup` purges expired auth codes and stale tokens past a 7-day grace period.
+
+Migration: `20260416000000_add_mcp_oauth_tables`. Full architectural detail in `docs/MCP_OAUTH.html` (local-only, gitignored per docs convention).
+
+---
+
+### Speaker / Faculty Communications Upgrade (April 2026)
+
+Four-part overhaul of speaker outreach so faculty get professionally personalized invitations and agreements:
+
+1. **Title prefix rendering** on all public surfaces (agenda, session page, registration-page featured speakers) and in every speaker email. Previously `{{firstName}} {{lastName}}` only — now `{{speakerName}}` via `formatPersonName()`.
+2. **Presentation details block** in speaker emails — session title, topic title(s), date/time, track, role. Previously a comma-joined session-name list. New `buildSpeakerEmailContext()` helper in `src/lib/speaker-agreement.ts` is the single source of truth for both email vars AND docx merge fields.
+3. **Per-user organizer email signature** — new `User.emailSignature` field (HTML, max 10000 chars). Edited via TiptapEditor on `/profile`. Appended to speaker emails via `{{organizerSignature}}` template var. Scheduled-email cron loads it from the triggering user.
+4. **Personalized speaker-agreement DOCX attachment** — new `Event.speakerAgreementTemplate` JSON pointer to an uploaded .docx. Admin uploads at Event Settings → Email Branding. Uses `docxtemplater` + `pizzip` to mail-merge `{speakerName}`, `{sessionTitles}`, `{sessionDateTime}`, `{organizationName}`, etc. Per-recipient generation in `executeBulkEmail()`. Single-send and bulk + scheduled paths all attach personalized docx.
+
+Migration: `20260415000000_add_email_signature_and_agreement_template`. New deps: `docxtemplater@3.68.4`, `pizzip@3.2.0`.
 
 ---
 
