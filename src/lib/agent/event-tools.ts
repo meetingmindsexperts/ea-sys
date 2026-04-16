@@ -658,6 +658,22 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
     }
     if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
+    // Explicit pre-check so we can return the existing speaker's id. This lets
+    // callers (like Claude) auto-pivot to update_speaker instead of needing a
+    // second list_speakers call to find the existing row. The P2002 catch below
+    // remains as a safety net for race conditions between this check and create.
+    const existing = await db.speaker.findFirst({
+      where: { eventId: ctx.eventId, email },
+      select: { id: true },
+    });
+    if (existing) {
+      return {
+        error: `A speaker with email ${email} already exists for this event`,
+        existingId: existing.id,
+        suggestion: "Use update_speaker with speakerId to modify this speaker, or use a different email",
+      };
+    }
+
     const speaker = await db.speaker.create({
       data: {
         eventId: ctx.eventId,
@@ -786,6 +802,34 @@ const createSession: ToolExecutor = async (input, ctx) => {
     }
     if (endTime <= startTime) {
       return { error: "endTime must be after startTime" };
+    }
+
+    // Validate session falls within parent event's date range.
+    // Compare as LOCAL DATES in the event's timezone (default Asia/Dubai),
+    // not UTC timestamps — otherwise a session at 11pm Dubai on the last day
+    // of the event would be rejected because its UTC timestamp is already
+    // past midnight of day N+1.
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId },
+      select: { startDate: true, endDate: true, timezone: true },
+    });
+    if (!event) return { error: "Event not found" };
+    const timezone = event.timezone || "Asia/Dubai";
+    const toLocalDate = (d: Date): string =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    const eventStartDate = toLocalDate(event.startDate);
+    const eventEndDate = toLocalDate(event.endDate);
+    const sessionStartDate = toLocalDate(startTime);
+    const sessionEndDate = toLocalDate(endTime);
+    if (sessionStartDate < eventStartDate || sessionEndDate > eventEndDate) {
+      return {
+        error: `Session must fall within event dates (${eventStartDate} to ${eventEndDate} ${timezone})`,
+      };
     }
 
     // Validate trackId belongs to this event if provided
@@ -1003,7 +1047,8 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid title "${rawTitle}". Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
 
-    // Check for duplicate registration by email for this event
+    // Check for duplicate registration by email for this event.
+    // Returns existingRegistrationId so callers can auto-pivot to update_registration.
     const duplicate = await db.registration.findFirst({
       where: { eventId: ctx.eventId, attendee: { email } },
       select: { id: true },
@@ -1011,7 +1056,9 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
     if (duplicate) {
       return {
         alreadyExists: true,
+        existingRegistrationId: duplicate.id,
         message: `A registration for ${email} already exists for this event.`,
+        suggestion: "Use update_registration with registrationId to modify this registration",
       };
     }
 
@@ -1333,9 +1380,12 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
   try {
     const abstractId = String(input.abstractId ?? "").trim();
     const status = String(input.status ?? "").trim();
-    if (!abstractId) return { error: "abstractId is required" };
+    if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
     if (!ABSTRACT_UPDATE_STATUSES.has(status)) {
-      return { error: `Invalid status. Must be one of: ${[...ABSTRACT_UPDATE_STATUSES].join(", ")}` };
+      return {
+        error: `Invalid status. Must be one of: ${[...ABSTRACT_UPDATE_STATUSES].join(", ")}`,
+        code: "INVALID_STATUS",
+      };
     }
 
     const reviewNotes = input.reviewNotes ? String(input.reviewNotes).slice(0, 2000) : undefined;
@@ -1352,10 +1402,22 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
         speaker: { select: { email: true, firstName: true, lastName: true } },
       },
     });
-    if (!abstract) return { error: `Abstract ${abstractId} not found` };
+    if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
+
+    // Terminal-state guard: WITHDRAWN is the only truly terminal status.
+    // ACCEPTED ↔ REJECTED transitions are allowed (organizer may change mind).
+    if (abstract.status === "WITHDRAWN") {
+      return {
+        error: "Cannot update a withdrawn abstract",
+        code: "ABSTRACT_WITHDRAWN",
+        currentStatus: abstract.status,
+        suggestion: "Withdrawn abstracts are terminal. The submitter must resubmit a new abstract.",
+      };
+    }
 
     const previousStatus = abstract.status;
 
+    // DB update is the authoritative state change — succeed or fail loudly here.
     const updated = await db.abstract.update({
       where: { id: abstractId },
       data: {
@@ -1379,29 +1441,55 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
           source: "agent",
         },
       },
-    });
+    }).catch((err) =>
+      apiLogger.error({ err, abstractId }, "agent:update_abstract_status audit-log-failed"),
+    );
 
-    await notifyAbstractStatusChange({
-      eventId: ctx.eventId,
-      eventName: abstract.event.name,
-      eventSlug: abstract.event.slug,
-      abstractId: abstract.id,
-      abstractTitle: abstract.title,
+    // Notification is isolated: a failing email send must not mask the
+    // successful DB update. Surface notificationStatus in the return payload
+    // so callers (Claude, dashboards) know whether to follow up manually.
+    let notificationStatus: "sent" | "failed" = "sent";
+    let notificationError: string | undefined;
+    try {
+      await notifyAbstractStatusChange({
+        eventId: ctx.eventId,
+        eventName: abstract.event.name,
+        eventSlug: abstract.event.slug,
+        abstractId: abstract.id,
+        abstractTitle: abstract.title,
+        previousStatus,
+        newStatus: status,
+        reviewNotes: reviewNotes ?? abstract.reviewNotes ?? null,
+        reviewScore: abstract.reviewScore ?? null,
+        speaker: {
+          email: abstract.speaker?.email ?? null,
+          firstName: abstract.speaker?.firstName ?? "",
+          lastName: abstract.speaker?.lastName ?? "",
+        },
+      });
+    } catch (notifyErr) {
+      apiLogger.error(
+        { err: notifyErr, abstractId },
+        "agent:update_abstract_status notification-failed",
+      );
+      notificationStatus = "failed";
+      notificationError = notifyErr instanceof Error ? notifyErr.message : "Unknown notification error";
+    }
+
+    return {
+      abstract: updated,
       previousStatus,
-      newStatus: status,
-      reviewNotes: reviewNotes ?? abstract.reviewNotes ?? null,
-      reviewScore: abstract.reviewScore ?? null,
-      speaker: {
-        email: abstract.speaker?.email ?? null,
-        firstName: abstract.speaker?.firstName ?? "",
-        lastName: abstract.speaker?.lastName ?? "",
-      },
-    });
-
-    return { abstract: updated, previousStatus };
+      notificationStatus,
+      ...(notificationError && { notificationError }),
+    };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_abstract_status failed");
-    return { error: "Failed to update abstract status" };
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return {
+      error: "Failed to update abstract status",
+      code: "UNKNOWN",
+      details: message,
+    };
   }
 };
 
@@ -1567,8 +1655,16 @@ const createContact: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.contact.findFirst({
       where: { organizationId: ctx.organizationId, email },
+      select: { id: true, email: true, firstName: true, lastName: true },
     });
-    if (existing) return { alreadyExists: true, contact: { id: existing.id, email: existing.email, firstName: existing.firstName, lastName: existing.lastName } };
+    if (existing) {
+      return {
+        alreadyExists: true,
+        existingId: existing.id,
+        contact: existing,
+        message: `A contact with email ${email} already exists in this organization`,
+      };
+    }
 
     const contact = await db.contact.create({
       data: {
@@ -2543,7 +2639,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
         name: true,
         startTime: true,
         endTime: true,
-        event: { select: { startDate: true, endDate: true } },
+        event: { select: { startDate: true, endDate: true, timezone: true } },
       },
     });
     if (!existing) return { error: `Session ${sessionId} not found or access denied` };
@@ -2577,14 +2673,24 @@ const updateSession: ToolExecutor = async (input, ctx) => {
 
     if (newEnd < newStart) return { error: "endTime must be on or after startTime" };
 
-    // Session must fit within the parent event's date range
-    const eventStart = new Date(existing.event.startDate);
-    eventStart.setUTCHours(0, 0, 0, 0);
-    const eventEnd = new Date(existing.event.endDate);
-    eventEnd.setUTCHours(23, 59, 59, 999);
-    if (newStart < eventStart || newEnd > eventEnd) {
+    // Session must fall within the parent event's date range, compared as LOCAL
+    // DATES in the event's timezone (default Asia/Dubai). UTC comparison would
+    // incorrectly reject late-evening sessions on the last event day.
+    const timezone = existing.event.timezone || "Asia/Dubai";
+    const toLocalDate = (d: Date): string =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    const eventStartDate = toLocalDate(existing.event.startDate);
+    const eventEndDate = toLocalDate(existing.event.endDate);
+    const newStartDate = toLocalDate(newStart);
+    const newEndDate = toLocalDate(newEnd);
+    if (newStartDate < eventStartDate || newEndDate > eventEndDate) {
       return {
-        error: `Session times must fall within event dates (${existing.event.startDate.toISOString()} to ${existing.event.endDate.toISOString()})`,
+        error: `Session must fall within event dates (${eventStartDate} to ${eventEndDate} ${timezone})`,
       };
     }
 

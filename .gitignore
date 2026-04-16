@@ -64,3 +64,4 @@ docs/TECHNICAL_INTERVIEW_QA.md
 docs/*
 docs/ARCHITECTURE.md
 docs/HANDOVER.md
+.claude/settings.local.json
