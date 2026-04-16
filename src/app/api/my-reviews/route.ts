@@ -26,15 +26,29 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    // 1) events where the user is in the event-level reviewer pool.
-    // We can't filter by JSON path with Prisma's `settings` shape directly,
-    // so fetch a narrow set of candidate events and filter in memory. This is
-    // fine because the set is bounded by the user's role and the number of
-    // events they're tagged on is small.
-    const [candidateEvents, explicitAssignments] = await Promise.all([
-      db.event.findMany({
-        where: { status: { not: "CANCELLED" } },
-        select: { id: true, name: true, slug: true, startDate: true, endDate: true, settings: true },
+    // Pull both sources in parallel:
+    //   1. Abstracts in events where the user is in settings.reviewerUserIds
+    //      (event-level pool — same JSON-path filter buildEventAccessWhere
+    //      uses for the REVIEWER role). Filtering at the DB avoids scanning
+    //      every event in the deployment.
+    //   2. Abstracts with an explicit AbstractReviewer row for this user
+    //      (per-abstract assignment, independent of the pool).
+    const [abstractsFromPool, explicitAssignments] = await Promise.all([
+      db.abstract.findMany({
+        where: {
+          event: {
+            status: { not: "CANCELLED" },
+            settings: { path: ["reviewerUserIds"], array_contains: userId },
+          },
+        },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          submittedAt: true,
+          eventId: true,
+          event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
+        },
       }),
       db.abstractReviewer.findMany({
         where: { userId },
@@ -55,27 +69,6 @@ export async function GET() {
         },
       }),
     ]);
-
-    const eventIdsFromPool = candidateEvents
-      .filter((e) => {
-        const reviewers = (e.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
-        return reviewers.includes(userId);
-      })
-      .map((e) => e.id);
-
-    const abstractsFromPool = eventIdsFromPool.length
-      ? await db.abstract.findMany({
-          where: { eventId: { in: eventIdsFromPool } },
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            submittedAt: true,
-            eventId: true,
-            event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
-          },
-        })
-      : [];
 
     // Merge — de-dup by abstract id. Explicit assignment row wins so we keep
     // the role + conflictFlag metadata attached.

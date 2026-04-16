@@ -1711,6 +1711,23 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
     const abstractId = String(input.abstractId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
 
+    // API-key / OAuth callers (ctx.userId = SYSTEM_USER_ID "mcp-remote") don't
+    // have a real user identity, so they can't be "the reviewer who scored
+    // this abstract" — the submission would get attributed to a sentinel.
+    // Reject early with a clear error; if you need bulk review ingestion
+    // from external systems, the right shape is a separate org-admin-only
+    // tool that takes an explicit reviewerUserId. For now, require a real
+    // user session (OAuth with per-user grant, or dashboard/in-app agent).
+    if (ctx.userId === "mcp-remote") {
+      return {
+        error:
+          "submit_abstract_review requires an authenticated user session. " +
+          "It cannot be called via API-key MCP (no user identity to attribute the review to). " +
+          "Use the dashboard's /my-reviews portal, the in-app AI agent, or OAuth-based MCP with a per-user grant.",
+        code: "MCP_API_KEY_NOT_SUPPORTED",
+      };
+    }
+
     // Abstract must exist + belong to this org scope
     const abstract = await db.abstract.findFirst({
       where: { id: abstractId, eventId: ctx.eventId },
@@ -1812,6 +1829,9 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
         ...(reviewNotes !== null && { reviewNotes }),
         ...(recommendedFormat && { recommendedFormat: recommendedFormat as never }),
         ...(confidence !== undefined && { confidence }),
+        // Re-link to the current assignment on every write so unassign/
+        // re-assign cycles don't leave a stale (null) FK.
+        abstractReviewerId: existingAssignment?.id ?? null,
       },
       select: {
         id: true,

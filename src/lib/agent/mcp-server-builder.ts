@@ -232,7 +232,7 @@ export function buildMcpServer(organizationId: string): McpServer {
     { name: "unassign_reviewer_from_abstract", description: "Remove a reviewer's per-abstract assignment. Any submission the reviewer already made is preserved (abstractReviewerId is set null).", params: {
       abstractId: z.string(), userId: z.string(),
     }},
-    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: 0-10}; overallScore 0-100 auto-computed from weighted criteria if omitted.", params: {
+    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: 0-10}; overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session — NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
       abstractId: z.string(),
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
       overallScore: z.number().int().min(0).max(100).optional(),

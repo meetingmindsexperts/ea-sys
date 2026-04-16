@@ -69,6 +69,10 @@ export async function GET(req: Request, { params }: RouteParams) {
           track: true,
           theme: { select: { id: true, name: true } },
           eventSession: true,
+          // Sprint B: fold submission rollup into the list response so the
+          // dashboard card can render meanOverallScore + reviewCount without
+          // an extra per-row fetch. Only pick fields needed for the mean.
+          submissions: { select: { overallScore: true } },
         },
         orderBy: { submittedAt: "desc" },
       }),
@@ -78,8 +82,24 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    const enriched = abstracts.map((a) => {
+      const scores = a.submissions
+        .map((s) => s.overallScore)
+        .filter((s): s is number => s != null);
+      const meanOverallScore = scores.length
+        ? Math.round((scores.reduce((x, y) => x + y, 0) / scores.length) * 10) / 10
+        : null;
+      const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
+      delete rest.submissions;
+      return {
+        ...rest,
+        reviewCount: a.submissions.length,
+        meanOverallScore,
+      };
+    });
+
     // Add cache headers for better performance
-    const response = NextResponse.json(abstracts);
+    const response = NextResponse.json(enriched);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {

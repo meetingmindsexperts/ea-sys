@@ -55,22 +55,52 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true },
+        select: { id: true, speaker: { select: { userId: true } } },
       }),
     ]);
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
     if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
 
-    // REVIEWER role users aren't org-bound, so use reviewerUserIds check;
-    // everyone else must be in the same org
+    // Access matrix for reading reviewer feedback:
+    //   - org members (ADMIN/ORGANIZER) → full per-reviewer view
+    //   - event-pool reviewers (REVIEWER role, org-independent) → full view
+    //   - the abstract's submitter → speaker-safe view: notes + overall
+    //     aggregates only, no per-reviewer identity (the "Reviewer Feedback"
+    //     card on /abstracts/[id]/edit is the one place a SUBMITTER sees this)
+    //   - everyone else → 403
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
     const isOrgMember = event.organizationId === session.user.organizationId;
-    if (!isOrgMember && !isEventReviewer) {
+    const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
+    if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const aggregate = await computeSubmissionAggregates(abstractId);
+
+    // Speaker-only view: strip reviewer identity + per-criterion detail so the
+    // submitter sees consolidated feedback without learning who-said-what.
+    if (isAbstractSpeaker && !isOrgMember && !isEventReviewer) {
+      return NextResponse.json({
+        submissions: aggregate.submissions.map((s) => ({
+          id: s.id,
+          overallScore: s.overallScore,
+          reviewNotes: s.reviewNotes,
+          recommendedFormat: s.recommendedFormat,
+          submittedAt: s.submittedAt,
+          updatedAt: s.updatedAt,
+        })),
+        aggregates: {
+          count: aggregate.aggregates.count,
+          meanOverall: aggregate.aggregates.meanOverall,
+          medianOverall: aggregate.aggregates.medianOverall,
+          minOverall: aggregate.aggregates.minOverall,
+          maxOverall: aggregate.aggregates.maxOverall,
+          // perCriterion intentionally omitted — could reveal which criteria
+          // drove a low score in a way that identifies individual reviewers.
+        },
+      });
+    }
 
     return NextResponse.json({
       submissions: aggregate.submissions,
@@ -166,6 +196,12 @@ export async function POST(req: Request, { params }: RouteParams) {
             { status: 400 },
           );
         }
+        if (Object.prototype.hasOwnProperty.call(cleaned, criterionId)) {
+          return NextResponse.json(
+            { error: `Duplicate criterion ID: ${criterionId}`, code: "DUPLICATE_CRITERION_ID" },
+            { status: 400 },
+          );
+        }
         cleaned[criterionId] = score;
       }
       criteriaScoresJson = cleaned;
@@ -198,6 +234,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         ...(data.reviewNotes !== undefined && { reviewNotes: data.reviewNotes || null }),
         ...(data.recommendedFormat !== undefined && { recommendedFormat: data.recommendedFormat }),
         ...(data.confidence !== undefined && { confidence: data.confidence }),
+        // Re-link to the current assignment row (or clear if pool-only now).
+        // Handles unassign → re-assign cycles that would otherwise leave
+        // abstractReviewerId pointing at the old (now-null via SET NULL)
+        // assignment indefinitely.
+        abstractReviewerId: existingAssignment?.id ?? null,
       },
       select: {
         id: true,
