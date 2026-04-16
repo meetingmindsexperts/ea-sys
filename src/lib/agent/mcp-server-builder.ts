@@ -245,6 +245,10 @@ export function buildMcpServer(organizationId: string): McpServer {
     }},
     { name: "list_webinar_engagement", description: "Webinar engagement: polls with per-question data + all Q&A with asker/question/answer.", params: {} },
     { name: "list_sponsors", description: "List event sponsors grouped by tier (platinum/gold/silver/bronze/partner/exhibitor).", params: {} },
+    { name: "research_sponsor", description: "Fetch a sponsor's public website and propose SponsorEntry fields (name, websiteUrl, logoUrl, description). Does NOT save — review the proposal, pick a tier, then call upsert_sponsors. Tier is never inferred. Rate limited to 30/hr/user/event.", params: {
+      name: z.string().optional(),
+      websiteUrl: z.string().url().optional(),
+    }},
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },

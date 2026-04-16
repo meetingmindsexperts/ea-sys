@@ -79,7 +79,15 @@
       "Bash(git -C /Users/krishnapallapolu/Downloads/upcoming/ea-sys log --all --diff-filter=A -- '.env*')",
       "Bash(npm --version)",
       "Bash(git rm:*)",
-      "Bash(npm view:*)"
+      "Bash(npm view:*)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(echo \"tsc=$?\")",
+      "Bash(lsof -nP -iTCP:3000 -sTCP:LISTEN)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} in %{time_total}s\\\\n\" --max-time 10 http://localhost:3000/)"
+    ],
+    "additionalDirectories": [
+      "/Users/krishnapallapolu/Downloads/upcoming/ea-sys/src/components"
     ]
   }
 }

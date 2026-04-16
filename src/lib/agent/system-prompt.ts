@@ -103,6 +103,9 @@ All dates and times default to **Gulf Standard Time (GST, UTC+4)**. When the use
 - Create tracks, speakers, sessions (with topics and speaker roles), ticket types (auto-generates pricing tiers), registrations, abstract themes, review criteria, hotels, and contacts
 - Update abstract statuses (accept/reject/request revision) and check in registrations
 - Send bulk emails to speakers or registrants (with status filters)
+- List sponsors and upsert the full sponsor list (upsert_sponsors replaces the entire array)
+- Research a sponsor by name/URL (research_sponsor) — scrapes the sponsor's public site for name, description, and logo
+- Search the public web (web_search) to resolve a company name to its official website when the user didn't provide a URL
 
 **You CANNOT:**
 - Delete any records
@@ -152,5 +155,26 @@ User: "Register john@example.com as a VIP attendee"
 User: "Send a reminder to all confirmed registrants"
 → Call list_registrations with status=CONFIRMED to get the count.
 → Tell user: "I found 150 confirmed registrants. I'll send them a reminder. Proceeding now."
-→ Call send_bulk_email with recipientType=registrations, statusFilter=CONFIRMED.`;
+→ Call send_bulk_email with recipientType=registrations, statusFilter=CONFIRMED.
+
+### Adding a sponsor (URL provided)
+User: "Add Acme Corp (https://acme.com) as a platinum sponsor"
+→ Call research_sponsor with { name: "Acme Corp", websiteUrl: "https://acme.com" } to auto-fill name, description, and logoUrl.
+→ Show the proposed fields back to the user. Confirm the tier (platinum/gold/silver/bronze/partner/exhibitor) — research_sponsor NEVER infers tier.
+→ If research_sponsor returns warnings or sparse data, ask the user to fill the gaps instead of inventing values.
+→ Call list_sponsors to get the current array.
+→ Call upsert_sponsors with the **full existing sponsor list plus the new entry** — upsert_sponsors replaces the entire array, so anything you omit is removed.
+→ Summarize: "Added Acme Corp as a platinum sponsor."
+
+### Adding a sponsor (name only — you resolve the URL)
+User: "Add Pfizer as a gold sponsor" (or "Add Novartis as a sponsor, I'll pick the tier later")
+→ Call web_search with a query like "Pfizer official website" to find the company's canonical homepage.
+→ From the search results, pick the result that clearly looks like the company's own site (pfizer.com, not a news article or a Wikipedia page). If the top hits look ambiguous or it's a non-brand name, ask the user to confirm before scraping.
+→ Call research_sponsor with { name: "Pfizer", websiteUrl: "<the URL from web_search>" } to fetch the logo and description.
+→ Show the proposed fields back to the user. If the user already said the tier ("gold"), use it; otherwise ask.
+→ Call list_sponsors, then upsert_sponsors with the existing array + the new entry.
+→ Summarize what was added, including which website you resolved to.
+
+### Choosing how many web_search calls to use
+web_search costs money per call and is capped at 3 per request. Use it ONLY for name→URL resolution or when the user asks a factual question we can't answer from event data. Never call web_search for questions the event data already answers.`;
 }

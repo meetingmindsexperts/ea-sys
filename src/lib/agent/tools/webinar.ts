@@ -1,7 +1,11 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/security";
+import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
+import { uploadMedia } from "@/lib/storage";
 import { readWebinarSettings, readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
 import type { ToolExecutor } from "./_shared";
 
@@ -449,6 +453,237 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ── research_sponsor: scrape a sponsor's public site for OG metadata + logo ──
+
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&nbsp;": " ",
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (m) => HTML_ENTITIES[m] ?? m)
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function extractMetaProperty(html: string, property: string): string | undefined {
+  // Match <meta property="..." content="..."> or <meta name="..." content="...">, order-independent
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${property}["']`, "i"),
+  ];
+  for (const re of patterns) {
+    const m = re.exec(html);
+    if (m?.[1]) {
+      const value = decodeHtmlEntities(m[1]).trim();
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
+function extractTitle(html: string): string | undefined {
+  const m = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
+  if (!m?.[1]) return undefined;
+  const value = decodeHtmlEntities(m[1]).trim();
+  return value || undefined;
+}
+
+function extractLinkHref(html: string, relMatcher: RegExp): string | undefined {
+  // Match <link rel="..." href="..."> or <link href="..." rel="..."> for each link element
+  const linkRe = /<link\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = linkRe.exec(html)) !== null) {
+    const tag = match[0];
+    const relMatch = /\brel=["']([^"']+)["']/i.exec(tag);
+    if (!relMatch || !relMatcher.test(relMatch[1])) continue;
+    const hrefMatch = /\bhref=["']([^"']+)["']/i.exec(tag);
+    if (hrefMatch?.[1]) {
+      const value = decodeHtmlEntities(hrefMatch[1]).trim();
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
+function resolveRelative(raw: string, base: string): string | undefined {
+  try {
+    return new URL(raw, base).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function mapFetchReason(reason: string, detail?: string): string {
+  switch (reason) {
+    case "invalid_url": return "Invalid URL";
+    case "scheme_blocked": return "URL scheme not allowed (must be http or https)";
+    case "dns_failed": return "Could not resolve hostname";
+    case "ip_blocked": return "URL resolves to a blocked IP range";
+    case "timeout": return "Site timed out";
+    case "too_large": return "Site response too large";
+    case "too_many_redirects": return "Too many redirects";
+    case "bad_content_type": return `Unsupported content type${detail ? `: ${detail}` : ""}`;
+    case "http_error":
+    default: return detail ? `HTTP error: ${detail}` : "HTTP error";
+  }
+}
+
+const researchSponsor: ToolExecutor = async (input, ctx) => {
+  try {
+    const rawName = typeof input.name === "string" ? input.name.trim() : "";
+    const rawUrl = typeof input.websiteUrl === "string" ? input.websiteUrl.trim() : "";
+
+    if (!rawName && !rawUrl) {
+      return { error: "Provide at least one of: name, websiteUrl" };
+    }
+
+    // Dedicated rate-limit bucket so outbound scraping abuse can't piggyback
+    // on the general 20/hr agent budget.
+    const rl = checkRateLimit({
+      key: `research-sponsor:${ctx.userId}:${ctx.eventId}`,
+      limit: 30,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return { error: `Rate limit exceeded: 30 sponsor research calls per hour. Try again in ${rl.retryAfterSeconds}s.` };
+    }
+
+    if (!rawUrl) {
+      return {
+        proposed: { name: rawName.slice(0, 255) },
+        meta: {
+          source: "echo",
+          scrapedAt: new Date().toISOString(),
+          warnings: ["No websiteUrl provided — only name echoed back. Ask the user for the sponsor's website URL."],
+        },
+      };
+    }
+
+    const htmlResult = await safeFetchHtml(rawUrl);
+    if (!htmlResult.ok) {
+      apiLogger.warn({
+        msg: "agent:research_sponsor fetch failed",
+        eventId: ctx.eventId,
+        websiteUrl: rawUrl,
+        reason: htmlResult.reason,
+        detail: htmlResult.detail,
+      });
+      return {
+        error: mapFetchReason(htmlResult.reason, htmlResult.detail),
+        websiteUrl: rawUrl,
+      };
+    }
+
+    const html = htmlResult.data;
+    const finalUrl = htmlResult.finalUrl;
+    const warnings: string[] = [];
+
+    // Name priority: og:site_name → og:title → <title> → caller-supplied name → hostname.
+    // Use `||` for the rawName step because rawName can be "" (falsy) — `??` would
+    // only fall through on null/undefined and we'd end up with an empty name.
+    const extractedName =
+      extractMetaProperty(html, "og:site_name") ??
+      extractMetaProperty(html, "og:title") ??
+      extractTitle(html) ??
+      (rawName || new URL(finalUrl).hostname);
+
+    // Description priority: og:description → meta[name=description]
+    const extractedDescription =
+      extractMetaProperty(html, "og:description") ??
+      extractMetaProperty(html, "description");
+
+    // Logo candidates in priority order
+    const logoCandidates: string[] = [];
+    const ogImage = extractMetaProperty(html, "og:image");
+    if (ogImage) logoCandidates.push(ogImage);
+    const appleTouch = extractLinkHref(html, /(^|\s)apple-touch-icon(-precomposed)?(\s|$)/i);
+    if (appleTouch) logoCandidates.push(appleTouch);
+    const icon = extractLinkHref(html, /(^|\s)(?:shortcut\s+)?icon(\s|$)/i);
+    if (icon) logoCandidates.push(icon);
+    // Absolute fallback: /favicon.ico at origin
+    try {
+      const origin = new URL(finalUrl).origin;
+      logoCandidates.push(`${origin}/favicon.ico`);
+    } catch { /* ignore */ }
+
+    // Canonical URL (if present)
+    const canonicalHref = extractLinkHref(html, /(^|\s)canonical(\s|$)/i);
+    let canonicalUrl = finalUrl;
+    if (canonicalHref) {
+      const resolved = resolveRelative(canonicalHref, finalUrl);
+      if (resolved) canonicalUrl = resolved;
+    }
+
+    // Try to download a logo, picking the first candidate that succeeds
+    let logoUrl: string | undefined;
+    let fallbackLogo = false;
+    for (const candidate of logoCandidates) {
+      const resolved = resolveRelative(candidate, finalUrl);
+      if (!resolved) continue;
+      const imgResult = await safeFetchImage(resolved);
+      if (imgResult.ok) {
+        try {
+          const filename = `sponsor-logo-${randomUUID()}.${imgResult.data.ext}`;
+          logoUrl = await uploadMedia(imgResult.data.buffer, filename, imgResult.data.mime);
+          break;
+        } catch (err) {
+          apiLogger.warn({ msg: "agent:research_sponsor uploadMedia failed", err, candidate: resolved });
+          // Fall back to remote URL (must be http/https — resolveRelative already canonicalised).
+          logoUrl = resolved;
+          fallbackLogo = true;
+          break;
+        }
+      } else if (imgResult.reason === "bad_content_type" || imgResult.reason === "http_error") {
+        // Try next candidate silently — favicon.ico often returns text/html on SPA sites.
+        continue;
+      } else {
+        // ip_blocked / scheme_blocked / timeout — don't try remote fallback for these.
+        apiLogger.debug({ msg: "agent:research_sponsor logo rejected", candidate: resolved, reason: imgResult.reason });
+        continue;
+      }
+    }
+
+    if (!logoUrl) warnings.push("Could not fetch a logo from og:image, apple-touch-icon, icon, or /favicon.ico.");
+    if (!extractedDescription) warnings.push("No og:description or meta description found.");
+
+    const proposed = {
+      name: extractedName.slice(0, 255),
+      websiteUrl: canonicalUrl,
+      ...(logoUrl ? { logoUrl } : {}),
+      ...(extractedDescription ? { description: extractedDescription.slice(0, 1000) } : {}),
+    };
+
+    apiLogger.info({
+      msg: "agent:research_sponsor ok",
+      eventId: ctx.eventId,
+      host: new URL(finalUrl).hostname,
+      bytes: html.length,
+      fallbackLogo,
+      warnings: warnings.length,
+    });
+
+    return {
+      proposed,
+      meta: {
+        source: "scrape",
+        scrapedAt: new Date().toISOString(),
+        ...(fallbackLogo ? { fallbackLogo: true } : {}),
+        ...(warnings.length ? { warnings } : {}),
+      },
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:research_sponsor failed");
+    return { error: err instanceof Error ? err.message : "Failed to research sponsor" };
+  }
+};
+
 export const WEBINAR_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "list_zoom_meetings",
@@ -469,6 +704,70 @@ export const WEBINAR_TOOL_DEFINITIONS: Tool[] = [
       required: ["sessionId"],
     },
   },
+  {
+    name: "get_webinar_info",
+    description: "Get webinar configuration: settings.webinar + anchor session + linked ZoomMeeting (join URL, passcode, recording status).",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "list_webinar_attendance",
+    description: "Webinar attendance KPIs (registered / attended / rate / avg watch time) + top N attendee rows sorted by duration.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max attendee rows to return (default 20)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "list_webinar_engagement",
+    description: "Webinar engagement: polls with per-question data + all Q&A with asker/question/answer.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "list_sponsors",
+    description: "List event sponsors grouped by tier (platinum/gold/silver/bronze/partner/exhibitor).",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "research_sponsor",
+    description: "Fetch a sponsor's public website and propose SponsorEntry fields (name, websiteUrl, logoUrl, description). Does NOT save — review the proposal, ask the user to pick a tier, then call upsert_sponsors. Tier is NEVER inferred. Rate limited to 30/hr/user/event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Sponsor name hint. Used as fallback if the site has no <title>/og:site_name." },
+        websiteUrl: { type: "string", description: "Absolute http(s) URL of the sponsor's public site. Required for scraping — without it only the name is echoed back." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "upsert_sponsors",
+    description: "Replace the entire sponsor list for this event. Pass the full list of sponsors you want — anything missing is removed. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs. Typically you list_sponsors first, append/modify the returned array, then pass it back here.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sponsors: {
+          type: "array",
+          description: "Full replacement list of sponsors.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Existing sponsor id (omit to create a new one)." },
+              name: { type: "string" },
+              tier: { type: "string", enum: ["platinum", "gold", "silver", "bronze", "partner", "exhibitor"] },
+              logoUrl: { type: "string", description: "http(s) URL or relative /uploads/... path." },
+              websiteUrl: { type: "string", description: "Absolute http(s) URL." },
+              description: { type: "string" },
+            },
+            required: ["name"],
+          },
+        },
+      },
+      required: ["sponsors"],
+    },
+  },
 ];
 
 export const WEBINAR_EXECUTORS: Record<string, ToolExecutor> = {
@@ -478,5 +777,6 @@ export const WEBINAR_EXECUTORS: Record<string, ToolExecutor> = {
   list_webinar_attendance: listWebinarAttendance,
   list_webinar_engagement: listWebinarEngagement,
   list_sponsors: listSponsors,
+  research_sponsor: researchSponsor,
   upsert_sponsors: upsertSponsors,
 };

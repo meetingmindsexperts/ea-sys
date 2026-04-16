@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import type { MessageParam, ToolUnion, WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages";
 import { auth } from "@/lib/auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
@@ -24,7 +24,24 @@ const MUTATING_TOOLS = new Set([
   "create_registration", "create_abstract_theme", "create_review_criterion",
   "create_hotel", "create_contact", "add_topic_to_session",
   "update_abstract_status", "check_in_registration", "send_bulk_email",
+  "upsert_sponsors",
 ]);
+
+// Anthropic-hosted web search tool. Used by the agent to resolve company
+// names → websites (e.g. "add pfizer as a gold sponsor"). Anthropic executes
+// the search server-side and inlines the results; our loop only handles
+// client tool_use blocks, so no extra executor code is needed.
+// Billing: $10 per 1,000 searches. `max_uses: 3` caps per-request cost.
+// NOTE: the org admin must enable web search in the Claude Console
+// (https://console.anthropic.com → Settings → Privacy) or the tool call
+// will return { error_code: "unavailable" } at runtime.
+const WEB_SEARCH_TOOL: WebSearchTool20250305 = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 3,
+};
+
+const AGENT_TOOLS: ToolUnion[] = [...AGENT_TOOL_DEFINITIONS, WEB_SEARCH_TOOL];
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -60,7 +77,7 @@ async function runAgentLoop(
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
       system: systemPrompt,
-      tools: AGENT_TOOL_DEFINITIONS,
+      tools: AGENT_TOOLS,
       messages,
     });
 
