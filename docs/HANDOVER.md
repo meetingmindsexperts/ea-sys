@@ -1,6 +1,20 @@
 # EA-SYS Project Handover Document
 
+**Last Updated:** April 16, 2026
+
 This document explains the EA-SYS codebase for someone taking it over. It covers what everything does, where it lives, and why decisions were made.
+
+### Recent Major Additions (since early April 2026)
+
+If you're returning to this doc after a gap, these are the significant features that landed between April 2 and April 16 and may not be fully reflected in every section below. The deltas are called out inline where relevant, and `CLAUDE.md` is the canonical log.
+
+- **Zoom integration** (April 7-8) — org-level OAuth credentials, per-session meeting/webinar creation, public session landing pages at `/e/[slug]/session/[sessionId]`
+- **Webinar events as first-class** (April 13-14) — `eventType === "WEBINAR"` auto-provisions anchor session + Zoom webinar + 5-phase email sequence; two cron workers poll Zoom post-event for recording + attendance
+- **Zoom Web Embed v6** (April 15) — in-page Zoom Component View via `@zoom/meetingsdk/embedded` that works under React 19 (the bundled React 18 lives in the UMD closure)
+- **Sponsors** (April 15) — `Event.settings.sponsors` JSON, admin editor, public display on session pages
+- **Speaker/faculty communications upgrade** (April 15) — title prefix rendering everywhere, presentation details block in emails, per-user `User.emailSignature`, personalized `.docx` speaker agreement mail-merge via `docxtemplater` + `pizzip`
+- **MCP server full production** (April 15-16) — Streamable HTTP at `/api/mcp`, 65 tools across 10 domains covering the full event lifecycle, OAuth 2.1 + DCR for claude.ai web, x-api-key for Claude Desktop / n8n / scripts. See `docs/MCP_REFERENCE.md` for the tool inventory and `docs/MCP_OAUTH.html` for the OAuth architecture (both local-only per docs/* gitignore — `CLAUDE.md` is the committed reference).
+- **Documentation infrastructure** — per-feature HTML guides in `docs/*.html` (gitignored) alongside the canonical `CLAUDE.md` + this handover; `docs/MCP_AUDIT_RESPONSE.html` tracks audit findings against current state.
 
 ---
 
@@ -579,8 +593,58 @@ Organization configuration:
 
 **Page:** `src/app/(dashboard)/events/[eventId]/agent/page.tsx`
 **API:** `src/app/api/events/[eventId]/agent/execute/route.ts` (SSE stream)
+**Shared tools:** `src/lib/agent/event-tools.ts` — `TOOL_EXECUTOR_MAP` is the single source of truth for both in-app agent AND MCP server (65 tools as of April 16).
 
-Organizers type natural language commands ("Add Dr. Smith as a confirmed speaker", "Show me all unpaid registrations"). The backend runs an agentic loop using the Anthropic Claude API with tool-use. Supported tools: `list_event_info`, `list_tracks`, `create_track`, `list_speakers`, `create_speaker`, `list_registrations`, `list_sessions`, `create_session`, `list_ticket_types`, `send_bulk_email`. Output streamed to browser via Server-Sent Events and rendered as formatted markdown HTML. Rate limited: 20 req/hr per user, 10 bulk emails/hr per event. Admin/Organizer only.
+Organizers type natural language commands ("Add Dr. Smith as a confirmed speaker", "Show me all unpaid registrations", "Create a Cardiology Summit event for June 1-3"). Backend runs an agentic loop using the Anthropic Claude API with tool-use. Output streamed to browser via Server-Sent Events and rendered as formatted markdown HTML. Rate limited: 20 req/hr per user, 10 bulk emails/hr per event. Admin/Organizer only.
+
+Since this page shares `TOOL_EXECUTOR_MAP` with the MCP server, every new MCP tool also becomes available in the in-app agent automatically.
+
+### MCP Server
+
+**HTTP transport:** `src/app/api/mcp/route.ts` — Streamable HTTP per the MCP spec
+**Tool registrations:** `src/lib/agent/mcp-server-builder.ts` — builds the `McpServer` instance per-request with `TOOL_EXECUTOR_MAP` wired through `runTool()`
+**OAuth 2.1 routes:** `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/api/mcp/oauth/register`, `/mcp-authorize` (consent page), `/api/mcp/oauth/authorize/decision`, `/api/mcp/oauth/token`, `/api/mcp/oauth/revoke`
+**OAuth service lib:** `src/lib/mcp-oauth.ts` (hashing, PKCE S256 verification, auth code issue/exchange, refresh rotation)
+**CORS helper:** `src/lib/mcp-cors.ts` (allowlist: claude.ai, *.claude.ai, *.anthropic.com, console.anthropic.com)
+**Cleanup cron:** `src/app/api/cron/mcp-oauth-cleanup/route.ts` (hourly; deletes expired codes + stale tokens past 7-day grace)
+**Stdio transport:** `src/mcp/server.ts` (legacy, dev only — pending consolidation with the HTTP builder)
+
+Exposes 65 tools covering events (create + dashboard + stats + search), registrations (CRUD + bulk + check-in + unpaid filter), speakers (CRUD + agreement status), sessions (CRUD + live-now + time-range-validated against event dates in Asia/Dubai), abstracts (list + status update with structured errors), accommodations (full CRUD with atomic overbooking guard), invoices (create + send + status update), webinar (info + attendance + engagement reads), sponsors (list + upsert), promo codes (full CRUD, soft delete), scheduled emails (list + cancel), and communications (bulk email + template editing).
+
+Authentication is dual-path: `x-api-key` header for Claude Desktop + n8n + scripts (existing path, untouched), OR OAuth 2.1 Bearer tokens for claude.ai web (new). Both return `{ organizationId }` to downstream tools — the tools don't know or care which method authenticated the request. Every tool writes `AuditLog` rows with `changes.source: "mcp"` for traceability. Cross-org isolation enforced via `findFirst({ where: { id, event: { organizationId } } })` pattern on every lookup.
+
+See `docs/MCP_REFERENCE.md` (local-only) for the full tool inventory with schemas and `docs/MCP_OAUTH.html` (local-only) for the OAuth architectural detail. The canonical committed reference is the relevant section of `CLAUDE.md`.
+
+### Webinar Events
+
+**Event type:** `Event.eventType === "WEBINAR"`
+**Auto-provisioning:** `src/lib/webinar-provisioner.ts` — fires on event create
+**Settings shape:** `src/lib/webinar.ts` — `readWebinarSettings()`, `readSponsors()` helpers read from `Event.settings` JSON
+**Console UI:** `src/app/(dashboard)/events/[eventId]/webinar/page.tsx` — Setup / Analytics / Settings tabs with sticky status bar
+**Public session page:** `src/app/e/[slug]/session/[sessionId]/page.tsx` — sticky CTA + tabbed layout (Live Video / Details / Sponsors), mounts `ZoomWebEmbed` only on click
+**Cron workers:** `src/app/api/cron/webinar-recordings/route.ts` (5-min tick), `src/app/api/cron/webinar-attendance/route.ts` (10-min tick, chains engagement sync)
+**Data models:** `ZoomMeeting` (1:1 with `EventSession`), `ZoomAttendance` (per-segment rows), `WebinarPoll` / `WebinarPollResponse` / `WebinarQuestion`
+
+Creating a WEBINAR event triggers `provisionWebinar()` fire-and-forget — creates an anchor `EventSession`, calls Zoom if org has credentials, persists `settings.webinar` JSON, enqueues 5-phase email sequence (confirmation + reminder-24h + reminder-1h + live-now + thank-you). Post-event, the two cron workers poll Zoom for cloud recording and participant reports. Sidebar for WEBINAR events is filtered via `webinarModuleFilter()` to hide irrelevant modules (Accommodation / Check-In / Promo Codes / Abstracts / Reviewers). Full architectural detail in `docs/WEBINAR_EVENTS.html` (local).
+
+### Sponsors
+
+**Storage:** `Event.settings.sponsors` JSON as `SponsorEntry[]` (no dedicated Prisma table — see `src/lib/webinar.ts` for the shape + `readSponsors()` helper)
+**Admin editor:** `src/app/(dashboard)/events/[eventId]/sponsors/page.tsx` — draft-based editing, add/edit dialog with logo upload via `PhotoUpload`, up/down arrow reorder
+**API:** `src/app/api/events/[eventId]/sponsors/route.ts` — GET + PUT with Zod validation (URL scheme whitelist rejects `javascript:`/`data:`), server reassigns `sortOrder` from array index
+**Public display:** bottom of `/e/[slug]/session/[sessionId]` as a Sponsors tab grouped by tier
+
+Six tiers: platinum, gold, silver, bronze, partner, exhibitor. Replace-all update semantics — clients send the full list and server diffs are handled server-side. `upsert_sponsors` MCP tool mirrors the PUT behavior.
+
+### Speaker Communications (Invitation + Agreement)
+
+**Per-user email signature:** `User.emailSignature` (HTML, Text column); edited at `/profile` via TiptapEditor; GET/PATCH `/api/profile/route.ts`
+**Speaker agreement template:** `Event.speakerAgreementTemplate` JSON pointer to an uploaded `.docx`; admin upload UI at Event Settings → Email Branding via `src/components/events/speaker-agreement-template-card.tsx`; upload route at `/api/events/[eventId]/speaker-agreement-template/route.ts` (DOCX magic-byte validation `PK\x03\x04`, 2MB cap, 10/hr rate limit)
+**Mail-merge engine:** `src/lib/speaker-agreement.ts` — `buildSpeakerEmailContext()` is the single source of truth for both email template variables AND docx merge fields; `generateSpeakerAgreementDocx()` uses `docxtemplater` + `pizzip` with `{token}` delimiters
+**Per-recipient bulk attachments:** `executeBulkEmail()` in `src/lib/bulk-email.ts` generates a personalized `.docx` per recipient in the send loop (not one static attachment for all)
+**Templates updated:** `speaker-invitation` and `speaker-agreement` default templates in `src/lib/email.ts` now use `{{speakerName}}` (formatted prefix via `formatPersonName()`), include `{{presentationDetails}}` block, append `{{organizerSignature}}`
+
+The flow: organizer uploads `.docx` template with `{speakerName}`, `{sessionTitles}`, `{sessionDateTime}`, `{organizationName}`, etc. When sending speaker-agreement emails (single or bulk or scheduled), each recipient gets a personalized doc with their own fields filled in. Generation is per-recipient inside the bulk send loop — not a static attachment. Immediate-send route, bulk-email route, and scheduled-email cron worker all use the same path.
 
 ### Media Library
 
@@ -684,6 +748,48 @@ Error tracking for both server and client. Client-side uses Replay integration (
 Photo uploads use a provider pattern controlled by `STORAGE_PROVIDER` env var:
 - **`"local"` (default, EC2):** Files stored in `public/uploads/photos/YYYY/MM/UUID.ext`. Served by the catch-all handler at `src/app/uploads/[...path]/route.ts`.
 - **`"supabase"` (Vercel):** Files stored in Supabase Storage bucket. Returns CDN URLs directly. Required because Vercel serverless has no writable filesystem.
+
+### Zoom
+
+**Files:** `src/lib/zoom/*` — `client.ts` (OAuth token cache), `meetings.ts` + `webinars.ts` (CRUD), `recordings.ts` + `reports.ts` + `polls-qa.ts` (post-event data), `signature.ts` (SDK signing), `index.ts` (barrel)
+
+Full Zoom module for live meetings, webinars, and webinar series linked to event sessions:
+
+- **Credentials stored AES-256-GCM encrypted per-org** in `Organization.settings.zoom` — Server-to-Server OAuth (accountId / clientId / clientSecret) + General App SDK keys (separate Dev and Prod pairs). No env vars needed; admins enter credentials in the dashboard.
+- **OAuth token cache** with 5-min pre-expiry so most requests don't pay the refresh cost
+- **Per-event toggle** via `Event.settings.zoom.enabled`
+- **7 API routes**: credentials CRUD, test connection, event settings, session meeting CRUD, panelist sync with rate limit, public join with org-aware signature, public session detail with event branding
+- **Public session landing page** at `/e/[slug]/session/[sessionId]` with event banner, speaker photos/bios, prominent Join CTA, and in-page `@zoom/meetingsdk/embedded` v6 Component View (mounts only on click to keep the ~3MB SDK bundle off initial paint)
+- **Webinar cron workers** (`/api/cron/webinar-recordings` every 5 min, `/api/cron/webinar-attendance` every 10 min) poll Zoom for cloud recording + participant report + polls + Q&A, populating `ZoomMeeting.recordingStatus`, `ZoomAttendance`, `WebinarPoll`, `WebinarQuestion`
+- **Rate limiting** on all endpoints (create 30/hr, join 60/hr, credentials 10/hr, panelists 30/hr) with `apiLogger.warn` on every rejection
+- **Performance**: OAuth token cache, `Promise.all` on parallel queries, Prisma `select` to minimize payload
+
+`@zoom/meetingsdk@^6.0.0` is in `serverExternalPackages`. Component View works under React 19 via `@zoom/meetingsdk/embedded` (its bundled React 18 lives in the UMD closure — no fiber tree collision). The top-level `@zoom/meetingsdk` Client View entry is blocked because it mounts into the host fiber tree. Full architectural detail in `docs/ZOOM_INTEGRATION.html` (local).
+
+### Anthropic (MCP + AI Agent)
+
+**Files:** `@anthropic-ai/sdk` used in `src/lib/agent/` for the in-app agent; MCP server at `src/app/api/mcp/route.ts` uses `@modelcontextprotocol/sdk`
+
+Two distinct paths:
+
+1. **In-app AI agent** at `/events/[id]/agent` — organizer types natural-language commands, Claude API runs an agentic loop with tool-use, output streamed via SSE. See §7 Feature Modules.
+
+2. **MCP server** at `/api/mcp` — exposes 65 tools to external MCP clients (claude.ai web via OAuth 2.1, Claude Desktop via `mcp-remote` + `x-api-key`, n8n via HTTP, Python SDK, etc). See §7 Feature Modules for architectural detail. Both paths share the same `TOOL_EXECUTOR_MAP` at `src/lib/agent/event-tools.ts`.
+
+**Configuration:**
+- `ANTHROPIC_API_KEY` — required only for the in-app agent (MCP clients bring their own key)
+
+### Stripe
+
+**Files:** `src/lib/stripe.ts` (lazy-init SDK singleton + currency helpers), `src/app/api/public/events/[slug]/checkout/route.ts` (checkout session create), `src/app/api/webhooks/stripe/route.ts` (signature verification + idempotent processing), `src/lib/invoice-service.ts` (receipt generation on payment completion)
+
+Stripe Checkout for paid event registrations. On successful checkout, webhook creates a `Payment` row and a `RECEIPT`-type `Invoice`; confirmation email sent with PDF receipt attached. `paymentStatus` on Registration is the DB flag; actual money movement stays in Stripe.
+
+- `toStripeAmount()` / `fromStripeAmount()` / `isZeroDecimalCurrency()` helpers handle JPY/KRW/etc correctly
+- Rate limit: 3 checkout sessions per 60s per IP
+- Webhook signature verification required — `STRIPE_WEBHOOK_SECRET`
+
+**Important safety rail**: the MCP `update_invoice_status` tool can set `status: "REFUNDED"` in the DB, but it does NOT trigger a Stripe refund. Actual refunds stay dashboard-only. Tool descriptions + response payloads document this explicitly so Claude doesn't assume money moved.
 
 ---
 
@@ -1002,7 +1108,7 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 ## 14. Known Gaps & Future Work
 
-### Current Gaps
+### Current Gaps (as of April 16, 2026)
 
 1. **Rate limiting on Vercel** — In-memory rate limiter (applied to all public endpoints) resets on serverless cold starts. Needs Redis (Vercel KV / Upstash) for persistent cross-instance rate limiting. On EC2 (Docker), in-memory works fine.
 
@@ -1012,12 +1118,33 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 4. **No external cache** — No Redis/Memcached. Caching via React Query (client-side, 5min stale) and HTTP headers. For high-traffic scenarios, adding Redis would help.
 
-5. **No automated E2E tests** — 17 unit test files (362+ tests) exist via Vitest but all mock Prisma. Playwright E2E tests for the critical flows (public registration → payment, abstract submission → review, CSV import → completion) would improve deployment confidence.
+5. **No automated E2E tests** — ~35 unit test files (880+ tests) exist via Vitest but all mock Prisma. Playwright E2E tests for the critical flows (public registration → payment, abstract submission → review, CSV import → completion, MCP OAuth handshake) would improve deployment confidence.
 
-6. **Accommodation UI incomplete** — Hotel/room-type edit/delete and booking creation UI not built; APIs exist.
+6. **Reviewer assignment schema gap** — Reviewers today are event-level (`Event.settings.reviewerUserIds` JSON), not per-abstract. There's no `AbstractReviewer` join table or `AbstractScore` table for storing criterion × reviewer × abstract scores. External audit flagged this (Sprint B deferred). Adding these tables unlocks proper reviewer workflow in both dashboard and MCP (`assign_reviewer_to_abstract`, `score_abstract`, `get_abstract_scores` MCP tools).
+
+7. **MCP stdio transport drift** — `src/mcp/server.ts` (stdio, dev only) duplicates ~600 lines of tool registrations from `src/lib/agent/mcp-server-builder.ts` (HTTP, production). Sprint A added 22+8 tools to the HTTP builder only. Consolidation PR pending: extract a shared `registerAllTools(server, orgId)` function and have both entry points call it.
+
+8. **MCP file upload gap** — Speaker agreement template (.docx) and media library images cannot be uploaded via MCP because JSON-RPC transport doesn't fit binary blobs well. Dashboard-only for now. Addressing would require a separate signed-upload-URL scheme.
+
+9. **MCP hard deletes** — Intentionally deferred as safety rail. No `delete_registration` / `delete_speaker` / `delete_session` MCP tools. Soft-delete / status-flip patterns (e.g., `delete_promo_code` via `isActive: false`) used instead where applicable. Dashboard handles hard deletes.
+
+10. **Stripe refunds via MCP** — `update_invoice_status: REFUNDED` flips the DB flag only. Actual money movement stays dashboard-only. Safety rail, not a gap — documented in tool descriptions so Claude doesn't assume refund happened.
+
+### Recently Closed (post-April 2 audit follow-up)
+
+- ✅ **Accommodation booking UI + API** — `/api/events/[id]/accommodations` full CRUD, admin dialog at `/events/[id]/accommodation`, MCP tools `create_accommodation` / `update_accommodation_status` / `list_room_types` with atomic overbooking guard
+- ✅ **MCP `create_event`** — was missing, now the first tool registered
+- ✅ **MCP update tools** — `update_registration`, `update_speaker`, `update_session`, `bulk_update_registration_status` all shipped
+- ✅ **`update_abstract_status` error handling** — was returning generic error, now returns structured `code` + `notificationStatus` and isolates notification failures from DB success
+- ✅ **Session time validation** — both `create_session` and `update_session` validate against event date range using the event's `timezone` field (Asia/Dubai default)
+- ✅ **Duplicate detection UX** — `create_speaker` / `create_registration` / `create_contact` all return `existingId` on dup so Claude can auto-pivot to `update_*`
+- ✅ **claude.ai web connectivity** — MCP OAuth 2.1 + DCR shipped; `WWW-Authenticate` + CORS + `.well-known/*` all work
 
 ### Potential Improvements
 
+- Reviewer assignment schema + workflow (Sprint B) — see gap #6
+- MCP stdio/HTTP consolidation — see gap #7
+- Bulk create MCP tools (`create_speakers_bulk`, `create_registrations_bulk`) — useful for CSV-like pastes into Claude
 - Add Redis for persistent rate limiting (Vercel) and optional caching
 - Add Playwright E2E tests for critical user flows
 - Multi-org support (allow multiple organizations per deployment)
