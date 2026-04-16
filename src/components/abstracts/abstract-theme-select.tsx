@@ -28,17 +28,20 @@ export function AbstractThemeSelect({
 
   if (!isLoading && themes.length === 0) return null;
 
+  // Radix Select forbids `value=""` on items — the empty string is reserved
+  // for "cleared" state. Use a sentinel and map it back to null in onChange.
+  const NONE = "__none__";
   return (
     <Select
-      value={value ?? ""}
-      onValueChange={(v) => onChange(v === "" ? null : v)}
+      value={value ?? NONE}
+      onValueChange={(v) => onChange(v === NONE ? null : v)}
       disabled={disabled || isLoading}
     >
       <SelectTrigger className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="">No theme</SelectItem>
+        <SelectItem value={NONE}>No theme</SelectItem>
         {themes.map((t: { id: string; name: string }) => (
           <SelectItem key={t.id} value={t.id}>
             {t.name}

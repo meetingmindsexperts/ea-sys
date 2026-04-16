@@ -4439,12 +4439,16 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
         });
         created.push({ index: i, ...speaker });
       } catch (err) {
-        errors.push({
-          index: i,
-          email: (items[i] as { email?: string }).email,
-          error: err instanceof Error ? err.message : "Unknown error",
-          code: "ROW_FAILED",
-        });
+        const email = (items[i] as { email?: string }).email;
+        const message = err instanceof Error ? err.message : "Unknown error";
+        errors.push({ index: i, email, error: message, code: "ROW_FAILED" });
+        // Per-row visibility for ops — the aggregate info log at the end only
+        // says "X failed", which isn't enough to diagnose a systematic bug
+        // (e.g., every row tripping the same unique-constraint race).
+        apiLogger.warn(
+          { err, eventId: ctx.eventId, index: i, email },
+          "agent:create_speakers_bulk row-failed",
+        );
       }
     }
 
@@ -4453,16 +4457,20 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
       "agent:create_speakers_bulk",
     );
 
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "CREATE",
-        entityType: "Speaker",
-        entityId: `bulk:${created.length}`,
-        changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk audit-log-failed"));
+    // Only audit when at least one row was created. A 0/N batch is noise in
+    // the audit log (per-row failures are visible via the warn logs above).
+    if (created.length > 0) {
+      db.auditLog.create({
+        data: {
+          eventId: ctx.eventId,
+          userId: ctx.userId,
+          action: "CREATE",
+          entityType: "Speaker",
+          entityId: `bulk:${created.length}`,
+          changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+        },
+      }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk audit-log-failed"));
+    }
 
     return {
       success: true,
@@ -4575,13 +4583,25 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         });
 
         created.push({ index: i, email, ...result });
+
+        // Fire-and-forget Contact upsert so bulk-created attendees reach the
+        // org-wide Contact store (parity with the single `create_registration`
+        // executor — otherwise bulk-imported attendees silently don't sync).
+        syncToContact({
+          organizationId: ctx.organizationId,
+          eventId: ctx.eventId,
+          email,
+          firstName,
+          lastName,
+        }).catch((err) => apiLogger.error({ err, index: i, email }, "agent:create_registrations_bulk contact-sync-failed"));
       } catch (err) {
-        errors.push({
-          index: i,
-          email: (items[i] as { email?: string }).email,
-          error: err instanceof Error ? err.message : "Unknown error",
-          code: "ROW_FAILED",
-        });
+        const rowEmail = (items[i] as { email?: string }).email;
+        const message = err instanceof Error ? err.message : "Unknown error";
+        errors.push({ index: i, email: rowEmail, error: message, code: "ROW_FAILED" });
+        apiLogger.warn(
+          { err, eventId: ctx.eventId, index: i, email: rowEmail },
+          "agent:create_registrations_bulk row-failed",
+        );
       }
     }
 
@@ -4590,16 +4610,18 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
       "agent:create_registrations_bulk",
     );
 
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "CREATE",
-        entityType: "Registration",
-        entityId: `bulk:${created.length}`,
-        changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk audit-log-failed"));
+    if (created.length > 0) {
+      db.auditLog.create({
+        data: {
+          eventId: ctx.eventId,
+          userId: ctx.userId,
+          action: "CREATE",
+          entityType: "Registration",
+          entityId: `bulk:${created.length}`,
+          changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
+        },
+      }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk audit-log-failed"));
+    }
 
     return {
       success: true,
@@ -4743,9 +4765,15 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
 
     // Reject any blacklisted field explicitly so the caller learns why and can
     // re-route through the dashboard (where cascading effects are handled).
+    // Both rejections get a warn-level log so admins can see if someone is
+    // repeatedly trying to bypass the whitelist via MCP.
     for (const key of Object.keys(input)) {
       if (key === "eventId") continue;
       if (EVENT_UPDATE_FIELD_BLACKLIST.has(key)) {
+        apiLogger.warn(
+          { eventId, userId: ctx.userId, field: key, source: "mcp" },
+          "agent:update_event field-not-allowed",
+        );
         return {
           error:
             `Field "${key}" cannot be changed via MCP because it cascades to ` +
@@ -4756,6 +4784,10 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
         };
       }
       if (key !== "eventId" && !EVENT_UPDATE_FIELD_WHITELIST.has(key)) {
+        apiLogger.warn(
+          { eventId, userId: ctx.userId, field: key, source: "mcp" },
+          "agent:update_event unknown-field",
+        );
         return {
           error: `Unknown field "${key}". Allowed: ${[...EVENT_UPDATE_FIELD_WHITELIST].join(", ")}`,
           code: "UNKNOWN_FIELD",
