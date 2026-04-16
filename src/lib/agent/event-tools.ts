@@ -3402,6 +3402,542 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint A batch 2 (April 2026) — accommodation CREATE + invoice + email templates
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── A3: Accommodation CREATE flow ────────────────────────────────────────────
+
+const listRoomTypes: ToolExecutor = async (input, ctx) => {
+  try {
+    const hotelId = input.hotelId ? String(input.hotelId) : undefined;
+
+    const roomTypes = await db.roomType.findMany({
+      where: {
+        hotel: {
+          eventId: ctx.eventId,
+          ...(hotelId ? { id: hotelId } : {}),
+          isActive: true,
+        },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        capacity: true,
+        pricePerNight: true,
+        currency: true,
+        totalRooms: true,
+        bookedRooms: true,
+        hotel: { select: { id: true, name: true, stars: true } },
+      },
+      orderBy: { pricePerNight: "asc" },
+    });
+
+    return {
+      roomTypes: roomTypes.map((r) => ({
+        ...r,
+        pricePerNight: Number(r.pricePerNight),
+        available: r.totalRooms - r.bookedRooms,
+      })),
+      total: roomTypes.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_room_types failed");
+    return { error: "Failed to list room types" };
+  }
+};
+
+const createAccommodation: ToolExecutor = async (input, ctx) => {
+  try {
+    const registrationId = input.registrationId ? String(input.registrationId).trim() : undefined;
+    const speakerId = input.speakerId ? String(input.speakerId).trim() : undefined;
+    const roomTypeId = String(input.roomTypeId ?? "").trim();
+    const checkInStr = String(input.checkIn ?? "").trim();
+    const checkOutStr = String(input.checkOut ?? "").trim();
+
+    if (!registrationId && !speakerId) {
+      return { error: "Either registrationId or speakerId is required" };
+    }
+    if (!roomTypeId) return { error: "roomTypeId is required" };
+    if (!checkInStr || !checkOutStr) return { error: "checkIn and checkOut are required (ISO 8601)" };
+
+    const checkInDate = new Date(checkInStr);
+    const checkOutDate = new Date(checkOutStr);
+    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
+      return { error: "checkIn and checkOut must be valid ISO 8601 datetime strings" };
+    }
+    const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (nights <= 0) return { error: "checkOut must be after checkIn" };
+
+    const guestCount = Math.max(1, Number(input.guestCount ?? 1));
+
+    // Validate event access + entities in parallel
+    const [event, registration, speaker, roomType] = await Promise.all([
+      db.event.findFirst({
+        where: { id: ctx.eventId, organizationId: ctx.organizationId },
+        select: { id: true },
+      }),
+      registrationId
+        ? db.registration.findFirst({
+            where: { id: registrationId, eventId: ctx.eventId },
+            select: { id: true, accommodation: { select: { id: true } } },
+          })
+        : null,
+      speakerId
+        ? db.speaker.findFirst({
+            where: { id: speakerId, eventId: ctx.eventId },
+            select: { id: true, accommodation: { select: { id: true } } },
+          })
+        : null,
+      db.roomType.findFirst({
+        where: {
+          id: roomTypeId,
+          isActive: true,
+          hotel: { eventId: ctx.eventId, isActive: true },
+        },
+        select: {
+          id: true,
+          capacity: true,
+          pricePerNight: true,
+          currency: true,
+          bookedRooms: true,
+          totalRooms: true,
+        },
+      }),
+    ]);
+
+    if (!event) return { error: "Event not found or access denied" };
+    if (registrationId && !registration) return { error: `Registration ${registrationId} not found in this event` };
+    if (speakerId && !speaker) return { error: `Speaker ${speakerId} not found in this event` };
+    if (registration?.accommodation) {
+      return {
+        error: "Registration already has accommodation assigned",
+        existingAccommodationId: registration.accommodation.id,
+        suggestion: "Use update_accommodation_status to modify, or remove existing first",
+      };
+    }
+    if (speaker?.accommodation) {
+      return {
+        error: "Speaker already has accommodation assigned",
+        existingAccommodationId: speaker.accommodation.id,
+        suggestion: "Use update_accommodation_status to modify, or remove existing first",
+      };
+    }
+    if (!roomType) return { error: "Room type not found or inactive" };
+    if (guestCount > roomType.capacity) {
+      return { error: `guestCount (${guestCount}) exceeds room capacity (${roomType.capacity})` };
+    }
+
+    const totalPrice = Number(roomType.pricePerNight) * nights;
+
+    // Atomic: overbooking guard inside tx + counter increment
+    const accommodation = await db.$transaction(async (tx) => {
+      const fresh = await tx.roomType.findUnique({
+        where: { id: roomTypeId },
+        select: { bookedRooms: true, totalRooms: true },
+      });
+      if (!fresh || fresh.bookedRooms >= fresh.totalRooms) {
+        throw new Error("NO_ROOMS_AVAILABLE");
+      }
+
+      const created = await tx.accommodation.create({
+        data: {
+          eventId: ctx.eventId,
+          ...(registrationId && { registrationId }),
+          ...(speakerId && { speakerId }),
+          roomTypeId,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          guestCount,
+          specialRequests: input.specialRequests ? String(input.specialRequests).slice(0, 1000) : null,
+          totalPrice,
+          currency: roomType.currency,
+          status: "PENDING",
+        },
+        select: {
+          id: true,
+          status: true,
+          checkIn: true,
+          checkOut: true,
+          guestCount: true,
+          totalPrice: true,
+          currency: true,
+          roomType: { select: { name: true, hotel: { select: { name: true } } } },
+        },
+      });
+
+      await tx.roomType.update({
+        where: { id: roomTypeId },
+        data: { bookedRooms: { increment: 1 } },
+      });
+
+      return created;
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Accommodation",
+        entityId: accommodation.id,
+        changes: {
+          source: "mcp",
+          registrationId: registrationId ?? null,
+          speakerId: speakerId ?? null,
+          roomTypeId,
+          nights,
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_accommodation audit-log-failed"));
+
+    return { success: true, accommodation: { ...accommodation, totalPrice: Number(accommodation.totalPrice), nights } };
+  } catch (err) {
+    if (err instanceof Error && err.message === "NO_ROOMS_AVAILABLE") {
+      return { error: "No rooms available for this room type" };
+    }
+    apiLogger.error({ err }, "agent:create_accommodation failed");
+    return { error: err instanceof Error ? err.message : "Failed to create accommodation" };
+  }
+};
+
+const ACCOMMODATION_STATUSES_SET = new Set(["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"]);
+
+const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
+  try {
+    const accommodationId = String(input.accommodationId ?? "").trim();
+    const status = String(input.status ?? "").trim();
+    if (!accommodationId) return { error: "accommodationId is required" };
+    if (!ACCOMMODATION_STATUSES_SET.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...ACCOMMODATION_STATUSES_SET].join(", ")}` };
+    }
+
+    const existing = await db.accommodation.findFirst({
+      where: { id: accommodationId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true, status: true, roomTypeId: true },
+    });
+    if (!existing) return { error: `Accommodation ${accommodationId} not found or access denied` };
+
+    if (existing.status === status) {
+      return { success: true, accommodation: existing, message: `Already in status ${status}` };
+    }
+
+    // Room counter adjustments around CANCELLED transitions (matches REST route logic)
+    const wasActive = existing.status !== "CANCELLED";
+    const willBeActive = status !== "CANCELLED";
+
+    const updated = await db.$transaction(async (tx) => {
+      if (wasActive && !willBeActive) {
+        // active → CANCELLED: release the room
+        await tx.roomType.update({
+          where: { id: existing.roomTypeId },
+          data: { bookedRooms: { decrement: 1 } },
+        });
+      } else if (!wasActive && willBeActive) {
+        // CANCELLED → active: re-book the room, but guard against overbooking
+        const fresh = await tx.roomType.findUnique({
+          where: { id: existing.roomTypeId },
+          select: { bookedRooms: true, totalRooms: true },
+        });
+        if (!fresh || fresh.bookedRooms >= fresh.totalRooms) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
+        await tx.roomType.update({
+          where: { id: existing.roomTypeId },
+          data: { bookedRooms: { increment: 1 } },
+        });
+      }
+
+      return tx.accommodation.update({
+        where: { id: accommodationId },
+        data: { status: status as never },
+        select: {
+          id: true,
+          status: true,
+          checkIn: true,
+          checkOut: true,
+          roomType: { select: { name: true, hotel: { select: { name: true } } } },
+        },
+      });
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Accommodation",
+        entityId: accommodationId,
+        changes: { source: "mcp", before: existing.status, after: status },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_accommodation_status audit-log-failed"));
+
+    return { success: true, accommodation: updated };
+  } catch (err) {
+    if (err instanceof Error && err.message === "NO_ROOMS_AVAILABLE") {
+      return { error: "Cannot reinstate: no rooms available in that room type" };
+    }
+    apiLogger.error({ err }, "agent:update_accommodation_status failed");
+    return { error: err instanceof Error ? err.message : "Failed to update accommodation status" };
+  }
+};
+
+// ─── A4: Invoice CREATE / SEND flow ───────────────────────────────────────────
+
+const INVOICE_STATUSES = new Set(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]);
+
+const createInvoiceExec: ToolExecutor = async (input, ctx) => {
+  try {
+    const registrationId = String(input.registrationId ?? "").trim();
+    if (!registrationId) return { error: "registrationId is required" };
+
+    // Verify registration belongs to this org's event
+    const registration = await db.registration.findFirst({
+      where: { id: registrationId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true },
+    });
+    if (!registration) return { error: `Registration ${registrationId} not found or access denied` };
+
+    const { createInvoice } = await import("@/lib/invoice-service");
+    const invoice = await createInvoice({
+      registrationId,
+      eventId: registration.eventId,
+      organizationId: ctx.organizationId,
+      dueDate: input.dueDate ? new Date(String(input.dueDate)) : undefined,
+    });
+
+    return {
+      success: true,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        type: invoice.type,
+        status: invoice.status,
+        total: Number(invoice.total),
+        currency: invoice.currency,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+      },
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_invoice failed");
+    return { error: err instanceof Error ? err.message : "Failed to create invoice" };
+  }
+};
+
+const sendInvoiceExec: ToolExecutor = async (input, ctx) => {
+  try {
+    const invoiceId = String(input.invoiceId ?? "").trim();
+    if (!invoiceId) return { error: "invoiceId is required" };
+
+    const existing = await db.invoice.findFirst({
+      where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true, invoiceNumber: true, status: true, registrationId: true },
+    });
+    if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
+
+    const { sendInvoiceEmail } = await import("@/lib/invoice-service");
+    await sendInvoiceEmail(invoiceId);
+
+    db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "SEND",
+        entityType: "Invoice",
+        entityId: invoiceId,
+        changes: { source: "mcp", invoiceNumber: existing.invoiceNumber },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:send_invoice audit-log-failed"));
+
+    return { success: true, invoiceId, invoiceNumber: existing.invoiceNumber, emailed: true };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:send_invoice failed");
+    return { error: err instanceof Error ? err.message : "Failed to send invoice" };
+  }
+};
+
+const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
+  try {
+    const invoiceId = String(input.invoiceId ?? "").trim();
+    const status = String(input.status ?? "").trim();
+    if (!invoiceId) return { error: "invoiceId is required" };
+    if (!INVOICE_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...INVOICE_STATUSES].join(", ")}` };
+    }
+
+    const existing = await db.invoice.findFirst({
+      where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true, invoiceNumber: true, status: true },
+    });
+    if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
+
+    const data: Prisma.InvoiceUpdateInput = { status: status as never };
+    if (status === "PAID") data.paidDate = new Date();
+
+    const updated = await db.invoice.update({
+      where: { id: invoiceId },
+      data,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        total: true,
+        currency: true,
+        paidDate: true,
+      },
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Invoice",
+        entityId: invoiceId,
+        changes: {
+          source: "mcp",
+          before: existing.status,
+          after: status,
+          note: status === "REFUNDED" ? "DB flag only — Stripe refund not triggered" : undefined,
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_invoice_status audit-log-failed"));
+
+    return {
+      success: true,
+      invoice: { ...updated, total: Number(updated.total) },
+      ...(status === "REFUNDED" && {
+        note: "Invoice marked REFUNDED in DB. This does NOT trigger a Stripe refund — use the dashboard for actual money movement.",
+      }),
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_invoice_status failed");
+    return { error: err instanceof Error ? err.message : "Failed to update invoice status" };
+  }
+};
+
+// ─── A5: Email template editing ───────────────────────────────────────────────
+
+const updateEmailTemplate: ToolExecutor = async (input, ctx) => {
+  try {
+    const slug = String(input.slug ?? "").trim();
+    if (!slug) return { error: "slug is required (e.g. 'speaker-invitation', 'registration-confirmation')" };
+
+    // Look up the event-specific template by slug. If none exists, we create one
+    // (this is how the user "overrides" a default template).
+    const existing = await db.emailTemplate.findFirst({
+      where: { eventId: ctx.eventId, slug },
+      select: { id: true, subject: true, htmlContent: true, textContent: true },
+    });
+
+    const subject = input.subject != null ? String(input.subject).slice(0, 500) : undefined;
+    const htmlContent = input.htmlContent != null ? String(input.htmlContent).slice(0, 100000) : undefined;
+    const textContent = input.textContent != null ? String(input.textContent).slice(0, 50000) : undefined;
+    const name = input.name != null ? String(input.name).slice(0, 200) : undefined;
+
+    if (subject === undefined && htmlContent === undefined && textContent === undefined) {
+      return { error: "At least one of subject, htmlContent, or textContent must be provided" };
+    }
+
+    let updated;
+    if (existing) {
+      updated = await db.emailTemplate.update({
+        where: { id: existing.id },
+        data: {
+          ...(subject !== undefined && { subject }),
+          ...(htmlContent !== undefined && { htmlContent }),
+          ...(textContent !== undefined && { textContent }),
+          ...(name !== undefined && { name }),
+        },
+        select: { id: true, slug: true, name: true, subject: true },
+      });
+    } else {
+      // No event-specific override yet — seed one. Pull defaults from email.ts
+      // so the missing fields don't end up empty.
+      const { getDefaultTemplate } = await import("@/lib/email");
+      const defaultTpl = getDefaultTemplate(slug);
+      if (!defaultTpl) {
+        return { error: `Unknown template slug "${slug}". Check list_email_templates for valid slugs.` };
+      }
+      updated = await db.emailTemplate.create({
+        data: {
+          eventId: ctx.eventId,
+          slug,
+          name: name ?? defaultTpl.name,
+          subject: subject ?? defaultTpl.subject,
+          htmlContent: htmlContent ?? defaultTpl.htmlContent,
+          textContent: textContent ?? defaultTpl.textContent,
+          isActive: true,
+        },
+        select: { id: true, slug: true, name: true, subject: true },
+      });
+    }
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "EmailTemplate",
+        entityId: updated.id,
+        changes: {
+          source: "mcp",
+          slug,
+          fieldsChanged: [
+            ...(subject !== undefined ? ["subject"] : []),
+            ...(htmlContent !== undefined ? ["htmlContent"] : []),
+            ...(textContent !== undefined ? ["textContent"] : []),
+          ],
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_email_template audit-log-failed"));
+
+    return { success: true, template: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_email_template failed");
+    return { error: err instanceof Error ? err.message : "Failed to update email template" };
+  }
+};
+
+const resetEmailTemplate: ToolExecutor = async (input, ctx) => {
+  try {
+    const slug = String(input.slug ?? "").trim();
+    if (!slug) return { error: "slug is required" };
+
+    const existing = await db.emailTemplate.findFirst({
+      where: { eventId: ctx.eventId, slug },
+      select: { id: true, slug: true },
+    });
+    if (!existing) {
+      return {
+        success: true,
+        message: `No event-level override exists for "${slug}" — already using default template`,
+      };
+    }
+
+    await db.emailTemplate.delete({ where: { id: existing.id } });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "DELETE",
+        entityType: "EmailTemplate",
+        entityId: existing.id,
+        changes: { source: "mcp", slug, note: "Reset to default — event-level override removed" },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:reset_email_template audit-log-failed"));
+
+    return { success: true, slug, message: "Event-level override removed. The default template will be used on next send." };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:reset_email_template failed");
+    return { error: err instanceof Error ? err.message : "Failed to reset email template" };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -3474,4 +4010,13 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   delete_promo_code: deletePromoCode,
   list_scheduled_emails: listScheduledEmails,
   cancel_scheduled_email: cancelScheduledEmail,
+  // ─── Sprint A batch 2 ───
+  list_room_types: listRoomTypes,
+  create_accommodation: createAccommodation,
+  update_accommodation_status: updateAccommodationStatus,
+  create_invoice: createInvoiceExec,
+  send_invoice: sendInvoiceExec,
+  update_invoice_status: updateInvoiceStatus,
+  update_email_template: updateEmailTemplate,
+  reset_email_template: resetEmailTemplate,
 };

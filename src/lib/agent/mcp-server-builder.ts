@@ -176,6 +176,10 @@ export function buildMcpServer(organizationId: string): McpServer {
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
+    // ─── Sprint A batch 2 reads ───
+    { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
+      hotelId: z.string().optional(),
+    }},
   ];
 
   // ── Event-level write tools ──
@@ -321,6 +325,41 @@ export function buildMcpServer(organizationId: string): McpServer {
     }},
     { name: "cancel_scheduled_email", description: "Cancel a PENDING scheduled email. Only works on status=PENDING rows — already-sent or already-processing emails cannot be cancelled.", params: {
       scheduledEmailId: z.string(),
+    }},
+    // ─── Sprint A batch 2 writes ───
+    { name: "create_accommodation", description: "Book a room for a registration or speaker. Requires roomTypeId, checkIn, checkOut (ISO 8601). Atomic — won't overbook. Use list_room_types first to get roomTypeId + availability.", params: {
+      registrationId: z.string().optional(),
+      speakerId: z.string().optional(),
+      roomTypeId: z.string(),
+      checkIn: z.string(),
+      checkOut: z.string(),
+      guestCount: z.number().optional(),
+      specialRequests: z.string().optional(),
+    }},
+    { name: "update_accommodation_status", description: "Change accommodation status: PENDING / CONFIRMED / CHECKED_IN / CHECKED_OUT / CANCELLED. Cancelling releases the room; reinstating re-checks availability.", params: {
+      accommodationId: z.string(),
+      status: z.enum(["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED"]),
+    }},
+    { name: "create_invoice", description: "Generate an invoice for a registration. Uses event's invoice counter for numbering. Requires event.code to be set (otherwise errors with clear message). dueDate defaults to 30 days from now. Does NOT auto-send — use send_invoice separately.", params: {
+      registrationId: z.string(),
+      dueDate: z.string().optional().describe("ISO 8601 datetime"),
+    }},
+    { name: "send_invoice", description: "Email an existing invoice PDF to the attendee. Status transitions handled internally.", params: {
+      invoiceId: z.string(),
+    }},
+    { name: "update_invoice_status", description: "Manually set invoice status. REFUNDED flips the DB flag for book-keeping only — does NOT call Stripe. Use the dashboard for actual money movement.", params: {
+      invoiceId: z.string(),
+      status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]),
+    }},
+    { name: "update_email_template", description: "Customize an event-level email template. slug examples: 'speaker-invitation', 'registration-confirmation', 'payment-reminder'. Creates an event-specific override if none exists yet. Pass any subset of subject / htmlContent / textContent.", params: {
+      slug: z.string(),
+      subject: z.string().optional(),
+      htmlContent: z.string().optional(),
+      textContent: z.string().optional(),
+      name: z.string().optional(),
+    }},
+    { name: "reset_email_template", description: "Remove the event-specific override for an email template. Subsequent sends will use the system default.", params: {
+      slug: z.string(),
     }},
   ];
 
