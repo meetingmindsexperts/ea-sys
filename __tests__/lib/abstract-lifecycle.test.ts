@@ -13,14 +13,30 @@ const createAbstractSchema = z.object({
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).default("SUBMITTED"),
 });
 
+// Sprint B: PUT /abstracts/[id] no longer accepts reviewNotes/reviewScore/
+// criteriaScores/recommendedFormat. Per-reviewer scoring lives on
+// AbstractReviewSubmission. `forceStatus` bypasses the requiredReviewCount
+// gate for ADMIN chair overrides.
 const updateAbstractSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   content: z.string().min(1).max(50000).optional(),
   trackId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
-  status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]).optional(),
+  status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
+  forceStatus: z.boolean().optional(),
+});
+
+// The per-reviewer submission schema (POST /submissions) — this is where
+// reviewNotes + overallScore actually land now.
+const submissionSchema = z.object({
+  criteriaScores: z.array(z.object({
+    criterionId: z.string(),
+    score: z.number().int().min(0).max(10),
+  })).max(50).optional(),
+  overallScore: z.number().int().min(0).max(100).optional(),
   reviewNotes: z.string().max(5000).optional(),
-  reviewScore: z.number().min(0).max(100).nullable().optional(),
+  recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+  confidence: z.number().int().min(1).max(5).optional(),
 });
 
 // ── Create abstract: schema validation ─────────────────────────────────────
@@ -156,11 +172,10 @@ describe("Abstract: edit/update schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts review fields (notes + score)", () => {
+  it("accepts admin force status bypass", () => {
     const result = updateAbstractSchema.safeParse({
       status: "ACCEPTED",
-      reviewNotes: "Excellent research methodology",
-      reviewScore: 85,
+      forceStatus: true,
     });
     expect(result.success).toBe(true);
   });
@@ -172,18 +187,41 @@ describe("Abstract: edit/update schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects review score above 100", () => {
+  it("no longer accepts reviewNotes (moved to POST /submissions)", () => {
     const result = updateAbstractSchema.safeParse({
-      reviewScore: 101,
+      status: "ACCEPTED",
+      reviewNotes: "stale",
     });
+    // Zod's default is stripUnknown=false but unknown keys pass silently
+    // in safeParse; we assert .data has no reviewNotes.
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).reviewNotes).toBeUndefined();
+    }
+  });
+
+  it("submission schema: rejects overallScore above 100", () => {
+    const result = submissionSchema.safeParse({ overallScore: 101 });
     expect(result.success).toBe(false);
   });
 
-  it("rejects review score below 0", () => {
-    const result = updateAbstractSchema.safeParse({
-      reviewScore: -1,
-    });
+  it("submission schema: rejects overallScore below 0", () => {
+    const result = submissionSchema.safeParse({ overallScore: -1 });
     expect(result.success).toBe(false);
+  });
+
+  it("submission schema: accepts criteria scores + notes + confidence", () => {
+    const result = submissionSchema.safeParse({
+      criteriaScores: [
+        { criterionId: "crit-1", score: 8 },
+        { criterionId: "crit-2", score: 6 },
+      ],
+      overallScore: 72,
+      reviewNotes: "Strong methodology, weak discussion.",
+      recommendedFormat: "ORAL",
+      confidence: 4,
+    });
+    expect(result.success).toBe(true);
   });
 
   it("rejects invalid status", () => {
@@ -222,16 +260,23 @@ describe("Abstract: SUBMITTER restrictions", () => {
     }
   });
 
-  it("blocks SUBMITTER from setting reviewNotes", () => {
-    const data = { reviewNotes: "Some notes" };
-    const isReviewField = data.reviewNotes !== undefined;
-    expect(isReviewField).toBe(true); // should be forbidden
+  // Sprint B: reviewNotes + reviewScore fields no longer exist on the PUT
+  // body — they've moved to POST /submissions, where SUBMITTER is blocked
+  // by a role check at the top of the handler.
+  it("blocks SUBMITTER + REGISTRANT from POST /submissions", () => {
+    const canSubmit = (role: string) =>
+      role !== "SUBMITTER" && role !== "REGISTRANT";
+    expect(canSubmit("SUBMITTER")).toBe(false);
+    expect(canSubmit("REGISTRANT")).toBe(false);
+    expect(canSubmit("REVIEWER")).toBe(true);
+    expect(canSubmit("ADMIN")).toBe(true);
   });
 
-  it("blocks SUBMITTER from setting reviewScore", () => {
-    const data = { reviewScore: 80 };
-    const isReviewField = data.reviewScore !== undefined;
-    expect(isReviewField).toBe(true); // should be forbidden
+  it("blocks SUBMITTER from forceStatus bypass (admin-only)", () => {
+    const isAdmin = (role: string) =>
+      role === "SUPER_ADMIN" || role === "ADMIN" || role === "ORGANIZER";
+    expect(isAdmin("SUBMITTER")).toBe(false);
+    expect(isAdmin("ADMIN")).toBe(true);
   });
 
   it("verifies SUBMITTER can only edit own abstracts (speaker.userId must match)", () => {
@@ -305,14 +350,19 @@ describe("Abstract: REVIEWER blocked from creating", () => {
 describe("Abstract: admin-only review actions", () => {
   const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
 
-  it("only ADMIN/SUPER_ADMIN can set review statuses", () => {
-    const isAdmin = (role: string) => role === "SUPER_ADMIN" || role === "ADMIN";
+  it("ADMIN/SUPER_ADMIN/ORGANIZER/REVIEWER can set review statuses via PUT", () => {
+    // Sprint B relaxed the guard: any role with `canReview` permission may
+    // transition to UNDER_REVIEW / ACCEPTED / REJECTED / REVISION_REQUESTED.
+    // ACCEPTED/REJECTED still gated on requiredReviewCount (separately).
+    const canReview = (role: string) =>
+      role === "SUPER_ADMIN" || role === "ADMIN" || role === "ORGANIZER" || role === "REVIEWER";
 
-    expect(isAdmin("ADMIN")).toBe(true);
-    expect(isAdmin("SUPER_ADMIN")).toBe(true);
-    expect(isAdmin("ORGANIZER")).toBe(false);
-    expect(isAdmin("REVIEWER")).toBe(false);
-    expect(isAdmin("SUBMITTER")).toBe(false);
+    expect(canReview("ADMIN")).toBe(true);
+    expect(canReview("SUPER_ADMIN")).toBe(true);
+    expect(canReview("ORGANIZER")).toBe(true);
+    expect(canReview("REVIEWER")).toBe(true);
+    expect(canReview("SUBMITTER")).toBe(false);
+    expect(canReview("REGISTRANT")).toBe(false);
   });
 
   it("identifies review actions that trigger email", () => {

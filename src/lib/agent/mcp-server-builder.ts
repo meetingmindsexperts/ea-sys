@@ -220,9 +220,28 @@ export function buildMcpServer(organizationId: string): McpServer {
     }},
     { name: "create_abstract_theme", description: "Create an abstract theme.", params: { name: z.string() }},
     { name: "create_review_criterion", description: "Create a review criterion.", params: { name: z.string(), weight: z.number() }},
-    { name: "update_abstract_status", description: "Update abstract status.", params: {
+    { name: "update_abstract_status", description: "Update abstract status. ACCEPTED/REJECTED require event.settings.requiredReviewCount submissions first; set force=true to bypass (logged as chair-override).", params: {
       abstractId: z.string(), status: z.enum(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]),
+      force: z.boolean().optional(),
+    }},
+    { name: "assign_reviewer_to_abstract", description: "Assign a reviewer to a specific abstract. Role defaults to SECONDARY. Idempotent — returns existing assignment if already assigned.", params: {
+      abstractId: z.string(), userId: z.string(),
+      role: z.enum(["PRIMARY", "SECONDARY", "CONSULTING"]).optional(),
+      conflictFlag: z.boolean().optional(),
+    }},
+    { name: "unassign_reviewer_from_abstract", description: "Remove a reviewer's per-abstract assignment. Any submission the reviewer already made is preserved (abstractReviewerId is set null).", params: {
+      abstractId: z.string(), userId: z.string(),
+    }},
+    { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: 0-10}; overallScore 0-100 auto-computed from weighted criteria if omitted.", params: {
+      abstractId: z.string(),
+      criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
+      overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),
+      recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+      confidence: z.number().int().min(1).max(5).optional(),
+    }},
+    { name: "get_abstract_scores", description: "Return all reviewer submissions on an abstract plus per-criterion + overall aggregates (mean/min/max, count).", params: {
+      abstractId: z.string(),
     }},
     { name: "create_hotel", description: "Add a hotel.", params: {
       name: z.string(), address: z.string().optional(), stars: z.number().optional(),

@@ -45,8 +45,7 @@ import {
   X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { useAbstracts, useSpeakers, useTracks, useEvent, useReviewCriteria, queryKeys } from "@/hooks/use-api";
-import { CriteriaScoreEditor, type CriteriaScoreItem } from "@/components/abstracts/criteria-score-editor";
+import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -82,16 +81,15 @@ interface Abstract {
   specialty: string | null;
   presentationType: string | null;
   status: string;
-  reviewNotes: string | null;
-  reviewScore: number | null;
-  criteriaScores: CriteriaScoreItem[] | null;
-  recommendedFormat: string | null;
   submittedAt: string;
   reviewedAt: string | null;
   speaker: Speaker;
   track: Track | null;
   theme: { id: string; name: string } | null;
   eventSession: { id: string; name: string } | null;
+  /** Server-computed aggregate from AbstractReviewSubmission rows (Sprint B) */
+  reviewCount?: number;
+  meanOverallScore?: number | null;
 }
 
 export default function AbstractsPage() {
@@ -113,8 +111,6 @@ export default function AbstractsPage() {
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
   const { data: event } = useEvent(eventId);
-  const { data: criteriaData = [] } = useReviewCriteria(eventId);
-  const criteria = criteriaData as { id: string; name: string; weight: number }[];
 
   const abstracts = abstractsData as Abstract[];
   const speakers = speakersData as Speaker[];
@@ -168,12 +164,13 @@ export default function AbstractsPage() {
     trackId: "",
     themeId: "" as string,
   });
+  // Sprint B: per-reviewer scoring moved to AbstractReviewSubmission rows
+  // (see /submissions route + reviewer portal). This dialog now only handles
+  // status transitions on the abstract itself. forceStatus lets admins bypass
+  // the requiredReviewCount gate.
   const [reviewData, setReviewData] = useState({
     status: "",
-    reviewNotes: "",
-    reviewScore: "",
-    criteriaScores: null as CriteriaScoreItem[] | null,
-    recommendedFormat: "" as string,
+    forceStatus: false,
   });
 
   // Create abstract mutation
@@ -244,7 +241,8 @@ export default function AbstractsPage() {
     onError: (err: Error) => toast.error(err.message || "Failed to update abstract"),
   });
 
-  // Review abstract mutation
+  // Sprint B: status transitions validated against event.settings.requiredReviewCount
+  // by the server; use forceStatus=true to override (logged as chair-override).
   const reviewAbstractMutation = useMutation({
     mutationFn: async ({ abstractId, data }: { abstractId: string; data: typeof reviewData }) => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
@@ -252,15 +250,17 @@ export default function AbstractsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status: data.status,
-          reviewNotes: data.reviewNotes || undefined,
-          reviewScore: criteria.length === 0 && data.reviewScore ? parseInt(data.reviewScore) : undefined,
-          criteriaScores: criteria.length > 0 ? (data.criteriaScores ?? undefined) : undefined,
-          recommendedFormat: data.recommendedFormat || undefined,
+          ...(data.forceStatus && { forceStatus: true }),
         }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to review abstract");
+        if (err.code === "INSUFFICIENT_REVIEWS") {
+          throw new Error(
+            `Not enough reviews to ${data.status}: ${err.currentCount}/${err.required}. Use force override if needed.`,
+          );
+        }
+        throw new Error(err.error || "Failed to update status");
       }
       return res.json();
     },
@@ -268,7 +268,7 @@ export default function AbstractsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
       setIsReviewDialogOpen(false);
       setSelectedAbstract(null);
-      toast.success("Review saved successfully");
+      toast.success("Status updated");
     },
     onError: (err: Error) => toast.error(err.message || "Failed to save review"),
   });
@@ -345,10 +345,7 @@ export default function AbstractsPage() {
     setSelectedAbstract(abstract);
     setReviewData({
       status: abstract.status,
-      reviewNotes: abstract.reviewNotes || "",
-      reviewScore: abstract.reviewScore?.toString() || "",
-      criteriaScores: abstract.criteriaScores ?? null,
-      recommendedFormat: abstract.recommendedFormat || "",
+      forceStatus: false,
     });
     setIsReviewDialogOpen(true);
   };
@@ -801,45 +798,27 @@ export default function AbstractsPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Score</Label>
-                    <CriteriaScoreEditor
-                      criteria={criteria}
-                      value={reviewData.criteriaScores}
-                      onChange={(cs) => setReviewData({ ...reviewData, criteriaScores: cs })}
-                      plainScore={reviewData.reviewScore ? parseInt(reviewData.reviewScore) : null}
-                      onPlainScoreChange={(s) =>
-                        setReviewData({ ...reviewData, reviewScore: s != null ? String(s) : "" })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Recommended Format</Label>
-                    <Select
-                      value={reviewData.recommendedFormat}
-                      onValueChange={(v) => setReviewData({ ...reviewData, recommendedFormat: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select recommendation (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                        <SelectItem value="POSTER">Poster Presentation</SelectItem>
-                        <SelectItem value="NEITHER">Neither</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reviewNotes">Review Notes</Label>
-                    <Textarea
-                      id="reviewNotes"
-                      value={reviewData.reviewNotes}
-                      onChange={(e) =>
-                        setReviewData({ ...reviewData, reviewNotes: e.target.value })
-                      }
-                      rows={4}
-                      placeholder="Feedback for the speaker..."
-                    />
+                  {isAdmin && (
+                    <label className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={reviewData.forceStatus}
+                        onChange={(e) =>
+                          setReviewData({ ...reviewData, forceStatus: e.target.checked })
+                        }
+                      />
+                      <span>
+                        Force status (bypass required-review-count gate). Logged as chair override.
+                      </span>
+                    </label>
+                  )}
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                    Per-reviewer scoring is handled via the new review submission flow
+                    (POST /api/events/{eventId}/abstracts/[id]/submissions). MCP tools:
+                    <code className="mx-1">submit_abstract_review</code>,
+                    <code className="mx-1">get_abstract_scores</code>. The status transition
+                    here validates against <code>event.settings.requiredReviewCount</code>.
                   </div>
                   <div className="flex justify-end gap-2">
                     <Button
@@ -852,7 +831,7 @@ export default function AbstractsPage() {
                     </Button>
                     <Button type="submit" disabled={isSubmitting}>
                       {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save Review
+                      Save Status
                     </Button>
                   </div>
                 </form>
@@ -1081,23 +1060,19 @@ export default function AbstractsPage() {
                           <Clock className="h-4 w-4" />
                           Submitted {formatDate(abstract.submittedAt)}
                         </div>
-                        {abstract.reviewScore !== null && (
-                          <div>Score: {abstract.reviewScore}/100</div>
+                        {typeof abstract.meanOverallScore === "number" && (
+                          <div>
+                            Mean score: {abstract.meanOverallScore}/100
+                            {typeof abstract.reviewCount === "number" && (
+                              <> ({abstract.reviewCount} review{abstract.reviewCount === 1 ? "" : "s"})</>
+                            )}
+                          </div>
                         )}
                       </div>
 
                       <p className="text-sm text-muted-foreground line-clamp-2 whitespace-pre-wrap">
                         {stripHtml(abstract.content)}
                       </p>
-
-                      {abstract.reviewNotes && (
-                        <div className="mt-3 p-3 bg-muted rounded-lg">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">
-                            Review Notes:
-                          </p>
-                          <p className="text-sm">{abstract.reviewNotes}</p>
-                        </div>
-                      )}
 
                       {abstract.eventSession && (
                         <div className="mt-3">
@@ -1152,10 +1127,7 @@ export default function AbstractsPage() {
                                   setSelectedAbstract(abstract);
                                   setReviewData({
                                     status: "ACCEPTED",
-                                    reviewNotes: "",
-                                    reviewScore: "",
-                                    criteriaScores: null,
-                                    recommendedFormat: "",
+                                    forceStatus: false,
                                   });
                                   setIsReviewDialogOpen(true);
                                 }}
@@ -1170,10 +1142,7 @@ export default function AbstractsPage() {
                                   setSelectedAbstract(abstract);
                                   setReviewData({
                                     status: "REJECTED",
-                                    reviewNotes: "",
-                                    reviewScore: "",
-                                    criteriaScores: null,
-                                    recommendedFormat: "",
+                                    forceStatus: false,
                                   });
                                   setIsReviewDialogOpen(true);
                                 }}

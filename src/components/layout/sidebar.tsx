@@ -33,6 +33,7 @@ import {
   Tag,
   Video,
   Award,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -154,7 +155,12 @@ export function Sidebar() {
   // REGISTRANT sees no sidebar — only the portal page
   if (isRegistrant) return null;
 
-  const restrictedNavigation = navigation.filter((item) => ["Events"].includes(item.name));
+  const restrictedNavigation: typeof navigation = isReviewer
+    ? [
+        { name: "My Reviews", href: "/my-reviews", icon: ClipboardCheck },
+        ...navigation.filter((item) => ["Events"].includes(item.name)),
+      ]
+    : navigation.filter((item) => ["Events"].includes(item.name));
   const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
 
   const isAdmin = session?.user?.role === "ADMIN" || isSuperAdmin;

@@ -455,16 +455,17 @@ describe("RBAC: Abstract-specific access rules", () => {
       }
     );
 
-    it("cannot set reviewNotes", () => {
-      const isReviewField = (data: Record<string, unknown>) =>
-        data.reviewNotes !== undefined;
-      expect(isReviewField({ reviewNotes: "Good paper" })).toBe(true);
-    });
-
-    it("cannot set reviewScore", () => {
-      const isReviewField = (data: Record<string, unknown>) =>
-        data.reviewScore !== undefined;
-      expect(isReviewField({ reviewScore: 85 })).toBe(true);
+    // Sprint B: per-reviewer scoring moved to POST /submissions, which is
+    // guarded separately. Submitters are blocked there by role check + the
+    // reviewer-pool membership check — asserting the /submissions auth gate
+    // now stands in for the old "cannot set reviewNotes/reviewScore" checks.
+    it("cannot POST to /submissions (REGISTRANT/SUBMITTER blocked by role)", () => {
+      const canSubmit = (role: string) =>
+        role !== "REGISTRANT" && role !== "SUBMITTER";
+      expect(canSubmit("SUBMITTER")).toBe(false);
+      expect(canSubmit("REGISTRANT")).toBe(false);
+      expect(canSubmit("REVIEWER")).toBe(true);
+      expect(canSubmit("ADMIN")).toBe(true);
     });
   });
 
@@ -474,10 +475,12 @@ describe("RBAC: Abstract-specific access rules", () => {
       expect(role === "REVIEWER").toBe(true); // route returns 403
     });
 
-    it("cannot set review statuses (only ADMIN/SUPER_ADMIN can)", () => {
-      const isAdmin = (role: string) =>
-        role === "SUPER_ADMIN" || role === "ADMIN";
-      expect(isAdmin("REVIEWER")).toBe(false);
+    it("cannot set review statuses via PUT (only ADMIN/SUPER_ADMIN/ORGANIZER/REVIEWER can set review statuses; REVIEWER submits via /submissions not PUT)", () => {
+      const canSetReviewStatusViaPut = (role: string) =>
+        role === "SUPER_ADMIN" || role === "ADMIN" || role === "ORGANIZER" || role === "REVIEWER";
+      expect(canSetReviewStatusViaPut("REVIEWER")).toBe(true);
+      expect(canSetReviewStatusViaPut("SUBMITTER")).toBe(false);
+      expect(canSetReviewStatusViaPut("REGISTRANT")).toBe(false);
     });
   });
 

@@ -76,8 +76,26 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const status = abstract.status as string;
   const canEdit = editableStatuses.includes(status);
   const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
-  const reviewNotes = abstract.reviewNotes as string | null;
-  const reviewScore = abstract.reviewScore as number | null;
+
+  // Fetch aggregated reviewer feedback from the new submissions API so
+  // submitters see a consolidated view of all reviewer notes + mean score.
+  const { data: reviewData } = useQuery<{
+    submissions: Array<{ reviewNotes: string | null; overallScore: number | null }>;
+    aggregates: { count: number; meanOverall: number | null };
+  }>({
+    queryKey: ["abstract-submissions", abstractId],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}/submissions`);
+      if (!res.ok) return { submissions: [], aggregates: { count: 0, meanOverall: null } };
+      return res.json();
+    },
+  });
+
+  const reviewNotesJoined = (reviewData?.submissions ?? [])
+    .map((s) => s.reviewNotes?.trim())
+    .filter((n): n is string => !!n)
+    .join("\n\n— — —\n\n");
+  const reviewScore = reviewData?.aggregates.meanOverall ?? null;
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof editData & { status?: string }) => {
@@ -162,13 +180,22 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
       </div>
 
       {/* Review feedback */}
-      {reviewNotes && (
+      {reviewNotesJoined && (
         <Card className={status === "REVISION_REQUESTED" ? "border-orange-300 bg-orange-50/50" : "border-green-300 bg-green-50/50"}>
           <CardContent className="pt-5 pb-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">Reviewer Feedback</h3>
-            <p className="text-sm text-slate-600 whitespace-pre-wrap">{reviewNotes}</p>
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+              Reviewer Feedback
+              {reviewData && reviewData.aggregates.count > 1 && (
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  ({reviewData.aggregates.count} reviews)
+                </span>
+              )}
+            </h3>
+            <p className="text-sm text-slate-600 whitespace-pre-wrap">{reviewNotesJoined}</p>
             {reviewScore != null && (
-              <p className="text-sm text-slate-500 mt-2">Score: <span className="font-semibold">{reviewScore}/100</span></p>
+              <p className="text-sm text-slate-500 mt-2">
+                Mean score: <span className="font-semibold">{reviewScore}/100</span>
+              </p>
             )}
           </CardContent>
         </Card>

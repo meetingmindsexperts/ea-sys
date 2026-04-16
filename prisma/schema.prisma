@@ -69,6 +69,9 @@ model User {
   scheduledEmails ScheduledEmail[]
   mcpOAuthAuthCodes    McpOAuthAuthCode[]
   mcpOAuthAccessTokens McpOAuthAccessToken[]
+  abstractReviewerOf        AbstractReviewer[]         @relation("ReviewerOnAbstracts")
+  assignedAbstractReviewers AbstractReviewer[]         @relation("AssignedAbstractReviewers")
+  abstractSubmissions       AbstractReviewSubmission[] @relation("UserAbstractSubmissions")
 
   @@index([organizationId])
   @@index([email])
@@ -475,25 +478,21 @@ enum SpeakerStatus {
 }
 
 model Abstract {
-  id                String             @id @default(cuid())
-  eventId           String
-  speakerId         String
-  title             String
-  content           String             @db.Text
-  trackId           String?
-  themeId           String?
-  specialty         String?
-  presentationType  PresentationType?
-  status            AbstractStatus     @default(SUBMITTED)
-  reviewNotes       String?            @db.Text
-  reviewScore       Int?
-  criteriaScores    Json?
-  recommendedFormat RecommendedFormat?
-  managementToken   String?            @unique
-  submittedAt       DateTime           @default(now())
-  reviewedAt        DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id               String            @id @default(cuid())
+  eventId          String
+  speakerId        String
+  title            String
+  content          String            @db.Text
+  trackId          String?
+  themeId          String?
+  specialty        String?
+  presentationType PresentationType?
+  status           AbstractStatus    @default(SUBMITTED)
+  managementToken  String?           @unique
+  submittedAt      DateTime          @default(now())
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   event        Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   speaker      Speaker        @relation(fields: [speakerId], references: [id], onDelete: Cascade)
@@ -501,10 +500,53 @@ model Abstract {
   theme        AbstractTheme? @relation(fields: [themeId], references: [id])
   eventSession EventSession?
   sessionTopic SessionTopic?
+  reviewers    AbstractReviewer[]
+  submissions  AbstractReviewSubmission[]
 
   @@index([eventId])
   @@index([speakerId])
   @@index([status])
+}
+
+model AbstractReviewer {
+  id           String               @id @default(cuid())
+  abstractId   String
+  userId       String
+  assignedAt   DateTime             @default(now())
+  assignedById String
+  role         AbstractReviewerRole @default(SECONDARY)
+  conflictFlag Boolean              @default(false)
+
+  abstract    Abstract                   @relation(fields: [abstractId], references: [id], onDelete: Cascade)
+  user        User                       @relation("ReviewerOnAbstracts", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy  User                       @relation("AssignedAbstractReviewers", fields: [assignedById], references: [id])
+  submissions AbstractReviewSubmission[]
+
+  @@unique([abstractId, userId])
+  @@index([abstractId])
+  @@index([userId])
+}
+
+model AbstractReviewSubmission {
+  id                 String             @id @default(cuid())
+  abstractId         String
+  reviewerUserId     String
+  abstractReviewerId String?
+  criteriaScores     Json?
+  overallScore       Int?
+  reviewNotes        String?            @db.Text
+  recommendedFormat  RecommendedFormat?
+  confidence         Int?
+  submittedAt        DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  abstract         Abstract          @relation(fields: [abstractId], references: [id], onDelete: Cascade)
+  reviewer         User              @relation("UserAbstractSubmissions", fields: [reviewerUserId], references: [id], onDelete: Cascade)
+  abstractReviewer AbstractReviewer? @relation(fields: [abstractReviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([abstractId, reviewerUserId])
+  @@index([abstractId])
+  @@index([reviewerUserId])
 }
 
 model AbstractTheme {
@@ -557,6 +599,12 @@ enum RecommendedFormat {
   ORAL
   POSTER
   NEITHER
+}
+
+enum AbstractReviewerRole {
+  PRIMARY
+  SECONDARY
+  CONSULTING
 }
 
 // ==================== SESSIONS & SCHEDULE ====================
