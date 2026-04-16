@@ -63,6 +63,37 @@ export function buildMcpServer(organizationId: string): McpServer {
     }
   );
 
+  // ── Org-level write: create_event (no eventId — we're creating it) ──
+  server.tool(
+    "create_event",
+    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions a Zoom webinar + email sequence), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
+    {
+      name: z.string().min(2).max(255),
+      startDate: z.string().describe("ISO 8601 datetime string"),
+      endDate: z.string().describe("ISO 8601 datetime string"),
+      slug: z.string().optional(),
+      description: z.string().optional(),
+      timezone: z.string().optional(),
+      venue: z.string().optional(),
+      address: z.string().optional(),
+      city: z.string().optional(),
+      country: z.string().optional(),
+      eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
+      tag: z.string().optional(),
+      specialty: z.string().optional(),
+      status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
+    },
+    async (input) => {
+      const result = await runTool("create_event", input, {
+        eventId: "",
+        organizationId,
+        userId: SYSTEM_USER_ID,
+        counters: { creates: 0, emailsSent: 0 },
+      });
+      return { content: [{ type: "text" as const, text: result }] };
+    },
+  );
+
   server.tool(
     "list_contacts", "Search organization contacts.",
     { search: z.string().optional(), tag: z.string().optional(), limit: z.number().optional() },
@@ -121,6 +152,30 @@ export function buildMcpServer(organizationId: string): McpServer {
     }},
     { name: "list_email_templates", description: "List email templates.", params: {} },
     { name: "get_event_stats", description: "Get event statistics dashboard.", params: {} },
+    // ─── MCP Expansion: Tranche A — orchestration reads ───
+    { name: "get_event_dashboard", description: "Get a rich dashboard snapshot: registration counts by status + payment, speaker counts, session counts (upcoming / live now / past), check-in rate, signed/unsigned agreements, recent 5 registrations, next session.", params: {} },
+    { name: "list_unpaid_registrations", description: "List registrations where paymentStatus is UNPAID/PENDING/FAILED and status is not CANCELLED. Sorted oldest first. Optional daysPending filter (only those older than N days).", params: {
+      daysPending: z.number().optional(), limit: z.number().optional(),
+    }},
+    { name: "list_speaker_agreements", description: "List speakers with their agreement status. filter: 'unsigned' (default, who hasn't signed), 'signed' (who has), or 'all'.", params: {
+      filter: z.enum(["signed", "unsigned", "all"]).optional(), limit: z.number().optional(),
+    }},
+    { name: "list_live_sessions_now", description: "List sessions currently live (now between startTime and endTime). Optional withinMinutes extends the window to sessions starting within N minutes.", params: {
+      withinMinutes: z.number().optional(),
+    }},
+    { name: "search_event", description: "Case-insensitive substring search across registrations (attendee name/email/org/tags), speakers, abstracts (title + author), and contacts. Default domains = all.", params: {
+      query: z.string(), domains: z.array(z.enum(["registrations", "speakers", "abstracts", "contacts"])).optional(), limit: z.number().optional(),
+    }},
+    // ─── MCP Expansion: Tranche C reads ───
+    { name: "get_webinar_info", description: "Get webinar configuration: settings.webinar + anchor session + linked ZoomMeeting (join URL, passcode, recording status).", params: {} },
+    { name: "list_webinar_attendance", description: "Webinar attendance KPIs (registered / attended / rate / avg watch time) + top N attendee rows sorted by duration.", params: {
+      limit: z.number().optional(),
+    }},
+    { name: "list_webinar_engagement", description: "Webinar engagement: polls with per-question data + all Q&A with asker/question/answer.", params: {} },
+    { name: "list_sponsors", description: "List event sponsors grouped by tier (platinum/gold/silver/bronze/partner/exhibitor).", params: {} },
+    { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
+    { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
+    { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
   ];
 
   // ── Event-level write tools ──
@@ -169,6 +224,103 @@ export function buildMcpServer(organizationId: string): McpServer {
       organization: z.string().optional(), jobTitle: z.string().optional(),
       phone: z.string().optional(), city: z.string().optional(), country: z.string().optional(),
       tags: z.array(z.string()).optional(),
+    }},
+    // ─── MCP Expansion: Tranche B — actions / updates ───
+    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund.", params: {
+      registrationId: z.string(),
+      status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
+      paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
+      ticketTypeId: z.string().optional(),
+      badgeType: z.string().nullable().optional(),
+      dtcmBarcode: z.string().nullable().optional(),
+      notes: z.string().optional(),
+      attendee: z.object({
+        title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+        organization: z.string().optional(),
+        jobTitle: z.string().optional(),
+        phone: z.string().optional(),
+        city: z.string().optional(),
+        country: z.string().optional(),
+        bio: z.string().optional(),
+        specialty: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+        dietaryReqs: z.string().optional(),
+      }).optional(),
+    }},
+    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags.", params: {
+      speakerId: z.string(),
+      status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(),
+      title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      bio: z.string().optional(),
+      organization: z.string().optional(),
+      jobTitle: z.string().optional(),
+      phone: z.string().optional(),
+      city: z.string().optional(),
+      country: z.string().optional(),
+      specialty: z.string().optional(),
+      website: z.string().optional(),
+      photo: z.string().nullable().optional(),
+      tags: z.array(z.string()).optional(),
+    }},
+    { name: "update_session", description: "Update a session's metadata. Validates that startTime/endTime fall within the parent event's date range. Does NOT touch topics or speakers — use add_topic_to_session for that.", params: {
+      sessionId: z.string(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      startTime: z.string().optional().describe("ISO 8601 datetime"),
+      endTime: z.string().optional().describe("ISO 8601 datetime"),
+      location: z.string().optional(),
+      capacity: z.number().optional(),
+      trackId: z.string().nullable().optional(),
+      status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
+    }},
+    { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated.", params: {
+      registrationIds: z.array(z.string()).max(200),
+      status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
+      paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
+    }},
+    // ─── MCP Expansion: Tranche C writes ───
+    { name: "upsert_sponsors", description: "Replace the entire sponsor list for this event. Pass the full list of sponsors you want — anything missing is removed. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
+      sponsors: z.array(z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        tier: z.enum(["platinum", "gold", "silver", "bronze", "partner", "exhibitor"]).optional(),
+        logoUrl: z.string().optional(),
+        websiteUrl: z.string().optional(),
+        description: z.string().optional(),
+      })),
+    }},
+    { name: "create_promo_code", description: "Create a discount/promo code. discountType: PERCENTAGE (value 1-100) or FIXED_AMOUNT. Optional: description, currency, maxUses, maxUsesPerEmail, validFrom, validUntil, ticketTypeIds (restricts applicability).", params: {
+      code: z.string(),
+      discountType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]),
+      discountValue: z.number(),
+      description: z.string().optional(),
+      currency: z.string().optional(),
+      maxUses: z.number().optional(),
+      maxUsesPerEmail: z.number().optional(),
+      validFrom: z.string().optional(),
+      validUntil: z.string().optional(),
+      isActive: z.boolean().optional(),
+      ticketTypeIds: z.array(z.string()).optional(),
+    }},
+    { name: "update_promo_code", description: "Update a promo code. Any field can be changed. Code itself is immutable — delete and recreate if needed.", params: {
+      promoCodeId: z.string(),
+      description: z.string().nullable().optional(),
+      discountType: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
+      discountValue: z.number().optional(),
+      maxUses: z.number().nullable().optional(),
+      validFrom: z.string().nullable().optional(),
+      validUntil: z.string().nullable().optional(),
+      isActive: z.boolean().optional(),
+    }},
+    { name: "delete_promo_code", description: "Soft-delete a promo code by setting isActive=false. Usage history is preserved. Hard delete is dashboard-only.", params: {
+      promoCodeId: z.string(),
+    }},
+    { name: "cancel_scheduled_email", description: "Cancel a PENDING scheduled email. Only works on status=PENDING rows — already-sent or already-processing emails cannot be cancelled.", params: {
+      scheduledEmailId: z.string(),
     }},
   ];
 

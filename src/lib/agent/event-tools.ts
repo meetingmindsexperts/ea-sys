@@ -1,4 +1,5 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { checkRateLimit } from "@/lib/security";
@@ -6,6 +7,11 @@ import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
+import { slugify, normalizeTag } from "@/lib/utils";
+import { provisionWebinar } from "@/lib/webinar-provisioner";
+import { readWebinarSettings, readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
+import { syncToContact } from "@/lib/contact-sync";
 
 const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
@@ -1821,6 +1827,1475 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MCP Expansion (April 2026) — 22 new tools across 4 tranches
+// ═══════════════════════════════════════════════════════════════════════════════
+// Tranche 0: create_event (the obvious missing CRUD tool)
+// Tranche A: orchestration reads (5) — composite answers for common questions
+// Tranche B: actions (4) — plug the read/write asymmetry with update tools
+// Tranche C: recently shipped features (12) — webinar + sponsors + agreement
+//                                              template + promo codes + scheduled
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EVENT_TYPES = new Set(["CONFERENCE", "WEBINAR", "HYBRID"]);
+const EVENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]);
+const SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+const ALL_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]);
+const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
+const DISCOUNT_TYPES = new Set(["PERCENTAGE", "FIXED_AMOUNT"]);
+
+// ─── Tranche 0: create_event ──────────────────────────────────────────────────
+
+const createEvent: ToolExecutor = async (input, ctx) => {
+  try {
+    const name = String(input.name ?? "").trim();
+    const startDateStr = String(input.startDate ?? "").trim();
+    const endDateStr = String(input.endDate ?? "").trim();
+    if (!name) return { error: "name is required" };
+    if (name.length < 2 || name.length > 255) return { error: "name must be 2-255 chars" };
+    if (!startDateStr || !endDateStr) return { error: "startDate and endDate are required (ISO 8601)" };
+
+    const startDate = new Date(startDateStr);
+    const endDate = new Date(endDateStr);
+    if (isNaN(startDate.getTime())) return { error: "startDate is not a valid ISO 8601 date" };
+    if (isNaN(endDate.getTime())) return { error: "endDate is not a valid ISO 8601 date" };
+    if (endDate < startDate) return { error: "endDate must be on or after startDate" };
+
+    const eventType = input.eventType ? String(input.eventType) : undefined;
+    if (eventType && !EVENT_TYPES.has(eventType)) {
+      return { error: `Invalid eventType. Must be one of: ${[...EVENT_TYPES].join(", ")}` };
+    }
+    const status = input.status ? String(input.status) : undefined;
+    if (status && !EVENT_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...EVENT_STATUSES].join(", ")}` };
+    }
+
+    // Slug generation: start from requested (or slugified name), then retry with
+    // -1, -2, ... up to 10 times if collides within this org. Fail loudly rather
+    // than silently creating a duplicate (which was the old POST-route behavior
+    // of appending Date.now() — confusing for humans).
+    const requestedSlug = input.slug ? slugify(String(input.slug)) : slugify(name);
+    if (!requestedSlug) return { error: "Could not generate a valid slug from name" };
+
+    let slug = requestedSlug;
+    for (let i = 0; i < 11; i++) {
+      const existing = await db.event.findFirst({
+        where: { organizationId: ctx.organizationId, slug },
+        select: { id: true },
+      });
+      if (!existing) break;
+      if (i === 10) {
+        return { error: `Slug "${requestedSlug}" is taken; tried 10 suffixes. Pass an explicit slug.` };
+      }
+      slug = `${requestedSlug}-${i + 1}`;
+    }
+
+    const event = await db.event.create({
+      data: {
+        organizationId: ctx.organizationId,
+        name,
+        slug,
+        description: input.description ? String(input.description).slice(0, 2000) : null,
+        startDate,
+        endDate,
+        timezone: input.timezone ? String(input.timezone) : "Asia/Dubai",
+        venue: input.venue ? String(input.venue).slice(0, 255) : null,
+        address: input.address ? String(input.address).slice(0, 500) : null,
+        city: input.city ? String(input.city).slice(0, 255) : null,
+        country: input.country ? String(input.country).slice(0, 255) : null,
+        eventType: (eventType as never) ?? null,
+        tag: input.tag ? String(input.tag).slice(0, 255) : null,
+        specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
+        status: (status as never) ?? "DRAFT",
+        registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
+        speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        eventType: true,
+        startDate: true,
+        endDate: true,
+        timezone: true,
+        venue: true,
+      },
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: event.id,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Event",
+        entityId: event.id,
+        changes: { source: "mcp", name: event.name, slug: event.slug, eventType: event.eventType ?? null },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_event audit-log-failed"));
+
+    // Fire-and-forget WEBINAR auto-provisioning (anchor session + Zoom + email sequence)
+    if (event.eventType === "WEBINAR") {
+      provisionWebinar(event.id, { actorUserId: ctx.userId }).catch((err) =>
+        apiLogger.error({ err, eventId: event.id }, "agent:create_event webinar-provision-failed"),
+      );
+    }
+
+    return { success: true, event };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_event failed");
+    return { error: "Failed to create event" };
+  }
+};
+
+// ─── Tranche A: Orchestration reads ───────────────────────────────────────────
+
+const getEventDashboard: ToolExecutor = async (_input, ctx) => {
+  try {
+    const now = new Date();
+    const [
+      event,
+      regByStatus,
+      regByPayment,
+      speakerByStatus,
+      sessionCount,
+      upcomingSessionCount,
+      liveSessionCount,
+      pastSessionCount,
+      totalSpeakers,
+      agreementsSigned,
+      checkedInCount,
+      totalConfirmed,
+      recentRegistrations,
+      nextSession,
+    ] = await Promise.all([
+      db.event.findFirst({
+        where: { id: ctx.eventId, organizationId: ctx.organizationId },
+        select: { id: true, name: true, slug: true, status: true, eventType: true, startDate: true, endDate: true, timezone: true },
+      }),
+      db.registration.groupBy({ by: ["status"], where: { eventId: ctx.eventId }, _count: true }),
+      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId: ctx.eventId }, _count: true }),
+      db.speaker.groupBy({ by: ["status"], where: { eventId: ctx.eventId }, _count: true }),
+      db.eventSession.count({ where: { eventId: ctx.eventId } }),
+      db.eventSession.count({ where: { eventId: ctx.eventId, startTime: { gt: now } } }),
+      db.eventSession.count({ where: { eventId: ctx.eventId, startTime: { lte: now }, endTime: { gte: now } } }),
+      db.eventSession.count({ where: { eventId: ctx.eventId, endTime: { lt: now } } }),
+      db.speaker.count({ where: { eventId: ctx.eventId } }),
+      db.speaker.count({ where: { eventId: ctx.eventId, agreementAcceptedAt: { not: null } } }),
+      db.registration.count({ where: { eventId: ctx.eventId, status: "CHECKED_IN" } }),
+      db.registration.count({ where: { eventId: ctx.eventId, status: { in: ["CONFIRMED", "CHECKED_IN"] } } }),
+      db.registration.findMany({
+        where: { eventId: ctx.eventId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          status: true,
+          paymentStatus: true,
+          createdAt: true,
+          attendee: { select: { firstName: true, lastName: true, email: true } },
+          ticketType: { select: { name: true } },
+        },
+      }),
+      db.eventSession.findFirst({
+        where: { eventId: ctx.eventId, startTime: { gt: now } },
+        orderBy: { startTime: "asc" },
+        select: { id: true, name: true, startTime: true, endTime: true, location: true },
+      }),
+    ]);
+
+    if (!event) return { error: "Event not found or access denied" };
+
+    const totalRegistrations = regByStatus.reduce((s, r) => s + r._count, 0);
+    return {
+      event,
+      registrations: {
+        total: totalRegistrations,
+        byStatus: Object.fromEntries(regByStatus.map(r => [r.status, r._count])),
+        byPayment: Object.fromEntries(regByPayment.map(r => [r.paymentStatus, r._count])),
+        checkInRate: totalConfirmed === 0 ? 0 : Math.round((checkedInCount / totalConfirmed) * 100),
+      },
+      speakers: {
+        total: totalSpeakers,
+        byStatus: Object.fromEntries(speakerByStatus.map(r => [r.status, r._count])),
+        agreementsSigned,
+        agreementsUnsigned: totalSpeakers - agreementsSigned,
+      },
+      sessions: {
+        total: sessionCount,
+        upcoming: upcomingSessionCount,
+        liveNow: liveSessionCount,
+        past: pastSessionCount,
+      },
+      recentRegistrations,
+      nextSession,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:get_event_dashboard failed");
+    return { error: "Failed to build event dashboard" };
+  }
+};
+
+const listUnpaidRegistrations: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 100), 500);
+    const daysPending = input.daysPending != null ? Number(input.daysPending) : null;
+    const ageCutoff = daysPending != null && daysPending > 0
+      ? new Date(Date.now() - daysPending * 24 * 60 * 60 * 1000)
+      : null;
+
+    const registrations = await db.registration.findMany({
+      where: {
+        eventId: ctx.eventId,
+        paymentStatus: { in: UNPAID_STATUSES as never[] },
+        status: { not: "CANCELLED" },
+        ...(ageCutoff ? { createdAt: { lte: ageCutoff } } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        createdAt: true,
+        serialId: true,
+        attendee: { select: { firstName: true, lastName: true, email: true, organization: true } },
+        ticketType: { select: { name: true } },
+      },
+      take: limit,
+      orderBy: { createdAt: "asc" }, // Oldest first
+    });
+
+    const now = Date.now();
+    const enriched = registrations.map((r) => ({
+      ...r,
+      daysSinceRegistration: Math.floor((now - r.createdAt.getTime()) / (24 * 60 * 60 * 1000)),
+    }));
+
+    return { registrations: enriched, total: registrations.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_unpaid_registrations failed");
+    return { error: "Failed to list unpaid registrations" };
+  }
+};
+
+const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
+  try {
+    const filter = input.filter ? String(input.filter) : "unsigned";
+    if (!["signed", "unsigned", "all"].includes(filter)) {
+      return { error: `Invalid filter. Must be: signed, unsigned, or all` };
+    }
+    const limit = Math.min(Number(input.limit ?? 100), 500);
+
+    const where: Prisma.SpeakerWhereInput = {
+      eventId: ctx.eventId,
+      status: { not: "CANCELLED" },
+    };
+    if (filter === "signed") where.agreementAcceptedAt = { not: null };
+    if (filter === "unsigned") where.agreementAcceptedAt = null;
+
+    const speakers = await db.speaker.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        organization: true,
+        agreementAcceptedAt: true,
+      },
+      take: limit,
+      orderBy: [{ agreementAcceptedAt: { sort: "asc", nulls: "first" } }, { lastName: "asc" }],
+    });
+
+    return { filter, speakers, total: speakers.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_speaker_agreements failed");
+    return { error: "Failed to list speaker agreements" };
+  }
+};
+
+const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
+  try {
+    const withinMinutes = input.withinMinutes != null ? Math.max(0, Number(input.withinMinutes)) : 0;
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + withinMinutes * 60 * 1000);
+
+    const sessions = await db.eventSession.findMany({
+      where: {
+        eventId: ctx.eventId,
+        status: { not: "CANCELLED" },
+        // Currently live OR starting within the lookahead window
+        OR: [
+          { startTime: { lte: now }, endTime: { gte: now } },
+          ...(withinMinutes > 0 ? [{ startTime: { gt: now, lte: windowEnd } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        startTime: true,
+        endTime: true,
+        location: true,
+        status: true,
+        track: { select: { name: true, color: true } },
+        speakers: {
+          select: {
+            role: true,
+            speaker: { select: { title: true, firstName: true, lastName: true } },
+          },
+        },
+        zoomMeeting: {
+          select: { joinUrl: true, passcode: true, meetingType: true },
+        },
+      },
+      orderBy: { startTime: "asc" },
+    });
+
+    const enriched = sessions.map((s) => ({
+      ...s,
+      isLiveNow: s.startTime <= now && s.endTime >= now,
+      minutesUntilStart: s.startTime > now
+        ? Math.round((s.startTime.getTime() - now.getTime()) / (60 * 1000))
+        : 0,
+    }));
+
+    return { now: now.toISOString(), sessions: enriched, total: sessions.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_live_sessions_now failed");
+    return { error: "Failed to list live sessions" };
+  }
+};
+
+const searchEvent: ToolExecutor = async (input, ctx) => {
+  try {
+    const query = String(input.query ?? "").trim();
+    if (!query || query.length < 2) return { error: "query must be at least 2 characters" };
+    const limit = Math.min(Number(input.limit ?? 20), 100);
+
+    const requestedDomains = Array.isArray(input.domains)
+      ? (input.domains as unknown[]).map((d) => String(d))
+      : ["registrations", "speakers", "abstracts", "contacts"];
+    const domains = new Set(requestedDomains.filter((d) =>
+      ["registrations", "speakers", "abstracts", "contacts"].includes(d)));
+
+    const ci = { contains: query, mode: "insensitive" as const };
+
+    const [registrations, speakers, abstracts, contacts] = await Promise.all([
+      domains.has("registrations")
+        ? db.registration.findMany({
+            where: {
+              eventId: ctx.eventId,
+              OR: [
+                { attendee: { firstName: ci } },
+                { attendee: { lastName: ci } },
+                { attendee: { email: ci } },
+                { attendee: { organization: ci } },
+                { attendee: { tags: { has: query } } },
+              ],
+            },
+            select: {
+              id: true,
+              status: true,
+              attendee: { select: { firstName: true, lastName: true, email: true, organization: true } },
+            },
+            take: limit,
+          })
+        : Promise.resolve([]),
+      domains.has("speakers")
+        ? db.speaker.findMany({
+            where: {
+              eventId: ctx.eventId,
+              OR: [
+                { firstName: ci },
+                { lastName: ci },
+                { email: ci },
+                { organization: ci },
+              ],
+            },
+            select: { id: true, firstName: true, lastName: true, email: true, organization: true, status: true },
+            take: limit,
+          })
+        : Promise.resolve([]),
+      domains.has("abstracts")
+        ? db.abstract.findMany({
+            where: {
+              eventId: ctx.eventId,
+              OR: [
+                { title: ci },
+                { speaker: { firstName: ci } },
+                { speaker: { lastName: ci } },
+              ],
+            },
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              speaker: { select: { firstName: true, lastName: true, email: true } },
+            },
+            take: limit,
+          })
+        : Promise.resolve([]),
+      domains.has("contacts")
+        ? db.contact.findMany({
+            where: {
+              organizationId: ctx.organizationId,
+              eventIds: { has: ctx.eventId },
+              OR: [
+                { firstName: ci },
+                { lastName: ci },
+                { email: ci },
+                { organization: ci },
+              ],
+            },
+            select: { id: true, firstName: true, lastName: true, email: true, organization: true },
+            take: limit,
+          })
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      query,
+      results: {
+        registrations: registrations.map((r) => ({
+          domain: "registration" as const,
+          id: r.id,
+          label: `${r.attendee.firstName} ${r.attendee.lastName} <${r.attendee.email}>`,
+          status: r.status,
+          organization: r.attendee.organization,
+        })),
+        speakers: speakers.map((s) => ({
+          domain: "speaker" as const,
+          id: s.id,
+          label: `${s.firstName} ${s.lastName} <${s.email}>`,
+          status: s.status,
+          organization: s.organization,
+        })),
+        abstracts: abstracts.map((a) => ({
+          domain: "abstract" as const,
+          id: a.id,
+          label: a.title,
+          status: a.status,
+          author: `${a.speaker.firstName} ${a.speaker.lastName}`,
+        })),
+        contacts: contacts.map((c) => ({
+          domain: "contact" as const,
+          id: c.id,
+          label: `${c.firstName} ${c.lastName} <${c.email}>`,
+          organization: c.organization,
+        })),
+      },
+      totalFound: registrations.length + speakers.length + abstracts.length + contacts.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:search_event failed");
+    return { error: "Failed to search event" };
+  }
+};
+
+// ─── Tranche B: Action / update tools ─────────────────────────────────────────
+
+const updateRegistration: ToolExecutor = async (input, ctx) => {
+  try {
+    const registrationId = String(input.registrationId ?? "").trim();
+    if (!registrationId) return { error: "registrationId is required" };
+
+    // Verify the registration belongs to the authenticated org's event
+    const existing = await db.registration.findFirst({
+      where: { id: registrationId, event: { organizationId: ctx.organizationId } },
+      select: {
+        id: true,
+        eventId: true,
+        status: true,
+        paymentStatus: true,
+        ticketTypeId: true,
+        attendeeId: true,
+        attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
+      },
+    });
+    if (!existing) return { error: `Registration ${registrationId} not found or access denied` };
+
+    const status = input.status ? String(input.status) : undefined;
+    if (status && !REGISTRATION_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
+    }
+    const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
+    if (paymentStatus && !ALL_PAYMENT_STATUSES.has(paymentStatus)) {
+      return { error: `Invalid paymentStatus. Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
+    }
+
+    const newTicketTypeId = input.ticketTypeId ? String(input.ticketTypeId) : undefined;
+    if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
+      const ticket = await db.ticketType.findFirst({
+        where: { id: newTicketTypeId, eventId: existing.eventId },
+        select: { id: true },
+      });
+      if (!ticket) return { error: `ticketTypeId ${newTicketTypeId} not found in this event` };
+    }
+
+    const attendeeUpdates: Prisma.AttendeeUpdateInput = {};
+    const a = input.attendee as Record<string, unknown> | undefined;
+    if (a && typeof a === "object") {
+      if (a.title != null) {
+        const t = String(a.title);
+        if (t === "") attendeeUpdates.title = null;
+        else if (TITLE_VALUES.has(t)) attendeeUpdates.title = t as never;
+        else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
+      }
+      if (a.firstName != null) attendeeUpdates.firstName = String(a.firstName).slice(0, 100);
+      if (a.lastName != null) attendeeUpdates.lastName = String(a.lastName).slice(0, 100);
+      if (a.organization != null) attendeeUpdates.organization = String(a.organization).slice(0, 255);
+      if (a.jobTitle != null) attendeeUpdates.jobTitle = String(a.jobTitle).slice(0, 255);
+      if (a.phone != null) attendeeUpdates.phone = String(a.phone).slice(0, 50);
+      if (a.city != null) attendeeUpdates.city = String(a.city).slice(0, 255);
+      if (a.country != null) attendeeUpdates.country = String(a.country).slice(0, 255);
+      if (a.bio != null) attendeeUpdates.bio = String(a.bio).slice(0, 5000);
+      if (a.specialty != null) attendeeUpdates.specialty = String(a.specialty).slice(0, 255);
+      if (Array.isArray(a.tags)) {
+        attendeeUpdates.tags = (a.tags as unknown[])
+          .map((t) => normalizeTag(String(t).slice(0, 100)))
+          .filter(Boolean);
+      }
+      if (a.dietaryReqs != null) attendeeUpdates.dietaryReqs = String(a.dietaryReqs).slice(0, 2000);
+    }
+
+    // Transaction: ticket type change needs soldCount adjustments on both tiers
+    const result = await db.$transaction(async (tx) => {
+      if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
+        if (existing.ticketTypeId) {
+          await tx.ticketType.update({
+            where: { id: existing.ticketTypeId },
+            data: { soldCount: { decrement: 1 } },
+          });
+        }
+        await tx.ticketType.update({
+          where: { id: newTicketTypeId },
+          data: { soldCount: { increment: 1 } },
+        });
+      }
+
+      const regData: Prisma.RegistrationUpdateInput = {};
+      if (status) regData.status = status as never;
+      if (paymentStatus) regData.paymentStatus = paymentStatus as never;
+      if (newTicketTypeId) regData.ticketType = { connect: { id: newTicketTypeId } };
+      if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
+      if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
+      if (input.notes !== undefined) regData.notes = String(input.notes).slice(0, 2000);
+
+      const updated = await tx.registration.update({
+        where: { id: registrationId },
+        data: regData,
+        select: {
+          id: true,
+          status: true,
+          paymentStatus: true,
+          ticketTypeId: true,
+          notes: true,
+          attendee: { select: { id: true, firstName: true, lastName: true, email: true } },
+        },
+      });
+
+      if (Object.keys(attendeeUpdates).length > 0) {
+        await tx.attendee.update({
+          where: { id: existing.attendeeId },
+          data: attendeeUpdates,
+        });
+      }
+
+      return updated;
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Registration",
+        entityId: registrationId,
+        changes: {
+          source: "mcp",
+          before: { status: existing.status, paymentStatus: existing.paymentStatus, ticketTypeId: existing.ticketTypeId },
+          after: { status: result.status, paymentStatus: result.paymentStatus, ticketTypeId: result.ticketTypeId },
+          attendeeFieldsChanged: Object.keys(attendeeUpdates),
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_registration audit-log-failed"));
+
+    // Sync to contact store (fire-and-forget)
+    if (Object.keys(attendeeUpdates).length > 0) {
+      syncToContact({
+        organizationId: ctx.organizationId,
+        eventId: existing.eventId,
+        email: result.attendee.email,
+        firstName: result.attendee.firstName,
+        lastName: result.attendee.lastName,
+      }).catch((err) => apiLogger.error({ err }, "agent:update_registration contact-sync-failed"));
+    }
+
+    return { success: true, registration: result };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_registration failed");
+    return { error: err instanceof Error ? err.message : "Failed to update registration" };
+  }
+};
+
+const updateSpeaker: ToolExecutor = async (input, ctx) => {
+  try {
+    const speakerId = String(input.speakerId ?? "").trim();
+    if (!speakerId) return { error: "speakerId is required" };
+
+    const existing = await db.speaker.findFirst({
+      where: { id: speakerId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true, email: true, firstName: true, lastName: true, status: true },
+    });
+    if (!existing) return { error: `Speaker ${speakerId} not found or access denied` };
+
+    const status = input.status ? String(input.status) : undefined;
+    if (status && !SPEAKER_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
+    }
+
+    const updates: Prisma.SpeakerUpdateInput = {};
+    if (status) updates.status = status as never;
+    if (input.title != null) {
+      const t = String(input.title);
+      if (t === "") updates.title = null;
+      else if (TITLE_VALUES.has(t)) updates.title = t as never;
+      else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
+    }
+    if (input.firstName != null) updates.firstName = String(input.firstName).slice(0, 100);
+    if (input.lastName != null) updates.lastName = String(input.lastName).slice(0, 100);
+    if (input.bio != null) updates.bio = String(input.bio).slice(0, 5000);
+    if (input.organization != null) updates.organization = String(input.organization).slice(0, 255);
+    if (input.jobTitle != null) updates.jobTitle = String(input.jobTitle).slice(0, 255);
+    if (input.phone != null) updates.phone = String(input.phone).slice(0, 50);
+    if (input.city != null) updates.city = String(input.city).slice(0, 255);
+    if (input.country != null) updates.country = String(input.country).slice(0, 255);
+    if (input.specialty != null) updates.specialty = String(input.specialty).slice(0, 255);
+    if (input.website != null) updates.website = String(input.website).slice(0, 500);
+    if (input.photo !== undefined) updates.photo = input.photo as string | null;
+    if (Array.isArray(input.tags)) {
+      updates.tags = (input.tags as unknown[])
+        .map((t) => normalizeTag(String(t).slice(0, 100)))
+        .filter(Boolean);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update" };
+    }
+
+    const updated = await db.speaker.update({
+      where: { id: speakerId },
+      data: updates,
+      select: {
+        id: true,
+        title: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        organization: true,
+        jobTitle: true,
+      },
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Speaker",
+        entityId: speakerId,
+        changes: {
+          source: "mcp",
+          before: { status: existing.status },
+          after: { status: updated.status },
+          fieldsChanged: Object.keys(updates),
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_speaker audit-log-failed"));
+
+    syncToContact({
+      organizationId: ctx.organizationId,
+      eventId: existing.eventId,
+      email: updated.email,
+      firstName: updated.firstName,
+      lastName: updated.lastName,
+    }).catch((err) => apiLogger.error({ err }, "agent:update_speaker contact-sync-failed"));
+
+    return { success: true, speaker: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_speaker failed");
+    return { error: err instanceof Error ? err.message : "Failed to update speaker" };
+  }
+};
+
+const updateSession: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = String(input.sessionId ?? "").trim();
+    if (!sessionId) return { error: "sessionId is required" };
+
+    const existing = await db.eventSession.findFirst({
+      where: { id: sessionId, event: { organizationId: ctx.organizationId } },
+      select: {
+        id: true,
+        eventId: true,
+        name: true,
+        startTime: true,
+        endTime: true,
+        event: { select: { startDate: true, endDate: true } },
+      },
+    });
+    if (!existing) return { error: `Session ${sessionId} not found or access denied` };
+
+    const status = input.status ? String(input.status) : undefined;
+    if (status && !SESSION_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...SESSION_STATUSES].join(", ")}` };
+    }
+
+    const updates: Prisma.EventSessionUpdateInput = {};
+    if (input.name != null) updates.name = String(input.name).slice(0, 255);
+    if (input.description != null) updates.description = String(input.description).slice(0, 5000);
+    if (input.location != null) updates.location = String(input.location).slice(0, 255);
+    if (input.capacity != null) updates.capacity = Math.max(0, Number(input.capacity));
+    if (status) updates.status = status as never;
+
+    let newStart = existing.startTime;
+    let newEnd = existing.endTime;
+    if (input.startTime != null) {
+      const s = new Date(String(input.startTime));
+      if (isNaN(s.getTime())) return { error: "startTime is not a valid ISO 8601 date" };
+      updates.startTime = s;
+      newStart = s;
+    }
+    if (input.endTime != null) {
+      const e = new Date(String(input.endTime));
+      if (isNaN(e.getTime())) return { error: "endTime is not a valid ISO 8601 date" };
+      updates.endTime = e;
+      newEnd = e;
+    }
+
+    if (newEnd < newStart) return { error: "endTime must be on or after startTime" };
+
+    // Session must fit within the parent event's date range
+    const eventStart = new Date(existing.event.startDate);
+    eventStart.setUTCHours(0, 0, 0, 0);
+    const eventEnd = new Date(existing.event.endDate);
+    eventEnd.setUTCHours(23, 59, 59, 999);
+    if (newStart < eventStart || newEnd > eventEnd) {
+      return {
+        error: `Session times must fall within event dates (${existing.event.startDate.toISOString()} to ${existing.event.endDate.toISOString()})`,
+      };
+    }
+
+    if (input.trackId !== undefined) {
+      if (input.trackId === null || input.trackId === "") {
+        updates.track = { disconnect: true };
+      } else {
+        const trackId = String(input.trackId);
+        const track = await db.track.findFirst({
+          where: { id: trackId, eventId: existing.eventId },
+          select: { id: true },
+        });
+        if (!track) return { error: `trackId ${trackId} not found in this event` };
+        updates.track = { connect: { id: trackId } };
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update" };
+    }
+
+    const updated = await db.eventSession.update({
+      where: { id: sessionId },
+      data: updates,
+      select: {
+        id: true,
+        name: true,
+        startTime: true,
+        endTime: true,
+        location: true,
+        capacity: true,
+        status: true,
+        trackId: true,
+      },
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "EventSession",
+        entityId: sessionId,
+        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_session audit-log-failed"));
+
+    return { success: true, session: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_session failed");
+    return { error: err instanceof Error ? err.message : "Failed to update session" };
+  }
+};
+
+const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
+  try {
+    const rawIds = input.registrationIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return { error: "registrationIds must be a non-empty array" };
+    }
+    if (rawIds.length > 200) {
+      return { error: "Max 200 registrationIds per call" };
+    }
+    const registrationIds = rawIds.map((x) => String(x).trim()).filter(Boolean);
+
+    const status = input.status ? String(input.status) : undefined;
+    if (status && !REGISTRATION_STATUSES.has(status)) {
+      return { error: `Invalid status. Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
+    }
+    const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
+    if (paymentStatus && !ALL_PAYMENT_STATUSES.has(paymentStatus)) {
+      return { error: `Invalid paymentStatus. Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
+    }
+    if (!status && !paymentStatus) {
+      return { error: "At least one of status or paymentStatus must be provided" };
+    }
+
+    const data: Prisma.RegistrationUpdateManyMutationInput = {};
+    if (status) data.status = status as never;
+    if (paymentStatus) data.paymentStatus = paymentStatus as never;
+
+    const result = await db.registration.updateMany({
+      where: {
+        id: { in: registrationIds },
+        event: { organizationId: ctx.organizationId },
+      },
+      data,
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "BULK_UPDATE",
+        entityType: "Registration",
+        entityId: `bulk-${result.count}`,
+        changes: {
+          source: "mcp",
+          registrationIds,
+          updates: { status, paymentStatus },
+          updatedCount: result.count,
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:bulk_update_registration_status audit-log-failed"));
+
+    return {
+      success: true,
+      updated: result.count,
+      notFound: registrationIds.length - result.count,
+      requestedCount: registrationIds.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:bulk_update_registration_status failed");
+    return { error: err instanceof Error ? err.message : "Failed to bulk update" };
+  }
+};
+
+// ─── Tranche C: Recently shipped features ─────────────────────────────────────
+
+const getWebinarInfo: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true, name: true, eventType: true, settings: true, startDate: true, endDate: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const webinar = readWebinarSettings(event.settings);
+    if (!webinar) {
+      return {
+        event: { id: event.id, name: event.name, eventType: event.eventType },
+        webinar: null,
+        message: "This event has no webinar configuration. Only WEBINAR-type events have this.",
+      };
+    }
+
+    let anchorSession = null;
+    let zoomMeeting = null;
+    if (webinar.sessionId) {
+      anchorSession = await db.eventSession.findFirst({
+        where: { id: webinar.sessionId, eventId: event.id },
+        select: { id: true, name: true, startTime: true, endTime: true, location: true },
+      });
+      zoomMeeting = await db.zoomMeeting.findUnique({
+        where: { sessionId: webinar.sessionId },
+        select: {
+          id: true,
+          zoomMeetingId: true,
+          meetingType: true,
+          joinUrl: true,
+          startUrl: true,
+          passcode: true,
+          duration: true,
+          recordingStatus: true,
+          recordingUrl: true,
+          recordingFetchedAt: true,
+          lastAttendanceSyncAt: true,
+        },
+      });
+    }
+
+    return {
+      event: { id: event.id, name: event.name, eventType: event.eventType },
+      webinar,
+      anchorSession,
+      zoomMeeting,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:get_webinar_info failed");
+    return { error: "Failed to fetch webinar info" };
+  }
+};
+
+const listWebinarAttendance: ToolExecutor = async (input, ctx) => {
+  try {
+    const limit = Math.min(Number(input.limit ?? 50), 500);
+
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true, settings: true, _count: { select: { registrations: true } } },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const webinar = readWebinarSettings(event.settings);
+    if (!webinar?.sessionId) {
+      return { error: "This event has no webinar configuration" };
+    }
+
+    const zoomMeeting = await db.zoomMeeting.findUnique({
+      where: { sessionId: webinar.sessionId },
+      select: { id: true },
+    });
+    if (!zoomMeeting) {
+      return { error: "No Zoom webinar is attached to the anchor session" };
+    }
+
+    const [attendance, totalAttendance] = await Promise.all([
+      db.zoomAttendance.findMany({
+        where: { zoomMeetingId: zoomMeeting.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          joinTime: true,
+          leaveTime: true,
+          durationSeconds: true,
+          attentivenessScore: true,
+          registrationId: true,
+        },
+        orderBy: { durationSeconds: "desc" },
+        take: limit,
+      }),
+      db.zoomAttendance.count({ where: { zoomMeetingId: zoomMeeting.id } }),
+    ]);
+
+    // Count distinct attendees (participantId) to get unique count vs segment count
+    const distinctAttendees = new Set(attendance.map((a) => a.email?.toLowerCase() ?? a.name));
+
+    const totalWatchSeconds = attendance.reduce((s, a) => s + (a.durationSeconds ?? 0), 0);
+    const attended = distinctAttendees.size;
+
+    return {
+      zoomMeetingId: zoomMeeting.id,
+      registered: event._count.registrations,
+      attended,
+      totalSegments: totalAttendance,
+      attendanceRate: event._count.registrations === 0
+        ? 0
+        : Math.round((attended / event._count.registrations) * 100),
+      avgWatchTimeSeconds: attended === 0 ? 0 : Math.round(totalWatchSeconds / attended),
+      rows: attendance,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_webinar_attendance failed");
+    return { error: "Failed to fetch webinar attendance" };
+  }
+};
+
+const listWebinarEngagement: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true, settings: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const webinar = readWebinarSettings(event.settings);
+    if (!webinar?.sessionId) return { error: "This event has no webinar configuration" };
+
+    const zoomMeeting = await db.zoomMeeting.findUnique({
+      where: { sessionId: webinar.sessionId },
+      select: { id: true },
+    });
+    if (!zoomMeeting) return { error: "No Zoom webinar attached" };
+
+    const [polls, questions] = await Promise.all([
+      db.webinarPoll.findMany({
+        where: { zoomMeetingId: zoomMeeting.id },
+        select: {
+          id: true,
+          title: true,
+          questions: true,
+          responses: {
+            select: { participantName: true, answers: true, submittedAt: true },
+          },
+        },
+      }),
+      db.webinarQuestion.findMany({
+        where: { zoomMeetingId: zoomMeeting.id },
+        select: {
+          id: true,
+          askerName: true,
+          askerEmail: true,
+          question: true,
+          answer: true,
+          answeredByName: true,
+          askedAt: true,
+        },
+        orderBy: { askedAt: "asc" },
+      }),
+    ]);
+
+    return {
+      polls: polls.map((p) => ({
+        id: p.id,
+        title: p.title,
+        questions: p.questions,
+        responseCount: p.responses.length,
+        responses: p.responses,
+      })),
+      questions,
+      totalPolls: polls.length,
+      totalQuestions: questions.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_webinar_engagement failed");
+    return { error: "Failed to fetch webinar engagement" };
+  }
+};
+
+const listSponsors: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { settings: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const sponsors = readSponsors(event.settings);
+    const grouped: Record<string, SponsorEntry[]> = {};
+    for (const s of sponsors) {
+      const tier = s.tier ?? "exhibitor";
+      if (!grouped[tier]) grouped[tier] = [];
+      grouped[tier].push(s);
+    }
+
+    return {
+      sponsors,
+      total: sponsors.length,
+      byTier: grouped,
+      availableTiers: SPONSOR_TIERS,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_sponsors failed");
+    return { error: "Failed to fetch sponsors" };
+  }
+};
+
+const upsertSponsors: ToolExecutor = async (input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true, settings: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    if (!Array.isArray(input.sponsors)) {
+      return { error: "sponsors must be an array" };
+    }
+
+    const safeUrl = (raw: unknown, opts: { allowRelative: boolean }): string | undefined => {
+      if (raw == null) return undefined;
+      const s = String(raw).trim();
+      if (!s) return undefined;
+      if (opts.allowRelative && s.startsWith("/")) return s;
+      try {
+        const u = new URL(s);
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          throw new Error(`Rejected URL scheme: ${u.protocol}`);
+        }
+        return u.toString();
+      } catch {
+        throw new Error(`Invalid URL: ${s}`);
+      }
+    };
+
+    const tierSet = new Set<string>(SPONSOR_TIERS);
+    const sanitized: SponsorEntry[] = [];
+    for (let i = 0; i < (input.sponsors as unknown[]).length; i++) {
+      const raw = (input.sponsors as unknown[])[i];
+      if (!raw || typeof raw !== "object") return { error: `sponsors[${i}] is not an object` };
+      const r = raw as Record<string, unknown>;
+      const name = String(r.name ?? "").trim();
+      if (!name) return { error: `sponsors[${i}].name is required` };
+      const tier = r.tier ? String(r.tier) : undefined;
+      if (tier && !tierSet.has(tier)) {
+        return { error: `sponsors[${i}].tier must be one of: ${SPONSOR_TIERS.join(", ")}` };
+      }
+      let logoUrl: string | undefined;
+      let websiteUrl: string | undefined;
+      try {
+        logoUrl = safeUrl(r.logoUrl, { allowRelative: true });
+        websiteUrl = safeUrl(r.websiteUrl, { allowRelative: false });
+      } catch (e) {
+        return { error: `sponsors[${i}]: ${e instanceof Error ? e.message : "invalid URL"}` };
+      }
+
+      sanitized.push({
+        id: r.id ? String(r.id) : `sponsor-${crypto.randomUUID()}`,
+        name: name.slice(0, 255),
+        tier: tier as SponsorEntry["tier"],
+        logoUrl,
+        websiteUrl,
+        description: r.description ? String(r.description).slice(0, 1000) : undefined,
+        sortOrder: i, // Always reassign from array index
+      });
+    }
+
+    const currentSettings = (event.settings as Record<string, unknown>) ?? {};
+    const nextSettings = { ...currentSettings, sponsors: sanitized };
+
+    await db.event.update({
+      where: { id: event.id },
+      data: { settings: nextSettings as unknown as Prisma.InputJsonValue },
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: event.id,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "Event",
+        entityId: event.id,
+        changes: { source: "mcp", field: "settings.sponsors", count: sanitized.length },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:upsert_sponsors audit-log-failed"));
+
+    return { success: true, sponsors: sanitized, total: sanitized.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:upsert_sponsors failed");
+    return { error: err instanceof Error ? err.message : "Failed to update sponsors" };
+  }
+};
+
+const getSpeakerAgreementTemplate: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { speakerAgreementTemplate: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    return { template: event.speakerAgreementTemplate ?? null };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:get_speaker_agreement_template failed");
+    return { error: "Failed to fetch speaker agreement template" };
+  }
+};
+
+const listPromoCodes: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const codes = await db.promoCode.findMany({
+      where: { eventId: ctx.eventId },
+      select: {
+        id: true,
+        code: true,
+        description: true,
+        discountType: true,
+        discountValue: true,
+        currency: true,
+        maxUses: true,
+        maxUsesPerEmail: true,
+        usedCount: true,
+        validFrom: true,
+        validUntil: true,
+        isActive: true,
+        createdAt: true,
+        ticketTypes: { select: { ticketTypeId: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return {
+      promoCodes: codes.map((c) => ({
+        ...c,
+        ticketTypeIds: c.ticketTypes.map((t) => t.ticketTypeId),
+      })),
+      total: codes.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_promo_codes failed");
+    return { error: "Failed to list promo codes" };
+  }
+};
+
+const createPromoCode: ToolExecutor = async (input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const code = String(input.code ?? "").trim().toUpperCase();
+    if (!code || code.length < 2 || code.length > 50) {
+      return { error: "code is required (2-50 chars)" };
+    }
+    const discountType = String(input.discountType ?? "").trim();
+    if (!DISCOUNT_TYPES.has(discountType)) {
+      return { error: `discountType must be one of: ${[...DISCOUNT_TYPES].join(", ")}` };
+    }
+    const discountValue = Number(input.discountValue);
+    if (isNaN(discountValue) || discountValue <= 0) {
+      return { error: "discountValue must be a positive number" };
+    }
+    if (discountType === "PERCENTAGE" && discountValue > 100) {
+      return { error: "PERCENTAGE discountValue must be <= 100" };
+    }
+
+    const existing = await db.promoCode.findFirst({
+      where: { eventId: ctx.eventId, code },
+      select: { id: true },
+    });
+    if (existing) return { error: `Promo code "${code}" already exists for this event` };
+
+    const ticketTypeIds: string[] = Array.isArray(input.ticketTypeIds)
+      ? (input.ticketTypeIds as unknown[]).map((t) => String(t))
+      : [];
+    if (ticketTypeIds.length > 0) {
+      const valid = await db.ticketType.count({
+        where: { id: { in: ticketTypeIds }, eventId: ctx.eventId },
+      });
+      if (valid !== ticketTypeIds.length) {
+        return { error: "One or more ticketTypeIds not found in this event" };
+      }
+    }
+
+    const promoCode = await db.promoCode.create({
+      data: {
+        eventId: ctx.eventId,
+        code,
+        description: input.description ? String(input.description).slice(0, 500) : null,
+        discountType: discountType as never,
+        discountValue,
+        currency: input.currency ? String(input.currency).slice(0, 10) : null,
+        maxUses: input.maxUses != null ? Math.max(1, Number(input.maxUses)) : null,
+        maxUsesPerEmail: input.maxUsesPerEmail != null ? Math.max(1, Number(input.maxUsesPerEmail)) : 1,
+        validFrom: input.validFrom ? new Date(String(input.validFrom)) : null,
+        validUntil: input.validUntil ? new Date(String(input.validUntil)) : null,
+        isActive: input.isActive != null ? Boolean(input.isActive) : true,
+        ticketTypes: ticketTypeIds.length > 0
+          ? { create: ticketTypeIds.map((tid) => ({ ticketTypeId: tid })) }
+          : undefined,
+      },
+      select: {
+        id: true,
+        code: true,
+        discountType: true,
+        discountValue: true,
+        isActive: true,
+      },
+    });
+
+    return { success: true, promoCode };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_promo_code failed");
+    return { error: err instanceof Error ? err.message : "Failed to create promo code" };
+  }
+};
+
+const updatePromoCode: ToolExecutor = async (input, ctx) => {
+  try {
+    const promoCodeId = String(input.promoCodeId ?? "").trim();
+    if (!promoCodeId) return { error: "promoCodeId is required" };
+
+    const existing = await db.promoCode.findFirst({
+      where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, eventId: true },
+    });
+    if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };
+
+    const updates: Prisma.PromoCodeUpdateInput = {};
+    if (input.description !== undefined) {
+      updates.description = input.description == null ? null : String(input.description).slice(0, 500);
+    }
+    if (input.discountType != null) {
+      const dt = String(input.discountType);
+      if (!DISCOUNT_TYPES.has(dt)) {
+        return { error: `discountType must be one of: ${[...DISCOUNT_TYPES].join(", ")}` };
+      }
+      updates.discountType = dt as never;
+    }
+    if (input.discountValue != null) {
+      const dv = Number(input.discountValue);
+      if (isNaN(dv) || dv <= 0) return { error: "discountValue must be positive" };
+      updates.discountValue = dv;
+    }
+    if (input.maxUses !== undefined) {
+      updates.maxUses = input.maxUses == null ? null : Math.max(1, Number(input.maxUses));
+    }
+    if (input.validFrom !== undefined) {
+      updates.validFrom = input.validFrom == null ? null : new Date(String(input.validFrom));
+    }
+    if (input.validUntil !== undefined) {
+      updates.validUntil = input.validUntil == null ? null : new Date(String(input.validUntil));
+    }
+    if (input.isActive != null) updates.isActive = Boolean(input.isActive);
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update" };
+    }
+
+    const updated = await db.promoCode.update({
+      where: { id: promoCodeId },
+      data: updates,
+      select: {
+        id: true,
+        code: true,
+        discountType: true,
+        discountValue: true,
+        isActive: true,
+        usedCount: true,
+      },
+    });
+
+    return { success: true, promoCode: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_promo_code failed");
+    return { error: err instanceof Error ? err.message : "Failed to update promo code" };
+  }
+};
+
+const deletePromoCode: ToolExecutor = async (input, ctx) => {
+  try {
+    const promoCodeId = String(input.promoCodeId ?? "").trim();
+    if (!promoCodeId) return { error: "promoCodeId is required" };
+
+    const existing = await db.promoCode.findFirst({
+      where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, isActive: true, usedCount: true },
+    });
+    if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };
+
+    // Soft delete: flip isActive to false, preserve usage history
+    const updated = await db.promoCode.update({
+      where: { id: promoCodeId },
+      data: { isActive: false },
+      select: { id: true, code: true, isActive: true, usedCount: true },
+    });
+
+    return {
+      success: true,
+      promoCode: updated,
+      note: "Promo code soft-deleted (isActive: false). Usage history preserved. To hard-delete, use the dashboard.",
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:delete_promo_code failed");
+    return { error: err instanceof Error ? err.message : "Failed to delete promo code" };
+  }
+};
+
+const listScheduledEmails: ToolExecutor = async (_input, ctx) => {
+  try {
+    const event = await db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true },
+    });
+    if (!event) return { error: "Event not found or access denied" };
+
+    const rows = await db.scheduledEmail.findMany({
+      where: { eventId: ctx.eventId },
+      select: {
+        id: true,
+        recipientType: true,
+        emailType: true,
+        customSubject: true,
+        scheduledFor: true,
+        status: true,
+        sentAt: true,
+        successCount: true,
+        failureCount: true,
+        totalCount: true,
+        lastError: true,
+        createdAt: true,
+      },
+      orderBy: { scheduledFor: "desc" },
+      take: 200,
+    });
+
+    return { scheduledEmails: rows, total: rows.length };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:list_scheduled_emails failed");
+    return { error: "Failed to list scheduled emails" };
+  }
+};
+
+const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
+  try {
+    const scheduledEmailId = String(input.scheduledEmailId ?? "").trim();
+    if (!scheduledEmailId) return { error: "scheduledEmailId is required" };
+
+    const existing = await db.scheduledEmail.findFirst({
+      where: { id: scheduledEmailId, event: { organizationId: ctx.organizationId } },
+      select: { id: true, status: true, eventId: true },
+    });
+    if (!existing) return { error: `Scheduled email ${scheduledEmailId} not found or access denied` };
+
+    if (existing.status !== "PENDING") {
+      return { error: `Cannot cancel: status is ${existing.status}. Only PENDING rows can be cancelled.` };
+    }
+
+    const updated = await db.scheduledEmail.update({
+      where: { id: scheduledEmailId },
+      data: { status: "CANCELLED" },
+      select: { id: true, status: true, scheduledFor: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        eventId: existing.eventId,
+        userId: ctx.userId,
+        action: "CANCEL",
+        entityType: "ScheduledEmail",
+        entityId: scheduledEmailId,
+        changes: { source: "mcp", previousStatus: "PENDING" },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:cancel_scheduled_email audit-log-failed"));
+
+    return { success: true, scheduledEmail: updated };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:cancel_scheduled_email failed");
+    return { error: err instanceof Error ? err.message : "Failed to cancel scheduled email" };
+  }
+};
+
 // ─── Executor Map ─────────────────────────────────────────────────────────────
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -1866,4 +3341,31 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   // Zoom
   list_zoom_meetings: listZoomMeetings,
   create_zoom_meeting: createZoomMeetingTool,
+  // ─── MCP Expansion (April 2026) ───
+  // Tranche 0
+  create_event: createEvent,
+  // Tranche A — orchestration reads
+  get_event_dashboard: getEventDashboard,
+  list_unpaid_registrations: listUnpaidRegistrations,
+  list_speaker_agreements: listSpeakerAgreements,
+  list_live_sessions_now: listLiveSessionsNow,
+  search_event: searchEvent,
+  // Tranche B — actions / updates
+  update_registration: updateRegistration,
+  update_speaker: updateSpeaker,
+  update_session: updateSession,
+  bulk_update_registration_status: bulkUpdateRegistrationStatus,
+  // Tranche C — recently shipped features
+  get_webinar_info: getWebinarInfo,
+  list_webinar_attendance: listWebinarAttendance,
+  list_webinar_engagement: listWebinarEngagement,
+  list_sponsors: listSponsors,
+  upsert_sponsors: upsertSponsors,
+  get_speaker_agreement_template: getSpeakerAgreementTemplate,
+  list_promo_codes: listPromoCodes,
+  create_promo_code: createPromoCode,
+  update_promo_code: updatePromoCode,
+  delete_promo_code: deletePromoCode,
+  list_scheduled_emails: listScheduledEmails,
+  cancel_scheduled_email: cancelScheduledEmail,
 };
