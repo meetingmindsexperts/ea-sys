@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Node, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
@@ -10,6 +11,112 @@ import Color from "@tiptap/extension-color";
 import TextStyle from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
+import { toast } from "sonner";
+
+// ── Custom extensions for structural HTML preservation ──────────────────────
+
+/**
+ * DivBlock — preserves `<div>` elements with their `class` and `style`
+ * attributes through ProseMirror's parse/serialize cycle. Without this,
+ * ProseMirror strips divs entirely and converts their content to `<p>`.
+ */
+const DivBlock = Node.create({
+  name: "divBlock",
+  group: "block",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return {
+      class: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("class"),
+        renderHTML: (attrs) => (attrs.class ? { class: attrs.class } : {}),
+      },
+      style: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("style"),
+        renderHTML: (attrs) => (attrs.style ? { style: attrs.style } : {}),
+      },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "div" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", HTMLAttributes, 0];
+  },
+});
+
+/**
+ * StyleBlock — preserves `<style>` tags as atomic (non-editable) blocks.
+ * The CSS text lives in a `css` attribute; rendered as `<style>{css}</style>`.
+ * Useful for email templates that embed scoped CSS.
+ */
+const StyleBlock = Node.create({
+  name: "styleBlock",
+  group: "block",
+  atom: true,
+  addAttributes() {
+    return {
+      css: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "style",
+        getAttrs: (el) => ({ css: (el as HTMLElement).textContent || "" }),
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["style", {}, HTMLAttributes.css || ""];
+  },
+});
+
+/**
+ * GlobalAttributes — adds `class` and `style` to every built-in node type
+ * so ProseMirror preserves them on parse and emits them on serialize.
+ * Without this, `<p style="color:red">` or `<h1 class="title">` lose
+ * their attributes.
+ */
+const GlobalAttributes = Extension.create({
+  name: "globalAttributes",
+  addGlobalAttributes() {
+    return [
+      {
+        types: [
+          "paragraph",
+          "heading",
+          "blockquote",
+          "bulletList",
+          "orderedList",
+          "listItem",
+          "image",
+          "hardBreak",
+          "horizontalRule",
+          "codeBlock",
+          "table",
+          "tableRow",
+          "tableCell",
+          "tableHeader",
+        ],
+        attributes: {
+          class: {
+            default: null,
+            parseHTML: (el) => el.getAttribute("class") || null,
+            renderHTML: (attrs) => (attrs.class ? { class: attrs.class } : {}),
+          },
+          style: {
+            default: null,
+            parseHTML: (el) => el.getAttribute("style") || null,
+            renderHTML: (attrs) => (attrs.style ? { style: attrs.style } : {}),
+          },
+        },
+      },
+    ];
+  },
+});
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -374,6 +481,9 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
   const editor = useEditor({
     extensions: [
       StarterKit,
+      DivBlock,
+      StyleBlock,
+      GlobalAttributes,
       Underline,
       TextStyle,
       Color,
@@ -396,7 +506,15 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
   const toggleSource = useCallback(() => {
     if (!editor) return;
     if (sourceMode) {
-      // Switching from source to visual
+      // Switching from source to visual — warn about elements we still can't
+      // represent (script, iframe, form). Divs, style tags, class/style attrs
+      // are now handled by the custom extensions above.
+      const hasUnsupported = /<(script|iframe|form|object|embed)\b/i.test(sourceHtml);
+      if (hasUnsupported) {
+        toast.info(
+          "Some HTML elements (script, iframe, form) may be stripped in the visual editor. Use Source mode for full control.",
+        );
+      }
       editor.commands.setContent(sourceHtml);
       onChange(sourceHtml);
     } else {
