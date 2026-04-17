@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { refreshEventStats } from "@/lib/event-stats";
 import type { ToolExecutor } from "./_shared";
 
 const SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
@@ -165,6 +166,10 @@ const createSession: ToolExecutor = async (input, ctx) => {
         topics: { select: { id: true, title: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, session };
   } catch (err) {
     apiLogger.error({ err }, "agent:create_session failed");
@@ -398,6 +403,9 @@ const updateSession: ToolExecutor = async (input, ctx) => {
         changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_session audit-log-failed"));
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
 
     return { success: true, session: updated };
   } catch (err) {

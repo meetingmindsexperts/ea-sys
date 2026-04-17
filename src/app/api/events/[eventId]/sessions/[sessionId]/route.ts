@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -272,6 +273,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       select: sessionSelect,
     });
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -328,6 +332,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     await db.eventSession.delete({ where: { id: sessionId } });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Log the action
     await db.auditLog.create({

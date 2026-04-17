@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -102,6 +103,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(eventId, {
@@ -230,6 +234,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(eventId, {

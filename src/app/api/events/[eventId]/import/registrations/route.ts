@@ -8,6 +8,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncToContact } from "@/lib/contact-sync";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -260,6 +261,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
       }
     }
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     apiLogger.info({ msg: "Import complete", importType: "registrations", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
     if (errors.length > 0) {

@@ -10,6 +10,7 @@ import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const updateRegistrationSchema = z.object({
   status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
@@ -295,6 +296,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Failed to update registration" }, { status: 500 });
     }
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -395,6 +399,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         });
       }
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Clean up photo file if present
     if (registration.attendee?.photo) {

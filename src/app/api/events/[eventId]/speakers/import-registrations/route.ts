@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { refreshEventStats } from "@/lib/event-stats";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -102,6 +103,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         skipDuplicates: true,
       });
     }
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     apiLogger.info({
       msg: "Imported registrations as speakers",

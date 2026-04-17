@@ -10,6 +10,7 @@ import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const updateSpeakerSchema = z.object({
   title: titleEnum.optional().nullable(),
@@ -227,6 +228,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       registrationType: speaker.registrationType,
     });
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -306,6 +310,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     await db.speaker.delete({
       where: { id: speakerId },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Clean up photo file if present
     if (speaker.photo) {

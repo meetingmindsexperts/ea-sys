@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { refreshEventStats } from "@/lib/event-stats";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import {
   computeSubmissionAggregates,
@@ -257,6 +258,9 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       notificationStatus = "failed";
       notificationError = notifyErr instanceof Error ? notifyErr.message : "Unknown notification error";
     }
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
 
     return {
       abstract: updated,

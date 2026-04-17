@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncManyToContacts } from "@/lib/contact-sync";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
@@ -185,6 +186,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationType: s.registrationType,
       }))
     );
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     const created = result.count;
     const skipped = rows.length - created - errors.length;

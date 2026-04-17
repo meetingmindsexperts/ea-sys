@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { refreshEventStats } from "@/lib/event-stats";
 import { slugify } from "@/lib/utils";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
@@ -93,6 +94,10 @@ const createTrack: ToolExecutor = async (input, ctx) => {
       },
       select: { id: true, name: true, color: true, description: true },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, track };
   } catch (err) {
     apiLogger.error({ err }, "agent:create_track failed");
@@ -187,6 +192,9 @@ const createEvent: ToolExecutor = async (input, ctx) => {
         changes: { source: "mcp", name: event.name, slug: event.slug, eventType: event.eventType ?? null },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:create_event audit-log-failed"));
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(event.id);
 
     // Fire-and-forget WEBINAR auto-provisioning (anchor session + Zoom + email sequence)
     if (event.eventType === "WEBINAR") {

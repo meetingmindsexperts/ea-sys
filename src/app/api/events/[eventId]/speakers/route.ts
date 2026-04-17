@@ -11,6 +11,7 @@ import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const createSpeakerSchema = z.object({
   title: titleEnum.optional(),
@@ -239,6 +240,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { ...JSON.parse(JSON.stringify({ speaker })), ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Notify admins of new speaker
     notifyEventAdmins(eventId, {

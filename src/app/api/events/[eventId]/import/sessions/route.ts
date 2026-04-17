@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const SESSION_STATUS_VALUES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
 
@@ -179,6 +180,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
     }
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     apiLogger.info({ msg: "Import complete", importType: "sessions", source: "csv", eventId, userId: session.user.id, created, tracksCreated, errorCount: errors.length });
     if (errors.length > 0) {

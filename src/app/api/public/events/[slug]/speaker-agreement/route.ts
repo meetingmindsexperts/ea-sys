@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
+import { refreshEventStats } from "@/lib/event-stats";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -202,6 +203,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.verificationToken.delete({ where: { token: hashedToken } }),
     ]);
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(speaker.event.id);
 
     apiLogger.info({
       msg: "Speaker agreement accepted",

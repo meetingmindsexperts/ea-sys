@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -109,6 +110,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         data: { registrationType: targetType.name },
       });
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Audit log (non-blocking)
     db.auditLog.create({

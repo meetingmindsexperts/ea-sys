@@ -6,6 +6,7 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandin
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createReceipt, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
+import { refreshEventStats } from "@/lib/event-stats";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -128,6 +129,9 @@ export async function POST(req: Request) {
         currency,
         stripeSessionId: session.id,
       });
+
+      // Refresh denormalized event stats (fire-and-forget)
+      refreshEventStats(registration.event.id);
 
       // Notify admins/organizers (non-blocking)
       notifyEventAdmins(registration.event.id, {

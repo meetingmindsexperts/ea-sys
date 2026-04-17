@@ -8,6 +8,7 @@ import { getStripe } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
+import { refreshEventStats } from "@/lib/event-stats";
 
 export async function POST(
   _req: Request,
@@ -112,6 +113,9 @@ export async function POST(
       currency,
       issuedBy: session.user.id,
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Notify admins (non-blocking)
     notifyEventAdmins(eventId, {

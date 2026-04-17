@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
+import { refreshEventStats } from "@/lib/event-stats";
 import {
   EMAIL_RE,
   TITLE_VALUES,
@@ -93,6 +94,10 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
         status: true,
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, speaker };
   } catch (err: unknown) {
     if (
@@ -232,6 +237,9 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       lastName: updated.lastName,
     }).catch((err) => apiLogger.error({ err }, "agent:update_speaker contact-sync-failed"));
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, speaker: updated };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_speaker failed");
@@ -357,6 +365,9 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
           changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk audit-log-failed"));
+
+      // Refresh denormalized event stats (fire-and-forget)
+      refreshEventStats(ctx.eventId);
     }
 
     return {

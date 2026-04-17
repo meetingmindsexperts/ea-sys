@@ -11,6 +11,7 @@ import {
   consolidateReviewNotes,
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
+import { refreshEventStats } from "@/lib/event-stats";
 
 // Sprint B: review scoring moved to AbstractReviewSubmission rows.
 // This PUT handles abstract metadata + status transitions only.
@@ -248,6 +249,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         event: { select: { slug: true, name: true } },
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     apiLogger.info(
       { msg: "abstract-status:changed", eventId, abstractId, userId: session.user.id, previousStatus: existingAbstract.status, newStatus: abstract.status, force: data.forceStatus ?? false },

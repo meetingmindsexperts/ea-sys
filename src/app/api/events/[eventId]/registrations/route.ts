@@ -12,6 +12,7 @@ import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -319,6 +320,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       specialty: attendee.specialty || null,
       registrationType: ticketType?.name || null,
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({

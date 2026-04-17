@@ -208,6 +208,7 @@ model Event {
   zoomAttendances ZoomAttendance[]
   promoCodes      PromoCode[]
   scheduledEmails ScheduledEmail[]
+  eventStats      EventStats?
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1378,4 +1379,26 @@ model McpOAuthAccessToken {
   @@index([clientId])
   @@index([userId])
   @@index([expiresAt])
+}
+
+// ==================== EVENT STATS (denormalized read model) ====================
+
+model EventStats {
+  id                     String   @id @default(cuid())
+  eventId                String   @unique
+  registrationsByStatus  Json     @default("{}")
+  registrationsByPayment Json     @default("{}")
+  totalRegistrations     Int      @default(0)
+  checkedInCount         Int      @default(0)
+  speakersByStatus       Json     @default("{}")
+  totalSpeakers          Int      @default(0)
+  agreementsSigned       Int      @default(0)
+  abstractsByStatus      Json     @default("{}")
+  totalSessions          Int      @default(0)
+  totalTracks            Int      @default(0)
+  computedAt             DateTime @default(now())
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }

@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -333,6 +334,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({

@@ -9,6 +9,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -237,6 +238,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         })
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));
     }
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(eventId);
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(eventId, {

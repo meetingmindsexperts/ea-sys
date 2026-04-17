@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
+import { refreshEventStats } from "@/lib/event-stats";
 import {
   EMAIL_RE,
   TITLE_VALUES,
@@ -237,6 +238,9 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
       return { attendee, registration };
     });
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, ...result };
   } catch (err) {
     apiLogger.error({ err }, "agent:create_registration failed");
@@ -260,6 +264,10 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
       where: { id: registrationId },
       data: { checkedInAt: new Date(), status: "CHECKED_IN" },
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, attendee: reg.attendee, checkedInAt: new Date() };
   } catch (err) {
     apiLogger.error({ err }, "agent:check_in_registration failed");
@@ -447,6 +455,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       }).catch((err) => apiLogger.error({ err }, "agent:update_registration contact-sync-failed"));
     }
 
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
+
     return { success: true, registration: result };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_registration failed");
@@ -504,6 +515,9 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:bulk_update_registration_status audit-log-failed"));
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(ctx.eventId);
 
     return {
       success: true,
@@ -655,6 +669,9 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           changes: { source: "mcp", bulk: true, created: created.length, failed: errors.length },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk audit-log-failed"));
+
+      // Refresh denormalized event stats (fire-and-forget)
+      refreshEventStats(ctx.eventId);
     }
 
     return {

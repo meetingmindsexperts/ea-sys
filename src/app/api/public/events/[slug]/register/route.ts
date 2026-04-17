@@ -12,6 +12,7 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import { refreshEventStats } from "@/lib/event-stats";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -477,6 +478,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       studentId: studentId || null,
       studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(event.id);
 
     // Account creation: create or link user to registration
     if (password) {

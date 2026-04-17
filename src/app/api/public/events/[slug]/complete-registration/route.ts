@@ -8,6 +8,7 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { refreshEventStats } from "@/lib/event-stats";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -330,6 +331,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       });
     });
+
+    // Refresh denormalized event stats (fire-and-forget)
+    refreshEventStats(registration.event.id);
 
     // Account creation (outside transaction — failure should not block completion)
     const email = registration.attendee.email;
