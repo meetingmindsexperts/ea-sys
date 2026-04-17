@@ -485,7 +485,20 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
       StyleBlock,
       GlobalAttributes,
       Underline,
-      TextStyle,
+      // Extend TextStyle (which handles <span>) to also preserve `class`.
+      // Without this, <span class="highlight"> loses its class on parse.
+      TextStyle.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            class: {
+              default: null,
+              parseHTML: (el) => el.getAttribute("class") || null,
+              renderHTML: (attrs) => (attrs.class ? { class: attrs.class } : {}),
+            },
+          };
+        },
+      }),
       Color,
       Link.configure({ openOnClick: false, HTMLAttributes: { style: "color: #00aade; text-decoration: underline;" } }),
       Image.configure({ inline: true, allowBase64: true }),
