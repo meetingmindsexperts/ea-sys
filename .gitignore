@@ -65,3 +65,7 @@ docs/*
 docs/ARCHITECTURE.md
 docs/HANDOVER.md
 .claude/settings.local.json
+.claude/worktrees/
+.mcp.json
+test-results/
+playwright-report/

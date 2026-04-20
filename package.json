@@ -2,6 +2,10 @@
   "name": "ea-sys",
   "version": "0.3.2",
   "private": true,
+  "engines": {
+    "node": "22.x",
+    "npm": "10.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
