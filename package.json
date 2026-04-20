@@ -12,6 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:seed": "DATABASE_URL=\"$DATABASE_URL_TEST\" DIRECT_URL=\"$DATABASE_URL_TEST\" tsx prisma/seed-e2e.ts",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy"
   },
@@ -88,6 +91,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",

@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { authLogger } from "@/lib/logger";
-import authConfig from "./auth.config";
+import authConfig, { mapTokenToSessionUser } from "./auth.config";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -140,17 +140,7 @@ export const {
       return token;
     },
     async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
-        session.user.organizationId = (token.organizationId as string) ?? null;
-        session.user.organizationName = (token.organizationName as string) ?? null;
-        session.user.organizationLogo = (token.organizationLogo as string) ?? null;
-        session.user.organizationPrimaryColor = (token.organizationPrimaryColor as string) ?? null;
-        session.user.firstName = token.firstName as string;
-        session.user.lastName = token.lastName as string;
-      }
-      return session;
+      return mapTokenToSessionUser(session, token);
     },
   },
 });

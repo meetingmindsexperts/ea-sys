@@ -16,7 +16,12 @@ import { refreshEventStats } from "@/lib/event-stats";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
-  pricingTierId: z.string().min(1).max(100).optional(),
+  // Coerce "" → undefined so legacy (non-tier) tickets — whose client form
+  // always submits pricingTierId: "" — aren't rejected by min(1).
+  pricingTierId: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().min(1).max(100).optional()
+  ),
   title: titleEnum,
   role: attendeeRoleEnum,
   firstName: z.string().min(1, "First name is required").max(100),

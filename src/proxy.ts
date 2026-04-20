@@ -7,7 +7,10 @@ const { auth } = NextAuth(authConfig);
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
-// Edge runtime — can't import Pino logger. Use console with structured JSON.
+// Use console with structured JSON so logs stay parseable. (The pino logger
+// lives in src/lib/logger.ts and is fine to import now that proxy defaults to
+// Node.js runtime in Next.js 16, but keeping this lean helper avoids coupling
+// the proxy to the rest of the app's logging stack.)
 function logWarn(msg: string, data?: Record<string, unknown>) {
   console.warn(JSON.stringify({ level: "warn", module: "middleware", msg, time: new Date().toISOString(), ...data }));
 }

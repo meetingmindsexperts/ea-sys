@@ -287,6 +287,9 @@ describe("createCreditNote", () => {
 
 describe("cancelInvoice", () => {
   it("sets status to CANCELLED", async () => {
+    const { db } = await import("@/lib/db");
+    (db.invoice.findUniqueOrThrow as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: "inv-1", status: "DRAFT", invoiceNumber: "INV-1" });
     mockUpdate.mockResolvedValue({ id: "inv-1", status: "CANCELLED" });
 
     const result = await cancelInvoice("inv-1");
