@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { useContact, useUpdateContact, useDeleteContact, queryKeys } from "@/hooks/use-api";
+import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -574,6 +575,11 @@ export function ContactDetailSheet({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ── Email history ─────────────────────────────────────── */}
+          {contact && (
+            <EmailLogCard entityType="CONTACT" entityId={contact.id} />
           )}
         </div>
       </SheetContent>

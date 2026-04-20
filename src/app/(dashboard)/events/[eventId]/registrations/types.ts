@@ -90,6 +90,7 @@ export const registrationStatusColors: Record<string, string> = {
 };
 
 export const paymentStatusColors: Record<string, string> = {
+  UNASSIGNED: "bg-slate-100 text-slate-700",
   UNPAID: "bg-gray-100 text-gray-800",
   PENDING: "bg-yellow-100 text-yellow-800",
   PAID: "bg-green-100 text-green-800",

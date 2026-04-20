@@ -60,6 +60,7 @@ import {
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { queryKeys, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -689,6 +690,9 @@ export function SpeakerDetailSheet({
                   </div>
                 </div>
               </div>
+
+              {/* ── Email history ─────────────────────────────────────── */}
+              <EmailLogCard entityType="SPEAKER" entityId={speaker.id} />
             </>
           ) : null}
         </SheetContent>

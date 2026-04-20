@@ -47,8 +47,23 @@ const initialPersonData: PersonFormData = {
   dietaryReqs: "",
 };
 
-const initialFormData = {
+type ManualPaymentStatus = "UNASSIGNED" | "UNPAID" | "PAID" | "COMPLIMENTARY";
+
+const MANUAL_PAYMENT_STATUS_OPTIONS: { value: ManualPaymentStatus; label: string }[] = [
+  { value: "UNASSIGNED", label: "Unassigned (default)" },
+  { value: "UNPAID", label: "Unpaid" },
+  { value: "PAID", label: "Paid" },
+  { value: "COMPLIMENTARY", label: "Complimentary" },
+];
+
+const initialFormData: {
+  ticketTypeId: string;
+  paymentStatus: ManualPaymentStatus;
+  personData: PersonFormData;
+  notes: string;
+} = {
   ticketTypeId: "",
+  paymentStatus: "UNASSIGNED",
   personData: initialPersonData,
   notes: "",
 };
@@ -66,6 +81,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ticketTypeId: data.ticketTypeId,
+          paymentStatus: data.paymentStatus,
           attendee: {
             email: data.personData.email,
             firstName: data.personData.firstName,
@@ -154,6 +170,29 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
                   </SelectContent>
                 </Select>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="paymentStatus">Payment Status</Label>
+              <Select
+                value={formData.paymentStatus}
+                onValueChange={(value) => setFormData({ ...formData, paymentStatus: value as ManualPaymentStatus })}
+              >
+                <SelectTrigger id="paymentStatus" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[100]">
+                  {MANUAL_PAYMENT_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Stripe-driven statuses (Pending / Refunded / Failed) are set
+                automatically by the payment webhook.
+              </p>
             </div>
 
             <PersonFormFields

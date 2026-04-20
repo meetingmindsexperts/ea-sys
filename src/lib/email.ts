@@ -6,6 +6,7 @@ import {
 import sgMail from "@sendgrid/mail";
 import juice from "juice";
 import { apiLogger } from "./logger";
+import { logEmail, type EmailLogContext } from "./email-log";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -35,6 +36,12 @@ export interface SendEmailParams {
     content: string; // Base64 encoded
     contentType?: string;
   }>;
+  /**
+   * Optional audit context. Pass when the caller can identify which
+   * registrant/speaker/contact this email belongs to — the row shows up
+   * in that person's detail-sheet Email History card.
+   */
+  logContext?: EmailLogContext;
 }
 
 export type SendEmailResult = {
@@ -149,27 +156,52 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     return { success: false, error: "Email service not configured" };
   }
 
+  const providerName = process.env.EMAIL_PROVIDER || (process.env.SENDGRID_API_KEY ? "sendgrid" : "brevo");
+  const toEmails = params.to.map((r) => r.email);
+  const primaryTo = toEmails[0] ?? "";
+
   try {
     const result = await getProvider().send(params);
 
     apiLogger.info({
       msg: "Email sent successfully",
-      to: params.to.map((r) => r.email),
+      to: toEmails,
       subject: params.subject,
       messageId: result.messageId,
     });
 
+    // Fire-and-forget audit row. Never blocks the send.
+    void logEmail({
+      to: primaryTo,
+      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      subject: params.subject,
+      provider: providerName,
+      providerMessageId: result.messageId ?? null,
+      status: "SENT",
+      context: params.logContext,
+    });
+
     return result;
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to send email";
     apiLogger.error({
       msg: "Failed to send email",
-      error: error instanceof Error ? error.message : "Unknown error",
-      to: params.to.map((r) => r.email),
+      error: message,
+      to: toEmails,
       subject: params.subject,
+    });
+    void logEmail({
+      to: primaryTo,
+      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      subject: params.subject,
+      provider: providerName,
+      status: "FAILED",
+      errorMessage: message,
+      context: params.logContext,
     });
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to send email",
+      error: message,
     };
   }
 }
@@ -1508,5 +1540,11 @@ export async function sendRegistrationConfirmation(params: {
     textContent,
     from: brandingFrom(branding),
     attachments,
+    logContext: {
+      eventId: params.eventId ?? null,
+      entityType: "REGISTRATION",
+      entityId: params.registrationId,
+      templateSlug: "registration-confirmation",
+    },
   });
 }

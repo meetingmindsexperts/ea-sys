@@ -67,6 +67,9 @@ export interface BulkEmailInput {
   organizerName: string;
   organizerEmail: string;
   organizerSignature?: string;
+  /** Optional audit context threaded into EmailLog rows. */
+  organizationId?: string | null;
+  triggeredByUserId?: string | null;
 }
 
 export interface BulkEmailResult {
@@ -161,6 +164,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     organizerName,
     organizerEmail,
     organizerSignature,
+    organizationId,
+    triggeredByUserId,
   } = input;
 
   // Speaker-agreement bulk sends require an uploaded .docx template — fail
@@ -569,6 +574,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               : [personalizedAttachment];
           }
 
+          const bulkEntityType =
+            recipientType === "speakers"
+              ? ("SPEAKER" as const)
+              : recipientType === "registrations"
+                ? ("REGISTRATION" as const)
+                : recipientType === "reviewers"
+                  ? ("USER" as const)
+                  : ("OTHER" as const);
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
             subject: emailContent.subject,
@@ -580,6 +593,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
                 ? { email: organizerEmail, name: organizerName }
                 : undefined,
+            logContext: {
+              organizationId: organizationId ?? null,
+              eventId,
+              entityType: bulkEntityType,
+              entityId: recipient.id,
+              templateSlug: `bulk-${emailType}`,
+              triggeredByUserId: triggeredByUserId ?? null,
+            },
           });
           return { recipient, result };
         } catch (error) {

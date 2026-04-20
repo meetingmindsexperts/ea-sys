@@ -191,6 +191,11 @@ function CategoryRegistrationContent() {
   const [promoValidating, setPromoValidating] = useState(false);
   const [promoResult, setPromoResult] = useState<{ valid: boolean; code?: string; discountType?: string; discountValue?: number; discountAmount?: number; originalPrice?: number; finalPrice?: number; error?: string } | null>(null);
   const [showPromoInput, setShowPromoInput] = useState(false);
+  const [emailCheck, setEmailCheck] = useState<
+    | { state: "idle" }
+    | { state: "checking" }
+    | { state: "conflict"; reason: "already_registered" | "user_exists" }
+  >({ state: "idle" });
 
   // Capture referral tracking on first load
   const trackingRef = useRef({
@@ -590,12 +595,78 @@ function CategoryRegistrationContent() {
                           </FormItem>
                         )} />
 
+                      {emailCheck.state === "conflict" && (
+                        <div className={cn(
+                          "rounded-lg border p-3 text-sm",
+                          emailCheck.reason === "already_registered"
+                            ? "border-amber-300 bg-amber-50 text-amber-800"
+                            : "border-sky-300 bg-sky-50 text-sky-800"
+                        )}>
+                          {emailCheck.reason === "already_registered" ? (
+                            <>
+                              You&apos;re already registered for this event.{" "}
+                              <a
+                                href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
+                                className="underline font-medium"
+                              >
+                                Sign in instead
+                              </a>
+                              .
+                            </>
+                          ) : (
+                            <>
+                              This email already has an account.{" "}
+                              <a
+                                href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
+                                className="underline font-medium"
+                              >
+                                Sign in to continue
+                              </a>
+                              , or use a different email to create a new account.
+                            </>
+                          )}
+                        </div>
+                      )}
+
                       <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                        disabled={emailCheck.state === "checking"}
                         onClick={async () => {
                           const valid = await form.trigger(["email", "password", "confirmPassword"]);
-                          if (valid) setStep(2);
+                          if (!valid) return;
+                          setEmailCheck({ state: "checking" });
+                          try {
+                            const res = await fetch(`/api/public/events/${slug}/check-email`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: form.getValues("email") }),
+                            });
+                            if (res.ok) {
+                              const data = await res.json();
+                              if (data.exists && data.reason === "already_registered") {
+                                setEmailCheck({ state: "conflict", reason: "already_registered" });
+                                return;
+                              }
+                              if (data.exists && data.reason === "user_exists") {
+                                // Surface the notice but still allow step 2 —
+                                // the register route will reuse the account.
+                                setEmailCheck({ state: "conflict", reason: "user_exists" });
+                                setStep(2);
+                                return;
+                              }
+                            }
+                          } catch (err) {
+                            // Network or 429 — fall through to step 2; the
+                            // register POST is the safety net.
+                            console.warn("[register] check-email failed, continuing", err);
+                          }
+                          setEmailCheck({ state: "idle" });
+                          setStep(2);
                         }}>
-                        Continue <ChevronRight className="ml-1 h-5 w-5" />
+                        {emailCheck.state === "checking" ? (
+                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
+                        ) : (
+                          <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
+                        )}
                       </Button>
 
                       <p className="text-center text-xs text-slate-400">

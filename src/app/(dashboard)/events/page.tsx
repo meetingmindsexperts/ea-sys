@@ -8,19 +8,27 @@ import { Plus, Calendar } from "lucide-react";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { EventListClient } from "./event-list-client";
 import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
+import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
+import { EventsSortControls } from "./events-sort-controls";
 
-export default async function EventsPage() {
-  const session = await auth();
+interface EventsPageProps {
+  searchParams: Promise<{ sort?: string | string[]; order?: string | string[] }>;
+}
+
+export default async function EventsPage({ searchParams }: EventsPageProps) {
+  const [session, sp] = await Promise.all([auth(), searchParams]);
   if (!session?.user) redirect("/login");
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
 
+  const sort = parseEventSort(sp);
+
   let events;
   try {
     events = await db.event.findMany({
       where: buildEventAccessWhere(session.user),
-      orderBy: { createdAt: "desc" },
+      orderBy: eventOrderBy(sort),
       include: {
         _count: { select: { registrations: true, speakers: true } },
       },
@@ -54,6 +62,11 @@ export default async function EventsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Sort controls ─────────────────────────────────────────────────── */}
+      {events.length > 0 && (
+        <EventsSortControls sort={sort.field} order={sort.order} />
+      )}
 
       {/* ── Events ─────────────────────────────────────────────────────────── */}
       {events.length > 0 ? (

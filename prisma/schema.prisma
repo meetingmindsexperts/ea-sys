@@ -38,6 +38,7 @@ model Organization {
   mediaFiles      MediaFile[]
   invoices        Invoice[]
   scheduledEmails ScheduledEmail[]
+  emailLogs       EmailLog[]
 }
 
 model User {
@@ -72,6 +73,7 @@ model User {
   abstractReviewerOf        AbstractReviewer[]         @relation("ReviewerOnAbstracts")
   assignedAbstractReviewers AbstractReviewer[]         @relation("AssignedAbstractReviewers")
   abstractSubmissions       AbstractReviewSubmission[] @relation("UserAbstractSubmissions")
+  triggeredEmailLogs        EmailLog[]
 
   @@index([organizationId])
   @@index([email])
@@ -209,6 +211,7 @@ model Event {
   promoCodes      PromoCode[]
   scheduledEmails ScheduledEmail[]
   eventStats      EventStats?
+  emailLogs       EmailLog[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -401,6 +404,7 @@ enum PaymentStatus {
   COMPLIMENTARY
   REFUNDED
   FAILED
+  UNASSIGNED
 }
 
 model Payment {
@@ -1401,4 +1405,48 @@ model EventStats {
   updatedAt              DateTime @updatedAt
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+// ==================== EMAIL LOG (per-send audit) ====================
+
+enum EmailLogEntityType {
+  REGISTRATION
+  SPEAKER
+  CONTACT
+  USER
+  OTHER
+}
+
+enum EmailLogStatus {
+  SENT
+  FAILED
+}
+
+model EmailLog {
+  id                String              @id @default(cuid())
+  organizationId    String?
+  eventId           String?
+  entityType        EmailLogEntityType?
+  entityId          String?
+  to                String
+  cc                String?
+  bcc               String?
+  subject           String
+  templateSlug      String?
+  provider          String
+  providerMessageId String?
+  status            EmailLogStatus
+  errorMessage      String?             @db.Text
+  triggeredByUserId String?
+  createdAt         DateTime            @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  event        Event?        @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  triggeredBy  User?         @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([organizationId])
+  @@index([eventId])
+  @@index([to])
+  @@index([createdAt])
 }

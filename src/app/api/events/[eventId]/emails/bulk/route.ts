@@ -95,6 +95,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizerName,
         organizerEmail,
         organizerSignature,
+        organizationId: session.user.organizationId ?? null,
+        triggeredByUserId: session.user.id,
       });
     } catch (err) {
       if (err instanceof BulkEmailError) {

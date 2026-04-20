@@ -33,6 +33,7 @@ interface TickResult {
 async function processRow(row: {
   id: string;
   eventId: string;
+  organizationId: string;
   createdById: string;
   recipientType: string;
   emailType: string;
@@ -65,6 +66,8 @@ async function processRow(row: {
           : "Event Organizer",
       organizerEmail: organizer?.email ?? "",
       organizerSignature: organizer?.emailSignature ?? undefined,
+      organizationId: row.organizationId,
+      triggeredByUserId: row.createdById,
     });
 
     await db.scheduledEmail.update({
@@ -179,6 +182,7 @@ async function handleCron(req: Request) {
       select: {
         id: true,
         eventId: true,
+        organizationId: true,
         createdById: true,
         recipientType: true,
         emailType: true,

@@ -217,7 +217,10 @@ export async function POST(req: Request, { params }: RouteParams) {
               attendeeId: attendee.id,
               serialId,
               status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
-              paymentStatus: Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
+              // CSV imports are admin-created. Match the dashboard "Add" default:
+              // free tickets → COMPLIMENTARY, paid tickets → UNASSIGNED
+              // (admin decides the actual payment status later).
+              paymentStatus: Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED",
               qrCode: generatedBarcode,
               notes: getField(fields, idx.notes) || null,
             },

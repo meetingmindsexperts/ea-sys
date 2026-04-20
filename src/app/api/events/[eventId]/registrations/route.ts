@@ -17,8 +17,18 @@ import { refreshEventStats } from "@/lib/event-stats";
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 
+// Admin-facing payment statuses. Stripe-driven states (PENDING / REFUNDED /
+// FAILED) are excluded — they're set by the webhook, not by humans.
+const manualPaymentStatusSchema = z.enum([
+  "UNASSIGNED",
+  "UNPAID",
+  "PAID",
+  "COMPLIMENTARY",
+]);
+
 const createRegistrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100).optional(),
+  paymentStatus: manualPaymentStatusSchema.optional(),
   attendee: z.object({
     title: titleEnum.optional(),
     email: z.string().email().max(255),
@@ -186,7 +196,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, attendee, notes } = validated.data;
+    const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus } = validated.data;
 
     // Look up event (always needed) and ticket type (if provided)
     const [event, ticketType] = await Promise.all([
@@ -285,6 +295,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Create registration
       const generatedBarcode = generateBarcode();
       const serialId = await getNextSerialId(tx, eventId);
+      // Default: admin-created registrations start as UNASSIGNED for paid
+      // tickets, COMPLIMENTARY for free. Admin can override with any of the
+      // allowed manual statuses via input.paymentStatus.
+      const defaultPaymentStatus = !ticketType || Number(ticketType.price) === 0
+        ? "COMPLIMENTARY"
+        : "UNASSIGNED";
       const reg = await tx.registration.create({
         data: {
           eventId,
@@ -292,7 +308,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendeeRecord.id,
           serialId,
           status: ticketType?.requiresApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: !ticketType || Number(ticketType.price) === 0 ? "PAID" : "UNPAID",
+          paymentStatus: requestedPaymentStatus ?? defaultPaymentStatus,
           qrCode: generatedBarcode,
           notes: notes || null,
         },

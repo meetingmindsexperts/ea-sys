@@ -66,6 +66,7 @@ import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/
 import { formatSerialId } from "@/lib/registration-serial";
 import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -1142,6 +1143,9 @@ export function RegistrationDetailSheet({
                   )}
                 </div>
               )}
+
+              {/* ── Email history ─────────────────────────────────────── */}
+              <EmailLogCard entityType="REGISTRATION" entityId={selectedRegistration.id} />
             </div>
           </>
         ) : null}

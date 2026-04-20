@@ -207,6 +207,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
       attachments,
+      logContext: {
+        organizationId: session.user.organizationId ?? null,
+        eventId,
+        entityType: "SPEAKER",
+        entityId: speakerId,
+        templateSlug: `speaker-${type}`,
+        triggeredByUserId: session.user.id,
+      },
     });
 
     if (!result.success) {

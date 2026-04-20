@@ -11,6 +11,7 @@ import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
+import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -31,6 +32,10 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const slug = searchParams.get("slug") ?? undefined;
+    const orderBy = eventOrderBy(parseEventSort({
+      sort: searchParams.get("sort") ?? undefined,
+      order: searchParams.get("order") ?? undefined,
+    }));
 
     // Session auth covers all roles (ADMIN, ORGANIZER, REVIEWER, SUBMITTER).
     // REVIEWER and SUBMITTER have organizationId=null, so getOrgContext() would
@@ -48,7 +53,7 @@ export async function GET(req: Request) {
 
       const events = await db.event.findMany({
         where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         include: {
           _count: { select: { registrations: true, speakers: true } },
           organization: { select: { name: true } },
@@ -74,7 +79,7 @@ export async function GET(req: Request) {
 
     const events = await db.event.findMany({
       where: { organizationId: result.organizationId, ...(slug && { slug }) },
-      orderBy: { createdAt: "desc" },
+      orderBy,
       include: {
         _count: { select: { registrations: true, speakers: true } },
       },
