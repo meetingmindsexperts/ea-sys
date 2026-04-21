@@ -30,9 +30,11 @@ import {
   Download,
   Loader2,
   AlertCircle,
+  Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
+import { formatSerialId } from "@/lib/registration-serial";
 
 interface Event {
   id: string;
@@ -49,6 +51,7 @@ interface Event {
 
 interface Registration {
   id: string;
+  serialId: number | null;
   status: string;
   paymentStatus: string;
   qrCode: string | null;
@@ -154,6 +157,26 @@ export default function EventMyRegistrationPage() {
     },
     onError: (err: Error) => {
       console.error("[MyRegistration] Update failed:", err.message);
+      toast.error(err.message);
+    },
+  });
+
+  const resendConfirmation = useMutation({
+    mutationFn: async (registrationId: string) => {
+      const res = await fetch(
+        `/api/registrant/registrations/${registrationId}/resend-confirmation`,
+        { method: "POST" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to send email");
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || "Confirmation email sent");
+    },
+    onError: (err: Error) => {
       toast.error(err.message);
     },
   });
@@ -380,22 +403,48 @@ export default function EventMyRegistrationPage() {
                       </div>
                     )}
 
-                    {/* Confirmation Number + Quote */}
-                    <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
-                      <div className="flex items-center gap-3">
-                        <Barcode className="h-5 w-5 text-slate-500" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Barcode</p>
-                          <p className="font-mono text-sm font-medium tracking-wider">{reg.id.toUpperCase()}</p>
-                        </div>
+                    {/* Registration ID + Barcode + Quote */}
+                    <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 gap-4">
+                      <div className="flex items-center gap-6">
+                        {reg.serialId != null && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Registration ID</p>
+                            <p className="font-mono text-sm font-semibold tracking-wider">
+                              {formatSerialId(reg.serialId)}
+                            </p>
+                          </div>
+                        )}
+                        {reg.qrCode && (
+                          <div className="flex items-center gap-3">
+                            <Barcode className="h-5 w-5 text-slate-500" />
+                            <div>
+                              <p className="text-xs text-muted-foreground">Barcode</p>
+                              <p className="font-mono text-sm font-medium tracking-wider">{reg.qrCode}</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      {price > 0 && (
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
-                            <Download className="mr-2 h-3.5 w-3.5" /> Quote
-                          </a>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={resendConfirmation.isPending}
+                          onClick={() => resendConfirmation.mutate(reg.id)}
+                        >
+                          {resendConfirmation.isPending && resendConfirmation.variables === reg.id ? (
+                            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sending…</>
+                          ) : (
+                            <><Mail className="mr-2 h-3.5 w-3.5" /> Email me confirmation</>
+                          )}
                         </Button>
-                      )}
+                        {price > 0 && (
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
+                              <Download className="mr-2 h-3.5 w-3.5" /> Quote
+                            </a>
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Personal Details */}
