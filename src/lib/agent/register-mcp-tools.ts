@@ -20,9 +20,15 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: AgentC
   const executor = TOOL_EXECUTOR_MAP[name];
   if (!executor) throw new Error(`Unknown tool: ${name}`);
   const start = Date.now();
-  const result = await executor(input, ctx);
-  apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs: Date.now() - start });
-  return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  try {
+    const result = await executor(input, ctx);
+    apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs: Date.now() - start });
+    return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    apiLogger.error({ msg: "MCP executor throw", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs: Date.now() - start, err: message });
+    throw err;
+  }
 }
 
 /**
@@ -47,12 +53,47 @@ export function registerAllMcpTools(
 ): void {
   const SYSTEM_USER_ID = options?.systemUserId ?? DEFAULT_SYSTEM_USER_ID;
 
+  // Wraps every tool callback so thrown errors become MCP-protocol `isError`
+  // responses with the real message instead of the SDK's generic
+  // "Tool execution failed". Every failure is also logged at error level so we
+  // have a server-side trace to correlate against.
+  async function safeTool(
+    name: string,
+    run: () => Promise<string>,
+  ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
+    try {
+      const text = await run();
+      return { content: [{ type: "text" as const, text }] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      apiLogger.error({ msg: "MCP tool failed", tool: name, organizationId, err: message });
+      return {
+        content: [{ type: "text" as const, text: `Error: ${message}` }],
+        isError: true,
+      };
+    }
+  }
+
+  async function safeResource(
+    name: string,
+    uri: string,
+    run: () => Promise<{ contents: Array<{ uri: string; text: string; mimeType?: string }> }>,
+  ): Promise<{ contents: Array<{ uri: string; text: string; mimeType?: string }> }> {
+    try {
+      return await run();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      apiLogger.error({ msg: "MCP resource failed", name, organizationId, err: message });
+      return { contents: [{ uri, text: `Error: ${message}`, mimeType: "text/plain" }] };
+    }
+  }
+
   // ── Organization-level tools ──
 
   server.tool(
     "list_events", "List all events in the organization.",
     {},
-    async () => {
+    async () => safeTool("list_events", async () => {
       const events = await db.event.findMany({
         where: { organizationId },
         select: {
@@ -62,11 +103,10 @@ export function registerAllMcpTools(
         },
         orderBy: { startDate: "desc" },
       });
-      const text = events.length === 0 ? "No events found." : events.map(e =>
+      return events.length === 0 ? "No events found." : events.map(e =>
         `${e.name} (${e.slug})\n  ID: ${e.id}\n  Status: ${e.status}\n  Dates: ${e.startDate.toISOString().split("T")[0]} to ${e.endDate.toISOString().split("T")[0]}\n  Registrations: ${e._count.registrations} | Speakers: ${e._count.speakers} | Sessions: ${e._count.eventSessions}`
       ).join("\n\n");
-      return { content: [{ type: "text" as const, text }] };
-    }
+    })
   );
 
   server.tool(
@@ -88,21 +128,20 @@ export function registerAllMcpTools(
       specialty: z.string().optional(),
       status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
     },
-    async (input) => {
-      const result = await runTool("create_event", input, {
+    async (input) => safeTool("create_event", () =>
+      runTool("create_event", input, {
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
         counters: { creates: 0, emailsSent: 0 },
-      });
-      return { content: [{ type: "text" as const, text: result }] };
-    },
+      }),
+    ),
   );
 
   server.tool(
     "list_contacts", "Search organization contacts.",
     { search: z.string().optional(), tag: z.string().optional(), limit: z.number().optional() },
-    async ({ search, tag, limit }) => {
+    async ({ search, tag, limit }) => safeTool("list_contacts", async () => {
       const contacts = await db.contact.findMany({
         where: {
           organizationId,
@@ -117,10 +156,9 @@ export function registerAllMcpTools(
         take: Math.min(limit || 50, 200),
         orderBy: { lastName: "asc" },
       });
-      const text = contacts.length === 0 ? "No contacts found." :
+      return contacts.length === 0 ? "No contacts found." :
         contacts.map(c => `${c.firstName} ${c.lastName} <${c.email}>${c.organization ? ` — ${c.organization}` : ""}`).join("\n");
-      return { content: [{ type: "text" as const, text }] };
-    }
+    })
   );
 
   server.tool(
@@ -144,15 +182,14 @@ export function registerAllMcpTools(
       notes: z.string().optional(),
       tags: z.array(z.string()).optional(),
     },
-    async (input) => {
-      const result = await runTool("update_contact", input, {
+    async (input) => safeTool("update_contact", () =>
+      runTool("update_contact", input, {
         eventId: "",
         organizationId,
         userId: SYSTEM_USER_ID,
         counters: { creates: 0, emailsSent: 0 },
-      });
-      return { content: [{ type: "text" as const, text: result }] };
-    },
+      }),
+    ),
   );
 
   server.tool(
@@ -173,15 +210,14 @@ export function registerAllMcpTools(
       bankDetails: z.string().nullable().optional(),
       badgeVerticalOffset: z.number().optional(),
     },
-    async (input) => {
-      const result = await runTool("update_event", input, {
+    async (input) => safeTool("update_event", () =>
+      runTool("update_event", input, {
         eventId: input.eventId as string,
         organizationId,
         userId: SYSTEM_USER_ID,
         counters: { creates: 0, emailsSent: 0 },
-      });
-      return { content: [{ type: "text" as const, text: result }] };
-    },
+      }),
+    ),
   );
 
   // ── Event-level read tools ──
@@ -489,12 +525,11 @@ export function registerAllMcpTools(
     server.tool(
       t.name, t.description,
       { eventId: z.string().describe("Event ID"), ...t.params },
-      async (args) => {
+      async (args) => safeTool(t.name, async () => {
         const { eventId, ...input } = args;
         const orgId = await getOrgIdSecure(eventId as string, organizationId);
-        const result = await runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
-        return { content: [{ type: "text" as const, text: result }] };
-      }
+        return runTool(t.agentTool || t.name, input, { eventId: eventId as string, organizationId: orgId, userId: SYSTEM_USER_ID, counters: { creates: 0, emailsSent: 0 } });
+      }),
     );
   }
 
@@ -505,7 +540,7 @@ export function registerAllMcpTools(
     "events-list",
     "ea-sys://events",
     { description: "List of all events in the organization" },
-    async (uri) => {
+    async (uri) => safeResource("events-list", uri.href, async () => {
       const events = await db.event.findMany({
         where: { organizationId },
         select: { id: true, name: true, slug: true, status: true, startDate: true, endDate: true, venue: true, city: true,
@@ -513,7 +548,7 @@ export function registerAllMcpTools(
         orderBy: { startDate: "desc" },
       });
       return { contents: [{ uri: uri.href, text: JSON.stringify(events, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   // Template resources: per-event data
@@ -522,7 +557,7 @@ export function registerAllMcpTools(
   server.resource(
     "event-info", eventResourceTemplate,
     { description: "Event details including name, dates, venue, status, and counts" },
-    async (uri, params) => {
+    async (uri, params) => safeResource("event-info", String(uri), async () => {
       const eventId = String(params.eventId);
       const event = await db.event.findFirst({
         where: { id: eventId, organizationId },
@@ -534,7 +569,7 @@ export function registerAllMcpTools(
       });
       if (!event) return { contents: [{ uri: String(uri), text: "Event not found.", mimeType: "text/plain" }] };
       return { contents: [{ uri: String(uri), text: JSON.stringify(event, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   // Helper: verify eventId belongs to this org (for resources)
@@ -547,7 +582,7 @@ export function registerAllMcpTools(
     "event-registrations-summary",
     new ResourceTemplate("ea-sys://events/{eventId}/registrations/summary", { list: undefined }),
     { description: "Registration counts by status and payment status" },
-    async (uri, params) => {
+    async (uri, params) => safeResource("event-registrations-summary", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const [byStatus, byPayment] = await Promise.all([
@@ -560,14 +595,14 @@ export function registerAllMcpTools(
         total: byStatus.reduce((s, r) => s + r._count, 0),
       };
       return { contents: [{ uri: String(uri), text: JSON.stringify(data, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   server.resource(
     "event-speakers",
     new ResourceTemplate("ea-sys://events/{eventId}/speakers", { list: undefined }),
     { description: "All speakers with status" },
-    async (uri, params) => {
+    async (uri, params) => safeResource("event-speakers", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const speakers = await db.speaker.findMany({
@@ -576,14 +611,14 @@ export function registerAllMcpTools(
         orderBy: { lastName: "asc" },
       });
       return { contents: [{ uri: String(uri), text: JSON.stringify(speakers, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   server.resource(
     "event-agenda",
     new ResourceTemplate("ea-sys://events/{eventId}/agenda", { list: undefined }),
     { description: "Full session agenda with tracks and speakers" },
-    async (uri, params) => {
+    async (uri, params) => safeResource("event-agenda", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const sessions = await db.eventSession.findMany({
@@ -597,14 +632,14 @@ export function registerAllMcpTools(
         orderBy: { startTime: "asc" },
       });
       return { contents: [{ uri: String(uri), text: JSON.stringify(sessions, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   server.resource(
     "event-abstracts-summary",
     new ResourceTemplate("ea-sys://events/{eventId}/abstracts/summary", { list: undefined }),
     { description: "Abstract counts by status and theme" },
-    async (uri, params) => {
+    async (uri, params) => safeResource("event-abstracts-summary", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const [byStatus, byTheme] = await Promise.all([
@@ -621,7 +656,7 @@ export function registerAllMcpTools(
         total: byStatus.reduce((s, r) => s + r._count, 0),
       };
       return { contents: [{ uri: String(uri), text: JSON.stringify(data, null, 2), mimeType: "application/json" }] };
-    }
+    })
   );
 
   // ── MCP Prompts ───────────────────────────────────────────────────────────

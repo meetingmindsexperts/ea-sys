@@ -67,7 +67,7 @@ import {
   Radar,
   StickyNote,
 } from "lucide-react";
-import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
@@ -120,6 +120,7 @@ export function RegistrationDetailSheet({
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [printingBadge, setPrintingBadge] = useState(false);
+  const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
   const handleHeaderPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -387,7 +388,7 @@ export function RegistrationDetailSheet({
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto p-0 w-full sm:w-[700px]">
+      <SheetContent className="overflow-y-auto p-0 w-full sm:w-[750px]">
         {selectedRegistration ? (
           <>
             {/* Header with actions */}
@@ -506,8 +507,44 @@ export function RegistrationDetailSheet({
             </div>
 
             <div className="px-6 py-5 space-y-4 bg-slate-50/40">
+              {/* Tab pill bar — shown in view mode only. When editing, all
+                  sections collapse to a single flat form so the admin can
+                  move through the whole record sequentially without tab
+                  switches. */}
+              {!isEditing && (
+                <div
+                  role="tablist"
+                  className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
+                >
+                  {([
+                    { value: "details", label: "Details" },
+                    { value: "billing", label: "Billing & Payments" },
+                    { value: "activity", label: "Activity" },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.value}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === t.value}
+                      onClick={() => setActiveTab(t.value)}
+                      className={cn(
+                        "inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center whitespace-nowrap rounded-md border border-transparent px-2 py-1 text-sm font-medium transition-all",
+                        activeTab === t.value
+                          ? "bg-background text-foreground shadow-sm"
+                          : "hover:text-foreground",
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Attendee Info */}
-              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+              <section className={cn(
+                "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                !isEditing && activeTab !== "details" && "hidden",
+              )}>
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                   <User className="h-4 w-4 text-slate-400" />
                   Attendee Information
@@ -794,7 +831,10 @@ export function RegistrationDetailSheet({
                 )}
               </section>
 
-              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+              <section className={cn(
+                "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                !isEditing && activeTab !== "details" && "hidden",
+              )}>
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                   <Ticket className="h-4 w-4 text-slate-400" />
                   Registration Details
@@ -968,7 +1008,10 @@ export function RegistrationDetailSheet({
                   or edit the billing block. */}
               {(isEditing || hasCustomBilling(selectedRegistration)) && (
                 <>
-                  <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                  <section className={cn(
+                    "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                    !isEditing && activeTab !== "billing" && "hidden",
+                  )}>
                     <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                       <Receipt className="h-4 w-4 text-slate-400" />
                       Billing Details
@@ -1167,7 +1210,10 @@ export function RegistrationDetailSheet({
 
               {/* Print Badge + Download Quote + Send Email (3 buttons in a row) */}
               {!isReviewer && !isEditing && (
-                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4",
+                  activeTab !== "activity" && "hidden",
+                )}>
                   <div className="grid grid-cols-3 gap-2">
                   <Button
                     variant="outline"
@@ -1240,7 +1286,10 @@ export function RegistrationDetailSheet({
 
               {/* Accommodation */}
               {selectedRegistration.accommodation && (
-                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                  !isEditing && activeTab !== "details" && "hidden",
+                )}>
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <Hotel className="h-4 w-4 text-slate-400" />
                     Accommodation
@@ -1258,7 +1307,10 @@ export function RegistrationDetailSheet({
 
               {/* Payment History */}
               {selectedRegistration.payments && selectedRegistration.payments.length > 0 && (
-                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                  !isEditing && activeTab !== "billing" && "hidden",
+                )}>
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <CreditCard className="h-4 w-4 text-slate-400" />
                     Payment History
@@ -1299,7 +1351,10 @@ export function RegistrationDetailSheet({
               )}
 
               {/* Timeline */}
-              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+              <section className={cn(
+                "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                !isEditing && activeTab !== "activity" && "hidden",
+              )}>
                 <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                   <Calendar className="h-4 w-4 text-slate-400" />
                   Timeline
@@ -1326,7 +1381,10 @@ export function RegistrationDetailSheet({
 
               {/* Notes */}
               {!isEditing && selectedRegistration.notes && (
-                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3">
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
+                  activeTab !== "activity" && "hidden",
+                )}>
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <StickyNote className="h-4 w-4 text-slate-400" />
                     Notes
@@ -1339,7 +1397,10 @@ export function RegistrationDetailSheet({
 
               {/* Source / Tracking */}
               {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
-                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3">
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
+                  !isEditing && activeTab !== "activity" && "hidden",
+                )}>
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <Radar className="h-4 w-4 text-slate-400" />
                     Source
@@ -1374,7 +1435,9 @@ export function RegistrationDetailSheet({
               )}
 
               {/* ── Email history ─────────────────────────────────────── */}
-              <EmailLogCard entityType="REGISTRATION" entityId={selectedRegistration.id} />
+              <div className={cn(!isEditing && activeTab !== "activity" && "hidden")}>
+                <EmailLogCard entityType="REGISTRATION" entityId={selectedRegistration.id} />
+              </div>
             </div>
           </>
         ) : null}

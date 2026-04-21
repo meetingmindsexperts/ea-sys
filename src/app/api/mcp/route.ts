@@ -121,6 +121,31 @@ async function handleMcp(req: Request): Promise<Response> {
     return withCors(req, response);
   }
 
+  // Client sent a session id that no longer exists server-side. Causes: the
+  // in-memory sessions Map was wiped by a redeploy/container restart, the 30
+  // min TTL elapsed, or memory pressure. Returning an explicit JSON-RPC error
+  // instead of silently building a new transport (which would try to service a
+  // mid-stream tools/call on a never-initialize'd session and surface as a
+  // generic "Tool execution failed" to the user). claude.ai and other
+  // spec-compliant clients will display the message and reconnect.
+  if (sessionId) {
+    apiLogger.warn({ msg: "MCP stale session id", sessionId: sessionId.slice(0, 8), organizationId: authResult.organizationId });
+    return withCors(
+      req,
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: {
+            code: -32600,
+            message: "Session expired — please disconnect and reconnect the EA-SYS integration.",
+          },
+          id: null,
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  }
+
   // New session — create transport with session ID generation
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
