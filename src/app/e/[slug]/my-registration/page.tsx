@@ -264,12 +264,9 @@ export default function EventMyRegistrationPage() {
                 You haven&apos;t registered for{event?.name ? <> <strong>{event.name}</strong></> : " this event"} yet.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-3 pt-2">
+            <div className="flex items-center justify-center pt-2">
               <Button asChild>
                 <a href={`/e/${slug}/register`}>Register for this event</a>
-              </Button>
-              <Button variant="outline" asChild>
-                <a href="/my-registration">View my other registrations</a>
               </Button>
             </div>
           </div>
