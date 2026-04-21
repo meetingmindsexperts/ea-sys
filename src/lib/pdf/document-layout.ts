@@ -210,7 +210,9 @@ export interface BillToInput {
   nameLine: string;
   /** Job title / organization (optional) */
   secondLine: string | null;
-  /** "City Country" (optional) */
+  /** Billing street address (optional) — rendered between secondLine and locationLine */
+  addressLine?: string | null;
+  /** "City, State Zip, Country" (optional) */
   locationLine: string | null;
 }
 
@@ -248,6 +250,7 @@ export function drawInfoBoxes(
   const lineH = 12;
   let leftLines = 1; // name line always present
   if (input.billTo.secondLine) leftLines++;
+  if (input.billTo.addressLine) leftLines++;
   if (input.billTo.locationLine) leftLines++;
   const leftHeight = 12 + leftLines * lineH + 8;
 
@@ -269,6 +272,11 @@ export function drawInfoBoxes(
   if (input.billTo.secondLine) {
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
       .text(input.billTo.secondLine, leftX + 30, lY);
+    lY += lineH;
+  }
+  if (input.billTo.addressLine) {
+    doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
+      .text(input.billTo.addressLine, leftX + 30, lY);
     lY += lineH;
   }
   if (input.billTo.locationLine) {

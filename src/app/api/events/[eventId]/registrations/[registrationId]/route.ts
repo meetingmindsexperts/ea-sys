@@ -20,6 +20,18 @@ const updateRegistrationSchema = z.object({
   dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
   notes: z.string().max(2000).optional(),
+  // Billing details — editable from the detail sheet so admins can correct
+  // a typo'd tax number or update a bill-to address after submission.
+  taxNumber: z.string().max(100).optional().nullable(),
+  billingFirstName: z.string().max(100).optional().nullable(),
+  billingLastName: z.string().max(100).optional().nullable(),
+  billingEmail: z.string().email().max(255).optional().nullable().or(z.literal("")),
+  billingPhone: z.string().max(50).optional().nullable(),
+  billingAddress: z.string().max(500).optional().nullable(),
+  billingCity: z.string().max(255).optional().nullable(),
+  billingState: z.string().max(255).optional().nullable(),
+  billingZipCode: z.string().max(20).optional().nullable(),
+  billingCountry: z.string().max(255).optional().nullable(),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
     firstName: z.string().min(1).max(100).optional(),
@@ -153,7 +165,25 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { status, paymentStatus, badgeType, dtcmBarcode, ticketTypeId, notes, attendee } = validated.data;
+    const {
+      status,
+      paymentStatus,
+      badgeType,
+      dtcmBarcode,
+      ticketTypeId,
+      notes,
+      attendee,
+      taxNumber,
+      billingFirstName,
+      billingLastName,
+      billingEmail,
+      billingPhone,
+      billingAddress,
+      billingCity,
+      billingState,
+      billingZipCode,
+      billingCountry,
+    } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (attendee?.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
@@ -274,6 +304,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
           ...(ticketTypeId && { ticketTypeId }),
           ...(notes !== undefined && { notes: notes || null }),
+          ...(taxNumber !== undefined && { taxNumber: taxNumber || null }),
+          ...(billingFirstName !== undefined && { billingFirstName: billingFirstName || null }),
+          ...(billingLastName !== undefined && { billingLastName: billingLastName || null }),
+          ...(billingEmail !== undefined && { billingEmail: billingEmail || null }),
+          ...(billingPhone !== undefined && { billingPhone: billingPhone || null }),
+          ...(billingAddress !== undefined && { billingAddress: billingAddress || null }),
+          ...(billingCity !== undefined && { billingCity: billingCity || null }),
+          ...(billingState !== undefined && { billingState: billingState || null }),
+          ...(billingZipCode !== undefined && { billingZipCode: billingZipCode || null }),
+          ...(billingCountry !== undefined && { billingCountry: billingCountry || null }),
         },
         include: {
           attendee: true,

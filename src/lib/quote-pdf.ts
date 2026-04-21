@@ -26,15 +26,26 @@ interface QuoteData {
   eventVenue: string | null;
   eventCity: string | null;
 
-  // Registrant (bill-to)
+  // Registrant (personal — used as fallback when billing fields blank)
   firstName: string;
   lastName: string;
   email: string;
   organization: string | null;
   title: string | null;
   jobTitle: string | null;
+  // Bill-to (from Registration.billing*). When all blank we fall back to
+  // the personal block above so "billing same as personal" flows still
+  // render correctly.
+  billingFirstName?: string | null;
+  billingLastName?: string | null;
+  billingEmail?: string | null;
+  billingPhone?: string | null;
+  billingAddress?: string | null;
   billingCity: string | null;
+  billingState?: string | null;
+  billingZipCode?: string | null;
   billingCountry: string | null;
+  taxNumber?: string | null;
 
   // Line item
   registrationType: string;
@@ -114,23 +125,39 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       });
 
       // ── 2. Bill-to + meta boxes ──
-      const namePart = [data.title, data.firstName].filter(Boolean).join(" ");
-      const nameLine = namePart ? `${data.lastName}, ${namePart}` : data.lastName;
-      const locationLine = [data.billingCity, data.billingCountry]
-        .filter(Boolean)
-        .join(" ") || null;
+      // Bill-to person: prefer explicit billing first/last name over the
+      // registrant's personal name (when "billing same as personal" is
+      // unchecked, these diverge). Falls back to personal name otherwise.
+      const billFirst = data.billingFirstName || data.firstName;
+      const billLast = data.billingLastName || data.lastName;
+      const namePart = [data.title, billFirst].filter(Boolean).join(" ");
+      const nameLine = namePart ? `${billLast}, ${namePart}` : billLast;
+
+      const secondLine = data.jobTitle || data.organization;
+      const addressLine = data.billingAddress || null;
+      const locationLine = [
+        data.billingCity,
+        [data.billingState, data.billingZipCode].filter(Boolean).join(" "),
+        data.billingCountry,
+      ].filter(Boolean).join(", ") || null;
+
+      const meta = [
+        { label: "Date", value: formatDateShort(data.date) },
+        { label: "Quote Reference", value: data.quoteNumber },
+      ];
+      if (data.taxNumber) meta.push({ label: "Tax Number", value: data.taxNumber });
+      if (data.billingEmail) meta.push({ label: "Billing Email", value: data.billingEmail });
+      if (data.billingPhone) meta.push({ label: "Billing Phone", value: data.billingPhone });
 
       y = ensureSpace(doc, y, 80);
       y = drawInfoBoxes(doc, y, {
         billTo: {
           nameLine,
-          secondLine: data.jobTitle || data.organization,
+          secondLine,
+          addressLine,
           locationLine,
         },
-        meta: [
-          { label: "Date", value: formatDateShort(data.date) },
-          { label: "Quote Reference", value: data.quoteNumber },
-        ],
+        meta,
       });
 
       // ── 3. Line items ──

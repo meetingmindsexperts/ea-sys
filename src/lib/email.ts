@@ -1412,8 +1412,16 @@ export async function sendRegistrationConfirmation(params: {
   logoPath?: string | null;
   // Bill-to extras
   jobTitle?: string | null;
+  billingFirstName?: string | null;
+  billingLastName?: string | null;
+  billingEmail?: string | null;
+  billingPhone?: string | null;
+  billingAddress?: string | null;
   billingCity?: string | null;
+  billingState?: string | null;
+  billingZipCode?: string | null;
   billingCountry?: string | null;
+  taxNumber?: string | null;
 }) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -1515,8 +1523,16 @@ export async function sendRegistrationConfirmation(params: {
         organization: params.organization || null,
         title: params.title || null,
         jobTitle: params.jobTitle || null,
+        billingFirstName: params.billingFirstName || null,
+        billingLastName: params.billingLastName || null,
+        billingEmail: params.billingEmail || null,
+        billingPhone: params.billingPhone || null,
+        billingAddress: params.billingAddress || null,
         billingCity: params.billingCity || null,
+        billingState: params.billingState || null,
+        billingZipCode: params.billingZipCode || null,
         billingCountry: params.billingCountry || null,
+        taxNumber: params.taxNumber || null,
         registrationType: params.ticketType,
         pricingTier: params.pricingTierName || null,
         price: params.ticketPrice,
