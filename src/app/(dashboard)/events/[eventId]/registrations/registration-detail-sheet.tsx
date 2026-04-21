@@ -61,6 +61,11 @@ import {
   IdCard,
   Loader2,
   Eye,
+  User,
+  Ticket,
+  Receipt,
+  Radar,
+  StickyNote,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
@@ -500,10 +505,13 @@ export function RegistrationDetailSheet({
               )}
             </div>
 
-            <div className="px-6 py-5 space-y-5">
+            <div className="px-6 py-5 space-y-4 bg-slate-50/40">
               {/* Attendee Info */}
-              <div className="space-y-4">
-                <h3 className="font-semibold">Attendee Information</h3>
+              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                  <User className="h-4 w-4 text-slate-400" />
+                  Attendee Information
+                </h3>
                 {isEditing ? (
                   <div className="grid gap-4">
                     <div className="grid grid-cols-[100px_1fr_1fr] gap-4">
@@ -784,12 +792,13 @@ export function RegistrationDetailSheet({
                     )}
                   </div>
                 )}
-              </div>
+              </section>
 
-              <div className="border-t" />
-
-              <div className="space-y-4">
-                <h3 className="font-semibold">Registration Details</h3>
+              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                  <Ticket className="h-4 w-4 text-slate-400" />
+                  Registration Details
+                </h3>
 
                 {/* Registration ID */}
                 {selectedRegistration.serialId != null && (
@@ -959,8 +968,11 @@ export function RegistrationDetailSheet({
                   or edit the billing block. */}
               {(isEditing || hasCustomBilling(selectedRegistration)) && (
                 <>
-                  <div className="space-y-4">
-                    <h3 className="font-semibold">Billing Details</h3>
+                  <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                      <Receipt className="h-4 w-4 text-slate-400" />
+                      Billing Details
+                    </h3>
                     {isEditing ? (
                       <div className="space-y-4">
                         <div className="space-y-2">
@@ -1116,8 +1128,7 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     )}
-                  </div>
-                  <div className="border-t" />
+                  </section>
                 </>
               )}
 
@@ -1152,11 +1163,12 @@ export function RegistrationDetailSheet({
                   </div>
                 </div>
               )}
-              </div>
+              </section>
 
               {/* Print Badge + Download Quote + Send Email (3 buttons in a row) */}
               {!isReviewer && !isEditing && (
-                <div className="grid grid-cols-3 gap-2">
+                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+                  <div className="grid grid-cols-3 gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1222,19 +1234,18 @@ export function RegistrationDetailSheet({
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </div>
+                  </div>
+                </section>
               )}
-
-              <div className="border-t" />
 
               {/* Accommodation */}
               {selectedRegistration.accommodation && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <Hotel className="h-4 w-4" />
+                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <Hotel className="h-4 w-4 text-slate-400" />
                     Accommodation
                   </h3>
-                  <div className="bg-muted p-4 rounded-lg">
+                  <div className="bg-slate-50 p-4 rounded-lg">
                     <div className="font-medium">{selectedRegistration.accommodation.roomType.hotel.name}</div>
                     <div className="text-sm text-muted-foreground">{selectedRegistration.accommodation.roomType.name}</div>
                     <div className="text-sm text-muted-foreground mt-1">
@@ -1242,83 +1253,14 @@ export function RegistrationDetailSheet({
                     </div>
                     <Badge variant="outline" className="mt-2">{selectedRegistration.accommodation.status}</Badge>
                   </div>
-                </div>
-              )}
-
-              {/* Source / Tracking */}
-              {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
-                <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Source</h3>
-                  <div className="bg-muted rounded-lg p-3 space-y-1.5 text-sm">
-                    {selectedRegistration.utmSource && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Source</span>
-                        <span className="font-medium">{selectedRegistration.utmSource}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.utmMedium && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Medium</span>
-                        <span className="font-medium">{selectedRegistration.utmMedium}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.utmCampaign && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Campaign</span>
-                        <span className="font-medium">{selectedRegistration.utmCampaign}</span>
-                      </div>
-                    )}
-                    {selectedRegistration.referrer && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Referrer</span>
-                        <span className="font-medium text-xs truncate max-w-[200px]">{selectedRegistration.referrer}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Timeline */}
-              <div className="space-y-4">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Timeline
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-sm">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <div className="text-muted-foreground">Registered</div>
-                      <div className="font-medium">{formatDateTime(selectedRegistration.createdAt)}</div>
-                    </div>
-                  </div>
-                  {selectedRegistration.checkedInAt && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <div>
-                        <div className="text-muted-foreground">Checked In</div>
-                        <div className="font-medium">{formatDateTime(selectedRegistration.checkedInAt)}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Notes */}
-              {!isEditing && selectedRegistration.notes && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Notes</h3>
-                  <p className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-lg">
-                    {selectedRegistration.notes}
-                  </p>
-                </div>
+                </section>
               )}
 
               {/* Payment History */}
               {selectedRegistration.payments && selectedRegistration.payments.length > 0 && (
-                <div className="space-y-4">
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
+                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <CreditCard className="h-4 w-4 text-slate-400" />
                     Payment History
                   </h3>
                   <div className="space-y-2">
@@ -1353,7 +1295,82 @@ export function RegistrationDetailSheet({
                       )}
                     </Button>
                   )}
+                </section>
+              )}
+
+              {/* Timeline */}
+              <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                  Timeline
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 text-sm">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <div className="text-muted-foreground">Registered</div>
+                      <div className="font-medium">{formatDateTime(selectedRegistration.createdAt)}</div>
+                    </div>
+                  </div>
+                  {selectedRegistration.checkedInAt && (
+                    <div className="flex items-center gap-3 text-sm">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <div>
+                        <div className="text-muted-foreground">Checked In</div>
+                        <div className="font-medium">{formatDateTime(selectedRegistration.checkedInAt)}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </section>
+
+              {/* Notes */}
+              {!isEditing && selectedRegistration.notes && (
+                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <StickyNote className="h-4 w-4 text-slate-400" />
+                    Notes
+                  </h3>
+                  <p className="text-sm whitespace-pre-wrap text-slate-700">
+                    {selectedRegistration.notes}
+                  </p>
+                </section>
+              )}
+
+              {/* Source / Tracking */}
+              {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
+                <section className="rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <Radar className="h-4 w-4 text-slate-400" />
+                    Source
+                  </h3>
+                  <div className="space-y-1.5 text-sm">
+                    {selectedRegistration.utmSource && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Source</span>
+                        <span className="font-medium">{selectedRegistration.utmSource}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.utmMedium && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Medium</span>
+                        <span className="font-medium">{selectedRegistration.utmMedium}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.utmCampaign && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Campaign</span>
+                        <span className="font-medium">{selectedRegistration.utmCampaign}</span>
+                      </div>
+                    )}
+                    {selectedRegistration.referrer && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Referrer</span>
+                        <span className="font-medium text-xs truncate max-w-[200px]">{selectedRegistration.referrer}</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
               )}
 
               {/* ── Email history ─────────────────────────────────────── */}
