@@ -10,6 +10,140 @@ _Nothing pending._
 
 ---
 
+## [2026-04-21] - Payment status UNASSIGNED, email history, admin-create quote email
+
+A multi-day round bundled together: new `UNASSIGNED` PaymentStatus for
+admin-created registrations, per-person email history surfacing every
+transactional send, consolidation of PaymentStatus/RegistrationStatus
+dropdowns onto the Prisma enum, and auto-send of the confirmation +
+quote PDF when an admin manually adds a registration that still owes
+money. Plus a round of logging hardening so no send happens silently.
+
+### Added
+
+- **`PaymentStatus.UNASSIGNED` enum value** for registrations admins
+  create manually where payment is intentionally pending. Migration
+  `20260421000000_add_unassigned_payment_status` adds the value; a
+  follow-up corrective migration `20260421120000_reapply_unassigned_and_email_log`
+  re-applies it idempotently (`ADD VALUE IF NOT EXISTS`) because the
+  first migration reported "No pending migrations to apply" on prod
+  while the enum hadn't actually gained the new value.
+- **Payment Status dropdown on the Add Registration dialog and full-page
+  `/events/[eventId]/registrations/new`.** Admin-settable subset:
+  `UNASSIGNED` / `UNPAID` / `PAID` / `COMPLIMENTARY`. Stripe-owned states
+  (`PENDING` / `REFUNDED` / `FAILED`) are deliberately excluded — the
+  webhook owns those transitions. New-page form puts the dropdown next
+  to the Registration Type in a 2-column grid. Default: `UNASSIGNED`
+  for paid tickets, `COMPLIMENTARY` for free.
+- **Inline click-to-sort on the events list.** The Event and Date column
+  headers in `event-list-client.tsx` are now clickable links that cycle
+  `name ↕ startDate ↕ createdAt` with asc/desc toggles reflected in
+  `?sort=&order=` query params. Replaced the earlier above-grid
+  dropdown. Zod-validated parser at `src/lib/event-sort.ts`.
+- **Preflight "already registered" check on signup Step 1.** New
+  `POST /api/public/events/[slug]/check-email` (20/hr/IP) returns a
+  non-enumerable `{ exists, reason }` payload. The "Continue" button on
+  `/e/[slug]/register/[category]` Step 1 and `/e/[slug]/abstract/register`
+  Step 1 runs the probe after client-side validation passes and blocks
+  the step advance with an inline "Already registered — Sign in instead"
+  banner. Server-side duplicate check at the final POST stays in place
+  as the race-safety net.
+- **Per-person email history.** New `EmailLog` Prisma model (`id`,
+  `organizationId`, `eventId`, `entityType`, `entityId`, `to`, `cc`,
+  `bcc`, `subject`, `templateSlug`, `provider`, `providerMessageId`,
+  `status`, `errorMessage`, `triggeredByUserId`, `createdAt` — with
+  indexes on `[entityType, entityId]`, `organizationId`, `eventId`,
+  `to`, `createdAt`). Wrapper around `sendEmail()` writes one row per
+  send with status `SENT` / `FAILED`; read via
+  `GET /api/email-logs?entityType=&entityId=`. An **Email History card**
+  renders at the bottom of the registration detail sheet, speaker
+  detail sheet, and contact detail sheet, showing sent time (relative) +
+  subject + status badge + provider message id. Migration
+  `20260421000100_add_email_log` (re-applied idempotently by the
+  corrective migration alongside UNASSIGNED).
+- **E2E spec `e2e/manual-registration.spec.ts`.** Admin logs in, visits
+  `/events/[id]/registrations/new`, picks the Standard ticket, asserts
+  the Payment Status dropdown defaults to "Unassigned", fills minimal
+  attendee fields, submits, verifies the `UNASSIGNED` badge appears on
+  the list row. Also updates `public-registration.spec.ts` +
+  `abstract-submitter.spec.ts` for the renamed `TitleSelect` labels
+  (`Dr` → `Dr.` etc.) — those specs were failing on main before this.
+
+### Changed
+
+- **PaymentStatus + RegistrationStatus dropdowns now enum-driven.** New
+  `src/app/(dashboard)/events/[eventId]/registrations/registration-enums.ts`
+  module is the single source of truth — imports the Prisma-generated
+  enum (compile-time static, zero runtime cost, no DB) and exports
+  exhaustive `Record<PaymentStatus, string>` label + colour maps (TS
+  fails the build if a future enum value is added without a label/colour),
+  plus `DISPLAY_ORDER` arrays guarded by a module-init `assertCovers()`
+  runtime check. The detail-sheet edit dropdowns, list filter,
+  Add Registration dialog, and full-page create form all map over the
+  enum instead of hardcoding `<SelectItem>` lists. `types.ts` now
+  re-exports the colour maps from this module; `Registration.status` /
+  `paymentStatus` typed as the Prisma enum (were `string`).
+- **Confirmation + quote PDF now auto-sent on admin registration
+  create** ([src/app/api/events/[eventId]/registrations/route.ts](src/app/api/events/[eventId]/registrations/route.ts))
+  when `paymentStatus ∈ {UNASSIGNED, UNPAID, PENDING}` AND
+  `ticketPrice > 0`. Reuses the existing `sendRegistrationConfirmation()`
+  helper (it already attaches the quote PDF when `price > 0 &&
+  organizationName`) — the admin POST just never called it. Skipped for
+  `PAID` / `COMPLIMENTARY` (admin settled) and for Stripe-driven
+  `REFUNDED` / `FAILED` (admin can re-send manually from the detail
+  sheet). The event `select` was widened to carry the organization
+  company block + tax/bank fields the PDF renderer needs.
+- **PaymentStatus + RegistrationStatus Zod schemas switched to
+  `z.nativeEnum`** across the PATCH route
+  ([src/app/api/events/[eventId]/registrations/[registrationId]/route.ts](src/app/api/events/[eventId]/registrations/[registrationId]/route.ts))
+  and three MCP tool registrations in
+  [src/lib/agent/register-mcp-tools.ts](src/lib/agent/register-mcp-tools.ts).
+  Before: hardcoded `z.enum([...])` lists that were missing `UNASSIGNED`
+  after the enum rollout, silently rejecting detail-sheet saves and
+  MCP write attempts. Now drift-proof.
+- **Email send is never silent.** Every remaining `sendEmail()` call
+  site now passes `logContext` so each send produces an `EmailLog` row
+  linked to the relevant speaker / registration / user (visible on
+  their detail-sheet Email History card): abstract submission
+  confirmation → `SPEAKER`; submitter signup welcome → `SPEAKER` (with
+  post-txn id lookup); password reset → `USER`; org user invitation →
+  `USER`; reviewer invitation → `USER`; webinar panelist invite →
+  `SPEAKER` if matched, `OTHER` otherwise; MCP agent bulk email →
+  per-recipient `SPEAKER` / `REGISTRATION`. `sendEmail()` itself now
+  emits `apiLogger.warn("sendEmail called without logContext")` if a
+  future caller forgets — the warning surfaces in stdout, `logs/app.log`,
+  and `docker logs`, catching drift before it hits production.
+- **Four silent `.catch(() => {})` swallows hardened** — push.ts stale
+  device-token delete + three `notifyEventAdmins` fire-and-forget
+  paths (submitter signup, public register, accept-invitation) now
+  log via `apiLogger.warn` so failures aren't invisible.
+
+### Fixed
+
+- **Prod enum was out of sync after deploy.** The initial
+  `20260421000000_add_unassigned_payment_status` + `20260421000100_add_email_log`
+  migrations were recorded in `_prisma_migrations` as applied but their
+  SQL hadn't actually run on the prod Postgres. Added a corrective
+  migration `20260421120000_reapply_unassigned_and_email_log` that
+  idempotently re-applies both using `ALTER TYPE ... ADD VALUE IF NOT
+  EXISTS`, `CREATE TABLE IF NOT EXISTS`, and `DO $$ ... $$` guards around
+  FK constraints (Postgres has no `ADD CONSTRAINT IF NOT EXISTS`).
+- **E2E suite green again.** `public-registration.spec.ts` and
+  `abstract-submitter.spec.ts` had been failing on main after the
+  TitleSelect renamed its labels from `Dr` to `Dr.`; updated both specs
+  for the new labels. Full 7-spec suite now green in under 20s.
+
+### Tech debt paid
+
+- **Node runtime pin.** Added `engines: { node: "22.x", npm: "10.x" }`
+  to `package.json`, `engine-strict=true` to `.npmrc`, and regenerated
+  the lockfile under the matching runtime. CI had been silently failing
+  on `npm ci` lockfile drift because contributors were on different
+  Node versions. Subsequent `chore(runtime): upgrade to Node 24 / npm 11`
+  moved the floor forward cleanly once pinned.
+
+---
+
 ## [2026-04-14] - Abstracts flow audit + fixes
 
 End-to-end audit of the abstracts feature surfaced four issues — one
