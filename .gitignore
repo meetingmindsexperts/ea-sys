@@ -69,3 +69,4 @@ docs/HANDOVER.md
 .mcp.json
 test-results/
 playwright-report/
+.playwright-mcp/

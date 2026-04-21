@@ -39,7 +39,6 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
-import { SpeakersAndAgendaPreview } from "@/components/public/speakers-agenda-preview";
 
 function toSlug(name: string): string {
   return name
@@ -512,7 +511,6 @@ function CategoryRegistrationContent() {
 
       {/* Main Content */}
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
-        <SpeakersAndAgendaPreview slug={slug} />
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-6 sm:px-10 py-6 border-b border-slate-100">

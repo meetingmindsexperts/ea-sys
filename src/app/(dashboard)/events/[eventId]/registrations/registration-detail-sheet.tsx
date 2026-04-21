@@ -71,6 +71,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
+import { hasCustomBilling } from "./types";
 import {
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
@@ -152,6 +153,17 @@ export function RegistrationDetailSheet({
     studentId: "",
     studentIdExpiry: "",
     dtcmBarcode: "",
+    // Billing block
+    taxNumber: "",
+    billingFirstName: "",
+    billingLastName: "",
+    billingEmail: "",
+    billingPhone: "",
+    billingAddress: "",
+    billingCity: "",
+    billingState: "",
+    billingZipCode: "",
+    billingCountry: "",
   });
 
   // Keep local state in sync with prop
@@ -306,6 +318,16 @@ export function RegistrationDetailSheet({
         studentId: selectedRegistration.attendee.studentId || "",
         studentIdExpiry: selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toISOString().split("T")[0] : "",
         dtcmBarcode: selectedRegistration.dtcmBarcode || "",
+        taxNumber: selectedRegistration.taxNumber || "",
+        billingFirstName: selectedRegistration.billingFirstName || "",
+        billingLastName: selectedRegistration.billingLastName || "",
+        billingEmail: selectedRegistration.billingEmail || "",
+        billingPhone: selectedRegistration.billingPhone || "",
+        billingAddress: selectedRegistration.billingAddress || "",
+        billingCity: selectedRegistration.billingCity || "",
+        billingState: selectedRegistration.billingState || "",
+        billingZipCode: selectedRegistration.billingZipCode || "",
+        billingCountry: selectedRegistration.billingCountry || "",
       });
       setIsEditing(true);
     }
@@ -319,6 +341,16 @@ export function RegistrationDetailSheet({
         data: {
           notes: editData.notes || undefined,
           dtcmBarcode: editData.dtcmBarcode.trim() || null,
+          taxNumber: editData.taxNumber.trim() || null,
+          billingFirstName: editData.billingFirstName.trim() || null,
+          billingLastName: editData.billingLastName.trim() || null,
+          billingEmail: editData.billingEmail.trim() || null,
+          billingPhone: editData.billingPhone.trim() || null,
+          billingAddress: editData.billingAddress.trim() || null,
+          billingCity: editData.billingCity.trim() || null,
+          billingState: editData.billingState.trim() || null,
+          billingZipCode: editData.billingZipCode.trim() || null,
+          billingCountry: editData.billingCountry.trim() || null,
           attendee: {
             title: editData.title || undefined,
             firstName: editData.firstName,
@@ -756,13 +788,16 @@ export function RegistrationDetailSheet({
 
               <div className="border-t" />
 
-              {/* Registration ID */}
-              {selectedRegistration.serialId != null && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">Registration ID:</span>
-                  <span className="font-mono font-medium">{formatSerialId(selectedRegistration.serialId)}</span>
-                </div>
-              )}
+              <div className="space-y-4">
+                <h3 className="font-semibold">Registration Details</h3>
+
+                {/* Registration ID */}
+                {selectedRegistration.serialId != null && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Registration ID:</span>
+                    <span className="font-mono font-medium">{formatSerialId(selectedRegistration.serialId)}</span>
+                  </div>
+                )}
 
               {/* Registration Type + Badge Type (side by side) */}
               {!isReviewer ? (
@@ -916,6 +951,176 @@ export function RegistrationDetailSheet({
 
               <div className="border-t" />
 
+              {/* Billing Details — shown only when the registrant supplied a
+                  billing block different from their personal address, OR a
+                  tax number / street address (no personal equivalent). If
+                  "billing same as personal" was left checked at signup, this
+                  section hides. Always shown in edit mode so admins can add
+                  or edit the billing block. */}
+              {(isEditing || hasCustomBilling(selectedRegistration)) && (
+                <>
+                  <div className="space-y-4">
+                    <h3 className="font-semibold">Billing Details</h3>
+                    {isEditing ? (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-taxNumber">Tax Number / VAT ID</Label>
+                          <Input
+                            id="edit-taxNumber"
+                            value={editData.taxNumber}
+                            onChange={(e) => setEditData({ ...editData, taxNumber: e.target.value })}
+                            placeholder="e.g. AE1234567890"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingFirstName">Billing First Name</Label>
+                            <Input
+                              id="edit-billingFirstName"
+                              value={editData.billingFirstName}
+                              onChange={(e) => setEditData({ ...editData, billingFirstName: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingLastName">Billing Last Name</Label>
+                            <Input
+                              id="edit-billingLastName"
+                              value={editData.billingLastName}
+                              onChange={(e) => setEditData({ ...editData, billingLastName: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingEmail">Billing Email</Label>
+                            <Input
+                              id="edit-billingEmail"
+                              type="email"
+                              value={editData.billingEmail}
+                              onChange={(e) => setEditData({ ...editData, billingEmail: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingPhone">Billing Phone</Label>
+                            <Input
+                              id="edit-billingPhone"
+                              value={editData.billingPhone}
+                              onChange={(e) => setEditData({ ...editData, billingPhone: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-billingAddress">Billing Address</Label>
+                          <Input
+                            id="edit-billingAddress"
+                            value={editData.billingAddress}
+                            onChange={(e) => setEditData({ ...editData, billingAddress: e.target.value })}
+                            placeholder="Street address"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingCity">Billing City</Label>
+                            <Input
+                              id="edit-billingCity"
+                              value={editData.billingCity}
+                              onChange={(e) => setEditData({ ...editData, billingCity: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingCountry">Billing Country</Label>
+                            <CountrySelect
+                              value={editData.billingCountry}
+                              onChange={(billingCountry) => setEditData({ ...editData, billingCountry })}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingState">Billing State / Province</Label>
+                            <Input
+                              id="edit-billingState"
+                              value={editData.billingState}
+                              onChange={(e) => setEditData({ ...editData, billingState: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-billingZipCode">Billing Zip / Postal</Label>
+                            <Input
+                              id="edit-billingZipCode"
+                              value={editData.billingZipCode}
+                              onChange={(e) => setEditData({ ...editData, billingZipCode: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Leave blank to use the registrant&apos;s personal address
+                          for billing. Any non-blank field overrides the
+                          corresponding personal value on invoices + quotes.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                        {(selectedRegistration.billingFirstName || selectedRegistration.billingLastName) && (
+                          <div className="col-span-2">
+                            <div className="text-xs text-muted-foreground">Bill to</div>
+                            <div className="font-medium">
+                              {[selectedRegistration.billingFirstName, selectedRegistration.billingLastName]
+                                .filter(Boolean)
+                                .join(" ")}
+                            </div>
+                          </div>
+                        )}
+                        {selectedRegistration.taxNumber && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Tax Number / VAT</div>
+                            <div className="font-medium">{selectedRegistration.taxNumber}</div>
+                          </div>
+                        )}
+                        {selectedRegistration.billingEmail && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Billing Email</div>
+                            <div className="font-medium">{selectedRegistration.billingEmail}</div>
+                          </div>
+                        )}
+                        {selectedRegistration.billingPhone && (
+                          <div>
+                            <div className="text-xs text-muted-foreground">Billing Phone</div>
+                            <div className="font-medium">{selectedRegistration.billingPhone}</div>
+                          </div>
+                        )}
+                        {selectedRegistration.billingAddress && (
+                          <div className="col-span-2">
+                            <div className="text-xs text-muted-foreground">Address</div>
+                            <div className="font-medium">{selectedRegistration.billingAddress}</div>
+                          </div>
+                        )}
+                        {(selectedRegistration.billingCity
+                          || selectedRegistration.billingState
+                          || selectedRegistration.billingZipCode
+                          || selectedRegistration.billingCountry) && (
+                          <div className="col-span-2">
+                            <div className="text-xs text-muted-foreground">City / State / Zip / Country</div>
+                            <div className="font-medium">
+                              {[
+                                selectedRegistration.billingCity,
+                                [selectedRegistration.billingState, selectedRegistration.billingZipCode]
+                                  .filter(Boolean)
+                                  .join(" "),
+                                selectedRegistration.billingCountry,
+                              ]
+                                .filter(Boolean)
+                                .join(", ")}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t" />
+                </>
+              )}
+
               {/* Event Barcode + DTCM Barcode (always both shown) */}
               {!isEditing && (
                 <div className="grid grid-cols-2 gap-3">
@@ -947,6 +1152,7 @@ export function RegistrationDetailSheet({
                   </div>
                 </div>
               )}
+              </div>
 
               {/* Print Badge + Download Quote + Send Email (3 buttons in a row) */}
               {!isReviewer && !isEditing && (
