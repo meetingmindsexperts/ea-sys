@@ -13,12 +13,39 @@ import { syncToContact } from "@/lib/contact-sync";
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id || !session.user.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Auto-link orphan registrations: people often register for an event
+    // without a password (admin-created, CSV-imported, or self-signup with
+    // the password field skipped) so the Registration has no userId. When
+    // they later sign in with the same email, any unlinked Registration for
+    // that email should show up on their portal. We link-on-read here so
+    // the row both appears in THIS response and stays linked for future
+    // requests.
+    const userEmail = session.user.email.toLowerCase();
+    await db.registration.updateMany({
+      where: {
+        userId: null,
+        attendee: { email: userEmail },
+      },
+      data: { userId: session.user.id },
+    }).catch((err) => {
+      apiLogger.warn({ err, msg: "registrant:orphan-link-failed", userId: session.user.id });
+    });
+
     const registrations = await db.registration.findMany({
-      where: { userId: session.user.id },
+      where: {
+        OR: [
+          { userId: session.user.id },
+          // Safety net for any registration that slipped past the
+          // updateMany above (e.g. attendee email updated after the link
+          // race condition). Scoped strictly to rows matching the
+          // authenticated user's email — they can't see anyone else's.
+          { attendee: { email: userEmail } },
+        ],
+      },
       include: {
         event: {
           select: {
