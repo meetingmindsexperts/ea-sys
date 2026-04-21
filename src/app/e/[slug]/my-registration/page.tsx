@@ -256,10 +256,22 @@ export default function EventMyRegistrationPage() {
       {/* Content */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
         {registrations.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-            <AlertCircle className="h-10 w-10 text-slate-300 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">No Registration Found</h2>
-            <p className="text-slate-500 text-sm">You don&apos;t have a registration for this event.</p>
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
+            <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">Not registered yet</h2>
+              <p className="text-slate-500 text-sm">
+                You haven&apos;t registered for{event?.name ? <> <strong>{event.name}</strong></> : " this event"} yet.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button asChild>
+                <a href={`/e/${slug}/register`}>Register for this event</a>
+              </Button>
+              <Button variant="outline" asChild>
+                <a href="/my-registration">View my other registrations</a>
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-6">

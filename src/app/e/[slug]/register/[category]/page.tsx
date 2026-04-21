@@ -607,20 +607,15 @@ function CategoryRegistrationContent() {
                                 href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
                                 className="underline font-medium"
                               >
-                                Sign in instead
+                                Sign in to view it
                               </a>
                               .
                             </>
                           ) : (
                             <>
-                              This email already has an account.{" "}
-                              <a
-                                href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
-                                className="underline font-medium"
-                              >
-                                Sign in to continue
-                              </a>
-                              , or use a different email to create a new account.
+                              This email already has an account. You can
+                              continue below — your new registration will be
+                              linked to your existing account automatically.
                             </>
                           )}
                         </div>
