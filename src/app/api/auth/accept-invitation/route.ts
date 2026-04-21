@@ -145,7 +145,7 @@ export async function POST(req: Request) {
             link: "/settings",
           });
         }
-      }).catch(() => {});
+      }).catch((err) => apiLogger.warn({ err, msg: "accept-invitation:notify-admins-failed" }));
     }
 
     return NextResponse.json({

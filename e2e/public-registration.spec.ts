@@ -22,7 +22,7 @@ test("public free registration completes without Stripe", async ({ page }) => {
   // Custom Select components on public forms aren't wrapped in <FormControl>,
   // so their accessible name falls back to the placeholder text rather than
   // the FormLabel.
-  await pickSelect(page, "Title", "Dr");
+  await pickSelect(page, "Title", "Dr.");
   await page.getByPlaceholder("John").fill("E2E");
   await page.getByPlaceholder("Doe").fill("Tester");
   await page.getByPlaceholder("Physician").fill("Engineer");

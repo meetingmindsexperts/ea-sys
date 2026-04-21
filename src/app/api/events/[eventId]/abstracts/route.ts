@@ -234,6 +234,13 @@ export async function POST(req: Request, { params }: RouteParams) {
             to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
             ...rendered,
             from: brandingFrom(branding),
+            logContext: {
+              eventId,
+              entityType: "SPEAKER",
+              entityId: abstract.speaker!.id,
+              templateSlug: "abstract-submission-confirmation",
+              triggeredByUserId: session.user.id,
+            },
           });
         })
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));

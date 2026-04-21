@@ -44,7 +44,11 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
     }
     const statusFilter = rawStatusFilter;
 
-    let recipients: { email: string; name: string }[] = [];
+    // Track the entity id per recipient so each send produces an EmailLog row
+    // linked to the specific speaker/registration (visible on their detail
+    // sheet Email History card).
+    let recipients: { email: string; name: string; entityId: string }[] = [];
+    const entityType: "SPEAKER" | "REGISTRATION" = recipientType === "speakers" ? "SPEAKER" : "REGISTRATION";
 
     if (recipientType === "speakers") {
       const speakers = await db.speaker.findMany({
@@ -52,11 +56,12 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
           eventId: ctx.eventId,
           ...(statusFilter ? { status: statusFilter as never } : {}),
         },
-        select: { email: true, firstName: true, lastName: true },
+        select: { id: true, email: true, firstName: true, lastName: true },
       });
       recipients = speakers.map((s) => ({
         email: s.email,
         name: `${s.firstName} ${s.lastName}`.trim(),
+        entityId: s.id,
       }));
     } else if (recipientType === "registrations") {
       const registrations = await db.registration.findMany({
@@ -65,12 +70,14 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
           ...(statusFilter ? { status: statusFilter as never } : {}),
         },
         select: {
+          id: true,
           attendee: { select: { email: true, firstName: true, lastName: true } },
         },
       });
       recipients = registrations.map((r) => ({
         email: r.attendee.email,
         name: `${r.attendee.firstName} ${r.attendee.lastName}`.trim(),
+        entityId: r.id,
       }));
     } else {
       return { error: "recipientType must be 'speakers' or 'registrations'" };
@@ -96,6 +103,13 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
           to: [{ email: recipient.email, name: recipient.name }],
           subject,
           htmlContent: htmlMessage,
+          logContext: {
+            organizationId: ctx.organizationId,
+            eventId: ctx.eventId,
+            entityType,
+            entityId: recipient.entityId,
+            templateSlug: "agent-bulk-email",
+          },
         });
         sent++;
       } catch (emailErr) {

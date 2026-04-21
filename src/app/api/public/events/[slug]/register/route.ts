@@ -538,7 +538,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             title: "New Account Signup",
             message: `${firstName} ${lastName} (${email}) created a registrant account`,
             link: `/events/${event.id}/registrations`,
-          }).catch(() => {});
+          }).catch((err) => apiLogger.warn({ err, msg: "public-register:notify-admins-failed" }));
         }
       } catch (accountError) {
         // Account creation failure should not block the registration

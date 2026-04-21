@@ -160,6 +160,18 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
   const toEmails = params.to.map((r) => r.email);
   const primaryTo = toEmails[0] ?? "";
 
+  // Surface any sendEmail caller that forgot to pass logContext — the row
+  // still gets written (as entityType=OTHER) but won't link to a detail
+  // sheet. This log line lets us find the caller during audits instead of
+  // chasing silent symptoms like "I sent an email but no history row".
+  if (!params.logContext) {
+    apiLogger.warn({
+      msg: "sendEmail called without logContext — row will orphan as OTHER",
+      to: toEmails,
+      subject: params.subject,
+    });
+  }
+
   try {
     const result = await getProvider().send(params);
 

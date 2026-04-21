@@ -276,7 +276,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       title: "New Account Signup",
       message: `${data.firstName} ${data.lastName} (${emailLower}) created a submitter account`,
       link: `/events/${event.id}/speakers`,
-    }).catch(() => {});
+    }).catch((err) => apiLogger.warn({ err, msg: "submitter:notify-admins-failed" }));
+
+    // Resolve the speaker id so the welcome email log row links back to the
+    // speaker's detail sheet (Email History card).
+    const speakerRow = await db.speaker.findUnique({
+      where: { eventId_email: { eventId: event.id, email: emailLower } },
+      select: { id: true },
+    });
 
     // Send welcome email (non-blocking)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
@@ -295,6 +302,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         to: [{ email: emailLower, name: data.firstName }],
         ...rendered,
         from: brandingFrom(branding),
+        logContext: {
+          organizationId: event.organizationId,
+          eventId: event.id,
+          entityType: "SPEAKER",
+          entityId: speakerRow?.id ?? null,
+          templateSlug: "submitter-welcome",
+        },
       });
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send submitter welcome email" }));
 

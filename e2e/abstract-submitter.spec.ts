@@ -22,7 +22,7 @@ test("abstract submitter can sign up, then log in and land on events", async ({ 
   // tightening at src/app/e/[slug]/abstract/register/page.tsx:80-85.
   // Custom Selects on public forms aren't wrapped in <FormControl>; accessible
   // name falls back to the placeholder.
-  await pickSelect(page, "Title", "Dr");
+  await pickSelect(page, "Title", "Dr.");
   await page.getByPlaceholder("John").fill("Ada");
   await page.getByPlaceholder("Doe").fill("Lovelace");
   await page.getByPlaceholder("Professor, Researcher...").fill("Researcher");

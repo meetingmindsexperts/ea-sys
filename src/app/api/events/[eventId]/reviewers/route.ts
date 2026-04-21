@@ -180,7 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
           : undefined;
         const result = await findOrCreateReviewerUser(
-          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventFrom
+          speaker.email, speaker.firstName, speaker.lastName, session, event.slug, eventId, eventFrom
         );
         if ("error" in result) {
           return NextResponse.json({ error: result.error }, { status: 400 });
@@ -202,7 +202,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const eventFrom = event.emailFromAddress
         ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
         : undefined;
-      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventFrom);
+      const result = await findOrCreateReviewerUser(email, firstName, lastName, session, event.slug, eventId, eventFrom);
       if ("error" in result) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
@@ -302,8 +302,9 @@ async function findOrCreateReviewerUser(
   email: string,
   firstName: string,
   lastName: string,
-  session: { user: { organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
+  session: { user: { id: string; organizationId?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } },
   eventSlug: string,
+  eventId: string,
   emailFrom?: { email: string; name?: string }
 ): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
@@ -381,6 +382,14 @@ async function findOrCreateReviewerUser(
     htmlContent: emailTemplate.htmlContent,
     textContent: emailTemplate.textContent,
     from: emailFrom,
+    logContext: {
+      organizationId: session.user.organizationId,
+      eventId,
+      entityType: "USER",
+      entityId: newUser.id,
+      templateSlug: "reviewer-invitation",
+      triggeredByUserId: session.user.id,
+    },
   });
 
   if (!emailResult.success) {

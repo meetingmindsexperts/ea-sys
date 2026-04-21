@@ -136,11 +136,20 @@ export async function POST(req: Request) {
       expiresIn: "7 days",
     });
 
+    // Note: the invited user doesn't exist yet — we send first, then create the
+    // user + token atomically if the email succeeds. So entityId is null; the
+    // log row is still searchable by email + templateSlug.
     const emailResult = await sendEmail({
       to: [{ email, name: `${firstName} ${lastName}` }],
       subject: emailTemplate.subject,
       htmlContent: emailTemplate.htmlContent,
       textContent: emailTemplate.textContent,
+      logContext: {
+        organizationId: session.user.organizationId,
+        entityType: "USER",
+        templateSlug: "user-invitation",
+        triggeredByUserId: session.user.id,
+      },
     });
 
     if (!emailResult.success) {

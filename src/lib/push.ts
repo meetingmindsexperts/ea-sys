@@ -119,7 +119,9 @@ async function sendToDevice(
       if (res.status === 404 || body.includes("UNREGISTERED")) {
         await db.deviceToken
           .deleteMany({ where: { pushToken: deviceToken } })
-          .catch(() => {});
+          .catch((err) =>
+            apiLogger.warn({ err, msg: "push: failed to delete stale device token" }),
+          );
       }
       return false;
     }

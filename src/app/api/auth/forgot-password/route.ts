@@ -130,6 +130,11 @@ export async function POST(req: Request) {
         subject: emailTemplate.subject,
         htmlContent: emailTemplate.htmlContent,
         textContent: emailTemplate.textContent,
+        logContext: {
+          entityType: "USER",
+          entityId: user.id,
+          templateSlug: "password-reset",
+        },
       });
 
       if (!emailResult.success) {
