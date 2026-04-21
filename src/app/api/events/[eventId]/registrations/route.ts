@@ -13,6 +13,17 @@ import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
+import { sendRegistrationConfirmation } from "@/lib/email";
+
+// Payment statuses where the registrant still owes money — auto-send the
+// confirmation email with the quote PDF attached. Skip PAID/COMPLIMENTARY
+// (admin settled) and Stripe-driven REFUNDED/FAILED (admin can re-send
+// manually from the detail sheet if needed).
+const OUTSTANDING_PAYMENT_STATUSES = new Set<PaymentStatus>([
+  PaymentStatus.UNASSIGNED,
+  PaymentStatus.UNPAID,
+  PaymentStatus.PENDING,
+]);
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -198,14 +209,41 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus } = validated.data;
 
-    // Look up event (always needed) and ticket type (if provided)
+    // Look up event (always needed) and ticket type (if provided).
+    // Event select carries everything sendRegistrationConfirmation needs so
+    // we don't re-query after the transaction for the email send.
     const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: {
           id: eventId,
           organizationId: session.user.organizationId!,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          startDate: true,
+          venue: true,
+          city: true,
+          taxRate: true,
+          taxLabel: true,
+          bankDetails: true,
+          supportEmail: true,
+          organizationId: true,
+          organization: {
+            select: {
+              name: true,
+              companyName: true,
+              companyAddress: true,
+              companyCity: true,
+              companyState: true,
+              companyZipCode: true,
+              companyCountry: true,
+              taxId: true,
+              logo: true,
+            },
+          },
+        },
       }),
       ticketTypeId
         ? db.ticketType.findFirst({
@@ -359,6 +397,57 @@ export async function POST(req: Request, { params }: RouteParams) {
       message: `${attendee.firstName} ${attendee.lastName} added by ${session.user.firstName || "organizer"}`,
       link: `/events/${eventId}/registrations`,
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send registration notification" }));
+
+    // Send confirmation + quote PDF when the registrant still owes money.
+    // Mirrors the public-register path — quote attaches automatically inside
+    // sendRegistrationConfirmation when ticketPrice > 0 && organizationName.
+    if (
+      ticketType &&
+      Number(ticketType.price) > 0 &&
+      OUTSTANDING_PAYMENT_STATUSES.has(registration.paymentStatus)
+    ) {
+      sendRegistrationConfirmation({
+        to: attendee.email,
+        firstName: attendee.firstName,
+        lastName: attendee.lastName,
+        title: attendee.title || null,
+        organization: attendee.organization || null,
+        jobTitle: attendee.jobTitle || null,
+        eventName: event.name,
+        eventDate: event.startDate,
+        eventVenue: event.venue || "",
+        eventCity: event.city || "",
+        ticketType: ticketType.name,
+        registrationId: registration.id,
+        serialId: registration.serialId,
+        qrCode: registration.qrCode || "",
+        eventId: event.id,
+        eventSlug: event.slug,
+        ticketPrice: Number(ticketType.price),
+        ticketCurrency: ticketType.currency,
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+        bankDetails: event.bankDetails,
+        supportEmail: event.supportEmail,
+        organizationName: event.organization.name,
+        companyName: event.organization.companyName,
+        companyAddress: event.organization.companyAddress,
+        companyCity: event.organization.companyCity,
+        companyState: event.organization.companyState,
+        companyZipCode: event.organization.companyZipCode,
+        companyCountry: event.organization.companyCountry,
+        taxId: event.organization.taxId,
+        logoPath: event.organization.logo,
+        billingCity: attendee.city || null,
+        billingCountry: attendee.country || null,
+      }).catch((err) =>
+        apiLogger.error({
+          err,
+          msg: "admin-create:registration-confirmation-send-failed",
+          registrationId: registration.id,
+        }),
+      );
+    }
 
     return NextResponse.json(registration, { status: 201 });
   } catch (error) {

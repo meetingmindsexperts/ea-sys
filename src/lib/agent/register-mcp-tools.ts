@@ -7,6 +7,7 @@
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import { apiLogger } from "@/lib/logger";
@@ -193,8 +194,8 @@ export function registerAllMcpTools(
       status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(), limit: z.number().optional(),
     }},
     { name: "list_registrations", description: "List registrations.", params: {
-      status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
-      paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED"]).optional(),
+      status: z.nativeEnum(RegistrationStatus).optional(),
+      paymentStatus: z.nativeEnum(PaymentStatus).optional(),
       limit: z.number().optional(),
     }},
     { name: "list_sessions", description: "List sessions.", params: { trackId: z.string().optional(), limit: z.number().optional() }},
@@ -320,8 +321,8 @@ export function registerAllMcpTools(
     // ─── Actions / updates ───
     { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund.", params: {
       registrationId: z.string(),
-      status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
-      paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
+      status: z.nativeEnum(RegistrationStatus).optional(),
+      paymentStatus: z.nativeEnum(PaymentStatus).optional(),
       ticketTypeId: z.string().optional(),
       badgeType: z.string().nullable().optional(),
       dtcmBarcode: z.string().nullable().optional(),
@@ -371,8 +372,8 @@ export function registerAllMcpTools(
     }},
     { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated.", params: {
       registrationIds: z.array(z.string()).max(200),
-      status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
-      paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
+      status: z.nativeEnum(RegistrationStatus).optional(),
+      paymentStatus: z.nativeEnum(PaymentStatus).optional(),
     }},
     // ─── Sponsor + promo + email writes ───
     { name: "upsert_sponsors", description: "Replace the entire sponsor list for this event. Pass the full list of sponsors you want — anything missing is removed. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {

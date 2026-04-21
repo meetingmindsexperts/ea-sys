@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -13,8 +14,8 @@ import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 
 const updateRegistrationSchema = z.object({
-  status: z.enum(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]).optional(),
-  paymentStatus: z.enum(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
+  status: z.nativeEnum(RegistrationStatus).optional(),
+  paymentStatus: z.nativeEnum(PaymentStatus).optional(),
   badgeType: z.string().max(50).optional().nullable(),
   dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
