@@ -9,11 +9,11 @@ import {
 } from "./select";
 
 export const TITLE_OPTIONS = [
-  { value: "DR", label: "Dr" },
-  { value: "MR", label: "Mr" },
-  { value: "MRS", label: "Mrs" },
-  { value: "MS", label: "Ms" },
-  { value: "PROF", label: "Prof" },
+  { value: "DR", label: "Dr." },
+  { value: "MR", label: "Mr." },
+  { value: "MRS", label: "Mrs." },
+  { value: "MS", label: "Ms." },
+  { value: "PROF", label: "Prof." },
 ] as const;
 
 interface TitleSelectProps {
