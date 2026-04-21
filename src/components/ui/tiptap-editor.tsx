@@ -11,6 +11,10 @@ import Color from "@tiptap/extension-color";
 import TextStyle from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
 import { toast } from "sonner";
 
 // ── Custom extensions for structural HTML preservation ──────────────────────
@@ -504,6 +508,10 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
       Image.configure({ inline: true, allowBase64: true }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: placeholder || "Start writing your email content..." }),
+      Table.configure({ resizable: false, HTMLAttributes: { role: "presentation" } }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content,
     onUpdate: ({ editor: e }) => {
