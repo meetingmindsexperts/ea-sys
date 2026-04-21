@@ -998,16 +998,86 @@ export function RegistrationDetailSheet({
                 </div>
               )}
 
-              <div className="border-t" />
+              {/* Payment Summary — always rendered in Billing tab. Shows the
+                  financial snapshot at a glance (status badge + ticket price
+                  + discount + total paid) plus a Download Quote action. */}
+              {!isEditing && (() => {
+                const basePrice = Number(
+                  selectedRegistration.pricingTier?.price ?? selectedRegistration.ticketType?.price ?? 0,
+                );
+                const currency = selectedRegistration.pricingTier?.currency
+                  ?? selectedRegistration.ticketType?.currency
+                  ?? "USD";
+                const totalPaid = (selectedRegistration.payments ?? [])
+                  .filter((p) => p.status.toLowerCase() === "succeeded" || p.status === "PAID")
+                  .reduce((sum, p) => sum + Number(p.amount), 0);
+                const showFinancials = basePrice > 0 || totalPaid > 0;
+                return (
+                  <section className={cn(
+                    "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
+                    activeTab !== "billing" && "hidden",
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                        <CreditCard className="h-4 w-4 text-slate-400" />
+                        Payment Summary
+                      </h3>
+                      <Badge className={PAYMENT_STATUS_COLORS[selectedRegistration.paymentStatus]} variant="outline">
+                        {PAYMENT_STATUS_LABELS[selectedRegistration.paymentStatus]}
+                      </Badge>
+                    </div>
+                    {showFinancials ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Ticket</span>
+                          <span className="font-medium">
+                            {selectedRegistration.ticketType?.name ?? "—"}
+                            {selectedRegistration.pricingTier && ` · ${selectedRegistration.pricingTier.name}`}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Base Price</span>
+                          <span className="font-medium">{formatCurrency(basePrice, currency)}</span>
+                        </div>
+                        {totalPaid > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Paid</span>
+                            <span className="font-medium text-emerald-600">{formatCurrency(totalPaid, currency)}</span>
+                          </div>
+                        )}
+                        {basePrice > 0 && basePrice - totalPaid > 0.01 && (
+                          <div className="flex justify-between border-t pt-2">
+                            <span className="text-muted-foreground">Balance Due</span>
+                            <span className="font-semibold">{formatCurrency(basePrice - totalPaid, currency)}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {selectedRegistration.paymentStatus === "COMPLIMENTARY"
+                          ? "Complimentary registration — no payment due."
+                          : "Free registration — no payment required."}
+                      </p>
+                    )}
+                    {basePrice > 0 && (
+                      <Button variant="outline" size="sm" asChild className="w-full">
+                        <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
+                          <Download className="mr-2 h-4 w-4" /> Download Quote
+                        </a>
+                      </Button>
+                    )}
+                  </section>
+                );
+              })()}
 
-              {/* Billing Details — shown only when the registrant supplied a
-                  billing block different from their personal address, OR a
-                  tax number / street address (no personal equivalent). If
-                  "billing same as personal" was left checked at signup, this
-                  section hides. Always shown in edit mode so admins can add
-                  or edit the billing block. */}
-              {(isEditing || hasCustomBilling(selectedRegistration)) && (
-                <>
+              {/* Billing Details — always rendered in Billing tab (view mode)
+                  OR in edit mode (so admins can add a billing override). When
+                  the registrant has no custom billing block we fall back to
+                  the attendee's personal address with a note, so the section
+                  is never empty. */}
+              {(() => {
+                const customBilling = hasCustomBilling(selectedRegistration);
+                return (
                   <section className={cn(
                     "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
                     !isEditing && activeTab !== "billing" && "hidden",
@@ -1114,7 +1184,7 @@ export function RegistrationDetailSheet({
                           corresponding personal value on invoices + quotes.
                         </p>
                       </div>
-                    ) : (
+                    ) : customBilling ? (
                       <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
                         {(selectedRegistration.billingFirstName || selectedRegistration.billingLastName) && (
                           <div className="col-span-2">
@@ -1170,10 +1240,57 @@ export function RegistrationDetailSheet({
                           </div>
                         )}
                       </div>
+                    ) : (
+                      <div className="space-y-3 text-sm">
+                        <p className="text-xs text-muted-foreground italic">
+                          Billing address same as personal — invoices + quotes
+                          will use the attendee details below. Click Edit to
+                          override.
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                          <div className="col-span-2">
+                            <div className="text-xs text-muted-foreground">Bill to</div>
+                            <div className="font-medium">
+                              {[selectedRegistration.attendee.firstName, selectedRegistration.attendee.lastName]
+                                .filter(Boolean)
+                                .join(" ")}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Email</div>
+                            <div className="font-medium">{selectedRegistration.attendee.email}</div>
+                          </div>
+                          {selectedRegistration.attendee.phone && (
+                            <div>
+                              <div className="text-xs text-muted-foreground">Phone</div>
+                              <div className="font-medium">{selectedRegistration.attendee.phone}</div>
+                            </div>
+                          )}
+                          {(selectedRegistration.attendee.city
+                            || selectedRegistration.attendee.state
+                            || selectedRegistration.attendee.zipCode
+                            || selectedRegistration.attendee.country) && (
+                            <div className="col-span-2">
+                              <div className="text-xs text-muted-foreground">City / State / Zip / Country</div>
+                              <div className="font-medium">
+                                {[
+                                  selectedRegistration.attendee.city,
+                                  [selectedRegistration.attendee.state, selectedRegistration.attendee.zipCode]
+                                    .filter(Boolean)
+                                    .join(" "),
+                                  selectedRegistration.attendee.country,
+                                ]
+                                  .filter(Boolean)
+                                  .join(", ")}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </section>
-                </>
-              )}
+                );
+              })()}
 
               {/* Event Barcode + DTCM Barcode (always both shown) */}
               {!isEditing && (
@@ -1305,47 +1422,57 @@ export function RegistrationDetailSheet({
                 </section>
               )}
 
-              {/* Payment History */}
-              {selectedRegistration.payments && selectedRegistration.payments.length > 0 && (
+              {/* Payment History — always rendered in the Billing tab so
+                  admins see "No payments recorded yet" instead of an empty
+                  tab when nothing's been charged. */}
+              {!isEditing && (
                 <section className={cn(
                   "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
-                  !isEditing && activeTab !== "billing" && "hidden",
+                  activeTab !== "billing" && "hidden",
                 )}>
                   <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
                     <CreditCard className="h-4 w-4 text-slate-400" />
                     Payment History
                   </h3>
-                  <div className="space-y-2">
-                    {selectedRegistration.payments.map((payment) => (
-                      <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                        <div>
-                          <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
-                          <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
-                        </div>
-                        <Badge variant="outline">
-                          {payment.status}
-                        </Badge>
+                  {selectedRegistration.payments && selectedRegistration.payments.length > 0 ? (
+                    <>
+                      <div className="space-y-2">
+                        {selectedRegistration.payments.map((payment) => (
+                          <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                            <div>
+                              <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
+                              <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
+                            </div>
+                            <Badge variant="outline">
+                              {payment.status}
+                            </Badge>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                      disabled={issueRefund.isPending}
-                      onClick={() => {
-                        if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
-                          issueRefund.mutate(selectedRegistration.id);
-                        }
-                      }}
-                    >
-                      {issueRefund.isPending ? (
-                        <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
-                      ) : (
-                        <><CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund</>
+                      {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                          disabled={issueRefund.isPending}
+                          onClick={() => {
+                            if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
+                              issueRefund.mutate(selectedRegistration.id);
+                            }
+                          }}
+                        >
+                          {issueRefund.isPending ? (
+                            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
+                          ) : (
+                            <><CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund</>
+                          )}
+                        </Button>
                       )}
-                    </Button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      No payments recorded yet.
+                    </p>
                   )}
                 </section>
               )}
