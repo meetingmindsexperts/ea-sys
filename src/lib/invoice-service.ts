@@ -446,6 +446,13 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
       content: pdfBuffer.toString("base64"),
       contentType: "application/pdf",
     }],
+    logContext: {
+      organizationId: invoice.organizationId,
+      eventId: invoice.eventId,
+      entityType: "REGISTRATION",
+      entityId: invoice.registrationId,
+      templateSlug: `invoice-${invoice.type.toLowerCase()}`,
+    },
   });
 
   await db.invoice.update({

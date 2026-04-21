@@ -132,6 +132,14 @@ export async function POST(req: Request, { params }: RouteParams) {
           subject: template.subject,
           htmlContent: template.htmlContent,
           textContent: template.textContent,
+          logContext: {
+            organizationId: session.user.organizationId ?? null,
+            eventId,
+            entityType: "REGISTRATION",
+            entityId: reg.id,
+            templateSlug: "registration-completion",
+            triggeredByUserId: session.user.id,
+          },
         });
 
         if (!emailResult.success) {

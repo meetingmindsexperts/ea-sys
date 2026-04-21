@@ -31,6 +31,7 @@ export interface NotifyAbstractStatusChangeParams {
   reviewNotes: string | null;
   reviewScore: number | null;
   speaker: {
+    id?: string;
     email: string | null;
     firstName: string;
     lastName: string;
@@ -104,6 +105,12 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
           to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
           ...rendered,
           from: brandingFrom(branding),
+          logContext: {
+            eventId,
+            entityType: speaker.id ? "SPEAKER" : "OTHER",
+            entityId: speaker.id ?? null,
+            templateSlug: "abstract-status-update",
+          },
         });
       }
     } catch (err) {

@@ -14,8 +14,12 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { formatDateRange } from "@/lib/utils";
+import type { EventSortField, EventSortOrder } from "@/lib/event-sort";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -82,6 +86,8 @@ const filterLabels: Record<string, string> = {
 interface EventListClientProps {
   events: EventListItem[];
   isRestricted: boolean;
+  sortField: EventSortField;
+  sortOrder: EventSortOrder;
 }
 
 /** Extract the year from startDate in Dubai timezone (UTC+4) */
@@ -90,14 +96,44 @@ function getEventYear(date: string | Date): number {
   return d.getUTCFullYear();
 }
 
+function SortIndicator({
+  field,
+  active,
+  order,
+}: {
+  field: EventSortField;
+  active: EventSortField;
+  order: EventSortOrder;
+}) {
+  if (active !== field) {
+    return <ArrowUpDown className="h-3 w-3 opacity-40" aria-hidden="true" />;
+  }
+  return order === "asc" ? (
+    <ArrowUp className="h-3 w-3" aria-hidden="true" />
+  ) : (
+    <ArrowDown className="h-3 w-3" aria-hidden="true" />
+  );
+}
+
 export function EventListClient({
   events,
   isRestricted,
+  sortField,
+  sortOrder,
 }: EventListClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [yearFilter, setYearFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+
+  /** Build the URL for a sortable column header: clicking toggles order if
+   *  the column is already active, otherwise switches to that column with
+   *  descending as the default. */
+  const sortHref = (field: EventSortField) => {
+    const nextOrder: EventSortOrder =
+      sortField === field && sortOrder === "desc" ? "asc" : "desc";
+    return `/events?sort=${field}&order=${nextOrder}`;
+  };
 
   // Compute available years from event data
   const availableYears = useMemo(() => {
@@ -210,10 +246,26 @@ export function EventListClient({
             <thead>
               <tr className="border-b bg-muted/50 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
-                  Event
+                  <Link
+                    href={sortHref("name")}
+                    scroll={false}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
+                    aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    Event
+                    <SortIndicator field="name" active={sortField} order={sortOrder} />
+                  </Link>
                 </th>
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">
-                  Date
+                  <Link
+                    href={sortHref("startDate")}
+                    scroll={false}
+                    className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
+                    aria-sort={sortField === "startDate" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    Date
+                    <SortIndicator field="startDate" active={sortField} order={sortOrder} />
+                  </Link>
                 </th>
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
                   Venue

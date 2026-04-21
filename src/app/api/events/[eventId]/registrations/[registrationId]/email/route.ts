@@ -148,6 +148,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       to: [{ email: registration.attendee.email, name: attendeeName }],
       ...rendered,
       from: brandingFrom(branding),
+      logContext: {
+        organizationId: session.user.organizationId ?? null,
+        eventId,
+        entityType: "REGISTRATION",
+        entityId: registration.id,
+        templateSlug: `registration-${type}`,
+        triggeredByUserId: session.user.id,
+      },
     });
 
     if (!result.success) {

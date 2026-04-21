@@ -293,6 +293,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         reviewNotes: consolidateReviewNotes(notifyAggregate.submissions),
         reviewScore: notifyAggregate.aggregates.meanOverall,
         speaker: {
+          id: abstract.speaker?.id,
           email: abstract.speaker?.email ?? null,
           firstName: abstract.speaker?.firstName ?? "",
           lastName: abstract.speaker?.lastName ?? "",

@@ -9,7 +9,6 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { EventListClient } from "./event-list-client";
 import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
-import { EventsSortControls } from "./events-sort-controls";
 
 interface EventsPageProps {
   searchParams: Promise<{ sort?: string | string[]; order?: string | string[] }>;
@@ -63,16 +62,13 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
         )}
       </div>
 
-      {/* ── Sort controls ─────────────────────────────────────────────────── */}
-      {events.length > 0 && (
-        <EventsSortControls sort={sort.field} order={sort.order} />
-      )}
-
       {/* ── Events ─────────────────────────────────────────────────────────── */}
       {events.length > 0 ? (
         <EventListClient
           events={JSON.parse(JSON.stringify(events))}
           isRestricted={isRestricted}
+          sortField={sort.field}
+          sortOrder={sort.order}
         />
       ) : (
         <div className="flex flex-col items-center justify-center py-24 text-center">

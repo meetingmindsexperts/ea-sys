@@ -350,6 +350,12 @@ async function sendPaymentConfirmationEmail(
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
     ...rendered,
     from: brandingFrom(branding),
+    logContext: {
+      eventId: registration.event.id,
+      entityType: "REGISTRATION",
+      entityId: registration.id,
+      templateSlug: "payment-confirmation",
+    },
   });
 
   apiLogger.info({ msg: "Payment confirmation email sent", registrationId: registration.id });

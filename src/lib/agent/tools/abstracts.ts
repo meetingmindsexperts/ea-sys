@@ -153,7 +153,7 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
         title: true,
         status: true,
         event: { select: { id: true, name: true, slug: true, settings: true } },
-        speaker: { select: { email: true, firstName: true, lastName: true } },
+        speaker: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
     });
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
@@ -245,6 +245,7 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
         reviewNotes: consolidatedNotes,
         reviewScore: aggregate.aggregates.meanOverall,
         speaker: {
+          id: abstract.speaker?.id,
           email: abstract.speaker?.email ?? null,
           firstName: abstract.speaker?.firstName ?? "",
           lastName: abstract.speaker?.lastName ?? "",

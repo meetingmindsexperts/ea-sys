@@ -194,6 +194,12 @@ async function sendRefundConfirmationEmail(
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
     ...rendered,
     from: brandingFrom(branding),
+    logContext: {
+      eventId: registration.event.id,
+      entityType: "REGISTRATION",
+      entityId: registration.id,
+      templateSlug: "refund-confirmation",
+    },
   });
 
   apiLogger.info({ msg: "Refund confirmation email sent", registrationId: registration.id });
