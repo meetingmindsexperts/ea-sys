@@ -26,6 +26,12 @@ import { queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { TicketType } from "./types";
+import {
+  MANUAL_PAYMENT_STATUS_HELPER_TEXT,
+  MANUAL_PAYMENT_STATUSES,
+  PAYMENT_STATUS_LABELS,
+  type PaymentStatus,
+} from "./registration-enums";
 
 interface AddRegistrationDialogProps {
   eventId: string;
@@ -47,18 +53,9 @@ const initialPersonData: PersonFormData = {
   dietaryReqs: "",
 };
 
-type ManualPaymentStatus = "UNASSIGNED" | "UNPAID" | "PAID" | "COMPLIMENTARY";
-
-const MANUAL_PAYMENT_STATUS_OPTIONS: { value: ManualPaymentStatus; label: string }[] = [
-  { value: "UNASSIGNED", label: "Unassigned (default)" },
-  { value: "UNPAID", label: "Unpaid" },
-  { value: "PAID", label: "Paid" },
-  { value: "COMPLIMENTARY", label: "Complimentary" },
-];
-
 const initialFormData: {
   ticketTypeId: string;
-  paymentStatus: ManualPaymentStatus;
+  paymentStatus: PaymentStatus;
   personData: PersonFormData;
   notes: string;
 } = {
@@ -176,22 +173,21 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
               <Label htmlFor="paymentStatus">Payment Status</Label>
               <Select
                 value={formData.paymentStatus}
-                onValueChange={(value) => setFormData({ ...formData, paymentStatus: value as ManualPaymentStatus })}
+                onValueChange={(value) => setFormData({ ...formData, paymentStatus: value as PaymentStatus })}
               >
                 <SelectTrigger id="paymentStatus" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="z-[100]">
-                  {MANUAL_PAYMENT_STATUS_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                  {MANUAL_PAYMENT_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {PAYMENT_STATUS_LABELS[status]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Stripe-driven statuses (Pending / Refunded / Failed) are set
-                automatically by the payment webhook.
+                {MANUAL_PAYMENT_STATUS_HELPER_TEXT}
               </p>
             </div>
 

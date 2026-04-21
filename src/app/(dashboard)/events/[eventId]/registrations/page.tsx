@@ -51,7 +51,14 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
-import { registrationStatusColors, paymentStatusColors } from "./types";
+import {
+  PAYMENT_STATUS_COLORS,
+  PAYMENT_STATUS_DISPLAY_ORDER,
+  PAYMENT_STATUS_LABELS,
+  REGISTRATION_STATUS_COLORS,
+  REGISTRATION_STATUS_DISPLAY_ORDER,
+  REGISTRATION_STATUS_LABELS,
+} from "./registration-enums";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -452,11 +459,11 @@ export default function RegistrationsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                <SelectItem value="WAITLISTED">Waitlisted</SelectItem>
-                <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                <SelectItem value="CHECKED_IN">Checked In</SelectItem>
+                {REGISTRATION_STATUS_DISPLAY_ORDER.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {REGISTRATION_STATUS_LABELS[status]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={paymentFilter} onValueChange={(v) => { setPaymentFilter(v); setPage(1); }}>
@@ -465,11 +472,11 @@ export default function RegistrationsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Payment</SelectItem>
-                <SelectItem value="UNPAID">Unpaid</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="PAID">Paid</SelectItem>
-                <SelectItem value="REFUNDED">Refunded</SelectItem>
-                <SelectItem value="FAILED">Failed</SelectItem>
+                {PAYMENT_STATUS_DISPLAY_ORDER.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {PAYMENT_STATUS_LABELS[status]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={ticketFilter} onValueChange={(v) => { setTicketFilter(v); setPage(1); }}>
@@ -593,12 +600,12 @@ export default function RegistrationsPage() {
                       <Badge variant="outline">{registration.ticketType?.name ?? "—"}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={registrationStatusColors[registration.status]} variant="outline">
+                      <Badge className={REGISTRATION_STATUS_COLORS[registration.status]} variant="outline">
                         {registration.status}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={paymentStatusColors[registration.paymentStatus]} variant="outline">
+                      <Badge className={PAYMENT_STATUS_COLORS[registration.paymentStatus]} variant="outline">
                         {registration.paymentStatus}
                       </Badge>
                     </TableCell>

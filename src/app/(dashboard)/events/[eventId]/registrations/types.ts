@@ -1,3 +1,5 @@
+import type { PaymentStatus, RegistrationStatus } from "@prisma/client";
+
 export interface Attendee {
   id: string;
   title: string | null;
@@ -62,8 +64,8 @@ export interface Accommodation {
 export interface Registration {
   id: string;
   serialId: number | null;
-  status: string;
-  paymentStatus: string;
+  status: RegistrationStatus;
+  paymentStatus: PaymentStatus;
   qrCode: string | null;
   dtcmBarcode: string | null;
   badgeType: string | null;
@@ -81,20 +83,4 @@ export interface Registration {
   accommodation?: Accommodation | null;
 }
 
-export const registrationStatusColors: Record<string, string> = {
-  PENDING: "bg-yellow-100 text-yellow-800",
-  CONFIRMED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
-  WAITLISTED: "bg-blue-100 text-blue-800",
-  CHECKED_IN: "bg-purple-100 text-purple-800",
-};
-
-export const paymentStatusColors: Record<string, string> = {
-  UNASSIGNED: "bg-slate-100 text-slate-700",
-  UNPAID: "bg-gray-100 text-gray-800",
-  PENDING: "bg-yellow-100 text-yellow-800",
-  PAID: "bg-green-100 text-green-800",
-  COMPLIMENTARY: "bg-cyan-100 text-cyan-800",
-  REFUNDED: "bg-blue-100 text-blue-800",
-  FAILED: "bg-red-100 text-red-800",
-};
+export { PAYMENT_STATUS_COLORS, REGISTRATION_STATUS_COLORS } from "./registration-enums";

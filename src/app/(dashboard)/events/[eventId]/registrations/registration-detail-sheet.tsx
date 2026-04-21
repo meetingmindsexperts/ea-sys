@@ -71,7 +71,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
-import { registrationStatusColors, paymentStatusColors } from "./types";
+import {
+  PAYMENT_STATUS_COLORS,
+  PAYMENT_STATUS_DISPLAY_ORDER,
+  PAYMENT_STATUS_LABELS,
+  REGISTRATION_STATUS_COLORS,
+  REGISTRATION_STATUS_DISPLAY_ORDER,
+  REGISTRATION_STATUS_LABELS,
+} from "./registration-enums";
 
 const EMAIL_TYPE_LABELS: Record<string, string> = {
   confirmation: "Registration Confirmation",
@@ -355,10 +362,10 @@ export function RegistrationDetailSheet({
                   </SheetTitle>
                   <SheetDescription asChild>
                     <span className="flex gap-2 mt-1">
-                      <Badge className={`${registrationStatusColors[selectedRegistration.status]} border-white/30`} variant="outline">
+                      <Badge className={`${REGISTRATION_STATUS_COLORS[selectedRegistration.status]} border-white/30`} variant="outline">
                         {selectedRegistration.status}
                       </Badge>
-                      <Badge className={`${paymentStatusColors[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
+                      <Badge className={`${PAYMENT_STATUS_COLORS[selectedRegistration.paymentStatus]} border-white/30`} variant="outline">
                         {selectedRegistration.paymentStatus}
                       </Badge>
                     </span>
@@ -872,11 +879,11 @@ export function RegistrationDetailSheet({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-                        <SelectItem value="WAITLISTED">Waitlisted</SelectItem>
-                        <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                        <SelectItem value="CHECKED_IN">Checked In</SelectItem>
+                        {REGISTRATION_STATUS_DISPLAY_ORDER.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {REGISTRATION_STATUS_LABELS[status]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -896,12 +903,11 @@ export function RegistrationDetailSheet({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="UNPAID">Unpaid</SelectItem>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="PAID">Paid</SelectItem>
-                        <SelectItem value="COMPLIMENTARY">Complimentary</SelectItem>
-                        <SelectItem value="REFUNDED">Refunded</SelectItem>
-                        <SelectItem value="FAILED">Failed</SelectItem>
+                        {PAYMENT_STATUS_DISPLAY_ORDER.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {PAYMENT_STATUS_LABELS[status]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1116,7 +1122,7 @@ export function RegistrationDetailSheet({
                           <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
                           <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
                         </div>
-                        <Badge className={paymentStatusColors[payment.status]} variant="outline">
+                        <Badge variant="outline">
                           {payment.status}
                         </Badge>
                       </div>

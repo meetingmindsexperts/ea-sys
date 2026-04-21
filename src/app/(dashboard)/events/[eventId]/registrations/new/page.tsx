@@ -19,6 +19,12 @@ import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
 import { useTickets } from "@/hooks/use-api";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
+import {
+  MANUAL_PAYMENT_STATUS_HELPER_TEXT,
+  MANUAL_PAYMENT_STATUSES,
+  PAYMENT_STATUS_LABELS,
+  PaymentStatus,
+} from "../registration-enums";
 
 const initialPersonData: PersonFormData = {
   email: "",
@@ -42,8 +48,14 @@ export default function NewRegistrationPage() {
   const { data: ticketTypes = [] } = useTickets(eventId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    ticketTypeId: string;
+    paymentStatus: PaymentStatus;
+    personData: PersonFormData;
+    notes: string;
+  }>({
     ticketTypeId: "",
+    paymentStatus: PaymentStatus.UNASSIGNED,
     personData: initialPersonData,
     notes: "",
   });
@@ -59,6 +71,7 @@ export default function NewRegistrationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ticketTypeId: formData.ticketTypeId || undefined,
+          paymentStatus: formData.paymentStatus,
           attendee: {
             email: formData.personData.email,
             firstName: formData.personData.firstName,
@@ -135,32 +148,55 @@ export default function NewRegistrationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <Label htmlFor="ticketType">Type</Label>
-              <Select
-                value={formData.ticketTypeId}
-                onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value === "__none__" ? "" : value })}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="No registration type (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {(ticketTypes as TicketType[]).map((regType) => (
-                    <SelectItem
-                      key={regType.id}
-                      value={regType.id}
-                      disabled={regType.soldCount >= regType.quantity}
-                    >
-                      {regType.name} - ${regType.price}
-                      {regType.soldCount >= regType.quantity ? " (Unavailable)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Optional — leave empty to register without a type
-              </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ticketType">Type</Label>
+                <Select
+                  value={formData.ticketTypeId}
+                  onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value === "__none__" ? "" : value })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="No registration type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {(ticketTypes as TicketType[]).map((regType) => (
+                      <SelectItem
+                        key={regType.id}
+                        value={regType.id}
+                        disabled={regType.soldCount >= regType.quantity}
+                      >
+                        {regType.name} - ${regType.price}
+                        {regType.soldCount >= regType.quantity ? " (Unavailable)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Optional — leave empty to register without a type
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paymentStatus">Payment Status</Label>
+                <Select
+                  value={formData.paymentStatus}
+                  onValueChange={(value) => setFormData({ ...formData, paymentStatus: value as PaymentStatus })}
+                >
+                  <SelectTrigger id="paymentStatus" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MANUAL_PAYMENT_STATUSES.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {PAYMENT_STATUS_LABELS[status]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {MANUAL_PAYMENT_STATUS_HELPER_TEXT}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
