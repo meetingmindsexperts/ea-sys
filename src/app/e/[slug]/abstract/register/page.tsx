@@ -100,7 +100,7 @@ export default function AbstractRegisterPage() {
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
     | { state: "checking" }
-    | { state: "conflict"; reason: "already_registered" | "user_exists" }
+    | { state: "conflict"; reason: "already_registered" }
   >({ state: "idle" });
 
   const form = useForm<RegisterForm>({
@@ -381,35 +381,15 @@ export default function AbstractRegisterPage() {
                       )} />
 
                     {emailCheck.state === "conflict" && (
-                      <div className={cn(
-                        "rounded-lg border p-3 text-sm",
-                        emailCheck.reason === "already_registered"
-                          ? "border-amber-300 bg-amber-50 text-amber-800"
-                          : "border-sky-300 bg-sky-50 text-sky-800"
-                      )}>
-                        {emailCheck.reason === "already_registered" ? (
-                          <>
-                            You&apos;ve already signed up as a submitter for this event.{" "}
-                            <a
-                              href={`/e/${slug}/login?redirect=abstracts&email=${encodeURIComponent(form.getValues("email"))}`}
-                              className="underline font-medium"
-                            >
-                              Sign in instead
-                            </a>
-                            .
-                          </>
-                        ) : (
-                          <>
-                            This email already has an account.{" "}
-                            <a
-                              href={`/e/${slug}/login?redirect=abstracts&email=${encodeURIComponent(form.getValues("email"))}`}
-                              className="underline font-medium"
-                            >
-                              Sign in to continue
-                            </a>
-                            , or use a different email.
-                          </>
-                        )}
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                        You&apos;ve already signed up as a submitter for this event.{" "}
+                        <a
+                          href={`/e/${slug}/login?redirect=abstracts&email=${encodeURIComponent(form.getValues("email"))}`}
+                          className="underline font-medium"
+                        >
+                          Sign in instead
+                        </a>
+                        .
                       </div>
                     )}
 
@@ -429,11 +409,6 @@ export default function AbstractRegisterPage() {
                             const data = await res.json();
                             if (data.exists && data.reason === "already_registered") {
                               setEmailCheck({ state: "conflict", reason: "already_registered" });
-                              return;
-                            }
-                            if (data.exists && data.reason === "user_exists") {
-                              setEmailCheck({ state: "conflict", reason: "user_exists" });
-                              setStep(2);
                               return;
                             }
                           }

@@ -193,7 +193,7 @@ function CategoryRegistrationContent() {
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
     | { state: "checking" }
-    | { state: "conflict"; reason: "already_registered" | "user_exists" }
+    | { state: "conflict"; reason: "already_registered" }
   >({ state: "idle" });
 
   // Capture referral tracking on first load
@@ -594,30 +594,15 @@ function CategoryRegistrationContent() {
                         )} />
 
                       {emailCheck.state === "conflict" && (
-                        <div className={cn(
-                          "rounded-lg border p-3 text-sm",
-                          emailCheck.reason === "already_registered"
-                            ? "border-amber-300 bg-amber-50 text-amber-800"
-                            : "border-sky-300 bg-sky-50 text-sky-800"
-                        )}>
-                          {emailCheck.reason === "already_registered" ? (
-                            <>
-                              You&apos;re already registered for this event.{" "}
-                              <a
-                                href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
-                                className="underline font-medium"
-                              >
-                                Sign in to view it
-                              </a>
-                              .
-                            </>
-                          ) : (
-                            <>
-                              This email already has an account. You can
-                              continue below — your new registration will be
-                              linked to your existing account automatically.
-                            </>
-                          )}
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                          You&apos;re already registered for this event.{" "}
+                          <a
+                            href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
+                            className="underline font-medium"
+                          >
+                            Sign in to view it
+                          </a>
+                          .
                         </div>
                       )}
 
@@ -637,13 +622,6 @@ function CategoryRegistrationContent() {
                               const data = await res.json();
                               if (data.exists && data.reason === "already_registered") {
                                 setEmailCheck({ state: "conflict", reason: "already_registered" });
-                                return;
-                              }
-                              if (data.exists && data.reason === "user_exists") {
-                                // Surface the notice but still allow step 2 —
-                                // the register route will reuse the account.
-                                setEmailCheck({ state: "conflict", reason: "user_exists" });
-                                setStep(2);
                                 return;
                               }
                             }

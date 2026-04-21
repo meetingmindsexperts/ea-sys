@@ -6,16 +6,19 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 
 /**
  * Pre-flight check called from Step-1 of the public signup forms.
- * Returns whether the given email already has a registration for this
- * event OR a user account. The response is intentionally uniform
- * ({ exists, reason }) so an attacker can't use this to enumerate
- * accounts beyond what they could learn from the register/login pages.
+ * Scope: **event-local only** — we report whether this email has a live
+ * registration on this specific event. Cross-event user accounts are
+ * intentionally NOT reported here: the server-side register route will
+ * link to the existing User silently by email, and surfacing the
+ * global account in the UI creates a dead-end flow where someone
+ * registered for another event gets sent to /my-registration and sees
+ * nothing for *this* event.
  */
 const bodySchema = z.object({
   email: z.string().email().max(255),
 });
 
-type Reason = "already_registered" | "user_exists";
+type Reason = "already_registered";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -54,9 +57,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Fastest check first: is there already a registration for this event with
-    // this email? If yes, the signup can't proceed; the existing account is the
-    // natural next step.
     const existingReg = await db.registration.findFirst({
       where: {
         eventId: event.id,
@@ -67,19 +67,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     if (existingReg) {
       const reason: Reason = "already_registered";
-      return NextResponse.json({ exists: true, reason });
-    }
-
-    // Fallback: no registration yet, but the user may already have an account
-    // from another event. We'd still let them sign up (the register route
-    // reuses the existing user), but the UI should offer "sign in instead"
-    // so they don't create a duplicate password.
-    const existingUser = await db.user.findUnique({
-      where: { email },
-      select: { id: true },
-    });
-    if (existingUser) {
-      const reason: Reason = "user_exists";
       return NextResponse.json({ exists: true, reason });
     }
 
