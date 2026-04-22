@@ -607,6 +607,171 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Org-admin-only sibling of submit_abstract_review. Takes an explicit
+// reviewerUserId so API-key / OAuth-less callers can record a submission
+// attributed to a specific human. Audit log flags it as on-behalf-of so the
+// review trail distinguishes self-submissions from admin-recorded ones.
+const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
+  try {
+    const abstractId = String(input.abstractId ?? "").trim();
+    const reviewerUserId = String(input.reviewerUserId ?? "").trim();
+    if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
+    if (!reviewerUserId) return { error: "reviewerUserId is required", code: "MISSING_REVIEWER_USER_ID" };
+
+    // Abstract must exist in this event scope.
+    const abstract = await db.abstract.findFirst({
+      where: { id: abstractId, eventId: ctx.eventId },
+      select: { id: true },
+    });
+    if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
+
+    // The user we're recording the review for must (a) exist and (b) be
+    // authorised as a reviewer for this event — same pool-or-assignment rule
+    // as submit_abstract_review, applied to the target reviewer not the caller.
+    const [reviewer, eventData, existingAssignment] = await Promise.all([
+      db.user.findUnique({
+        where: { id: reviewerUserId },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+      loadReviewerGuardAndCriteria(ctx.eventId),
+      db.abstractReviewer.findUnique({
+        where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
+        select: { id: true },
+      }),
+    ]);
+    if (!reviewer) return { error: `User ${reviewerUserId} not found`, code: "USER_NOT_FOUND" };
+    const reviewerUserIds = (eventData?.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
+    const isEventReviewer = reviewerUserIds.includes(reviewerUserId);
+    if (!isEventReviewer && !existingAssignment) {
+      return {
+        error: `User ${reviewerUserId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`,
+        code: "NOT_A_REVIEWER",
+      };
+    }
+
+    // Scoring validation — identical rules to submit_abstract_review.
+    const overallScoreInput = input.overallScore != null ? Number(input.overallScore) : undefined;
+    if (overallScoreInput !== undefined && (overallScoreInput < 0 || overallScoreInput > 100)) {
+      return { error: "overallScore must be between 0 and 100", code: "INVALID_OVERALL_SCORE" };
+    }
+
+    const confidence = input.confidence != null ? Number(input.confidence) : undefined;
+    if (confidence !== undefined && (confidence < 1 || confidence > 5)) {
+      return { error: "confidence must be between 1 and 5", code: "INVALID_CONFIDENCE" };
+    }
+
+    const recommendedFormat = input.recommendedFormat ? String(input.recommendedFormat) : undefined;
+    if (recommendedFormat && !RECOMMENDED_FORMATS.has(recommendedFormat)) {
+      return {
+        error: `Invalid recommendedFormat. Must be one of: ${[...RECOMMENDED_FORMATS].join(", ")}`,
+        code: "INVALID_RECOMMENDED_FORMAT",
+      };
+    }
+
+    const reviewNotes = input.reviewNotes ? String(input.reviewNotes).slice(0, 5000) : null;
+
+    const criteriaScoresInput = input.criteriaScores && typeof input.criteriaScores === "object"
+      ? (input.criteriaScores as Record<string, unknown>)
+      : null;
+
+    let criteriaScoresJson: Record<string, number> | null = null;
+    let computedOverall: number | null = null;
+    if (criteriaScoresInput) {
+      const validIds = new Set((eventData?.reviewCriteria ?? []).map((c) => c.id));
+      const weightMap = new Map((eventData?.reviewCriteria ?? []).map((c) => [c.id, c.weight]));
+      const cleaned: Record<string, number> = {};
+      for (const [id, raw] of Object.entries(criteriaScoresInput)) {
+        if (!validIds.has(id)) {
+          return { error: `Unknown criterion ID: ${id}`, code: "INVALID_CRITERION_ID" };
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0 || n > 10) {
+          return { error: `Score for criterion ${id} must be 0-10`, code: "INVALID_CRITERION_SCORE" };
+        }
+        cleaned[id] = n;
+      }
+      criteriaScoresJson = cleaned;
+      if (overallScoreInput === undefined) {
+        const items: CriterionScore[] = Object.entries(cleaned).map(([critId, score]) => ({
+          criterionId: critId,
+          score,
+          weight: weightMap.get(critId) ?? 0,
+        }));
+        computedOverall = computeWeightedOverallScore(items);
+      }
+    }
+    const overallScore = overallScoreInput ?? computedOverall;
+
+    const submission = await db.abstractReviewSubmission.upsert({
+      where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
+      create: {
+        abstractId,
+        reviewerUserId,
+        abstractReviewerId: existingAssignment?.id ?? null,
+        criteriaScores: criteriaScoresJson ?? undefined,
+        overallScore,
+        reviewNotes,
+        recommendedFormat: (recommendedFormat as never) ?? null,
+        confidence: confidence ?? null,
+      },
+      update: {
+        ...(criteriaScoresJson && { criteriaScores: criteriaScoresJson }),
+        ...(overallScore !== null && overallScore !== undefined && { overallScore }),
+        ...(reviewNotes !== null && { reviewNotes }),
+        ...(recommendedFormat && { recommendedFormat: recommendedFormat as never }),
+        ...(confidence !== undefined && { confidence }),
+        abstractReviewerId: existingAssignment?.id ?? null,
+      },
+      select: {
+        id: true,
+        overallScore: true,
+        reviewNotes: true,
+        recommendedFormat: true,
+        confidence: true,
+        submittedAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const wasCreate = submission.submittedAt.getTime() === submission.updatedAt.getTime();
+    apiLogger.info(
+      { abstractId, reviewerUserId, onBehalfOf: true, actorUserId: ctx.userId, overallScore },
+      wasCreate ? "abstract-submission:created-on-behalf-of" : "abstract-submission:updated-on-behalf-of",
+    );
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: wasCreate ? "CREATE" : "UPDATE",
+        entityType: "AbstractReviewSubmission",
+        entityId: submission.id,
+        changes: {
+          source: "mcp-on-behalf-of",
+          abstractId,
+          reviewerUserId,
+          actorUserId: ctx.userId,
+          overallScore,
+          hasCriteriaScores: !!criteriaScoresJson,
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:admin_submit_review_on_behalf audit-log-failed"));
+
+    return {
+      success: true,
+      submission,
+      onBehalfOf: { userId: reviewerUserId, name: `${reviewer.firstName ?? ""} ${reviewer.lastName ?? ""}`.trim(), email: reviewer.email },
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:admin_submit_review_on_behalf failed");
+    return {
+      error: "Failed to submit review on behalf",
+      code: "UNKNOWN",
+      details: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+};
+
 const getAbstractScores: ToolExecutor = async (input, ctx) => {
   try {
     const abstractId = String(input.abstractId ?? "").trim();
@@ -761,5 +926,6 @@ export const ABSTRACT_EXECUTORS: Record<string, ToolExecutor> = {
   assign_reviewer_to_abstract: assignReviewerToAbstract,
   unassign_reviewer_from_abstract: unassignReviewerFromAbstract,
   submit_abstract_review: submitAbstractReview,
+  admin_submit_review_on_behalf: adminSubmitReviewOnBehalf,
   get_abstract_scores: getAbstractScores,
 };

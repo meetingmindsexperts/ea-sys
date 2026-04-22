@@ -111,12 +111,13 @@ export function registerAllMcpTools(
 
   server.tool(
     "create_event",
-    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions a Zoom webinar + email sequence), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
+    "Create a new event in the organization. Required: name, startDate (ISO 8601), endDate (ISO 8601). Optional: slug (auto-generated from name), code (invoice-number prefix, 1-20 chars A-Z0-9-; auto-derived from name as word-initials if omitted, e.g. 'Heart Failure Forum 2026' → 'HFF2026'), description, timezone (default Asia/Dubai), venue, address, city, country, eventType (CONFERENCE/WEBINAR/HYBRID — WEBINAR auto-provisions a Zoom webinar + email sequence), tag, specialty, status (DRAFT/PUBLISHED/LIVE/COMPLETED/CANCELLED — default DRAFT).",
     {
       name: z.string().min(2).max(255),
       startDate: z.string().describe("ISO 8601 datetime string"),
       endDate: z.string().describe("ISO 8601 datetime string"),
       slug: z.string().optional(),
+      code: z.string().max(20).optional(),
       description: z.string().optional(),
       timezone: z.string().optional(),
       venue: z.string().optional(),
@@ -194,7 +195,7 @@ export function registerAllMcpTools(
 
   server.tool(
     "update_event",
-    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
+    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, code (invoice-number prefix, 1-20 chars A-Z0-9-), taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
     {
       eventId: z.string(),
       name: z.string().optional(),
@@ -205,6 +206,7 @@ export function registerAllMcpTools(
       country: z.string().nullable().optional(),
       tag: z.string().nullable().optional(),
       specialty: z.string().nullable().optional(),
+      code: z.string().max(20).nullable().optional(),
       taxRate: z.number().nullable().optional(),
       taxLabel: z.string().nullable().optional(),
       bankDetails: z.string().nullable().optional(),
@@ -334,6 +336,15 @@ export function registerAllMcpTools(
     }},
     { name: "submit_abstract_review", description: "Create or update the current reviewer's submission (upserts on abstractId+reviewerUserId). criteriaScores is a map of {criterionId: 0-10}; overallScore 0-100 auto-computed from weighted criteria if omitted. Requires an authenticated user session — NOT available via API-key MCP (returns MCP_API_KEY_NOT_SUPPORTED). Use the /my-reviews portal, the in-app AI agent, or OAuth MCP with a per-user grant.", params: {
       abstractId: z.string(),
+      criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
+      overallScore: z.number().int().min(0).max(100).optional(),
+      reviewNotes: z.string().optional(),
+      recommendedFormat: z.enum(["ORAL", "POSTER", "NEITHER"]).optional(),
+      confidence: z.number().int().min(1).max(5).optional(),
+    }},
+    { name: "admin_submit_review_on_behalf", description: "Org-admin: record a review on behalf of a specific human reviewer. Takes explicit reviewerUserId (the person whose scores these are). Available via API-key MCP because the attribution is explicit in the payload. Upserts on (abstractId, reviewerUserId) — same underlying row as submit_abstract_review. Audit trail flags the submission as source=mcp-on-behalf-of with actorUserId so 'X recorded by admin on behalf of Y' is traceable. The target reviewer must already be authorised for this event (in event.settings.reviewerUserIds or explicitly assigned via AbstractReviewer).", params: {
+      abstractId: z.string(),
+      reviewerUserId: z.string().describe("The User.id of the reviewer whose review you are recording"),
       criteriaScores: z.record(z.string(), z.number().int().min(0).max(10)).optional(),
       overallScore: z.number().int().min(0).max(100).optional(),
       reviewNotes: z.string().optional(),

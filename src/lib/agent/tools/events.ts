@@ -3,13 +3,15 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
-import { slugify } from "@/lib/utils";
+import { slugify, deriveEventCode } from "@/lib/utils";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import type { ToolExecutor } from "./_shared";
 
 const EVENT_TYPES = new Set(["CONFERENCE", "WEBINAR", "HYBRID"]);
 const EVENT_STATUSES = new Set(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]);
+
+const CODE_RE = /^[A-Z0-9-]+$/;
 
 const listEventInfo: ToolExecutor = async (_input, ctx) => {
   try {
@@ -149,11 +151,28 @@ const createEvent: ToolExecutor = async (input, ctx) => {
       slug = `${requestedSlug}-${i + 1}`;
     }
 
+    // Resolve event.code (invoice-number prefix). Caller can pass explicit; we
+    // validate + uppercase. If omitted, derive from name so invoice generation
+    // works out of the box without forcing a second admin-UI visit.
+    let code: string;
+    if (input.code != null) {
+      const raw = String(input.code).trim().toUpperCase();
+      if (!raw) return { error: "code cannot be empty", code: "INVALID_CODE" };
+      if (raw.length > 20) return { error: "code must be at most 20 chars", code: "INVALID_CODE" };
+      if (!CODE_RE.test(raw)) {
+        return { error: "code must contain only A-Z, 0-9, and hyphens", code: "INVALID_CODE" };
+      }
+      code = raw;
+    } else {
+      code = deriveEventCode(name);
+    }
+
     const event = await db.event.create({
       data: {
         organizationId: ctx.organizationId,
         name,
         slug,
+        code,
         description: input.description ? String(input.description).slice(0, 2000) : null,
         startDate,
         endDate,
@@ -173,6 +192,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
         id: true,
         name: true,
         slug: true,
+        code: true,
         status: true,
         eventType: true,
         startDate: true,
@@ -189,7 +209,13 @@ const createEvent: ToolExecutor = async (input, ctx) => {
         action: "CREATE",
         entityType: "Event",
         entityId: event.id,
-        changes: { source: "mcp", name: event.name, slug: event.slug, eventType: event.eventType ?? null },
+        changes: {
+          source: "mcp",
+          name: event.name,
+          slug: event.slug,
+          code: event.code,
+          eventType: event.eventType ?? null,
+        },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:create_event audit-log-failed"));
 
@@ -223,6 +249,7 @@ const EVENT_UPDATE_FIELD_WHITELIST = new Set([
   "country",
   "tag",
   "specialty",
+  "code",
   "taxRate",
   "taxLabel",
   "bankDetails",
@@ -301,6 +328,19 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
     if (input.tag !== undefined) updates.tag = input.tag === null ? null : String(input.tag).slice(0, 255);
     if (input.specialty !== undefined) updates.specialty = input.specialty === null ? null : String(input.specialty).slice(0, 255);
 
+    if (input.code !== undefined) {
+      if (input.code === null || input.code === "") {
+        updates.code = null;
+      } else {
+        const raw = String(input.code).trim().toUpperCase();
+        if (raw.length > 20) return { error: "code must be at most 20 chars", code: "INVALID_CODE" };
+        if (!CODE_RE.test(raw)) {
+          return { error: "code must contain only A-Z, 0-9, and hyphens", code: "INVALID_CODE" };
+        }
+        updates.code = raw;
+      }
+    }
+
     if (input.taxRate !== undefined) {
       if (input.taxRate === null) {
         updates.taxRate = null;
@@ -337,6 +377,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
         id: true,
         name: true,
         slug: true,
+        code: true,
         venue: true,
         address: true,
         city: true,

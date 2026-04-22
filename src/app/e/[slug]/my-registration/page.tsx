@@ -561,13 +561,18 @@ export default function EventMyRegistrationPage() {
         )}
       </div>
 
-      {/* Footer */}
-      {event?.footerHtml && (
+      {/* Footer — use configured event footer when set, otherwise a minimal
+          org-attribution bar so the page always has a bottom edge. */}
+      {event?.footerHtml ? (
         <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
           <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
         </div>
-      )}
+      ) : event ? (
+        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6 text-sm text-slate-500">
+          © {new Date().getFullYear()} {event.organization.name} · {event.name}
+        </div>
+      ) : null}
     </div>
   );
 }

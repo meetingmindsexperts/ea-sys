@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { slugify } from "@/lib/utils";
+import { slugify, deriveEventCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, description, eventType, tag, specialty, startDate, endDate, venue, address, city, country } =
+    const { name, description, eventType, tag, specialty, code, startDate, endDate, venue, address, city, country } =
       validated.data;
 
     // Create event slug
@@ -132,11 +132,16 @@ export async function POST(req: Request) {
       slug = `${slug}-${Date.now()}`;
     }
 
+    // event.code is the invoice-number prefix. Auto-derive if not supplied so
+    // invoice generation works without a second admin-UI visit.
+    const resolvedCode = code?.trim().toUpperCase() || deriveEventCode(name);
+
     const event = await db.event.create({
       data: {
         organizationId: session.user.organizationId!,
         name,
         slug,
+        code: resolvedCode,
         description: description || null,
         startDate: new Date(startDate),
         endDate: new Date(endDate),

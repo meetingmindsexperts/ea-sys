@@ -70,3 +70,5 @@ docs/HANDOVER.md
 test-results/
 playwright-report/
 .playwright-mcp/
+*.docx
+*.xlsx

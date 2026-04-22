@@ -101,6 +101,25 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// event.code is the invoice-number prefix used by getNextInvoiceNumber.
+// Invoice sequences are per-event so the code doesn't need to be unique.
+// Word-initials for multi-word names ("Heart Failure Forum 2026" → "HFF2026"),
+// slug prefix for single-word names.
+export function deriveEventCode(name: string): string {
+  const cleaned = name.trim().replace(/[^A-Za-z0-9\s-]/g, "");
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const initials = words
+      .map((w) => (/^\d+$/.test(w) ? w : w[0] ?? ""))
+      .join("")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (initials.length >= 2) return initials.slice(0, 10);
+  }
+  const first = (words[0] ?? "EVT").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return first.slice(0, 6) || "EVT";
+}
+
 export function generateBarcode(): string {
   return `${Date.now()}${Math.random().toString().slice(2, 8)}`;
 }

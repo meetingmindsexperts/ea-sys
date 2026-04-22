@@ -251,6 +251,7 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
 const checkInRegistration: ToolExecutor = async (input, ctx) => {
   try {
     const registrationId = String(input.registrationId ?? "").trim();
+    const allowCancelled = Boolean(input.allowCancelled);
     if (!registrationId) return { error: "registrationId is required" };
 
     const reg = await db.registration.findFirst({
@@ -259,6 +260,15 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
     });
     if (!reg) return { error: `Registration ${registrationId} not found` };
     if (reg.checkedInAt) return { alreadyCheckedIn: true, checkedInAt: reg.checkedInAt, attendee: reg.attendee };
+
+    if (reg.status === "CANCELLED" && !allowCancelled) {
+      return {
+        error: `Registration ${registrationId} is CANCELLED. Reinstate it (set status to CONFIRMED) before checking in, or pass allowCancelled=true to override.`,
+        code: "REGISTRATION_CANCELLED",
+        currentStatus: reg.status,
+        suggestion: "update_registration with status=CONFIRMED, then retry check_in_registration.",
+      };
+    }
 
     await db.registration.update({
       where: { id: registrationId },
@@ -766,11 +776,12 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "check_in_registration",
-    description: "Mark a registration as checked in at the event.",
+    description: "Mark a registration as checked in at the event. CANCELLED registrations are blocked by default (returns REGISTRATION_CANCELLED); pass allowCancelled=true to override if the cancellation was a mistake.",
     input_schema: {
       type: "object" as const,
       properties: {
         registrationId: { type: "string", description: "Registration ID to check in" },
+        allowCancelled: { type: "boolean", description: "If true, check in even if the registration is CANCELLED. The status will be overwritten to CHECKED_IN. Use sparingly; default false." },
       },
       required: ["registrationId"],
     },
