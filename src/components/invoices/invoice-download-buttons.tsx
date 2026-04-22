@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Download, FileText, Receipt } from "lucide-react";
+import { FileText, Receipt } from "lucide-react";
 
 interface InvoiceItem {
   id: string;
@@ -13,7 +13,12 @@ interface InvoiceItem {
 
 /**
  * Shows invoice/receipt download buttons for a registration.
- * Falls back to the existing quote download if no invoices exist.
+ *
+ * If the registration has an Invoice row, the button downloads the real
+ * invoice PDF. If it only has a Receipt, shows the receipt PDF. If neither
+ * exists (typical pre-payment or when invoice creation hasn't run yet),
+ * falls back to the Quote PDF — labeled **Quote**, not Invoice, so the
+ * registrant knows what document they're actually receiving.
  */
 export function InvoiceDownloadButtons({ registrationId }: { registrationId: string }) {
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
@@ -28,19 +33,20 @@ export function InvoiceDownloadButtons({ registrationId }: { registrationId: str
 
   if (!loaded) return null;
 
-  // No invoices → fall back to existing quote
-  if (invoices.length === 0) {
+  const invoice = invoices.find(i => i.type === "INVOICE");
+  const receipt = invoices.find(i => i.type === "RECEIPT");
+
+  // No real invoice or receipt → the quote PDF is the only thing we can
+  // hand back. Label the button honestly.
+  if (!invoice && !receipt) {
     return (
       <Button variant="outline" size="sm" asChild>
         <a href={`/api/registrant/registrations/${registrationId}/quote`} download>
-          <Download className="mr-2 h-3.5 w-3.5" /> Invoice
+          <FileText className="mr-2 h-3.5 w-3.5" /> Download Quote
         </a>
       </Button>
     );
   }
-
-  const invoice = invoices.find(i => i.type === "INVOICE");
-  const receipt = invoices.find(i => i.type === "RECEIPT");
 
   return (
     <div className="flex gap-2">
@@ -55,13 +61,6 @@ export function InvoiceDownloadButtons({ registrationId }: { registrationId: str
         <Button variant="outline" size="sm" asChild>
           <a href={`/api/registrant/registrations/${registrationId}/invoices/${receipt.id}/pdf`} download>
             <Receipt className="mr-2 h-3.5 w-3.5" /> Receipt
-          </a>
-        </Button>
-      )}
-      {!invoice && !receipt && (
-        <Button variant="outline" size="sm" asChild>
-          <a href={`/api/registrant/registrations/${registrationId}/quote`} download>
-            <Download className="mr-2 h-3.5 w-3.5" /> Invoice
           </a>
         </Button>
       )}

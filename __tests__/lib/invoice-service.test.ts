@@ -25,6 +25,10 @@ vi.mock("@/lib/db", () => ({
       update: mockUpdate,
       updateMany: mockUpdateMany,
     },
+    // Backfill path writes `event.code` lazily when legacy events are
+    // missing one. Stub resolves successfully so the fire-and-forget
+    // .catch() at the call site never fires during the test.
+    event: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     invoiceCounter: { upsert: vi.fn() },
   },
 }));
@@ -59,6 +63,19 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/utils", () => ({
   getTitleLabel: vi.fn((t: string) => t === "DR" ? "Dr." : ""),
   formatDate: vi.fn((d: Date) => d.toISOString().split("T")[0]),
+  // Minimal stand-in for the real implementation. Enough for the tests
+  // that check derived-code behavior — they only need "Production Test"
+  // → "PRODUC" (first-word fallback) and "Test Conference" → "TC" (but
+  // the latter falls below the 2-char initials threshold and hits the
+  // first-word fallback of "TEST").
+  deriveEventCode: vi.fn((name: string) => {
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) {
+      const initials = words.map((w) => /^\d+$/.test(w) ? w : w[0] ?? "").join("").toUpperCase();
+      if (initials.length >= 2) return initials.slice(0, 10);
+    }
+    return (words[0] ?? "EVT").toUpperCase().slice(0, 6);
+  }),
 }));
 
 import { createInvoice, createReceipt, createCreditNote, cancelInvoice } from "@/lib/invoice-service";
@@ -204,15 +221,45 @@ describe("createInvoice", () => {
     expect(Number(captured.total)).toBe(100);
   });
 
-  it("throws when event has no code set", async () => {
+  it("succeeds when event has no code set, deriving a fallback code from event.name", async () => {
+    // Behavior change (April 2026): pre-fix this threw, which silently killed
+    // the Stripe webhook's fire-and-forget invoice creation and led to users
+    // getting `quote.json` downloads instead of invoices. Now we derive a
+    // code from the event name and log a warn, letting the flow proceed.
     mockFindUniqueOrThrow.mockResolvedValue({
       ...fakeRegistration,
-      event: { ...fakeRegistration.event, code: null },
+      event: { ...fakeRegistration.event, code: null, name: "Test Conference" },
+    });
+    setupTxMock();
+
+    const result = await createInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+    });
+    expect(result).toBeDefined();
+    expect(result.type).toBe("INVOICE");
+  });
+
+  it("passes the derived event code through to getNextInvoiceNumber (not 'null' or empty)", async () => {
+    const { getNextInvoiceNumber } = await import("@/lib/invoice-numbering");
+    const getNextMock = vi.mocked(getNextInvoiceNumber);
+    getNextMock.mockClear();
+
+    mockFindUniqueOrThrow.mockResolvedValue({
+      ...fakeRegistration,
+      event: { ...fakeRegistration.event, code: null, name: "Production Test" },
+    });
+    setupTxMock();
+
+    await createInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
     });
 
-    await expect(
-      createInvoice({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1" })
-    ).rejects.toThrow("Event code is required");
+    // "Production Test" is a 2-word name → deriveEventCode collects word
+    // initials → "PT". Matches the same derivation the REST POST
+    // /api/events + MCP create_event use, so quote + invoice for the
+    // same legacy event share one deterministic prefix.
+    const lastCall = getNextMock.mock.calls[getNextMock.mock.calls.length - 1];
+    expect(lastCall?.[3]).toBe("PT");
   });
 });
 

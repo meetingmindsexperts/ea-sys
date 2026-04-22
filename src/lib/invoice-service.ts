@@ -6,7 +6,7 @@ import { generateInvoicePDF, type InvoicePDFData } from "@/lib/invoice-pdf";
 import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail } from "@/lib/email";
-import { getTitleLabel } from "@/lib/utils";
+import { getTitleLabel, deriveEventCode } from "@/lib/utils";
 import type { Invoice } from "@prisma/client";
 
 // ── Shared query for building PDF data ──────────────────────────────────────
@@ -38,6 +38,58 @@ const registrationInclude = {
     },
   },
 } as const;
+
+// ── Event-code resolution ──────────────────────────────────────────────────
+
+/**
+ * Resolve the short event code used as the prefix on invoice / receipt /
+ * credit-note numbers (e.g., `HFC2026-INV-001`).
+ *
+ * Prefers the admin-set `event.code`. Falls back to `deriveEventCode` from
+ * `src/lib/utils.ts` — the same helper that auto-populates `event.code` on
+ * new event creation (both REST `POST /api/events` and MCP `create_event`).
+ *
+ * The fallback only fires for **legacy events** that predate the auto-
+ * derivation at creation, or events created via paths that bypassed it
+ * (seed data, direct DB inserts). When that happens we backfill
+ * `event.code` on the row so subsequent invoices for the same event use
+ * the stable prefix and don't re-derive on every call.
+ *
+ * We no longer throw here: the previous throw silently killed the Stripe
+ * webhook's fire-and-forget receipt creation, which meant registrants
+ * clicked "View Invoice" and got a `quote.json` downloaded (JSON error
+ * served by the fallback /quote route).
+ */
+async function resolveEventCode(
+  event: { id: string; code: string | null; name: string },
+  context: { registrationId: string; flow: "INVOICE" | "RECEIPT" | "CREDIT_NOTE" },
+): Promise<string> {
+  if (event.code) return event.code;
+
+  const fallback = deriveEventCode(event.name);
+  apiLogger.warn({
+    msg: "invoice-service:event-code-missing-backfilling",
+    eventId: event.id,
+    registrationId: context.registrationId,
+    flow: context.flow,
+    derivedCode: fallback,
+    hint: "Legacy event — code backfilled to stabilize invoice numbering. Set a custom code in Event Settings if preferred.",
+  });
+
+  // Fire-and-forget backfill. If two webhook retries race here both derive
+  // the same deterministic value, so the result is idempotent. Errors are
+  // logged but must not block the invoice creation that's about to run.
+  db.event
+    .updateMany({
+      where: { id: event.id, code: null },
+      data: { code: fallback },
+    })
+    .catch((err) =>
+      apiLogger.error({ err, eventId: event.id }, "invoice-service:event-code-backfill-failed"),
+    );
+
+  return fallback;
+}
 
 // ── Shared pricing calculation ─────────────────────────────────────────────
 
@@ -74,13 +126,11 @@ export async function createInvoice(params: {
     include: registrationInclude,
   });
 
-  if (!registration.event.code) {
-    apiLogger.warn({ msg: "Skipping invoice creation — event has no code set", eventId, registrationId });
-    throw new Error("Event code is required for invoice generation. Set it in Event Settings.");
-  }
-
   const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
-  const eventCode = registration.event.code;
+  const eventCode = await resolveEventCode(
+    { id: eventId, code: registration.event.code, name: registration.event.name },
+    { registrationId, flow: "INVOICE" },
+  );
 
   const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
@@ -131,13 +181,11 @@ export async function createReceipt(params: {
     include: registrationInclude,
   });
 
-  if (!registration.event.code) {
-    apiLogger.warn({ msg: "Skipping receipt creation — event has no code set", eventId, registrationId });
-    throw new Error("Event code is required for receipt generation. Set it in Event Settings.");
-  }
-
   const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
-  const eventCode = registration.event.code;
+  const eventCode = await resolveEventCode(
+    { id: eventId, code: registration.event.code, name: registration.event.name },
+    { registrationId, flow: "RECEIPT" },
+  );
 
   const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
@@ -196,13 +244,11 @@ export async function createCreditNote(params: {
     include: registrationInclude,
   });
 
-  if (!registration.event.code) {
-    apiLogger.warn({ msg: "Skipping credit note creation — event has no code set", eventId, registrationId });
-    throw new Error("Event code is required for credit note generation. Set it in Event Settings.");
-  }
-
   const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
-  const eventCode = registration.event.code;
+  const eventCode = await resolveEventCode(
+    { id: eventId, code: registration.event.code, name: registration.event.name },
+    { registrationId, flow: "CREDIT_NOTE" },
+  );
 
   // Find the original invoice if not provided
   let parentId = originalInvoiceId;
