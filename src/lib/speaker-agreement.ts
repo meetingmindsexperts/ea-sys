@@ -1,7 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
+import { randomUUID } from "crypto";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
+import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { formatPersonName, getTitleLabel, formatDate, formatDateTime, slugify } from "./utils";
@@ -342,3 +344,107 @@ export async function generateSpeakerAgreementDocx(opts: {
 
 export const SPEAKER_AGREEMENT_DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export const SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE = 2 * 1024 * 1024; // 2 MB
+const DOCX_MAGIC_BYTES = [0x50, 0x4b, 0x03, 0x04]; // PK\x03\x04 (DOCX is a zip)
+
+export class SpeakerAgreementTemplateError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "SpeakerAgreementTemplateError";
+  }
+}
+
+/**
+ * Validate + persist a speaker-agreement .docx template for an event.
+ *
+ * Factored out of `POST /api/events/[eventId]/speaker-agreement-template` so
+ * that both the dashboard upload route AND the MCP `upload_speaker_agreement_template`
+ * tool can share the exact same zip-magic-byte check, 2MB cap, file-write,
+ * previous-file cleanup, and audit-log write. One source of truth — the two
+ * surfaces can't drift apart silently.
+ *
+ * Throws `SpeakerAgreementTemplateError` with a code for predictable callers.
+ * The caller is responsible for auth + rate limiting. Access is enforced
+ * here by requiring the `organizationId` match on the event lookup.
+ */
+export async function saveSpeakerAgreementTemplate({
+  eventId,
+  organizationId,
+  buffer,
+  filename,
+  actorUserId,
+}: {
+  eventId: string;
+  organizationId: string;
+  buffer: Buffer;
+  filename: string;
+  actorUserId: string;
+}): Promise<SpeakerAgreementTemplateMeta> {
+  if (buffer.length > SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE) {
+    throw new SpeakerAgreementTemplateError(
+      "TEMPLATE_TOO_LARGE",
+      `Template must be under ${Math.round(SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE / 1024 / 1024)}MB`,
+    );
+  }
+
+  const isZip =
+    buffer.length >= DOCX_MAGIC_BYTES.length &&
+    DOCX_MAGIC_BYTES.every((b, i) => buffer[i] === b);
+  if (!isZip) {
+    apiLogger.warn({ msg: "agreement-template:invalid-magic-bytes", actorUserId });
+    throw new SpeakerAgreementTemplateError(
+      "INVALID_DOCX",
+      "File content is not a valid .docx document (missing zip magic bytes)",
+    );
+  }
+
+  const event = await db.event.findFirst({
+    where: { id: eventId, organizationId },
+    select: { id: true, speakerAgreementTemplate: true },
+  });
+  if (!event) {
+    throw new SpeakerAgreementTemplateError(
+      "EVENT_NOT_FOUND",
+      `Event ${eventId} not found or access denied`,
+    );
+  }
+
+  const dirRel = path.join("uploads", "agreements", eventId);
+  const dirAbs = path.resolve(process.cwd(), "public", dirRel);
+  await fs.mkdir(dirAbs, { recursive: true });
+
+  const storedFilename = `${randomUUID()}.docx`;
+  const fileAbs = path.join(dirAbs, storedFilename);
+  await fs.writeFile(fileAbs, buffer);
+
+  // Best-effort previous-file cleanup. Path-traversal guarded.
+  const previous = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
+  if (previous?.url?.startsWith("/uploads/agreements/")) {
+    const previousAbs = path.resolve(process.cwd(), "public", previous.url.replace(/^\/+/, ""));
+    const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
+    if (previousAbs.startsWith(expectedRoot + path.sep)) {
+      await fs.unlink(previousAbs).catch((err) =>
+        apiLogger.warn({ err, msg: "agreement-template:previous-unlink-failed", previousAbs }),
+      );
+    }
+  }
+
+  const safeFilename =
+    filename && filename.trim() ? filename.trim().slice(0, 255) : "template.docx";
+  const meta: SpeakerAgreementTemplateMeta = {
+    url: `/${dirRel.replace(/\\/g, "/")}/${storedFilename}`,
+    filename: safeFilename,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: actorUserId,
+  };
+
+  await db.event.update({
+    where: { id: eventId },
+    data: { speakerAgreementTemplate: meta as unknown as Prisma.InputJsonValue },
+  });
+
+  return meta;
+}

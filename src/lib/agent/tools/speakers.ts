@@ -5,6 +5,12 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { checkRateLimit } from "@/lib/security";
+import {
+  SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
+  SpeakerAgreementTemplateError,
+  saveSpeakerAgreementTemplate,
+} from "@/lib/speaker-agreement";
 import {
   EMAIL_RE,
   TITLE_VALUES,
@@ -122,9 +128,13 @@ const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
     }
     const limit = Math.min(Number(input.limit ?? 100), 500);
 
+    // Exclude CANCELLED always. For the "unsigned" filter also exclude
+    // DECLINED — chasing declined speakers for signatures is operationally
+    // wrong (F10). "all" and "signed" keep DECLINED visible so operators
+    // can still audit the full list.
     const where: Prisma.SpeakerWhereInput = {
       eventId: ctx.eventId,
-      status: { not: "CANCELLED" },
+      status: filter === "unsigned" ? { notIn: ["CANCELLED", "DECLINED"] } : { not: "CANCELLED" },
     };
     if (filter === "signed") where.agreementAcceptedAt = { not: null };
     if (filter === "unsigned") where.agreementAcceptedAt = null;
@@ -244,6 +254,110 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
   } catch (err) {
     apiLogger.error({ err }, "agent:update_speaker failed");
     return { error: err instanceof Error ? err.message : "Failed to update speaker" };
+  }
+};
+
+// Upload a .docx mail-merge template for an event via MCP. Shares the exact
+// same storage/validation path as the dashboard POST endpoint via the
+// factored `saveSpeakerAgreementTemplate()` helper — no drift risk.
+//
+// Transport note: MCP is JSON-RPC only (no multipart), so the caller has to
+// base64-encode the .docx bytes. 2MB pre-encode cap + magic-byte check are
+// enforced identically to the dashboard route.
+const uploadSpeakerAgreementTemplate: ToolExecutor = async (input, ctx) => {
+  try {
+    // Same per-user 10/hr bucket as the dashboard upload route so this tool
+    // can't be used to bypass that quota.
+    const UPLOAD_LIMIT = 10;
+    const UPLOAD_WINDOW_MS = 60 * 60 * 1000;
+    const rl = checkRateLimit({
+      key: `agreement-template-upload:${ctx.userId}`,
+      limit: UPLOAD_LIMIT,
+      windowMs: UPLOAD_WINDOW_MS,
+    });
+    if (!rl.allowed) {
+      return {
+        error: `Rate limit exceeded: ${UPLOAD_LIMIT} speaker-agreement template uploads per hour. Retry after ${rl.retryAfterSeconds}s.`,
+        code: "RATE_LIMITED",
+        retryAfterSeconds: rl.retryAfterSeconds,
+        limit: UPLOAD_LIMIT,
+        windowSeconds: Math.floor(UPLOAD_WINDOW_MS / 1000),
+      };
+    }
+
+    const base64Content = input.base64Content ? String(input.base64Content) : "";
+    const filename = input.filename ? String(input.filename) : "";
+    if (!base64Content) return { error: "base64Content is required (base64-encoded .docx bytes)", code: "MISSING_CONTENT" };
+    if (!filename) return { error: "filename is required", code: "MISSING_FILENAME" };
+    if (!/\.docx$/i.test(filename)) {
+      return { error: "filename must end with .docx", code: "INVALID_FILENAME" };
+    }
+
+    // Reject anything that obviously won't decode before we materialize the
+    // buffer — keeps the error surface local to this tool.
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(base64Content)) {
+      return { error: "base64Content contains invalid characters", code: "INVALID_BASE64" };
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(base64Content, "base64");
+    } catch {
+      return { error: "Failed to decode base64Content", code: "INVALID_BASE64" };
+    }
+    if (buffer.length === 0) {
+      return { error: "Decoded content is empty", code: "EMPTY_CONTENT" };
+    }
+    if (buffer.length > SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE) {
+      return {
+        error: `Decoded template must be under ${Math.round(SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE / 1024 / 1024)}MB (got ${buffer.length} bytes)`,
+        code: "TEMPLATE_TOO_LARGE",
+      };
+    }
+
+    try {
+      const meta = await saveSpeakerAgreementTemplate({
+        eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
+        buffer,
+        filename,
+        actorUserId: ctx.userId,
+      });
+
+      db.auditLog.create({
+        data: {
+          eventId: ctx.eventId,
+          userId: ctx.userId,
+          action: "UPDATE",
+          entityType: "Event",
+          entityId: ctx.eventId,
+          changes: {
+            source: "mcp",
+            field: "speakerAgreementTemplate",
+            filename: meta.filename,
+          },
+        },
+      }).catch((err) => apiLogger.error({ err }, "agent:upload_speaker_agreement_template audit-log-failed"));
+
+      apiLogger.info(
+        { eventId: ctx.eventId, filename: meta.filename, actorUserId: ctx.userId },
+        "agreement-template:uploaded-via-mcp",
+      );
+
+      return { success: true, template: meta };
+    } catch (err) {
+      if (err instanceof SpeakerAgreementTemplateError) {
+        return { error: err.message, code: err.code };
+      }
+      throw err;
+    }
+  } catch (err) {
+    apiLogger.error({ err }, "agent:upload_speaker_agreement_template failed");
+    return {
+      error: "Failed to upload speaker agreement template",
+      code: "UNKNOWN",
+      details: err instanceof Error ? err.message : "Unknown error",
+    };
   }
 };
 
@@ -441,4 +555,5 @@ export const SPEAKER_EXECUTORS: Record<string, ToolExecutor> = {
   create_speakers_bulk: createSpeakersBulk,
   list_speaker_agreements: listSpeakerAgreements,
   get_speaker_agreement_template: getSpeakerAgreementTemplate,
+  upload_speaker_agreement_template: uploadSpeakerAgreementTemplate,
 };

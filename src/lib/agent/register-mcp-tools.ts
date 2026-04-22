@@ -261,7 +261,7 @@ export function registerAllMcpTools(
     { name: "list_unpaid_registrations", description: "List registrations where paymentStatus is UNPAID/PENDING/FAILED and status is not CANCELLED. Sorted oldest first. Optional daysPending filter (only those older than N days).", params: {
       daysPending: z.number().optional(), limit: z.number().optional(),
     }},
-    { name: "list_speaker_agreements", description: "List speakers with their agreement status. filter: 'unsigned' (default, who hasn't signed), 'signed' (who has), or 'all'.", params: {
+    { name: "list_speaker_agreements", description: "List speakers with their agreement status. filter: 'unsigned' (default, excludes CANCELLED and DECLINED — chasing declined speakers for signatures is wrong), 'signed' (who has), or 'all' (excludes CANCELLED only).", params: {
       filter: z.enum(["signed", "unsigned", "all"]).optional(), limit: z.number().optional(),
     }},
     { name: "list_live_sessions_now", description: "List sessions currently live (now between startTime and endTime). Optional withinMinutes extends the window to sessions starting within N minutes.", params: {
@@ -423,7 +423,8 @@ export function registerAllMcpTools(
       paymentStatus: z.nativeEnum(PaymentStatus).optional(),
     }},
     // ─── Sponsor + promo + email writes ───
-    { name: "upsert_sponsors", description: "Replace the entire sponsor list for this event. Pass the full list of sponsors you want — anything missing is removed. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
+    { name: "upsert_sponsors", description: "Update the sponsor list for this event. mode='replace' (default — matches existing dashboard PUT behaviour) deletes anything not in the passed array; mode='merge' overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything. Use merge when you only have a few rows to add or change and don't want to accidentally wipe the rest. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
+      mode: z.enum(["replace", "merge"]).optional(),
       sponsors: z.array(z.object({
         id: z.string().optional(),
         name: z.string(),
@@ -461,6 +462,10 @@ export function registerAllMcpTools(
     }},
     { name: "cancel_scheduled_email", description: "Cancel a PENDING scheduled email. Only works on status=PENDING rows — already-sent or already-processing emails cannot be cancelled.", params: {
       scheduledEmailId: z.string(),
+    }},
+    { name: "upload_speaker_agreement_template", description: "Upload a .docx mail-merge template for speaker agreements. MCP is JSON-RPC only (no multipart), so pass the file as base64Content (base64-encoded .docx bytes). Enforces the same 2MB cap, DOCX MIME magic-byte check, and 10/hr/user rate limit as the dashboard upload. Replaces any existing template (previous file is unlinked from disk). Use {token} placeholders in the .docx for mail-merge — tokens available from get_speaker_agreement_template notes.", params: {
+      filename: z.string().describe("Must end with .docx — used for display only; storage filename is a UUID"),
+      base64Content: z.string().describe("base64-encoded .docx bytes (max ~2.7MB base64 / 2MB decoded)"),
     }},
     // ─── Accommodation writes ───
     { name: "create_accommodation", description: "Book a room for a registration or speaker. Requires roomTypeId, checkIn, checkOut (ISO 8601). Atomic — won't overbook. Use list_room_types first to get roomTypeId + availability.", params: {

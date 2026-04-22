@@ -367,6 +367,8 @@ const listSponsors: ToolExecutor = async (_input, ctx) => {
   }
 };
 
+const UPSERT_SPONSORS_MODES = new Set(["replace", "merge"]);
+
 const upsertSponsors: ToolExecutor = async (input, ctx) => {
   try {
     const event = await db.event.findFirst({
@@ -377,6 +379,14 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
 
     if (!Array.isArray(input.sponsors)) {
       return { error: "sponsors must be an array" };
+    }
+
+    const mode = input.mode ? String(input.mode) : "replace";
+    if (!UPSERT_SPONSORS_MODES.has(mode)) {
+      return {
+        error: `Invalid mode. Must be one of: ${[...UPSERT_SPONSORS_MODES].join(", ")}`,
+        code: "INVALID_MODE",
+      };
     }
 
     const safeUrl = (raw: unknown, opts: { allowRelative: boolean }): string | undefined => {
@@ -396,7 +406,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
     };
 
     const tierSet = new Set<string>(SPONSOR_TIERS);
-    const sanitized: SponsorEntry[] = [];
+    const incoming: SponsorEntry[] = [];
     for (let i = 0; i < (input.sponsors as unknown[]).length; i++) {
       const raw = (input.sponsors as unknown[])[i];
       if (!raw || typeof raw !== "object") return { error: `sponsors[${i}] is not an object` };
@@ -416,15 +426,60 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
         return { error: `sponsors[${i}]: ${e instanceof Error ? e.message : "invalid URL"}` };
       }
 
-      sanitized.push({
+      incoming.push({
         id: r.id ? String(r.id) : `sponsor-${crypto.randomUUID()}`,
         name: name.slice(0, 255),
         tier: tier as SponsorEntry["tier"],
         logoUrl,
         websiteUrl,
         description: r.description ? String(r.description).slice(0, 1000) : undefined,
-        sortOrder: i, // Always reassign from array index
+        sortOrder: i, // Provisional — finalised below
       });
+    }
+
+    // Mode: replace (default) = incoming wins, outgoing are deleted.
+    //       merge            = incoming is overlaid onto existing list
+    //                          matched by id first, then by case-insensitive
+    //                          (name, tier) composite. Unmatched rows in the
+    //                          existing list are kept; unmatched rows in the
+    //                          incoming list are appended.
+    let sanitized: SponsorEntry[];
+    let mergeReport: { updated: number; added: number; kept: number } | undefined;
+    if (mode === "replace") {
+      sanitized = incoming.map((s, i) => ({ ...s, sortOrder: i }));
+    } else {
+      const existing = readSponsors(event.settings);
+      const byId = new Map(existing.map((s) => [s.id, s]));
+      const compositeKey = (s: Pick<SponsorEntry, "name" | "tier">) =>
+        `${s.name.toLowerCase().trim()}::${s.tier ?? ""}`;
+      const byComposite = new Map(existing.map((s) => [compositeKey(s), s]));
+
+      const touchedIds = new Set<string>();
+      const merged: SponsorEntry[] = [...existing];
+      let updated = 0;
+      let added = 0;
+      for (const row of incoming) {
+        const idMatch = byId.get(row.id);
+        const match = idMatch ?? byComposite.get(compositeKey(row));
+        if (match) {
+          const idx = merged.findIndex((m) => m.id === match.id);
+          if (idx >= 0) {
+            merged[idx] = { ...match, ...row, id: match.id };
+            touchedIds.add(match.id);
+            updated++;
+          }
+        } else {
+          merged.push(row);
+          touchedIds.add(row.id);
+          added++;
+        }
+      }
+      sanitized = merged.map((s, i) => ({ ...s, sortOrder: i }));
+      mergeReport = {
+        updated,
+        added,
+        kept: sanitized.length - updated - added,
+      };
     }
 
     const currentSettings = (event.settings as Record<string, unknown>) ?? {};
@@ -442,11 +497,23 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
         action: "UPDATE",
         entityType: "Event",
         entityId: event.id,
-        changes: { source: "mcp", field: "settings.sponsors", count: sanitized.length },
+        changes: {
+          source: "mcp",
+          field: "settings.sponsors",
+          mode,
+          count: sanitized.length,
+          ...(mergeReport ?? {}),
+        },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:upsert_sponsors audit-log-failed"));
 
-    return { success: true, sponsors: sanitized, total: sanitized.length };
+    return {
+      success: true,
+      mode,
+      sponsors: sanitized,
+      total: sanitized.length,
+      ...(mergeReport ? { mergeReport } : {}),
+    };
   } catch (err) {
     apiLogger.error({ err }, "agent:upsert_sponsors failed");
     return { error: err instanceof Error ? err.message : "Failed to update sponsors" };
@@ -546,13 +613,21 @@ const researchSponsor: ToolExecutor = async (input, ctx) => {
 
     // Dedicated rate-limit bucket so outbound scraping abuse can't piggyback
     // on the general 20/hr agent budget.
+    const RESEARCH_SPONSOR_LIMIT = 30;
+    const RESEARCH_SPONSOR_WINDOW_MS = 60 * 60 * 1000;
     const rl = checkRateLimit({
       key: `research-sponsor:${ctx.userId}:${ctx.eventId}`,
-      limit: 30,
-      windowMs: 60 * 60 * 1000,
+      limit: RESEARCH_SPONSOR_LIMIT,
+      windowMs: RESEARCH_SPONSOR_WINDOW_MS,
     });
     if (!rl.allowed) {
-      return { error: `Rate limit exceeded: 30 sponsor research calls per hour. Try again in ${rl.retryAfterSeconds}s.` };
+      return {
+        error: `Rate limit exceeded: ${RESEARCH_SPONSOR_LIMIT} sponsor research calls per hour. Retry after ${rl.retryAfterSeconds}s.`,
+        code: "RATE_LIMITED",
+        retryAfterSeconds: rl.retryAfterSeconds,
+        limit: RESEARCH_SPONSOR_LIMIT,
+        windowSeconds: Math.floor(RESEARCH_SPONSOR_WINDOW_MS / 1000),
+      };
     }
 
     if (!rawUrl) {
@@ -744,13 +819,18 @@ export const WEBINAR_TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "upsert_sponsors",
-    description: "Replace the entire sponsor list for this event. Pass the full list of sponsors you want — anything missing is removed. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs. Typically you list_sponsors first, append/modify the returned array, then pass it back here.",
+    description: "Update the sponsor list for this event. mode='replace' (default — matches existing dashboard PUT behaviour) deletes anything not in the passed array; mode='merge' overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything. Use merge when you only have a few rows to add or change and don't want to accidentally wipe the rest. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.",
     input_schema: {
       type: "object" as const,
       properties: {
+        mode: {
+          type: "string",
+          enum: ["replace", "merge"],
+          description: "replace (default) deletes anything not in the array; merge overlays by id or (name,tier) and appends. Default is replace for backwards-compatibility with existing callers.",
+        },
         sponsors: {
           type: "array",
-          description: "Full replacement list of sponsors.",
+          description: "Sponsors to upsert. In replace mode, this is the full final list. In merge mode, this is the delta.",
           items: {
             type: "object",
             properties: {

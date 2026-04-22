@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { SPEAKER_AGREEMENT_DOCX_MIME, type SpeakerAgreementTemplateMeta } from "@/lib/speaker-agreement";
-
-const MAX_TEMPLATE_SIZE = 2 * 1024 * 1024; // 2MB
-const DOCX_MAGIC_BYTES = [0x50, 0x4b, 0x03, 0x04]; // PK\x03\x04 (zip header — DOCX is a zip)
+import {
+  SPEAKER_AGREEMENT_DOCX_MIME,
+  SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
+  SpeakerAgreementTemplateError,
+  saveSpeakerAgreementTemplate,
+  type SpeakerAgreementTemplateMeta,
+} from "@/lib/speaker-agreement";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -83,50 +85,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Only .docx files are allowed" }, { status: 400 });
     }
 
-    if (file.size > MAX_TEMPLATE_SIZE) {
+    if (file.size > SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE) {
       return NextResponse.json({ error: "Template must be under 2MB" }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const isZip =
-      buffer.length >= DOCX_MAGIC_BYTES.length &&
-      DOCX_MAGIC_BYTES.every((b, i) => buffer[i] === b);
-    if (!isZip) {
-      apiLogger.warn({ msg: "agreement-template:invalid-magic-bytes", userId: session.user.id });
-      return NextResponse.json({ error: "File content is not a valid .docx document" }, { status: 400 });
-    }
 
-    const dirRel = path.join("uploads", "agreements", eventId);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-
-    const storedFilename = `${randomUUID()}.docx`;
-    const fileAbs = path.join(dirAbs, storedFilename);
-    await fs.writeFile(fileAbs, buffer);
-
-    // Best-effort: remove the previous file when replacing
-    const previous = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
-    if (previous?.url?.startsWith("/uploads/agreements/")) {
-      const previousAbs = path.resolve(process.cwd(), "public", previous.url.replace(/^\/+/, ""));
-      const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
-      if (previousAbs.startsWith(expectedRoot + path.sep)) {
-        await fs.unlink(previousAbs).catch((err) =>
-          apiLogger.warn({ err, msg: "agreement-template:previous-unlink-failed", previousAbs }),
-        );
+    let meta: SpeakerAgreementTemplateMeta;
+    try {
+      meta = await saveSpeakerAgreementTemplate({
+        eventId,
+        organizationId: session.user.organizationId!,
+        buffer,
+        filename: file.name,
+        actorUserId: session.user.id,
+      });
+    } catch (err) {
+      if (err instanceof SpeakerAgreementTemplateError) {
+        const status = err.code === "EVENT_NOT_FOUND" ? 404 : 400;
+        return NextResponse.json({ error: err.message, code: err.code }, { status });
       }
+      throw err;
     }
-
-    const meta: SpeakerAgreementTemplateMeta = {
-      url: `/${dirRel.replace(/\\/g, "/")}/${storedFilename}`,
-      filename: file.name,
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: session.user.id,
-    };
-
-    await db.event.update({
-      where: { id: eventId },
-      data: { speakerAgreementTemplate: meta as unknown as Prisma.InputJsonValue },
-    });
 
     await db.auditLog.create({
       data: {

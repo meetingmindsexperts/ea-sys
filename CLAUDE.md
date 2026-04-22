@@ -286,6 +286,31 @@ npx prisma studio    # Open Prisma Studio
 npx tsc --noEmit     # Type check
 ```
 
+## Rate Limits
+
+Every write endpoint that calls `checkRateLimit` returns HTTP `429` (or a tool-level error with `code: "RATE_LIMITED"` inside the MCP JSON-RPC envelope) with:
+- `retryAfterSeconds` — seconds until the window resets
+- `limit` — the ceiling for the window
+- `windowSeconds` — length of the window
+- `Retry-After` header on HTTP responses (per RFC 9110)
+
+Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do NOT sleep a fixed 30s — use the returned value.
+
+| Endpoint / bucket | Limit | Window |
+|---|---|---|
+| `/api/mcp` (per API key / OAuth token) | 100 | 1 hr |
+| `/api/mcp/oauth/token` (per client_id) | 60 | 1 hr |
+| `/api/mcp/oauth/register` (per IP) | 10 | 1 hr |
+| `send_bulk_email` MCP tool (per event) | 10 | 1 hr |
+| `research_sponsor` MCP tool (per user+event) | 30 | 1 hr |
+| `speaker-agreement-template` upload (per user) | 10 | 1 hr |
+| Public checkout (per IP) | 3 | 60 s |
+| Public register preflight `check-email` (per IP) | 20 | 1 hr |
+| Public `zoom-join` (per IP) | 60 | 1 hr |
+| Mobile login/refresh (per IP) | 10 | 5 min |
+
+Thresholds are best-effort; in-memory store means limits reset on EC2/Docker restart. For stricter SLAs migrate to Redis (Vercel KV / Upstash) — the `checkRateLimit` interface is store-agnostic.
+
 ## Role-Based Access Control (RBAC)
 
 ### Roles

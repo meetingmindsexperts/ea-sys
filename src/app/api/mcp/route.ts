@@ -77,18 +77,38 @@ async function handleMcp(req: Request): Promise<Response> {
     );
   }
 
-  // Rate limit: 100 MCP requests per hour per API key / OAuth token
+  // Rate limit: 100 MCP requests per hour per API key / OAuth token.
+  // Emit a spec-compliant 429 with Retry-After header + structured body so
+  // clients can back off intelligently instead of guessing.
+  const MCP_RATE_LIMIT = 100;
+  const MCP_RATE_WINDOW_MS = 60 * 60 * 1000;
   const rl = checkRateLimit({
     key: `mcp-${authResult.keyPrefix}`,
-    limit: 100,
-    windowMs: 60 * 60 * 1000,
+    limit: MCP_RATE_LIMIT,
+    windowMs: MCP_RATE_WINDOW_MS,
   });
   if (!rl.allowed) {
+    apiLogger.warn(
+      { msg: "MCP rate-limit rejection", keyPrefix: authResult.keyPrefix, retryAfterSeconds: rl.retryAfterSeconds },
+      "mcp:rate-limited",
+    );
     return withCors(
       req,
       new Response(
-        JSON.stringify({ error: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.` }),
-        { status: 429, headers: { "Content-Type": "application/json" } },
+        JSON.stringify({
+          error: `Rate limit exceeded: ${MCP_RATE_LIMIT} MCP requests per hour. Retry after ${rl.retryAfterSeconds}s.`,
+          code: "RATE_LIMITED",
+          retryAfterSeconds: rl.retryAfterSeconds,
+          limit: MCP_RATE_LIMIT,
+          windowSeconds: Math.floor(MCP_RATE_WINDOW_MS / 1000),
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(rl.retryAfterSeconds),
+          },
+        },
       ),
     );
   }

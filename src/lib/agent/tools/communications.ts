@@ -14,14 +14,20 @@ import {
 const sendBulkEmail: ToolExecutor = async (input, ctx) => {
   try {
     // Rate limit: 10 bulk email sends per event per hour
+    const BULK_EMAIL_LIMIT = 10;
+    const BULK_EMAIL_WINDOW_MS = 60 * 60 * 1000;
     const rl = checkRateLimit({
       key: `agent-email-${ctx.eventId}`,
-      limit: 10,
-      windowMs: 60 * 60 * 1000,
+      limit: BULK_EMAIL_LIMIT,
+      windowMs: BULK_EMAIL_WINDOW_MS,
     });
     if (!rl.allowed) {
       return {
-        error: `Bulk email rate limit reached. Please wait ${rl.retryAfterSeconds} seconds before sending again.`,
+        error: `Rate limit exceeded: ${BULK_EMAIL_LIMIT} bulk email sends per event per hour. Retry after ${rl.retryAfterSeconds}s.`,
+        code: "RATE_LIMITED",
+        retryAfterSeconds: rl.retryAfterSeconds,
+        limit: BULK_EMAIL_LIMIT,
+        windowSeconds: Math.floor(BULK_EMAIL_WINDOW_MS / 1000),
       };
     }
 
