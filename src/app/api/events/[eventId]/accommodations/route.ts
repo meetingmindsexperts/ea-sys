@@ -6,6 +6,26 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import {
+  createAccommodation,
+  type CreateAccommodationErrorCode,
+} from "@/services/accommodation-service";
+
+// HTTP status mapping for the service's domain error codes. Kept local to
+// the REST caller — the service never knows about HTTP.
+const HTTP_STATUS_FOR_ACCOMMODATION_ERROR: Record<CreateAccommodationErrorCode, number> = {
+  MISSING_ASSIGNEE: 400,
+  INVALID_DATES: 400,
+  EVENT_NOT_FOUND: 404,
+  REGISTRATION_NOT_FOUND: 404,
+  SPEAKER_NOT_FOUND: 404,
+  REGISTRATION_HAS_ACCOMMODATION: 400,
+  SPEAKER_HAS_ACCOMMODATION: 400,
+  ROOM_NOT_FOUND: 404,
+  GUEST_COUNT_EXCEEDS_CAPACITY: 400,
+  NO_ROOMS_AVAILABLE: 400,
+  UNKNOWN: 500,
+};
 
 const accommodationStatusSchema = z.nativeEnum(AccommodationStatus);
 
@@ -147,175 +167,31 @@ export async function POST(req: Request, { params }: RouteParams) {
       specialRequests,
     } = validated.data;
 
-    // Parallelize event, assignee, and room type validation
-    const [event, registration, speaker, roomType] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
-      registrationId
-        ? db.registration.findFirst({
-            where: { id: registrationId, eventId },
-            select: { id: true, accommodation: { select: { id: true } } },
-          })
-        : null,
-      speakerId
-        ? db.speaker.findFirst({
-            where: { id: speakerId, eventId },
-            select: { id: true, accommodation: { select: { id: true } } },
-          })
-        : null,
-      db.roomType.findFirst({
-        where: {
-          id: roomTypeId,
-          isActive: true,
-          hotel: {
-            eventId,
-            isActive: true,
-          },
-        },
-        include: {
-          hotel: true,
-        },
-      }),
-    ]);
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    if (registrationId && !registration) {
-      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
-    }
-
-    if (speakerId && !speaker) {
-      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
-    }
-
-    // Check if assignee already has accommodation
-    if (registration?.accommodation) {
-      return NextResponse.json(
-        { error: "Registration already has accommodation assigned" },
-        { status: 400 }
-      );
-    }
-
-    if (speaker?.accommodation) {
-      return NextResponse.json(
-        { error: "Speaker already has accommodation assigned" },
-        { status: 400 }
-      );
-    }
-
-    if (!roomType) {
-      return NextResponse.json({ error: "Room type not found or inactive" }, { status: 404 });
-    }
-
-    if (roomType.bookedRooms >= roomType.totalRooms) {
-      return NextResponse.json({ error: "No rooms available" }, { status: 400 });
-    }
-
-    // Validate guest count
-    if (guestCount > roomType.capacity) {
-      return NextResponse.json(
-        { error: `Guest count exceeds room capacity (${roomType.capacity})` },
-        { status: 400 }
-      );
-    }
-
-    // Calculate total price
-    const checkInDate = new Date(checkIn);
-    const checkOutDate = new Date(checkOut);
-    const nights = Math.ceil(
-      (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (nights <= 0) {
-      return NextResponse.json(
-        { error: "Check-out must be after check-in" },
-        { status: 400 }
-      );
-    }
-
-    const totalPrice = Number(roomType.pricePerNight) * nights;
-
-    // Atomic transaction: create accommodation + increment bookedRooms together
-    const accommodation = await db.$transaction(async (tx) => {
-      // Re-check availability inside transaction to prevent overbooking
-      const freshRoom = await tx.roomType.findUnique({
-        where: { id: roomTypeId },
-        select: { bookedRooms: true, totalRooms: true },
-      });
-      if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
-        throw new Error("NO_ROOMS_AVAILABLE");
-      }
-
-      const created = await tx.accommodation.create({
-        data: {
-          eventId,
-          ...(registrationId && { registrationId }),
-          ...(speakerId && { speakerId }),
-          roomTypeId,
-          checkIn: checkInDate,
-          checkOut: checkOutDate,
-          guestCount,
-          specialRequests: specialRequests || null,
-          totalPrice,
-          currency: roomType.currency,
-          status: "PENDING",
-        },
-        include: {
-          registration: {
-            include: {
-              attendee: true,
-            },
-          },
-          speaker: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              title: true,
-              organization: true,
-            },
-          },
-          roomType: {
-            include: {
-              hotel: true,
-            },
-          },
-        },
-      });
-
-      await tx.roomType.update({
-        where: { id: roomTypeId },
-        data: { bookedRooms: { increment: 1 } },
-      });
-
-      return created;
+    const result = await createAccommodation({
+      eventId,
+      organizationId: session.user.organizationId!,
+      userId: session.user.id,
+      registrationId,
+      speakerId,
+      roomTypeId,
+      checkIn: new Date(checkIn),
+      checkOut: new Date(checkOut),
+      guestCount,
+      specialRequests,
+      source: "rest",
+      requestIp: getClientIp(req),
     });
 
-    // Log the action (non-blocking for better response time)
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CREATE",
-        entityType: "Accommodation",
-        entityId: accommodation.id,
-        changes: { ...JSON.parse(JSON.stringify({ accommodation })), ip: getClientIp(req) },
-      },
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
-
-    return NextResponse.json(accommodation, { status: 201 });
-  } catch (error) {
-    if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
-      return NextResponse.json({ error: "No rooms available" }, { status: 400 });
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_ACCOMMODATION_ERROR[result.code] ?? 500;
+      return NextResponse.json(
+        { error: result.message, code: result.code, ...(result.meta ?? {}) },
+        { status },
+      );
     }
+
+    return NextResponse.json(result.accommodation, { status: 201 });
+  } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating accommodation" });
     return NextResponse.json(
       { error: "Failed to create accommodation" },

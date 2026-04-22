@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { createAccommodation } from "@/services/accommodation-service";
 import type { ToolExecutor } from "./_shared";
 
 const ACCOMMODATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"]);
@@ -119,7 +120,7 @@ const listRoomTypes: ToolExecutor = async (input, ctx) => {
   }
 };
 
-const createAccommodation: ToolExecutor = async (input, ctx) => {
+const createAccommodationTool: ToolExecutor = async (input, ctx) => {
   try {
     const registrationId = input.registrationId ? String(input.registrationId).trim() : undefined;
     const speakerId = input.speakerId ? String(input.speakerId).trim() : undefined;
@@ -127,147 +128,72 @@ const createAccommodation: ToolExecutor = async (input, ctx) => {
     const checkInStr = String(input.checkIn ?? "").trim();
     const checkOutStr = String(input.checkOut ?? "").trim();
 
-    if (!registrationId && !speakerId) {
-      return { error: "Either registrationId or speakerId is required" };
-    }
+    // MCP-side input validation: ISO 8601 parsing + required-field shape.
+    // The service receives already-typed inputs (Date, not string) so this
+    // translation lives here, not in the service.
     if (!roomTypeId) return { error: "roomTypeId is required" };
-    if (!checkInStr || !checkOutStr) return { error: "checkIn and checkOut are required (ISO 8601)" };
-
+    if (!checkInStr || !checkOutStr) {
+      return { error: "checkIn and checkOut are required (ISO 8601)" };
+    }
     const checkInDate = new Date(checkInStr);
     const checkOutDate = new Date(checkOutStr);
     if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
       return { error: "checkIn and checkOut must be valid ISO 8601 datetime strings" };
     }
-    const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
-    if (nights <= 0) return { error: "checkOut must be after checkIn" };
 
-    const guestCount = Math.max(1, Number(input.guestCount ?? 1));
-
-    // Validate event access + entities in parallel
-    const [event, registration, speaker, roomType] = await Promise.all([
-      db.event.findFirst({
-        where: { id: ctx.eventId, organizationId: ctx.organizationId },
-        select: { id: true },
-      }),
-      registrationId
-        ? db.registration.findFirst({
-            where: { id: registrationId, eventId: ctx.eventId },
-            select: { id: true, accommodation: { select: { id: true } } },
-          })
-        : null,
-      speakerId
-        ? db.speaker.findFirst({
-            where: { id: speakerId, eventId: ctx.eventId },
-            select: { id: true, accommodation: { select: { id: true } } },
-          })
-        : null,
-      db.roomType.findFirst({
-        where: {
-          id: roomTypeId,
-          isActive: true,
-          hotel: { eventId: ctx.eventId, isActive: true },
-        },
-        select: {
-          id: true,
-          capacity: true,
-          pricePerNight: true,
-          currency: true,
-          bookedRooms: true,
-          totalRooms: true,
-        },
-      }),
-    ]);
-
-    if (!event) return { error: "Event not found or access denied" };
-    if (registrationId && !registration) return { error: `Registration ${registrationId} not found in this event` };
-    if (speakerId && !speaker) return { error: `Speaker ${speakerId} not found in this event` };
-    if (registration?.accommodation) {
-      return {
-        error: "Registration already has accommodation assigned",
-        existingAccommodationId: registration.accommodation.id,
-        suggestion: "Use update_accommodation_status to modify, or remove existing first",
-      };
-    }
-    if (speaker?.accommodation) {
-      return {
-        error: "Speaker already has accommodation assigned",
-        existingAccommodationId: speaker.accommodation.id,
-        suggestion: "Use update_accommodation_status to modify, or remove existing first",
-      };
-    }
-    if (!roomType) return { error: "Room type not found or inactive" };
-    if (guestCount > roomType.capacity) {
-      return { error: `guestCount (${guestCount}) exceeds room capacity (${roomType.capacity})` };
-    }
-
-    const totalPrice = Number(roomType.pricePerNight) * nights;
-
-    // Atomic: overbooking guard inside tx + counter increment
-    const accommodation = await db.$transaction(async (tx) => {
-      const fresh = await tx.roomType.findUnique({
-        where: { id: roomTypeId },
-        select: { bookedRooms: true, totalRooms: true },
-      });
-      if (!fresh || fresh.bookedRooms >= fresh.totalRooms) {
-        throw new Error("NO_ROOMS_AVAILABLE");
-      }
-
-      const created = await tx.accommodation.create({
-        data: {
-          eventId: ctx.eventId,
-          ...(registrationId && { registrationId }),
-          ...(speakerId && { speakerId }),
-          roomTypeId,
-          checkIn: checkInDate,
-          checkOut: checkOutDate,
-          guestCount,
-          specialRequests: input.specialRequests ? String(input.specialRequests).slice(0, 1000) : null,
-          totalPrice,
-          currency: roomType.currency,
-          status: "PENDING",
-        },
-        select: {
-          id: true,
-          status: true,
-          checkIn: true,
-          checkOut: true,
-          guestCount: true,
-          totalPrice: true,
-          currency: true,
-          roomType: { select: { name: true, hotel: { select: { name: true } } } },
-        },
-      });
-
-      await tx.roomType.update({
-        where: { id: roomTypeId },
-        data: { bookedRooms: { increment: 1 } },
-      });
-
-      return created;
+    const result = await createAccommodation({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      registrationId,
+      speakerId,
+      roomTypeId,
+      checkIn: checkInDate,
+      checkOut: checkOutDate,
+      guestCount: input.guestCount != null ? Number(input.guestCount) : undefined,
+      specialRequests: input.specialRequests ? String(input.specialRequests) : null,
+      source: "mcp",
     });
 
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "CREATE",
-        entityType: "Accommodation",
-        entityId: accommodation.id,
-        changes: {
-          source: "mcp",
-          registrationId: registrationId ?? null,
-          speakerId: speakerId ?? null,
-          roomTypeId,
-          nights,
+    if (!result.ok) {
+      // Keep the MCP-specific auto-pivot hint for already-assigned rows so
+      // Claude knows to call update_accommodation_status instead of retrying.
+      if (
+        result.code === "REGISTRATION_HAS_ACCOMMODATION" ||
+        result.code === "SPEAKER_HAS_ACCOMMODATION"
+      ) {
+        return {
+          error: result.message,
+          code: result.code,
+          existingAccommodationId: result.meta?.existingAccommodationId,
+          suggestion: "Use update_accommodation_status to modify, or remove existing first",
+        };
+      }
+      return { error: result.message, code: result.code, ...(result.meta ?? {}) };
+    }
+
+    // MCP response shape: a slim view of the row + nights. Preserves the
+    // pre-refactor shape so existing callers (Claude prompts, n8n flows)
+    // don't see a behavior change.
+    const { accommodation, nights } = result;
+    return {
+      success: true,
+      accommodation: {
+        id: accommodation.id,
+        status: accommodation.status,
+        checkIn: accommodation.checkIn,
+        checkOut: accommodation.checkOut,
+        guestCount: accommodation.guestCount,
+        totalPrice: Number(accommodation.totalPrice),
+        currency: accommodation.currency,
+        nights,
+        roomType: {
+          name: accommodation.roomType.name,
+          hotel: { name: accommodation.roomType.hotel.name },
         },
       },
-    }).catch((err) => apiLogger.error({ err }, "agent:create_accommodation audit-log-failed"));
-
-    return { success: true, accommodation: { ...accommodation, totalPrice: Number(accommodation.totalPrice), nights } };
+    };
   } catch (err) {
-    if (err instanceof Error && err.message === "NO_ROOMS_AVAILABLE") {
-      return { error: "No rooms available for this room type" };
-    }
     apiLogger.error({ err }, "agent:create_accommodation failed");
     return { error: err instanceof Error ? err.message : "Failed to create accommodation" };
   }
@@ -396,6 +322,6 @@ export const ACCOMMODATION_EXECUTORS: Record<string, ToolExecutor> = {
   create_hotel: createHotel,
   list_accommodations: listAccommodations,
   list_room_types: listRoomTypes,
-  create_accommodation: createAccommodation,
+  create_accommodation: createAccommodationTool,
   update_accommodation_status: updateAccommodationStatus,
 };
