@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { signOut, useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
   Loader2,
   AlertCircle,
   Mail,
+  LogOut,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
@@ -104,6 +106,7 @@ export default function EventMyRegistrationPage() {
   const params = useParams();
   const slug = params.slug as string;
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
 
   const [event, setEvent] = useState<Event | null>(null);
   const [eventLoading, setEventLoading] = useState(true);
@@ -237,6 +240,29 @@ export default function EventMyRegistrationPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb]">
+      {/* Top bar — account context + sign out. Kept slim so it doesn't
+          compete with the event banner below. */}
+      <div className="bg-white border-b border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
+          <div className="text-sm font-medium text-slate-600">My Registration</div>
+          {session?.user?.email && (
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:inline text-sm text-slate-500 truncate max-w-[240px]">
+                {session.user.email}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => signOut({ callbackUrl: `/e/${slug}/login` })}
+              >
+                <LogOut className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">Sign out</span>
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Banner */}
       {event?.bannerImage ? (
         <div className="relative w-full bg-white">
