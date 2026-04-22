@@ -5,13 +5,22 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
-import {
-  computeSubmissionAggregates,
-  consolidateReviewNotes,
-  readRequiredReviewCount,
-} from "@/lib/abstract-review";
 import { refreshEventStats } from "@/lib/event-stats";
+import {
+  changeAbstractStatus,
+  type AbstractTransitionStatus,
+  type ChangeAbstractStatusErrorCode,
+} from "@/services/abstract-service";
+
+// HTTP status mapping for the service's domain error codes. Kept local to
+// the REST caller — the service never knows about HTTP.
+const HTTP_STATUS_FOR_ABSTRACT_ERROR: Record<ChangeAbstractStatusErrorCode, number> = {
+  ABSTRACT_NOT_FOUND: 404,
+  ABSTRACT_WITHDRAWN: 400,
+  INSUFFICIENT_REVIEWS: 400,
+  INVALID_STATUS: 400,
+  UNKNOWN: 500,
+};
 
 // Sprint B: review scoring moved to AbstractReviewSubmission rows.
 // This PUT handles abstract metadata + status transitions only.
@@ -201,34 +210,68 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Gate ACCEPTED / REJECTED transitions on minimum review submissions.
-    // `forceStatus: true` bypasses the gate (logged as chair override).
-    const gateRelevant = data.status === "ACCEPTED" || data.status === "REJECTED";
-    let aggregateResult: Awaited<ReturnType<typeof computeSubmissionAggregates>> | null = null;
-    if (gateRelevant) {
-      aggregateResult = await computeSubmissionAggregates(abstractId);
-      const requiredCount = readRequiredReviewCount(event.settings);
-      if (!data.forceStatus && aggregateResult.aggregates.count < requiredCount) {
-        apiLogger.warn(
-          { abstractId, currentCount: aggregateResult.aggregates.count, required: requiredCount, userId: session.user.id },
-          "abstract-status:insufficient-reviews",
-        );
-        return NextResponse.json(
-          {
-            error: `This event requires ${requiredCount} review submission(s) before ${data.status}. Current: ${aggregateResult.aggregates.count}.`,
-            code: "INSUFFICIENT_REVIEWS",
-            currentCount: aggregateResult.aggregates.count,
-            required: requiredCount,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Determine if this is a review action
     const isReview = data.status && reviewStatuses.includes(data.status);
     const isSubmission = data.status === "SUBMITTED" && existingAbstract.status === "DRAFT";
+    // WITHDRAWN transitions aren't in `reviewStatuses` (reviewers don't set
+    // that) but still need the service's terminal-state bookkeeping.
+    const isTerminal = data.status === "WITHDRAWN" && existingAbstract.status !== "WITHDRAWN";
 
+    // Review + terminal transitions go through the service so the gate
+    // check, audit log, notification, and stats refresh are identical to
+    // the MCP agent path. Field-only updates (title/content/trackId/etc.)
+    // and DRAFT → SUBMITTED transitions stay inline — they aren't exposed
+    // via MCP and have no drift risk.
+    if ((isReview || isTerminal) && data.status) {
+      const result = await changeAbstractStatus({
+        eventId,
+        organizationId: session.user.organizationId!,
+        userId: session.user.id,
+        abstractId,
+        newStatus: data.status as AbstractTransitionStatus,
+        forceStatus: data.forceStatus === true,
+        source: "rest",
+        requestIp: getClientIp(req),
+      });
+
+      if (!result.ok) {
+        const status = HTTP_STATUS_FOR_ABSTRACT_ERROR[result.code] ?? 500;
+        return NextResponse.json(
+          { error: result.message, code: result.code, ...(result.meta ?? {}) },
+          { status },
+        );
+      }
+
+      // Apply any concurrent field updates in the same request. The service
+      // already persisted `status` + `reviewedAt`; this pass handles the
+      // other fields so a single PUT can set e.g. track + ACCEPTED together
+      // (matching the pre-refactor behaviour).
+      const fieldUpdates = {
+        ...(data.title && { title: data.title }),
+        ...(data.content && { content: data.content }),
+        ...(data.trackId !== undefined && { trackId: data.trackId }),
+        ...(data.themeId !== undefined && { themeId: data.themeId }),
+        ...(data.specialty !== undefined && { specialty: data.specialty || null }),
+        ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
+      };
+      const hasFieldUpdates = Object.keys(fieldUpdates).length > 0;
+
+      const include = {
+        speaker: true,
+        track: true,
+        eventSession: true,
+        event: { select: { slug: true, name: true } },
+      };
+      // Only one DB round-trip on each branch — if field updates are present,
+      // `update` returns the post-write row; otherwise `findFirst` returns
+      // the post-service-write row.
+      const abstract = hasFieldUpdates
+        ? await db.abstract.update({ where: { id: abstractId }, data: fieldUpdates, include })
+        : await db.abstract.findFirst({ where: { id: abstractId }, include });
+      return NextResponse.json(abstract);
+    }
+
+    // Non-status-change path: field-only updates (optionally with a
+    // DRAFT → SUBMITTED transition by the submitter).
     const abstract = await db.abstract.update({
       where: { id: abstractId },
       data: {
@@ -239,7 +282,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.status && { status: data.status }),
-        ...(isReview && { reviewedAt: new Date() }),
         ...(isSubmission && { submittedAt: new Date() }),
       },
       include: {
@@ -250,58 +292,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
 
-    apiLogger.info(
-      { msg: "abstract-status:changed", eventId, abstractId, userId: session.user.id, previousStatus: existingAbstract.status, newStatus: abstract.status, force: data.forceStatus ?? false },
-    );
-
-    // Fire-and-forget audit log so a write failure doesn't block the response
     db.auditLog.create({
       data: {
         eventId,
         userId: session.user.id,
-        action: isReview ? "REVIEW" : "UPDATE",
+        action: "UPDATE",
         entityType: "Abstract",
         entityId: abstract.id,
         changes: {
           before: { status: existingAbstract.status },
           after: { status: abstract.status },
-          source: data.forceStatus ? "chair-override" : "api",
-          reviewCount: aggregateResult?.aggregates.count ?? null,
-          meanOverall: aggregateResult?.aggregates.meanOverall ?? null,
+          source: "api",
           fieldsChanged: Object.keys(data),
           ip: getClientIp(req),
         },
       },
     }).catch((err) => apiLogger.error({ err, eventId, abstractId }, "abstract-update:audit-log-failed"));
-
-    // Notification: fires on status transition to a review status only.
-    // Feedback-only updates no longer exist at this level — reviewers add
-    // feedback via POST /submissions which has its own flow.
-    if (isReview && data.status) {
-      const notifyAggregate = aggregateResult ?? await computeSubmissionAggregates(abstractId);
-      notifyAbstractStatusChange({
-        eventId,
-        eventName: event.name,
-        eventSlug: abstract.event?.slug ?? null,
-        abstractId: abstract.id,
-        abstractTitle: abstract.title,
-        previousStatus: existingAbstract.status,
-        newStatus: data.status,
-        reviewNotes: consolidateReviewNotes(notifyAggregate.submissions),
-        reviewScore: notifyAggregate.aggregates.meanOverall,
-        speaker: {
-          id: abstract.speaker?.id,
-          email: abstract.speaker?.email ?? null,
-          firstName: abstract.speaker?.firstName ?? "",
-          lastName: abstract.speaker?.lastName ?? "",
-        },
-      }).catch((err) => {
-        apiLogger.error({ err, eventId, abstractId }, "abstract-status:notification-failed");
-      });
-    }
 
     return NextResponse.json(abstract);
   } catch (error) {

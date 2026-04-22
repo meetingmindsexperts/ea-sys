@@ -1,15 +1,16 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { refreshEventStats } from "@/lib/event-stats";
-import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
 import {
   computeSubmissionAggregates,
-  consolidateReviewNotes,
-  readRequiredReviewCount,
   computeWeightedOverallScore,
+  readRequiredReviewCount,
   type CriterionScore,
 } from "@/lib/abstract-review";
+import {
+  changeAbstractStatus,
+  type AbstractTransitionStatus,
+} from "@/services/abstract-service";
 import type { ToolExecutor } from "./_shared";
 
 const ABSTRACT_STATUSES = new Set(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]);
@@ -146,131 +147,51 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       };
     }
 
-    const abstract = await db.abstract.findFirst({
-      where: { id: abstractId, eventId: ctx.eventId },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        event: { select: { id: true, name: true, slug: true, settings: true } },
-        speaker: { select: { id: true, email: true, firstName: true, lastName: true } },
-      },
-    });
-    if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
-
-    // Terminal-state guard: WITHDRAWN is the only truly terminal status.
-    // ACCEPTED ↔ REJECTED transitions are allowed (organizer may change mind).
-    if (abstract.status === "WITHDRAWN") {
-      return {
-        error: "Cannot update a withdrawn abstract",
-        code: "ABSTRACT_WITHDRAWN",
-        currentStatus: abstract.status,
-        suggestion: "Withdrawn abstracts are terminal. The submitter must resubmit a new abstract.",
-      };
-    }
-
-    // Gate ACCEPTED / REJECTED transitions on sufficient review submissions.
-    // The requiredReviewCount setting defaults to 1. `force: true` bypasses
-    // the gate and is logged as a chair override.
-    const aggregate = await computeSubmissionAggregates(abstractId);
-    const requiredCount = readRequiredReviewCount(abstract.event.settings);
-    const gateRelevant = status === "ACCEPTED" || status === "REJECTED";
-    if (gateRelevant && !force && aggregate.aggregates.count < requiredCount) {
-      apiLogger.warn(
-        { abstractId, currentCount: aggregate.aggregates.count, required: requiredCount },
-        "abstract-status:insufficient-reviews",
-      );
-      return {
-        error: `This event requires ${requiredCount} review submission(s) before ${status}. Current: ${aggregate.aggregates.count}.`,
-        code: "INSUFFICIENT_REVIEWS",
-        currentCount: aggregate.aggregates.count,
-        required: requiredCount,
-        suggestion: "Assign + collect more reviews, or pass force=true to override (logged as chair override).",
-      };
-    }
-
-    const previousStatus = abstract.status;
-
-    // DB update is the authoritative state change — succeed or fail loudly here.
-    const updated = await db.abstract.update({
-      where: { id: abstractId },
-      data: {
-        status: status as never,
-        reviewedAt: new Date(),
-      },
-      select: { id: true, title: true, status: true },
+    // Delegate to the service. It owns: terminal-state guard, required-review
+    // gate, DB update, audit log, notification, stats refresh. MCP callers
+    // are always admin-authorized (ctx.organizationId came from the API key
+    // / OAuth token scope), so forceStatus is safe to forward as-is.
+    const result = await changeAbstractStatus({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      abstractId,
+      newStatus: status as AbstractTransitionStatus,
+      forceStatus: force,
+      source: "mcp",
     });
 
-    apiLogger.info(
-      { abstractId, previousStatus, newStatus: status, force, reviewCount: aggregate.aggregates.count },
-      "abstract-status:changed",
-    );
-
-    await db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "REVIEW",
-        entityType: "Abstract",
-        entityId: abstract.id,
-        changes: {
-          before: { status: previousStatus },
-          after: { status },
-          source: force ? "chair-override" : "mcp",
-          reviewCount: aggregate.aggregates.count,
-          meanOverall: aggregate.aggregates.meanOverall,
-        },
-      },
-    }).catch((err) =>
-      apiLogger.error({ err, abstractId }, "agent:update_abstract_status audit-log-failed"),
-    );
-
-    // Aggregate consolidated notes from all reviewers for the speaker email.
-    const consolidatedNotes = consolidateReviewNotes(aggregate.submissions);
-
-    // Notification is isolated: a failing email send must not mask the
-    // successful DB update. Surface notificationStatus in the return payload
-    // so callers (Claude, dashboards) know whether to follow up manually.
-    let notificationStatus: "sent" | "failed" = "sent";
-    let notificationError: string | undefined;
-    try {
-      await notifyAbstractStatusChange({
-        eventId: ctx.eventId,
-        eventName: abstract.event.name,
-        eventSlug: abstract.event.slug,
-        abstractId: abstract.id,
-        abstractTitle: abstract.title,
-        previousStatus,
-        newStatus: status,
-        reviewNotes: consolidatedNotes,
-        reviewScore: aggregate.aggregates.meanOverall,
-        speaker: {
-          id: abstract.speaker?.id,
-          email: abstract.speaker?.email ?? null,
-          firstName: abstract.speaker?.firstName ?? "",
-          lastName: abstract.speaker?.lastName ?? "",
-        },
-      });
-    } catch (notifyErr) {
-      apiLogger.error(
-        { err: notifyErr, abstractId },
-        "abstract-status:notification-failed",
-      );
-      notificationStatus = "failed";
-      notificationError = notifyErr instanceof Error ? notifyErr.message : "Unknown notification error";
+    if (!result.ok) {
+      // Preserve the MCP-specific suggestion hints so Claude knows the
+      // actionable next step instead of retrying the same call.
+      if (result.code === "ABSTRACT_WITHDRAWN") {
+        return {
+          error: "Cannot update a withdrawn abstract",
+          code: "ABSTRACT_WITHDRAWN",
+          currentStatus: result.meta?.currentStatus,
+          suggestion: "Withdrawn abstracts are terminal. The submitter must resubmit a new abstract.",
+        };
+      }
+      if (result.code === "INSUFFICIENT_REVIEWS") {
+        return {
+          error: result.message,
+          code: "INSUFFICIENT_REVIEWS",
+          currentCount: result.meta?.currentCount,
+          required: result.meta?.required,
+          suggestion: "Assign + collect more reviews, or pass force=true to override (logged as chair override).",
+        };
+      }
+      return { error: result.message, code: result.code, ...(result.meta ?? {}) };
     }
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
 
     return {
-      abstract: updated,
-      previousStatus,
-      reviewCount: aggregate.aggregates.count,
-      meanOverallScore: aggregate.aggregates.meanOverall,
-      forcedOverride: force,
-      notificationStatus,
-      ...(notificationError && { notificationError }),
+      abstract: result.abstract,
+      previousStatus: result.previousStatus,
+      reviewCount: result.reviewCount,
+      meanOverallScore: result.meanOverallScore,
+      forcedOverride: result.forcedOverride,
+      notificationStatus: result.notificationStatus,
+      ...(result.notificationError && { notificationError: result.notificationError }),
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_abstract_status failed");
