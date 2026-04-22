@@ -54,9 +54,10 @@ This document covers the current architecture, its strengths, known gaps, and fu
 |---|---|---|
 | **Presentation** | React Server/Client Components, TailwindCSS, Shadcn/ui | Renders UI; server components for static content, client components for interactivity |
 | **Client State** | React Query (TanStack Query) | Caches API responses, handles mutations, provides optimistic updates |
-| **API** | Next.js Route Handlers (`route.ts`) | REST endpoints — auth, validation (Zod), business logic, DB queries all in one handler |
+| **API** | Next.js Route Handlers (`route.ts`) | REST endpoints — auth, validation (Zod), HTTP response shaping. Business logic lives in `src/services/` for extracted domains, inline in the handler for everything else (migrating progressively; see "Services Layer" below) |
+| **Services** | `src/services/*-service.ts` | Domain logic shared by REST routes, MCP agent tools, and cron workers. Pure functions returning errors-as-values; no HTTP awareness. Currently populated for accommodation; registration/speaker/abstract scheduled for Phase 2 |
 | **Auth** | NextAuth.js v5 (JWT strategy) | Session management, 7-role RBAC, 3-layer enforcement (API guards, middleware, UI) |
-| **Data Access** | Prisma ORM | Direct queries in route handlers and server components — no repository abstraction |
+| **Data Access** | Prisma ORM | Direct queries in services + route handlers + server components — no repository abstraction |
 | **Validation** | Zod | Request validation in route handlers; shared schemas (e.g., `titleEnum`) in `src/lib/schemas.ts` |
 | **Database** | PostgreSQL | Single database, single schema, org-scoped queries; enums for Title, UserRole, EventType |
 | **Email** | Brevo + SendGrid (auto-detected via env) + Tiptap v2 + juice | Dual providers; DB-backed templates with WYSIWYG editor, consistent branding, CSS inlining |
@@ -75,9 +76,21 @@ Browser → Next.js Server → auth() → Prisma query → Render HTML → Brows
 **Client Mutation (form submit):**
 ```
 Browser → React Query mutation → fetch('/api/...') → Route Handler
-  → auth() → denyReviewer() → Zod validate → Prisma write → JSON response
-  → React Query cache invalidation → UI update
+  → auth() → denyReviewer() → Zod validate → service call (or inline logic)
+  → JSON response → React Query cache invalidation → UI update
 ```
+
+**MCP tool invocation (agent-driven write):**
+```
+MCP client (Claude.ai / Desktop / n8n) → /api/mcp
+  → OAuth or x-api-key auth → tool executor
+  → service call (shared with REST) → MCP tool response
+```
+
+Services in `src/services/` are the convergence point: REST route handlers
+and MCP tool executors both call the same function, so side effects (email,
+audit log, contact sync, admin notifications) can't silently drift between
+the two entry points.
 
 ### RBAC Architecture
 
@@ -145,12 +158,35 @@ Run: `npm run test` / `npm run test:coverage`
 
 **Remaining gap:** No E2E tests (Playwright/Cypress). Unit tests mock Prisma — no integration tests against a real database.
 
-### 2. No Service Layer Extraction
-**Risk: Low | Effort to fix: Low (when needed)**
+### 2. Services Layer — In Progress (Phased Refactor)
+**Status: Phase 1 shipped; Phase 2 pending**
 
-Business logic lives directly in route handlers. This is fine for simple CRUD but some handlers (e.g., submitter registration) have grown to ~150+ lines with branching logic. As complexity grows, extract business logic into plain functions in `src/lib/services/`.
+Historically business logic lived directly in route handlers, which was fine for single-caller CRUD but became a liability once the MCP agent started implementing the same operations separately — the two call paths drifted (see the April 2026 parity audit that found paid MCP registrations silently skipping the confirmation email + quote PDF).
 
-This is not urgent — only do it when a specific handler becomes hard to follow.
+A phased services refactor is extracting shared domain logic into `src/services/*-service.ts` so REST + MCP + future external APIs all call the same function:
+
+- **Phase 0 — Bug fixes (shipped April 2026).** Patched confirmed drift
+  in MCP `create_registration`, `create_registrations_bulk`,
+  `create_speaker`, `create_speakers_bulk` to match REST admin-create
+  behavior (see `CHANGELOG.md` for the inventory).
+- **Phase 1 — Foundation (shipped April 2026).** Extracted
+  `accommodation-service.ts` and locked in the conventions every
+  subsequent service will follow (errors-as-values result type,
+  typed-Date inputs, caller-identity via `source`, service-owned
+  side effects). See `src/services/README.md`.
+- **Phase 2 — High-duplication services (pending).**
+  `registration-service.ts` (3 callers), `speaker-service.ts` (3
+  callers), `abstract-service.ts` (partial — `abstract-notifications`
+  and `abstract-review` already extracted).
+- **Phase 3 — External API-driven.** Whatever endpoints a future
+  public API exposes, those services must exist. No speculative
+  extraction ahead of a concrete API surface.
+- **Phase 4 — Opportunistic.** For routes called from one place only,
+  extract when touched for a feature reason. No proactive refactor.
+
+**Guardrail:** services never import from `next/server`, never read
+sessions — they receive already-typed, already-authenticated inputs.
+Callers own auth, Zod parsing, rate limiting, and response shaping.
 
 ### 3. Synchronous Email Sends
 **Risk: Low-Medium | Effort to fix: Medium**
@@ -185,8 +221,8 @@ In-memory rate limiting resets on serverless cold starts. For Vercel production,
 ### Priority 3: Error Monitoring Coverage
 Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs.
 
-### Priority 4: Extract Heavy Route Handlers
-When any route handler exceeds ~100 lines of business logic, extract the core logic into `src/lib/services/`. Keep the route handler as a thin wrapper: auth, validate, delegate, respond.
+### Priority 4: Continue Services Layer Extraction (Phase 2)
+Phase 1 shipped `accommodation-service.ts`. Phase 2 targets the highest-duplication operations: `registration-service` (3 callers), `speaker-service` (3 callers), `abstract-service` (partial). Each service is one PR. After Phase 2, the opportunistic policy kicks in — extract when touching a route for a feature reason, not as a dedicated project. See `src/services/README.md` for the conventions.
 
 ---
 

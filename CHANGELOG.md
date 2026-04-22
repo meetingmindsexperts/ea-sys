@@ -6,7 +6,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-_Nothing pending._
+### Changed — Services refactor, Phase 1
+
+First service extracted into the new `src/services/` layer. Conventions
+locked in that every subsequent service will follow:
+- Errors-as-values result type: `{ ok: true, <domain-key>, ... } | { ok: false, code, message, meta? }`
+- Already-typed inputs (`Date`, not `string`) — callers parse at their boundary
+- Caller identity via `source: "rest" | "mcp" | "api"`, written into `AuditLog.changes.source`
+- Service owns the transaction + every side effect; callers only handle auth, Zod, rate limits, HTTP/MCP response shaping
+
+- `createAccommodation` extracted to `src/services/accommodation-service.ts`
+  (170 lines of pure domain logic). REST `POST /api/events/[eventId]/accommodations`
+  and MCP `create_accommodation` both migrated to call the service.
+  Atomic overbooking guard (`updateMany` with `bookedRooms` predicate
+  inside `$transaction`) previously duplicated across the two callers
+  is now centralized.
+- Route handler for accommodation POST reduced from ~210 to ~70 lines.
+  MCP tool executor reduced from ~153 to ~80 lines.
+- 20 new unit tests covering all 11 domain error codes (MISSING_ASSIGNEE,
+  INVALID_DATES, EVENT_NOT_FOUND, REGISTRATION_NOT_FOUND,
+  SPEAKER_NOT_FOUND, REGISTRATION_HAS_ACCOMMODATION,
+  SPEAKER_HAS_ACCOMMODATION, ROOM_NOT_FOUND,
+  GUEST_COUNT_EXCEEDS_CAPACITY, NO_ROOMS_AVAILABLE, UNKNOWN) plus
+  audit-log source tagging and non-blocking audit failure.
+- `src/services/README.md` documents the convention in full for future
+  service extractions.
+
+Non-regression notes (verified by independent review agent):
+- REST response shape identical (same `include` tree).
+- MCP response shape identical (same slim select + `nights`, same
+  auto-pivot hint on `*_HAS_ACCOMMODATION` errors).
+- Removed a redundant pre-tx `bookedRooms >= totalRooms` check on the
+  REST path — the in-tx re-check is strictly safer (no stale-read race
+  window between a pre-check and the actual write).
+- `AuditLog.changes` for accommodation creates is now the slim MCP-style
+  summary (`{ source, registrationId, speakerId, roomTypeId, nights, ip? }`)
+  instead of the full accommodation JSON. The entity is still retrievable
+  via `entityId`; this aligns both callers on one shape.
+
+### Fixed — MCP parity with REST admin-create (Phase 0)
+
+An audit of MCP write tools against their REST counterparts surfaced
+silent drift where MCP skipped side effects REST fires. Highest-impact
+bug: paying registrants created via MCP never received the confirmation
+email + quote PDF because the single-create executor didn't call
+`sendRegistrationConfirmation`. Phase 0 fixes the confirmed drift
+directly in the MCP tools so bug fixes don't wait on the full services
+refactor.
+
+#### `create_registration` (MCP)
+- Fires `sendRegistrationConfirmation()` (with quote PDF attached) when
+  the ticket is paid AND payment is outstanding (`paymentStatus` in
+  `UNASSIGNED`, `UNPAID`, `PENDING`). Matches the REST admin-create and
+  public-register paths.
+- Defaults `paymentStatus` to `UNASSIGNED` for paid tickets,
+  `COMPLIMENTARY` for free — matches REST; was falling through to the
+  raw Prisma default (`UNPAID`) before.
+- Now accepts admin-settable `paymentStatus` input, validated against
+  the manual subset (`UNASSIGNED` / `UNPAID` / `PAID` / `COMPLIMENTARY`).
+  Stripe-driven states (`PENDING` / `REFUNDED` / `FAILED`) rejected with
+  an explanatory error — those are webhook-owned.
+- Atomic `soldCount` increment with sold-out guard inside the
+  transaction (`updateMany` with `soldCount: { lt: quantity }` predicate).
+  Prevents overbooking under concurrent admin + public registrations.
+- Generates and persists `qrCode` via `generateBarcode()`. The check-in
+  scanner searches by `qrCode` + `barcode`, so MCP-created registrations
+  were invisible to it before.
+- Calls `syncToContact()` (awaited, full payload), writes `AuditLog`
+  entry with `changes.source: "mcp"`, fires `notifyEventAdmins()`,
+  refreshes denormalized event stats.
+- Enforces the `salesStart`/`salesEnd` window and respects
+  `ticketType.requiresApproval` (forces `status: "PENDING"`) — REST
+  parity.
+- Duplicate-registration check now excludes `CANCELLED` (so a cancelled
+  registration no longer blocks re-registration), matching REST.
+- Tool input schema gains optional `phone`, `city`, `country`, and
+  `paymentStatus` — backward compatible (existing required fields
+  unchanged).
+
+#### `create_registrations_bulk` (MCP)
+- Atomic `soldCount` increment per row (was silently skipping
+  increments, drifting the counter).
+- Generates `qrCode` per row.
+- Batched admin notification (one per bulk call, not per-row) to avoid
+  swamping the admins' inbox on a 100-row import.
+
+#### `create_speaker` (MCP)
+- Calls `syncToContact()` with the full payload (title, organization,
+  jobTitle, phone, photo, city, country, bio, specialty,
+  registrationType) — was previously omitted entirely.
+- Writes `AuditLog` entry with `changes.source: "mcp"`.
+- Fires `notifyEventAdmins()`.
+- Tool input schema gains optional `phone`, `city`, `country`, `photo`,
+  `registrationType` — backward compatible.
+
+#### `create_speakers_bulk` (MCP)
+- Batched admin notification (one per bulk call, not per-row).
+
+### Added
+- `src/services/README.md` — documents the services-layer conventions.
+- `__tests__/services/accommodation-service.test.ts` — 20 tests.
+- `__tests__/lib/agent-mcp-parity.test.ts` — 18 parity tests covering
+  the Phase 0 MCP fixes (email gate, paymentStatus defaults,
+  requiresApproval, soldCount tx guard, qrCode, syncToContact, audit,
+  notifyEventAdmins, sales-window validation, duplicate-check
+  CANCELLED exclusion, full create_speaker sync payload).
+- `docs/SYSTEM_DESIGN.html` — new "Route Handlers & Services" section
+  under Architecture (local-only, gitignored).
+
+### Chore
+- Synced `package-lock.json` to 0.3.4 (drifted from `package.json`
+  across prior Wave 1 version bumps; CI's package-lock sync check
+  was failing on main).
 
 ---
 

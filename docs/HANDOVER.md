@@ -1,13 +1,14 @@
 # EA-SYS Project Handover Document
 
-**Last Updated:** April 16, 2026
+**Last Updated:** April 22, 2026
 
 This document explains the EA-SYS codebase for someone taking it over. It covers what everything does, where it lives, and why decisions were made.
 
 ### Recent Major Additions (since early April 2026)
 
-If you're returning to this doc after a gap, these are the significant features that landed between April 2 and April 16 and may not be fully reflected in every section below. The deltas are called out inline where relevant, and `CLAUDE.md` is the canonical log.
+If you're returning to this doc after a gap, these are the significant features that landed between April 2 and April 22 and may not be fully reflected in every section below. The deltas are called out inline where relevant, and `CLAUDE.md` is the canonical log.
 
+- **Services layer — Phase 0 + Phase 1** (April 22) — new `src/services/` directory holds shared domain logic called by both REST routes and MCP agent tools. **Phase 0** fixed confirmed drift bugs (paid MCP registrations were silently skipping the confirmation email + quote PDF; full audit inventory in `CHANGELOG.md`). **Phase 1** extracted `accommodation-service.ts` and locked in the conventions every subsequent service will follow (errors-as-values result type, typed `Date` inputs, caller-identity via `source`, service-owned side effects). `src/services/README.md` is the full convention reference. **Phase 2** (registration / speaker / abstract services) is scheduled next. See section 2.5 "Services Layer" and section 14 "Services Refactor Status" below.
 - **Zoom integration** (April 7-8) — org-level OAuth credentials, per-session meeting/webinar creation, public session landing pages at `/e/[slug]/session/[sessionId]`
 - **Webinar events as first-class** (April 13-14) — `eventType === "WEBINAR"` auto-provisions anchor session + Zoom webinar + 5-phase email sequence; two cron workers poll Zoom post-event for recording + attendance
 - **Zoom Web Embed v6** (April 15) — in-page Zoom Component View via `@zoom/meetingsdk/embedded` that works under React 19 (the bundled React 18 lives in the UMD closure)
@@ -22,6 +23,7 @@ If you're returning to this doc after a gap, these are the significant features 
 
 1. [Project Overview & Quick Start](#1-project-overview--quick-start)
 2. [Architecture Overview](#2-architecture-overview)
+   - 2.5 [Services Layer](#25-services-layer-srcservices)
 3. [Database Schema & Models](#3-database-schema--models)
 4. [Authentication & Authorization (RBAC)](#4-authentication--authorization-rbac)
 5. [API Route Patterns](#5-api-route-patterns)
@@ -188,6 +190,31 @@ Browser ← React component ← React Query cache ← JSON response ←───
 ```
 
 React Query caches API responses for 5 minutes. When you navigate away and come back, the cached data shows instantly while a background refresh happens.
+
+### 2.5 Services Layer (`src/services/`)
+
+EA-SYS is mid-way through extracting shared business logic out of route handlers into a dedicated `src/services/` layer. This exists because the same operation can be driven from multiple entry points — the dashboard UI (via REST routes), the Claude agent (via MCP tools), and cron workers — and if each implements the logic independently, side effects silently drift between them.
+
+**Example.** An April 2026 audit found that paid registrations created via MCP never sent the confirmation email + quote PDF. The REST admin-create path did; the MCP executor didn't. Both ran on the same DB schema, but the side-effect fan-out wasn't shared. Services fix this class of bug by construction: one function, all callers.
+
+**What's in a service today.** `src/services/accommodation-service.ts` owns the "create accommodation" operation — including the atomic overbooking guard (`updateMany` with a `bookedRooms` predicate inside a `$transaction`) that was previously duplicated across REST + MCP. The REST route at `src/app/api/events/[eventId]/accommodations/route.ts` and the MCP tool at `src/lib/agent/tools/accommodations.ts` both call it.
+
+**Conventions** (see `src/services/README.md` for the full list):
+
+- **Result shape — errors as values.** Every service returns a discriminated union: `{ ok: true, <domain-key>, ...derived } | { ok: false, code, message, meta? }`. TypeScript forces callers to narrow on `result.ok` before accessing the payload — forgetting the error branch is a compile error. Unexpected errors (DB crashes, bugs) still throw; known domain errors (validation, not-found, race) are values.
+- **Input shape.** Services receive already-typed, already-authenticated input (`Date`, not `string`; `userId` + `organizationId` passed in). Each caller parses at its own boundary (Zod on REST, manual on MCP) so validation isn't duplicated.
+- **Caller identity.** Callers pass `source: "rest" | "mcp" | "api"`. The service writes that into `AuditLog.changes.source` so the audit trail shows where a write originated.
+- **What stays in the caller.** Auth, rate limiting, Zod validation, HTTP status codes / MCP success-error shape, response-body shaping. Anything protocol-specific.
+- **What's in the service.** Event/org scope checks, business-rule enforcement, DB writes, atomic transactions, side effects (email, audit log, contact sync, admin notifications). Anything domain-specific.
+
+**Guardrail:** services **never** import from `next/server`, never touch a session object. If a service knew about HTTP, callers that aren't HTTP (cron, future external API, tests) couldn't use it.
+
+**Refactor phases** (see section 14 for status):
+- **Phase 0** (shipped) — patched confirmed drift bugs directly in MCP tools, no architectural change.
+- **Phase 1** (shipped) — extracted `accommodation-service.ts`, locked in conventions.
+- **Phase 2** (pending) — extract `registration-service.ts`, `speaker-service.ts`, `abstract-service.ts` (each one PR).
+- **Phase 3** — driven by external API surface when it ships.
+- **Phase 4** — opportunistic for everything else (extract when touching a route for a feature reason).
 
 ---
 
@@ -1114,7 +1141,17 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 ## 14. Known Gaps & Future Work
 
-### Current Gaps (as of April 16, 2026)
+### Services Refactor Status (as of April 22, 2026)
+
+The services refactor is in progress — see section 2.5 for architectural rationale and `src/services/README.md` for conventions.
+
+- **Phase 0 — Bug fixes (shipped).** Patched confirmed MCP drift bugs in `create_registration`, `create_registrations_bulk`, `create_speaker`, `create_speakers_bulk` against the REST admin-create path. See CHANGELOG for the full inventory.
+- **Phase 1 — Foundation (shipped).** `accommodation-service.ts` extracted. Both REST POST `/accommodations` and MCP `create_accommodation` now call the service. Conventions locked in (errors-as-values, typed-Date inputs, caller-identity via `source`, service-owned side effects).
+- **Phase 2 — High-duplication services (next).** Three candidates from the audit: `registration-service.ts` (3 callers, biggest win), `speaker-service.ts` (3 callers, smallest), `abstract-service.ts` (partial — `abstract-notifications` + `abstract-review` already extracted). Each one PR.
+- **Phase 3 — External API-driven.** No speculative extraction; wait for concrete API surface.
+- **Phase 4 — Opportunistic.** Single-caller routes extract only when touched for feature reasons.
+
+### Current Gaps (as of April 22, 2026)
 
 1. **Rate limiting on Vercel** — In-memory rate limiter (applied to all public endpoints) resets on serverless cold starts. Needs Redis (Vercel KV / Upstash) for persistent cross-instance rate limiting. On EC2 (Docker), in-memory works fine.
 
@@ -1138,6 +1175,7 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 ### Recently Closed (post-April 2 audit follow-up)
 
+- ✅ **Services layer — Phase 0 + Phase 1 (April 22)** — MCP write tools patched to full REST parity (fixes the paid-MCP-registration-no-email bug and more); `src/services/accommodation-service.ts` extracted with both REST and MCP callers migrated; 38 new tests. See `src/services/README.md` for the conventions future services will follow.
 - ✅ **Accommodation booking UI + API** — `/api/events/[id]/accommodations` full CRUD, admin dialog at `/events/[id]/accommodation`, MCP tools `create_accommodation` / `update_accommodation_status` / `list_room_types` with atomic overbooking guard
 - ✅ **MCP `create_event`** — was missing, now the first tool registered
 - ✅ **MCP update tools** — `update_registration`, `update_speaker`, `update_session`, `bulk_update_registration_status` all shipped
@@ -1186,6 +1224,15 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 | `src/lib/event-access.ts` | `buildEventAccessWhere()` — role-scoped event queries |
 | `src/lib/api-auth.ts` | `getOrgContext()` — auth with session or API key fallback |
 | `src/lib/api-key.ts` | API key validation for external tool access |
+
+### Services Layer (`src/services/`)
+
+| File | Purpose |
+|------|---------|
+| `src/services/README.md` | Convention reference — result-type shape, input shape, caller identity, what stays in caller vs service, testing approach, error-code mapping. **Read this before adding a new service.** |
+| `src/services/accommodation-service.ts` | `createAccommodation()` — atomic overbooking guard + all side effects; called by REST POST `/api/events/[id]/accommodations` and MCP `create_accommodation`. First service extracted (Phase 1 of the refactor). |
+
+_Phase 2 will add `registration-service.ts`, `speaker-service.ts`, `abstract-service.ts`._
 
 ### Data & Business Logic
 

@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** April 16, 2026
+**Last Updated:** April 22, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -8,6 +8,10 @@
 ## Executive Summary
 
 This document outlines the current development status of the Event Administration System, detailing completed features, in-progress work, and planned future phases.
+
+### Current In-Flight Work (April 2026)
+
+- **Services Refactor (Phase 2 next).** Phase 0 (MCP parity bug fixes) and Phase 1 (`accommodation-service.ts` extracted with conventions locked in) shipped April 22. Phase 2 will extract `registration-service.ts`, `speaker-service.ts`, `abstract-service.ts` — one PR per service — so REST routes, MCP agent tools, and future external APIs share one implementation per domain. See `src/services/README.md` for the conventions and `docs/HANDOVER.md` §2.5 for the architectural rationale. Impact: eliminates silent side-effect drift between the dashboard and the Claude agent (the kind of bug that caused paying registrants created via MCP to miss their confirmation emails pre-refactor).
 
 ---
 
