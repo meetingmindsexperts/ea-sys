@@ -158,35 +158,22 @@ Run: `npm run test` / `npm run test:coverage`
 
 **Remaining gap:** No E2E tests (Playwright/Cypress). Unit tests mock Prisma — no integration tests against a real database.
 
-### 2. Services Layer — In Progress (Phased Refactor)
-**Status: Phase 1 shipped; Phase 2 pending**
+### 2. Services Layer — Opportunistic Refactor (Phase 2 mostly shipped)
+**Status: Phase 0 + 1 + 2a + 2b shipped. Phase 2c absorbed into Phase 3 (external-API-driven).**
 
-Historically business logic lived directly in route handlers, which was fine for single-caller CRUD but became a liability once the MCP agent started implementing the same operations separately — the two call paths drifted (see the April 2026 parity audit that found paid MCP registrations silently skipping the confirmation email + quote PDF).
+Historically business logic lived directly in route handlers — the idiomatic Next.js App Router pattern and correct for a solo-developer, single-caller codebase. The services layer became valuable specifically when MCP arrived as a second caller and real drift showed up (the April 2026 audit found paid MCP registrations silently skipping the confirmation email + quote PDF).
 
-A phased services refactor is extracting shared domain logic into `src/services/*-service.ts` so REST + MCP + future external APIs all call the same function:
+The refactor is **opportunistic**: extract when pain signals you, not on a schedule. Three services shipped, one deferred on purpose:
 
-- **Phase 0 — Bug fixes (shipped April 2026).** Patched confirmed drift
-  in MCP `create_registration`, `create_registrations_bulk`,
-  `create_speaker`, `create_speakers_bulk` to match REST admin-create
-  behavior (see `CHANGELOG.md` for the inventory).
-- **Phase 1 — Foundation (shipped April 2026).** Extracted
-  `accommodation-service.ts` and locked in the conventions every
-  subsequent service will follow (errors-as-values result type,
-  typed-Date inputs, caller-identity via `source`, service-owned
-  side effects). See `src/services/README.md`.
-- **Phase 2 — High-duplication services (pending).**
-  `registration-service.ts` (3 callers), `speaker-service.ts` (3
-  callers), `abstract-service.ts` (partial — `abstract-notifications`
-  and `abstract-review` already extracted).
-- **Phase 3 — External API-driven.** Whatever endpoints a future
-  public API exposes, those services must exist. No speculative
-  extraction ahead of a concrete API surface.
-- **Phase 4 — Opportunistic.** For routes called from one place only,
-  extract when touched for a feature reason. No proactive refactor.
+- **Phase 0 — Bug fixes (shipped).** Patched confirmed drift in MCP `create_registration`, `create_registrations_bulk`, `create_speaker`, `create_speakers_bulk` to match the REST admin-create behavior. No architectural change — fixes ship before refactor.
+- **Phase 1 — Foundation (shipped).** Extracted [src/services/accommodation-service.ts](../src/services/accommodation-service.ts). Locked in the conventions every subsequent service follows: errors-as-values result type, typed-Date inputs, caller-identity via `source`, service-owned side effects. Full convention reference in [src/services/README.md](../src/services/README.md).
+- **Phase 2a — Abstract (shipped).** Extracted [src/services/abstract-service.ts](../src/services/abstract-service.ts) with `changeAbstractStatus()`. Centralizes the `requiredReviewCount` gate, WITHDRAWN terminal-state guard (REST tightening), reviewer notification fan-out with isolated failure handling.
+- **Phase 2b — Speaker (shipped).** Extracted [src/services/speaker-service.ts](../src/services/speaker-service.ts) with `createSpeaker()`. Covers REST admin POST + MCP `create_speaker`. Bulk paths intentionally left out — different mechanics.
+- **Phase 2c — Registration (deferred).** The biggest and Stripe-adjacent extraction. Phase 0's in-place patches already eliminated the confirmed drift bugs, so the remaining value is future-facing. Absorbed into **Phase 3** — the extraction will happen when the external public API spec is concrete and actually needs it.
+- **Phase 3 — External API-driven.** A public REST API is on the near-term roadmap. When it lands, whatever endpoints it exposes must back onto services. `registration-service.ts` is the most likely candidate. No speculative extraction ahead of the concrete surface.
+- **Phase 4 — Opportunistic (ongoing).** For single-caller routes, extract only when touching for a feature reason. No proactive refactor.
 
-**Guardrail:** services never import from `next/server`, never read
-sessions — they receive already-typed, already-authenticated inputs.
-Callers own auth, Zod parsing, rate limiting, and response shaping.
+**Guardrail:** services never import from `next/server`, never read sessions — they receive already-typed, already-authenticated inputs. Callers own auth, Zod parsing, rate limiting, and response shaping.
 
 ### 3. Synchronous Email Sends
 **Risk: Low-Medium | Effort to fix: Medium**
@@ -221,8 +208,8 @@ In-memory rate limiting resets on serverless cold starts. For Vercel production,
 ### Priority 3: Error Monitoring Coverage
 Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs.
 
-### Priority 4: Continue Services Layer Extraction (Phase 2)
-Phase 1 shipped `accommodation-service.ts`. Phase 2 targets the highest-duplication operations: `registration-service` (3 callers), `speaker-service` (3 callers), `abstract-service` (partial). Each service is one PR. After Phase 2, the opportunistic policy kicks in — extract when touching a route for a feature reason, not as a dedicated project. See `src/services/README.md` for the conventions.
+### Priority 4: Services Layer — Driven by External API
+Phases 0 / 1 / 2a / 2b shipped three services (accommodation, abstract, speaker). The remaining candidate is `registration-service`, deferred intentionally: Phase 0 already patched its confirmed drift bugs in-place, and the next forcing function is the external public API. When that API spec is concrete, extraction happens alongside the new endpoints. Until then, the opportunistic policy applies — extract only when touching the route for a feature reason.
 
 ---
 

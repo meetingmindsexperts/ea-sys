@@ -8,7 +8,8 @@ This document explains the EA-SYS codebase for someone taking it over. It covers
 
 If you're returning to this doc after a gap, these are the significant features that landed between April 2 and April 22 and may not be fully reflected in every section below. The deltas are called out inline where relevant, and `CLAUDE.md` is the canonical log.
 
-- **Services layer — Phase 0 + Phase 1** (April 22) — new `src/services/` directory holds shared domain logic called by both REST routes and MCP agent tools. **Phase 0** fixed confirmed drift bugs (paid MCP registrations were silently skipping the confirmation email + quote PDF; full audit inventory in `CHANGELOG.md`). **Phase 1** extracted `accommodation-service.ts` and locked in the conventions every subsequent service will follow (errors-as-values result type, typed `Date` inputs, caller-identity via `source`, service-owned side effects). `src/services/README.md` is the full convention reference. **Phase 2** (registration / speaker / abstract services) is scheduled next. See section 2.5 "Services Layer" and section 14 "Services Refactor Status" below.
+- **Services layer — Phase 0 + 1 + 2a + 2b shipped; 2c deferred** (April 22) — new `src/services/` directory holds shared domain logic called by both REST routes and MCP agent tools. **Phase 0** fixed confirmed drift bugs in the MCP tools (paid MCP registrations were silently skipping the confirmation email + quote PDF). **Phase 1** extracted `accommodation-service.ts` and locked in the conventions every subsequent service follows. **Phase 2a** extracted `abstract-service.ts` (status transitions + gate check + notifications). **Phase 2b** extracted `speaker-service.ts` (admin POST + MCP create). **Phase 2c** (registration-service) is **deferred** — Phase 0 already patched its confirmed drift bugs in-place, and the extraction is better done alongside the upcoming external REST API when that spec is concrete. `src/services/README.md` is the full convention reference. See section 2.5 "Services Layer" and section 14 "Services Refactor Status" below.
+- **Invoice + quote polish pass** (April 22) — three real-world UX bugs fixed from paid-registration testing. (1) `createInvoice` / `createReceipt` / `createCreditNote` no longer throw when `event.code` is missing — they reuse the shared `deriveEventCode()` helper that `POST /api/events` + MCP `create_event` already use for new events, and fire-and-forget backfill the derived code to legacy events. Fixes "paid user got Stripe's receipt email but not ours with the PDF attachment." (2) Registrant-facing emails no longer show two different values both labeled "Confirmation Number" — the padded serial (e.g. `002`) is consistent across registration → payment → refund; the payment email adds a distinct "Payment Reference" row for the Stripe PaymentIntent id. (3) The "View Invoice" dashboard button no longer lies when no Invoice row exists — it's relabeled "Download Quote" so registrants know what they're getting. (4) Quote PDF's cramped right-side box (where `vivek@meetingmindsdubai.com` wrapped and collided with the phone row) widened from 38% → 48% of page width; fix applies to Quote, Invoice, Receipt, and Credit Note PDFs because they share the layout helpers.
 - **Zoom integration** (April 7-8) — org-level OAuth credentials, per-session meeting/webinar creation, public session landing pages at `/e/[slug]/session/[sessionId]`
 - **Webinar events as first-class** (April 13-14) — `eventType === "WEBINAR"` auto-provisions anchor session + Zoom webinar + 5-phase email sequence; two cron workers poll Zoom post-event for recording + attendance
 - **Zoom Web Embed v6** (April 15) — in-page Zoom Component View via `@zoom/meetingsdk/embedded` that works under React 19 (the bundled React 18 lives in the UMD closure)
@@ -1143,13 +1144,17 @@ Tests are unit tests that mock Prisma and external services. They don't require 
 
 ### Services Refactor Status (as of April 22, 2026)
 
-The services refactor is in progress — see section 2.5 for architectural rationale and `src/services/README.md` for conventions.
+The services refactor is **opportunistic by design** — extract when pain signals you, not on a schedule. See section 2.5 for the architectural rationale, `src/services/README.md` for the conventions, and the philosophy below.
 
-- **Phase 0 — Bug fixes (shipped).** Patched confirmed MCP drift bugs in `create_registration`, `create_registrations_bulk`, `create_speaker`, `create_speakers_bulk` against the REST admin-create path. See CHANGELOG for the full inventory.
-- **Phase 1 — Foundation (shipped).** `accommodation-service.ts` extracted. Both REST POST `/accommodations` and MCP `create_accommodation` now call the service. Conventions locked in (errors-as-values, typed-Date inputs, caller-identity via `source`, service-owned side effects).
-- **Phase 2 — High-duplication services (next).** Three candidates from the audit: `registration-service.ts` (3 callers, biggest win), `speaker-service.ts` (3 callers, smallest), `abstract-service.ts` (partial — `abstract-notifications` + `abstract-review` already extracted). Each one PR.
-- **Phase 3 — External API-driven.** No speculative extraction; wait for concrete API surface.
-- **Phase 4 — Opportunistic.** Single-caller routes extract only when touched for feature reasons.
+- **Phase 0 — Bug fixes (shipped).** Patched confirmed MCP drift bugs in `create_registration`, `create_registrations_bulk`, `create_speaker`, `create_speakers_bulk` against the REST admin-create path. No architectural change — fix first, refactor later.
+- **Phase 1 — Foundation (shipped, commit `5c6ff8e`).** `accommodation-service.ts`. Conventions locked in.
+- **Phase 2a — Abstract (shipped, commit `761ec7a`).** `abstract-service.ts` with `changeAbstractStatus()`. Centralizes `requiredReviewCount` gate, WITHDRAWN terminal-state guard (REST tightening), notification fan-out.
+- **Phase 2b — Speaker (shipped, commit `7381b65`).** `speaker-service.ts` with `createSpeaker()`. REST + MCP both delegate. Bulk paths intentionally left out.
+- **Phase 2c — Registration (deferred).** Planned extraction into `registration-service.ts` is **intentionally on hold** until the external public API spec lands. Phase 0's in-place patches already eliminated the confirmed drift, and the upcoming API will be the forcing function that actually needs the service. Extracting now would be speculative; we'd guess at the service shape before the third caller's requirements are known.
+- **Phase 3 — External API-driven.** When the public REST API ships, whatever endpoints it exposes get services — and `registration-service.ts` extraction happens as part of that delivery, not before.
+- **Phase 4 — Opportunistic (ongoing).** Single-caller routes extract only when touched for feature reasons.
+
+**Why we started fat and extracted later (not the other way round):** Next.js App Router's idiomatic pattern is route handlers with business logic inline. Building a services layer before there was a second caller would have been speculative abstraction — the classic over-engineering mistake. The refactor started exactly when drift became a real, observed bug (MCP skipping the confirmation email). That's textbook opportunistic refactoring. For a solo/small-team Next.js codebase at this scale, Repository pattern, Hexagonal / Ports & Adapters, CQRS, and message-bus patterns are not warranted — no swappable DB, no 20-person team, no read/write scaling pressure.
 
 ### Current Gaps (as of April 22, 2026)
 
@@ -1231,8 +1236,10 @@ The services refactor is in progress — see section 2.5 for architectural ratio
 |------|---------|
 | `src/services/README.md` | Convention reference — result-type shape, input shape, caller identity, what stays in caller vs service, testing approach, error-code mapping. **Read this before adding a new service.** |
 | `src/services/accommodation-service.ts` | `createAccommodation()` — atomic overbooking guard + all side effects; called by REST POST `/api/events/[id]/accommodations` and MCP `create_accommodation`. First service extracted (Phase 1 of the refactor). |
+| `src/services/abstract-service.ts` | `changeAbstractStatus()` — status-transition flow (UNDER_REVIEW / ACCEPTED / REJECTED / REVISION_REQUESTED / WITHDRAWN). Reused by REST PUT `/api/events/[id]/abstracts/[aid]` (review-status branch) and MCP `update_abstract_status`. Wraps the existing `abstract-review.ts` aggregate helper + `abstract-notifications.ts` notification helper. Phase 2a. |
+| `src/services/speaker-service.ts` | `createSpeaker()` — single-create path. Reused by REST POST `/api/events/[id]/speakers` and MCP `create_speaker`. Bulk paths (`MCP create_speakers_bulk`, `/import-registrations`) intentionally NOT in this service — different mechanics. Phase 2b. |
 
-_Phase 2 will add `registration-service.ts`, `speaker-service.ts`, `abstract-service.ts`._
+_`registration-service.ts` is Phase 2c, **deferred** until the external public REST API spec lands (that API will be the forcing function that actually needs it)._
 
 ### Data & Business Logic
 

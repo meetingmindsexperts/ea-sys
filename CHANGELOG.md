@@ -6,7 +6,141 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Changed — Services refactor, Phase 1
+### Fixed — Invoice auto-generation + UI label (April 22)
+
+Root cause of a production bug where registrants clicked "View Invoice"
+and downloaded a file named `quote.json`, and where the Stripe payment
+webhook only surfaced Stripe's own receipt email (not ours with the
+receipt PDF attached):
+
+- `createReceipt` / `createInvoice` / `createCreditNote` used to throw
+  `"Event code is required for receipt generation"` whenever
+  `event.code` was null. The Stripe webhook's fire-and-forget IIFE
+  swallowed the throw into `/logs`, so no Invoice/Receipt row was
+  ever written, `sendInvoiceEmail()` never ran, and the registrant
+  never received the attached-PDF email. The dashboard "Invoice"
+  button then fell through to the `/quote` endpoint, which itself
+  sometimes served a JSON error that the `<a download>` saved as
+  `quote.json`.
+- New `resolveEventCode(event, ctx)` helper in `src/lib/invoice-service.ts`
+  prefers the admin-set `event.code`; falls back to the **shared**
+  `deriveEventCode()` in `src/lib/utils.ts` — the same deterministic
+  helper that already auto-populates `event.code` on new event creation
+  via `POST /api/events` and MCP `create_event`. Legacy events created
+  before that logic now get the same derivation.
+- Fire-and-forget backfill writes the derived code to `event.code` on
+  first use (`updateMany where code IS NULL`) so subsequent invoices
+  for the same event read the stable prefix. Idempotent under webhook
+  retries (deterministic input → deterministic code).
+- The three creator functions no longer throw on missing `event.code`;
+  they run the full flow with the derived code and log a warn so the
+  drift still surfaces to ops.
+- UI fix: `src/components/invoices/invoice-download-buttons.tsx` —
+  when no Invoice or Receipt row exists, the fallback button is now
+  labeled **"Download Quote"** (with a FileText icon) instead of the
+  misleading "Invoice" label. Registrants always see an honest label
+  for the document they're actually getting.
+
+Knock-on benefit: every PDF generator (quote + invoice + receipt +
+credit note) shares the `drawInfoBoxes` helper in
+`src/lib/pdf/document-layout.ts`, so the right-side box widening from
+the previous commit automatically applies to all four document types
+— not just the quote.
+
+### Fixed — Confirmation number terminology (April 22)
+
+Registrants were seeing two different values both labeled "Confirmation
+Number" at different points in the flow: a short serial (e.g. `002`)
+on the registration-confirmation email and a long internal cuid
+(e.g. `cmo9uoaji0021r301k3iis6fz`) on the payment-confirmation email.
+Same label, wildly different values, no way for the user to tell which
+was their "real" reference.
+
+Now:
+
+- "Confirmation #" / "Confirmation Number" → **"Registration #"** across
+  all three registrant-facing emails (registration-confirmation,
+  payment-confirmation, refund-confirmation).
+- The padded serial (`002`) is threaded into every email — same value
+  on every touchpoint so the user sees one stable identifier from
+  first email through payment through refund.
+- Payment-confirmation email gains a new distinct **"Payment Reference"**
+  row carrying the Stripe payment intent id (`pi_3...`). That's the
+  transaction-level identifier needed for reconciliation, now clearly
+  separate from the registration number.
+- Stripe webhook (`src/app/api/webhooks/stripe/route.ts`) threads
+  `serialId` + `paymentIntentId` into `sendPaymentConfirmationEmail`.
+- Refund route (`src/app/api/events/[eventId]/registrations/[registrationId]/refund/route.ts`)
+  threads `serialId` through too so refund emails stay consistent.
+
+### Fixed — Quote PDF right-side box cramped (April 22)
+
+Reported via screenshot: the right-side meta box on the Quote PDF
+(Date / Quote Reference / Billing Email / Billing Phone) was too
+narrow — a standard 30-char billing email like
+`vivek@meetingmindsdubai.com` wrapped across two lines and collided
+with the phone row below.
+
+Rebalanced `drawInfoBoxes` in `src/lib/pdf/document-layout.ts`:
+- Right box 38% → 48% of page width (left 62% → 52%).
+- Internal split: label column 45% → 38%; value column 50% → 60% of
+  the right box. Value column gains ~45% more horizontal room.
+- `lineBreak: false` on the value column so pathological inputs clip
+  rather than overlap the row below.
+
+Applies to all four PDF types (Quote, Invoice, Receipt, Credit Note)
+because they share the same layout helpers.
+
+### Changed — Services refactor, Phase 2b (April 22)
+
+Third service extracted: `src/services/speaker-service.ts` with
+`createSpeaker()`. Both REST `POST /api/events/[eventId]/speakers`
+and MCP `create_speaker` now delegate. Phase 0 already patched the
+MCP drift in-place (audit log, admin notification, full syncToContact
+payload); Phase 2b consolidates the two callers onto one function so
+they can't drift again.
+
+- Scope: single-create only. Bulk paths (`MCP create_speakers_bulk`,
+  `/api/events/[id]/speakers/import-registrations`) use different
+  mechanics (`createMany` with `skipDuplicates`, per-row error-capture
+  loops) and aren't a fit for a shared single-create service.
+- REST POST reduced from ~154 → ~56 lines. MCP executor from ~178 →
+  ~78 lines.
+- Service normalizes empty-string optional fields (title, bio,
+  organization, jobTitle, phone, website, photo, city, country,
+  specialty, registrationType) to null as a last line of defense for
+  future direct-to-service callers.
+- 18 unit tests covering all 3 error codes (EVENT_NOT_FOUND,
+  SPEAKER_ALREADY_EXISTS, UNKNOWN), P2002 race path, email
+  trim+lowercase normalization, source-tagged audit, admin-message
+  variants, side-effect isolation, audit/notify non-blocking, and
+  empty-string normalization.
+
+### Changed — Services refactor, Phase 2a (April 22)
+
+Second service extracted: `src/services/abstract-service.ts` with
+`changeAbstractStatus()`. Scope is status transitions (UNDER_REVIEW /
+ACCEPTED / REJECTED / REVISION_REQUESTED / WITHDRAWN). Field updates
+on an abstract stay in the REST PUT handler — they aren't called
+from MCP, have no drift risk.
+
+- Centralizes: `requiredReviewCount` gate on ACCEPTED/REJECTED (with
+  `forceStatus` admin override, logged as `source: "chair-override"`);
+  WITHDRAWN terminal-state guard (intentional tightening of the REST
+  path — previously only MCP enforced this); DB update with
+  `reviewedAt` bookkeeping on review statuses; fire-and-forget audit
+  log; `refreshEventStats`; `notifyAbstractStatusChange` awaited with
+  isolated try/catch so a failing email never masks a successful DB
+  update (callers see `notificationStatus: "sent" | "failed" |
+  "skipped"`).
+- Reuses the existing `abstract-review.ts` + `abstract-notifications.ts`
+  helpers; doesn't duplicate aggregate computation.
+- 24 unit tests covering all 5 error codes, WITHDRAWN idempotent no-op,
+  `forceStatus=true` bypass + `source: "chair-override"`, UNDER_REVIEW
+  /REVISION_REQUESTED not gated on reviewer count, no-op
+  ACCEPTED→ACCEPTED skips notification, notification failure isolation.
+
+### Changed — Services refactor, Phase 1 (April 22)
 
 First service extracted into the new `src/services/` layer. Conventions
 locked in that every subsequent service will follow:
