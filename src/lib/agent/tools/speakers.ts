@@ -8,6 +8,11 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
+  createSpeaker,
+  type SpeakerStatus,
+  type SpeakerTitle,
+} from "@/services/speaker-service";
+import {
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
   SpeakerAgreementTemplateError,
   saveSpeakerAgreementTemplate,
@@ -54,7 +59,7 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
   }
 };
 
-const createSpeaker: ToolExecutor = async (input, ctx) => {
+const createSpeakerTool: ToolExecutor = async (input, ctx) => {
   try {
     const email = String(input.email ?? "").trim().toLowerCase();
     const firstName = String(input.firstName ?? "").trim();
@@ -64,114 +69,62 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
     }
     if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
-    // Explicit pre-check so we can return the existing speaker's id. This lets
-    // callers (like Claude) auto-pivot to update_speaker instead of needing a
-    // second list_speakers call to find the existing row. The P2002 catch below
-    // remains as a safety net for race conditions between this check and create.
-    const existing = await db.speaker.findFirst({
-      where: { eventId: ctx.eventId, email },
-      select: { id: true },
-    });
-    if (existing) {
-      return {
-        error: `A speaker with email ${email} already exists for this event`,
-        existingId: existing.id,
-        suggestion: "Use update_speaker with speakerId to modify this speaker, or use a different email",
-      };
+    const rawTitle = input.title ? String(input.title) : undefined;
+    if (rawTitle && !TITLE_VALUES.has(rawTitle)) {
+      return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
+    }
+    const rawStatus = input.status ? String(input.status) : undefined;
+    if (rawStatus && !SPEAKER_STATUSES.has(rawStatus)) {
+      return { error: `Invalid status. Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
     }
 
-    const bio = input.bio ? String(input.bio).slice(0, 5000) : null;
-    const organization = input.organization ? String(input.organization).slice(0, 255) : null;
-    const jobTitle = input.jobTitle ? String(input.jobTitle).slice(0, 255) : null;
-    const phone = input.phone ? String(input.phone).slice(0, 50) : null;
-    const city = input.city ? String(input.city).slice(0, 255) : null;
-    const country = input.country ? String(input.country).slice(0, 255) : null;
-    const photo = input.photo ? String(input.photo).slice(0, 500) : null;
-    const specialty = input.specialty ? String(input.specialty).slice(0, 255) : null;
-    const registrationType = input.registrationType ? String(input.registrationType).slice(0, 255) : null;
-
-    const speaker = await db.speaker.create({
-      data: {
-        eventId: ctx.eventId,
-        email,
-        firstName,
-        lastName,
-        title: input.title as never ?? null,
-        bio,
-        organization,
-        jobTitle,
-        phone,
-        city,
-        country,
-        photo,
-        specialty,
-        registrationType,
-        status: (input.status as never) ?? "INVITED",
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        status: true,
-      },
-    });
-
-    // Parity with REST POST /api/events/[eventId]/speakers — sync the full
-    // contact payload (phone/photo/city/country/bio/registrationType included
-    // so the initial Contact row isn't a thin shell).
-    await syncToContact({
-      organizationId: ctx.organizationId,
+    const result = await createSpeaker({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
       email,
       firstName,
       lastName,
-      title: (input.title as string) ?? null,
-      organization,
-      jobTitle,
-      phone,
-      photo,
-      city,
-      country,
-      bio,
-      specialty,
-      registrationType,
+      title: (rawTitle as SpeakerTitle | undefined) ?? null,
+      bio: input.bio ? String(input.bio).slice(0, 5000) : null,
+      organization: input.organization ? String(input.organization).slice(0, 255) : null,
+      jobTitle: input.jobTitle ? String(input.jobTitle).slice(0, 255) : null,
+      phone: input.phone ? String(input.phone).slice(0, 50) : null,
+      city: input.city ? String(input.city).slice(0, 255) : null,
+      country: input.country ? String(input.country).slice(0, 255) : null,
+      photo: input.photo ? String(input.photo).slice(0, 500) : null,
+      specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
+      registrationType: input.registrationType ? String(input.registrationType).slice(0, 255) : null,
+      status: (rawStatus as SpeakerStatus | undefined) ?? "INVITED",
+      source: "mcp",
     });
 
-    // Audit log (fire-and-forget to avoid blocking the response).
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "CREATE",
-        entityType: "Speaker",
-        entityId: speaker.id,
-        changes: { source: "mcp", speakerId: speaker.id, email },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:create_speaker audit-log-failed"));
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
-
-    // Parity with REST — notify org admins so they see MCP-added speakers.
-    notifyEventAdmins(ctx.eventId, {
-      type: "REGISTRATION",
-      title: "Speaker Added",
-      message: `${firstName} ${lastName} added as speaker (via MCP)`,
-      link: `/events/${ctx.eventId}/speakers`,
-    }).catch((err) => apiLogger.error({ err }, "agent:create_speaker notify-admins-failed"));
-
-    return { success: true, speaker };
-  } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      err.message.includes("Unique constraint") &&
-      err.message.includes("email")
-    ) {
-      return {
-        error: `A speaker with email ${input.email} already exists for this event`,
-      };
+    if (!result.ok) {
+      // Preserve the MCP auto-pivot hint on duplicate so Claude knows to
+      // call update_speaker instead of retrying.
+      if (result.code === "SPEAKER_ALREADY_EXISTS") {
+        return {
+          error: result.message,
+          code: result.code,
+          existingId: result.meta?.existingSpeakerId,
+          suggestion: "Use update_speaker with speakerId to modify this speaker, or use a different email",
+        };
+      }
+      return { error: result.message, code: result.code, ...(result.meta ?? {}) };
     }
+
+    // Preserve the pre-refactor MCP response shape (slim select).
+    return {
+      success: true,
+      speaker: {
+        id: result.speaker.id,
+        firstName: result.speaker.firstName,
+        lastName: result.speaker.lastName,
+        email: result.speaker.email,
+        status: result.speaker.status,
+      },
+    };
+  } catch (err) {
     apiLogger.error({ err }, "agent:create_speaker failed");
     return { error: "Failed to create speaker" };
   }
@@ -621,7 +574,7 @@ export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
 
 export const SPEAKER_EXECUTORS: Record<string, ToolExecutor> = {
   list_speakers: listSpeakers,
-  create_speaker: createSpeaker,
+  create_speaker: createSpeakerTool,
   update_speaker: updateSpeaker,
   create_speakers_bulk: createSpeakersBulk,
   list_speaker_agreements: listSpeakerAgreements,

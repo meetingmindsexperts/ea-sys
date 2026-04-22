@@ -9,9 +9,17 @@ import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
-import { syncToContact } from "@/lib/contact-sync";
-import { notifyEventAdmins } from "@/lib/notifications";
-import { refreshEventStats } from "@/lib/event-stats";
+import {
+  createSpeaker,
+  type CreateSpeakerErrorCode,
+} from "@/services/speaker-service";
+
+// HTTP status mapping for the service's domain error codes.
+const HTTP_STATUS_FOR_SPEAKER_ERROR: Record<CreateSpeakerErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  SPEAKER_ALREADY_EXISTS: 400,
+  UNKNOWN: 500,
+};
 
 const createSpeakerSchema = z.object({
   title: titleEnum.optional(),
@@ -131,128 +139,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const {
-      title,
-      email,
-      firstName,
-      lastName,
-      bio,
-      organization,
-      jobTitle,
-      phone,
-      website,
-      photo,
-      city,
-      country,
-      specialty,
-      registrationType,
-      tags,
-      socialLinks,
-      status,
-    } = validated.data;
+    const result = await createSpeaker({
+      eventId,
+      organizationId: session.user.organizationId!,
+      userId: session.user.id,
+      ...validated.data,
+      source: "rest",
+      requestIp: getClientIp(req),
+    });
 
-    // Parallelize event validation and existing speaker check
-    const [event, existingSpeaker] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
-      db.speaker.findFirst({
-        where: {
-          eventId,
-          email,
-        },
-      }),
-    ]);
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    if (existingSpeaker) {
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_SPEAKER_ERROR[result.code] ?? 500;
       return NextResponse.json(
-        { error: "Speaker with this email already exists for this event" },
-        { status: 400 }
+        { error: result.message, code: result.code, ...(result.meta ?? {}) },
+        { status },
       );
     }
 
-    const speaker = await db.speaker.create({
-      data: {
-        eventId,
-        title: title || null,
-        email,
-        firstName,
-        lastName,
-        bio: bio || null,
-        organization: organization || null,
-        jobTitle: jobTitle || null,
-        phone: phone || null,
-        website: website || null,
-        photo: photo || null,
-        city: city || null,
-        country: country || null,
-        specialty: specialty || null,
-        registrationType: registrationType || null,
-        tags: tags || [],
-        socialLinks: socialLinks || {},
-        status,
-      },
-      include: {
-        _count: {
-          select: {
-            sessions: true,
-            abstracts: true,
-          },
-        },
-      },
-    });
-
-    // Sync to org contact store (awaited — errors caught internally)
-    await syncToContact({
-      organizationId: session.user.organizationId!,
-      eventId,
-      email,
-      firstName,
-      lastName,
-      title: title || null,
-      organization: organization || null,
-      jobTitle: jobTitle || null,
-      phone: phone || null,
-      photo: photo || null,
-      city: city || null,
-      country: country || null,
-      bio: bio || null,
-      specialty: specialty || null,
-      registrationType: registrationType || null,
-    });
-
-    // Log the action (non-blocking for better response time)
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CREATE",
-        entityType: "Speaker",
-        entityId: speaker.id,
-        changes: { ...JSON.parse(JSON.stringify({ speaker })), ip: getClientIp(req) },
-      },
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Notify admins of new speaker
-    notifyEventAdmins(eventId, {
-      type: "REGISTRATION",
-      title: "Speaker Added",
-      message: `${firstName} ${lastName} added as speaker`,
-      link: `/events/${eventId}/speakers`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send speaker notification" }));
-
-    return NextResponse.json(speaker, { status: 201 });
+    return NextResponse.json(result.speaker, { status: 201 });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating speaker" });
     return NextResponse.json(
