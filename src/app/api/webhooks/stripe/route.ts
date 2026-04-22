@@ -45,7 +45,10 @@ export async function POST(req: Request) {
     }
 
     try {
-      // Look up registration
+      // Look up registration. `serialId` is included so the payment
+      // confirmation email can display the same short "Registration #"
+      // the user saw in their initial confirmation — gives continuity
+      // instead of surfacing the internal cuid.
       const registration = await db.registration.findUnique({
         where: { id: registrationId },
         include: {
@@ -141,8 +144,9 @@ export async function POST(req: Request) {
         link: `/events/${registration.event.id}/registrations`,
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send payment notification" }));
 
-      // Send payment confirmation email (non-blocking)
-      sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl).catch((err) =>
+      // Send payment confirmation email (non-blocking).
+      // paymentIntentId → `Payment Reference` field in the email.
+      sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl, paymentIntentId).catch((err) =>
         apiLogger.error({ err, msg: "Failed to send payment confirmation email", registrationId })
       );
 
@@ -264,6 +268,7 @@ export async function POST(req: Request) {
 async function sendPaymentConfirmationEmail(
   registration: {
     id: string;
+    serialId: number | null;
     attendee: { firstName: string; lastName: string; email: string };
     ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
@@ -271,7 +276,8 @@ async function sendPaymentConfirmationEmail(
   },
   amount: number,
   currency: string,
-  receiptUrl: string | null
+  receiptUrl: string | null,
+  paymentIntentId: string | null,
 ) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -309,13 +315,24 @@ async function sendPaymentConfirmationEmail(
     : "";
   const receiptBlockText = receiptUrl ? `View Receipt: ${receiptUrl}` : "";
 
+  // registrationId → the padded serial number (e.g. "002") that matches the
+  // first confirmation email the user already has. paymentReference → Stripe
+  // payment intent id (the transaction-level identifier). Fall back to "—"
+  // when either is missing so the template doesn't render a raw "undefined".
+  const displayRegistrationId =
+    registration.serialId != null
+      ? String(registration.serialId).padStart(3, "0")
+      : registration.id;
+  const paymentReference = paymentIntentId ?? "—";
+
   const vars: Record<string, string | number | undefined> = {
     firstName: registration.attendee.firstName,
     lastName: registration.attendee.lastName,
     eventName: registration.event.name,
     eventDate,
     eventVenue: [registration.event.venue, registration.event.city].filter(Boolean).join(", "),
-    registrationId: registration.id,
+    registrationId: displayRegistrationId,
+    paymentReference,
     ticketType: registration.ticketType?.name ?? "General",
     amount: `${currency} ${amount.toFixed(2)}`,
     currency,

@@ -488,7 +488,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Registration Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
-        <tr><td style="padding: 8px 0; color: #6b7280;">Confirmation #:</td><td style="padding: 8px 0; font-weight: 500; font-family: monospace;">{{registrationId}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Registration #:</td><td style="padding: 8px 0; font-weight: 500; font-family: monospace;">{{registrationId}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">{{eventDate}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
@@ -506,7 +506,7 @@ Dear {{firstName}},
 Your registration for {{eventName}} has been confirmed.
 
 Registration Details:
-- Confirmation #: {{registrationId}}
+- Registration #: {{registrationId}}
 - Event: {{eventName}}
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
@@ -805,7 +805,8 @@ Dear {{firstName}},
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Thank you for your payment. Here are your invoice details:</p>
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
-      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Confirmation Number</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{registrationId}}</td></tr>
+      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration #</td><td style="padding: 10px 16px; font-weight: 600; text-align: right; font-family: monospace;">{{registrationId}}</td></tr>
+      <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Payment Reference</td><td style="padding: 10px 16px; font-weight: 500; text-align: right; font-family: monospace; font-size: 12px;">{{paymentReference}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Date</td><td style="padding: 10px 16px; text-align: right;">{{eventDate}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration Type</td><td style="padding: 10px 16px; text-align: right;">{{ticketType}}</td></tr>
@@ -821,7 +822,8 @@ Dear {{firstName}},
 
 Thank you for your payment. Here are your invoice details:
 
-Confirmation Number: {{registrationId}}
+Registration #: {{registrationId}}
+Payment Reference: {{paymentReference}}
 Event: {{eventName}}
 Date: {{eventDate}}
 Registration Type: {{ticketType}}
@@ -846,7 +848,7 @@ Please save this email for your records.`,
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.</p>
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
-      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Confirmation Number</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{registrationId}}</td></tr>
+      <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration #</td><td style="padding: 10px 16px; font-weight: 600; text-align: right; font-family: monospace;">{{registrationId}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Date</td><td style="padding: 10px 16px; text-align: right;">{{eventDate}}</td></tr>
       <tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration Type</td><td style="padding: 10px 16px; text-align: right;">{{ticketType}}</td></tr>
@@ -861,7 +863,7 @@ Dear {{firstName}},
 
 Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.
 
-Confirmation Number: {{registrationId}}
+Registration #: {{registrationId}}
 Event: {{eventName}}
 Date: {{eventDate}}
 Registration Type: {{ticketType}}

@@ -35,6 +35,7 @@ export async function POST(
         where: { id: registrationId },
         select: {
           id: true,
+          serialId: true,
           eventId: true,
           paymentStatus: true,
           attendee: { select: { firstName: true, lastName: true, email: true } },
@@ -155,6 +156,7 @@ export async function POST(
 async function sendRefundConfirmationEmail(
   registration: {
     id: string;
+    serialId: number | null;
     attendee: { firstName: string; lastName: string; email: string };
     ticketType: { name: string } | null;
     event: { id: string; name: string; startDate: Date };
@@ -169,12 +171,17 @@ async function sendRefundConfirmationEmail(
     year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit",
   }).format(new Date());
 
+  const displayRegistrationId =
+    registration.serialId != null
+      ? String(registration.serialId).padStart(3, "0")
+      : registration.id;
+
   const vars: Record<string, string> = {
     firstName: registration.attendee.firstName,
     lastName: registration.attendee.lastName,
     eventName: registration.event.name,
     eventDate,
-    registrationId: registration.id,
+    registrationId: displayRegistrationId,
     ticketType: registration.ticketType?.name ?? "General",
     amount: formattedAmount,
     refundDate,

@@ -240,8 +240,12 @@ export function drawInfoBoxes(
 ): number {
   const pageWidth = doc.page.width - PAGE_MARGIN * 2;
   const gap = 10;
-  const leftWidth = (pageWidth - gap) * 0.62;
-  const rightWidth = (pageWidth - gap) * 0.38;
+  // Right box was 38% (cramped — a 30-char billing email like
+  // `vivek@meetingmindsdubai.com` wrapped across two lines and collided
+  // with the phone row below). Widening to 48% gives the value column
+  // ~138pt at A4, enough to fit a standard-length email on one line.
+  const leftWidth = (pageWidth - gap) * 0.51;
+  const rightWidth = (pageWidth - gap) * 0.49;
   const leftX = PAGE_MARGIN;
   const rightX = PAGE_MARGIN + leftWidth + gap;
 
@@ -288,14 +292,19 @@ export function drawInfoBoxes(
   doc.lineWidth(0.5).strokeColor(COLOR_BORDER)
     .rect(rightX, y, rightWidth, boxHeight).stroke();
 
+  // Label column narrowed to ~38% of the box; value column widened to
+  // ~62% so longer emails/references stay on one line. lineBreak: false
+  // is a belt-and-braces guard — for truly extreme inputs pdfkit will
+  // clip instead of wrapping, which is preferable to overlapping rows.
   let rY = y + 10;
   for (const item of input.meta) {
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
-      .text(item.label, rightX + 10, rY, { width: rightWidth * 0.45 });
+      .text(item.label, rightX + 10, rY, { width: rightWidth * 0.38 });
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica")
-      .text(item.value, rightX + rightWidth * 0.5, rY, {
-        width: rightWidth * 0.5 - 10,
+      .text(item.value, rightX + rightWidth * 0.40, rY, {
+        width: rightWidth * 0.60 - 10,
         align: "left",
+        lineBreak: false,
       });
     rY += labelLineH;
   }
