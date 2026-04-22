@@ -20,11 +20,11 @@ The Wave 1 report (21 April 2026) graded the system at **Stage 3/5 — Beta-read
 | HIGH / UX | 1 (F28) | 0 | 1 — additive UX, non-blocking |
 | TRAINING-CRITICAL | 2 (F30, F35) | 1 clarified as by-design | 1 — additive feature, non-blocking |
 | MEDIUM | 1 (F35 already counted) | — | — |
-| LOW / DOC | 1 (F15) | 0 | 1 — documentation task |
+| LOW / DOC | 1 (F15) | **1** ✅ | 0 — published in MCP_REFERENCE.md |
 | TRANSIENT (F1–F4) | 4 | — | resolved during Wave 1, no action needed |
 | **Positive regressions (F6–F36 "what works")** | **16** | **16** | ongoing parity guaranteed by services refactor |
 
-**Revised maturity (as of 22 April):** Stage 4/5 — the two named blockers from the Wave 1 closing note are both tractable-and-concreted. The remaining three items (F28, F35, F15) are additive nice-to-haves that don't block agent-driven operations.
+**Revised maturity (as of 22 April):** Stage 4/5 — the two named blockers from the Wave 1 closing note are both tractable-and-concreted. The remaining two items (F28, F35) are additive nice-to-haves that don't block agent-driven operations; F15 (rate-limit docs) is now published in `docs/MCP_REFERENCE.md`.
 
 ### Bonus — work beyond Wave 1 scope
 
@@ -188,23 +188,16 @@ Not scheduled — no user has requested it.
 
 ---
 
-### F15 — LOW / DOC: Rate-limit threshold undocumented ⏳ DOC ITEM
+### F15 — LOW / DOC: Rate-limit threshold undocumented ✅ CLOSED
 
-**Current thresholds** (from `src/lib/security.ts` + per-route bucket declarations):
+**Closure:** [`docs/MCP_REFERENCE.md`](MCP_REFERENCE.md) "Rate Limits" section now documents:
+- **Global:** 100/hr per API key / OAuth token.
+- **Per-tool buckets** (fire before the global counter): `send_bulk_email` 10/hr per event, `research_sponsor` 30/hr per user+event, `upload_speaker_agreement_template` 10/hr per user.
+- **OAuth flows** (separate surface): DCR, authorize, token exchange, revocation.
+- **Response schema** — the MCP HTTP endpoint already returns spec-compliant 429 with `Retry-After` header + structured body (`code: "RATE_LIMITED"`, `retryAfterSeconds`, `limit`, `windowSeconds`). Per-tool rejections return the same structured body as an MCP error (not HTTP 429).
+- **Recommendations for agent implementations** — serialise writes, pre-check with `list_*`, respect `Retry-After`, observe global vs per-tool bucket split.
 
-| Endpoint family | Limit |
-|---|---|
-| Public register | 10/min per IP |
-| Stripe checkout create | 3/60s per IP |
-| Public completion-token submit | 5/15min per IP |
-| Bulk email send | 5/hr per org |
-| AI agent execute | 20/hr per user |
-| Speaker-agreement template upload | 10/hr per user |
-| MCP global bucket | 100/hr per API key |
-
-**Action:** Incorporate the above table into the MCP reference doc. Add a 429 response with `Retry-After` header where currently returning a generic error.
-
-Not scheduled — doc-only, no user-impact.
+**Code was already correct** — the MCP route at [`src/app/api/mcp/route.ts:106`](../src/app/api/mcp/route.ts#L106) returns `status: 429` with `Retry-After` header. The gap was purely documentation, which is now closed.
 
 ---
 
@@ -319,7 +312,7 @@ The Wave 1 report's closing note:
 
 > *"The dev team has earned confidence. The remaining blockers (event.code gating, reviewer submission via MCP) are tractable and concrete."*
 
-**Both blockers are now tracted and concreted.** All 5 CRITICAL + HIGH findings closed. The three remaining outstanding items (F28, F35, F15) are additive UX improvements and documentation tasks — none block Stage 4/5 beta operation.
+**Both blockers are now tracted and concreted.** All 5 CRITICAL + HIGH findings closed, F15 docs published, leaving only F28 (upsert_sponsors partial-update) and F35 (bulk-email scheduling) as additive UX nice-to-haves. None block Stage 4/5 beta operation.
 
 **Recommended maturity revision: Stage 4/5.** Reserve Stage 5/5 for the cutover to the external public REST API (Phase 3 of the services refactor), at which point the full three-caller pattern (REST + MCP + external API) is live and drift-proofed end-to-end.
 
