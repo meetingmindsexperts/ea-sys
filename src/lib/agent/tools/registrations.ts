@@ -3,9 +3,11 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
-import { normalizeTag } from "@/lib/utils";
+import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { notifyEventAdmins } from "@/lib/notifications";
+import { sendRegistrationConfirmation } from "@/lib/email";
 import {
   EMAIL_RE,
   TITLE_VALUES,
@@ -14,7 +16,13 @@ import {
   type ToolExecutor,
 } from "./_shared";
 
-const ALL_PAYMENT_STATUSES = new Set(["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]);
+const ALL_PAYMENT_STATUSES = new Set(["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]);
+// Admin-settable subset. Stripe-driven states (PENDING / REFUNDED / FAILED) are
+// excluded — the webhook owns those. Matches the dashboard POST route.
+const MANUAL_PAYMENT_STATUSES = new Set(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY"]);
+// Registrants still owe money → auto-send the confirmation email + quote PDF.
+// Matches OUTSTANDING_PAYMENT_STATUSES in the REST route.
+const OUTSTANDING_PAYMENT_STATUSES = new Set(["UNASSIGNED", "UNPAID", "PENDING"]);
 const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
 const BULK_MAX = 100;
 
@@ -158,12 +166,63 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
     }
     if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
-    // Validate ticketTypeId belongs to this event
-    const ticketType = await db.ticketType.findFirst({
-      where: { id: ticketTypeId, eventId: ctx.eventId },
-      select: { id: true, name: true },
-    });
-    if (!ticketType) return { error: "Ticket type not found for this event. Use list_ticket_types to get valid IDs." };
+    // Load event + ticket type in parallel. Event select carries all fields
+    // sendRegistrationConfirmation needs so we don't re-query post-transaction.
+    const [event, ticketType] = await Promise.all([
+      db.event.findFirst({
+        where: { id: ctx.eventId, organizationId: ctx.organizationId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          startDate: true,
+          venue: true,
+          city: true,
+          taxRate: true,
+          taxLabel: true,
+          bankDetails: true,
+          supportEmail: true,
+          organizationId: true,
+          organization: {
+            select: {
+              name: true,
+              companyName: true,
+              companyAddress: true,
+              companyCity: true,
+              companyState: true,
+              companyZipCode: true,
+              companyCountry: true,
+              taxId: true,
+              logo: true,
+            },
+          },
+        },
+      }),
+      db.ticketType.findFirst({
+        where: { id: ticketTypeId, eventId: ctx.eventId, isActive: true },
+        select: {
+          id: true, name: true, price: true, currency: true,
+          quantity: true, soldCount: true,
+          salesStart: true, salesEnd: true, requiresApproval: true,
+        },
+      }),
+    ]);
+
+    if (!event) return { error: "Event not found or access denied" };
+    if (!ticketType) return { error: "Ticket type not found or inactive. Use list_ticket_types to get valid IDs." };
+
+    // Sales window + capacity pre-check (mirrors REST route). The atomic
+    // guard inside the tx below is the race-safety net.
+    const now = new Date();
+    if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
+      return { error: "Ticket sales have not started" };
+    }
+    if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
+      return { error: "Ticket sales have ended" };
+    }
+    if (ticketType.soldCount >= ticketType.quantity) {
+      return { error: "Tickets sold out" };
+    }
 
     // Validate pricingTierId if provided
     let validPricingTierId: string | null = null;
@@ -188,10 +247,26 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid title "${rawTitle}". Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
 
+    // Admin-settable paymentStatus. Default: UNASSIGNED for paid tickets,
+    // COMPLIMENTARY for free. Matches the REST route default logic.
+    const requestedPaymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
+    if (requestedPaymentStatus && !MANUAL_PAYMENT_STATUSES.has(requestedPaymentStatus)) {
+      return {
+        error: `Invalid paymentStatus "${requestedPaymentStatus}". Must be one of: ${[...MANUAL_PAYMENT_STATUSES].join(", ")}. Stripe-driven states (PENDING/REFUNDED/FAILED) are webhook-owned.`,
+      };
+    }
+    const isFree = Number(ticketType.price) === 0;
+    const defaultPaymentStatus = isFree ? "COMPLIMENTARY" : "UNASSIGNED";
+    const finalPaymentStatus = requestedPaymentStatus ?? defaultPaymentStatus;
+
+    // Respect requiresApproval — if the ticket type needs approval, the
+    // registration starts PENDING regardless of input status.
+    const finalStatus = ticketType.requiresApproval ? "PENDING" : rawStatus;
+
     // Check for duplicate registration by email for this event.
     // Returns existingRegistrationId so callers can auto-pivot to update_registration.
     const duplicate = await db.registration.findFirst({
-      where: { eventId: ctx.eventId, attendee: { email } },
+      where: { eventId: ctx.eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
       select: { id: true },
     });
     if (duplicate) {
@@ -203,6 +278,13 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
       };
     }
 
+    const organization = input.organization ? String(input.organization) : null;
+    const jobTitle = input.jobTitle ? String(input.jobTitle) : null;
+    const phone = input.phone ? String(input.phone) : null;
+    const city = input.city ? String(input.city) : null;
+    const country = input.country ? String(input.country) : null;
+    const specialty = input.specialty ? String(input.specialty) : null;
+
     const result = await db.$transaction(async (tx) => {
       const attendee = await tx.attendee.create({
         data: {
@@ -210,14 +292,28 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
           firstName,
           lastName,
           title: rawTitle as never ?? null,
-          organization: input.organization ? String(input.organization) : null,
-          jobTitle: input.jobTitle ? String(input.jobTitle) : null,
-          specialty: input.specialty ? String(input.specialty) : null,
+          organization,
+          jobTitle,
+          phone,
+          city,
+          country,
+          specialty,
           registrationType: ticketType.name,
         },
         select: { id: true, firstName: true, lastName: true, email: true },
       });
 
+      // Atomic soldCount increment with sold-out guard inside the tx —
+      // prevents race conditions with concurrent public/admin registrations.
+      const updated = await tx.ticketType.updateMany({
+        where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
+        data: { soldCount: { increment: 1 } },
+      });
+      if (updated.count === 0) {
+        throw new Error("SOLD_OUT");
+      }
+
+      const qrCode = generateBarcode();
       const serialId = await getNextSerialId(tx, ctx.eventId);
       const registration = await tx.registration.create({
         data: {
@@ -226,11 +322,16 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
           pricingTierId: validPricingTierId,
           attendeeId: attendee.id,
           serialId,
-          status: rawStatus as never,
+          status: finalStatus as never,
+          paymentStatus: finalPaymentStatus as never,
+          qrCode,
         },
         select: {
           id: true,
           status: true,
+          paymentStatus: true,
+          serialId: true,
+          qrCode: true,
           ticketType: { select: { name: true } },
         },
       });
@@ -238,11 +339,107 @@ const createRegistration: ToolExecutor = async (input, ctx) => {
       return { attendee, registration };
     });
 
+    // Sync to org contact store (awaited — errors caught internally).
+    // Matches REST route's post-commit order.
+    await syncToContact({
+      organizationId: ctx.organizationId,
+      eventId: ctx.eventId,
+      email,
+      firstName,
+      lastName,
+      title: rawTitle ?? null,
+      organization,
+      jobTitle,
+      phone,
+      city,
+      country,
+      specialty,
+      registrationType: ticketType.name,
+    });
+
+    // Audit log (fire-and-forget).
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Registration",
+        entityId: result.registration.id,
+        changes: {
+          source: "mcp",
+          ticketTypeId: ticketType.id,
+          paymentStatus: finalPaymentStatus,
+          status: finalStatus,
+        },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_registration audit-log-failed"));
+
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
 
+    // Notify admins — parity with REST route.
+    notifyEventAdmins(ctx.eventId, {
+      type: "REGISTRATION",
+      title: "Registration Added",
+      message: `${firstName} ${lastName} added via MCP`,
+      link: `/events/${ctx.eventId}/registrations`,
+    }).catch((err) => apiLogger.error({ err }, "agent:create_registration notify-admins-failed"));
+
+    // Send confirmation + quote PDF when the registrant still owes money.
+    // Mirrors the REST admin-create + public-register paths. The quote PDF
+    // attaches automatically inside sendRegistrationConfirmation when
+    // ticketPrice > 0 && organizationName.
+    if (
+      Number(ticketType.price) > 0 &&
+      OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus)
+    ) {
+      sendRegistrationConfirmation({
+        to: email,
+        firstName,
+        lastName,
+        title: rawTitle ?? null,
+        organization,
+        jobTitle,
+        eventName: event.name,
+        eventDate: event.startDate,
+        eventVenue: event.venue || "",
+        eventCity: event.city || "",
+        ticketType: ticketType.name,
+        registrationId: result.registration.id,
+        serialId: result.registration.serialId,
+        qrCode: result.registration.qrCode || "",
+        eventId: event.id,
+        eventSlug: event.slug,
+        ticketPrice: Number(ticketType.price),
+        ticketCurrency: ticketType.currency,
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+        bankDetails: event.bankDetails,
+        supportEmail: event.supportEmail,
+        organizationName: event.organization.name,
+        companyName: event.organization.companyName,
+        companyAddress: event.organization.companyAddress,
+        companyCity: event.organization.companyCity,
+        companyState: event.organization.companyState,
+        companyZipCode: event.organization.companyZipCode,
+        companyCountry: event.organization.companyCountry,
+        taxId: event.organization.taxId,
+        logoPath: event.organization.logo,
+        billingCity: city,
+        billingCountry: country,
+      }).catch((err) =>
+        apiLogger.error(
+          { err, registrationId: result.registration.id },
+          "agent:create_registration confirmation-send-failed",
+        ),
+      );
+    }
+
     return { success: true, ...result };
   } catch (err) {
+    if (err instanceof Error && err.message === "SOLD_OUT") {
+      return { error: "Tickets sold out (race: sold out between pre-check and commit)" };
+    }
     apiLogger.error({ err }, "agent:create_registration failed");
     return { error: "Failed to create registration" };
   }
@@ -555,7 +752,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
     // without hitting the DB N times.
     const ticketTypes = await db.ticketType.findMany({
       where: { eventId: ctx.eventId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, quantity: true },
     });
     const ticketTypeById = new Map(ticketTypes.map((t) => [t.id, t]));
 
@@ -626,6 +823,18 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
             },
             select: { id: true, email: true },
           });
+
+          // Atomic increment with sold-out guard — prevents overbooking under
+          // concurrent bulk + single registrations. Uses the cached outer
+          // `ticketType.quantity` — updateMany's where-clause evaluates the
+          // current DB value of soldCount, so we don't need a fresh SELECT.
+          const incremented = await tx.ticketType.updateMany({
+            where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
+            data: { soldCount: { increment: 1 } },
+          });
+          if (incremented.count === 0) throw new Error("SOLD_OUT");
+
+          const qrCode = generateBarcode();
           const serialId = await getNextSerialId(tx, ctx.eventId);
           const registration = await tx.registration.create({
             data: {
@@ -634,6 +843,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               attendeeId: attendee.id,
               serialId,
               status: rawStatus as never,
+              qrCode,
             },
             select: { id: true },
           });
@@ -682,6 +892,15 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
 
       // Refresh denormalized event stats (fire-and-forget)
       refreshEventStats(ctx.eventId);
+
+      // Parity with REST — one batched admin notification per bulk call
+      // instead of per-row (would swamp the inbox on a 100-row import).
+      notifyEventAdmins(ctx.eventId, {
+        type: "REGISTRATION",
+        title: "Registrations Added (Bulk)",
+        message: `${created.length} registration${created.length === 1 ? "" : "s"} added via MCP bulk import${errors.length ? ` (${errors.length} failed)` : ""}`,
+        link: `/events/${ctx.eventId}/registrations`,
+      }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk notify-admins-failed"));
     }
 
     return {
@@ -749,7 +968,7 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_registration",
     description:
-      "Manually add a registration for an attendee. Requires email, firstName, lastName, and ticketTypeId (use list_ticket_types to get IDs). Optionally specify pricingTierId, status (default CONFIRMED), title, organization, jobTitle, specialty.",
+      "Manually add a registration for an attendee. Requires email, firstName, lastName, and ticketTypeId (use list_ticket_types to get IDs). Sends a confirmation email + quote PDF automatically when the ticket is paid and payment is outstanding (default paymentStatus: UNASSIGNED for paid, COMPLIMENTARY for free).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -761,7 +980,12 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
         status: {
           type: "string",
           enum: ["PENDING", "CONFIRMED", "WAITLISTED"],
-          description: "Registration status (default: CONFIRMED)",
+          description: "Registration status (default: CONFIRMED). Overridden to PENDING if the ticket type requires approval.",
+        },
+        paymentStatus: {
+          type: "string",
+          enum: ["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY"],
+          description: "Admin-settable payment status. Default: UNASSIGNED for paid tickets, COMPLIMENTARY for free. Stripe-driven states (PENDING/REFUNDED/FAILED) are webhook-owned and cannot be set here.",
         },
         title: {
           type: "string",
@@ -769,6 +993,9 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
         },
         organization: { type: "string" },
         jobTitle: { type: "string" },
+        phone: { type: "string" },
+        city: { type: "string" },
+        country: { type: "string" },
         specialty: { type: "string" },
       },
       required: ["email", "firstName", "lastName", "ticketTypeId"],

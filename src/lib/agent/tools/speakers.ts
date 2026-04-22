@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
@@ -79,6 +80,16 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
       };
     }
 
+    const bio = input.bio ? String(input.bio).slice(0, 5000) : null;
+    const organization = input.organization ? String(input.organization).slice(0, 255) : null;
+    const jobTitle = input.jobTitle ? String(input.jobTitle).slice(0, 255) : null;
+    const phone = input.phone ? String(input.phone).slice(0, 50) : null;
+    const city = input.city ? String(input.city).slice(0, 255) : null;
+    const country = input.country ? String(input.country).slice(0, 255) : null;
+    const photo = input.photo ? String(input.photo).slice(0, 500) : null;
+    const specialty = input.specialty ? String(input.specialty).slice(0, 255) : null;
+    const registrationType = input.registrationType ? String(input.registrationType).slice(0, 255) : null;
+
     const speaker = await db.speaker.create({
       data: {
         eventId: ctx.eventId,
@@ -86,10 +97,15 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
         firstName,
         lastName,
         title: input.title as never ?? null,
-        bio: input.bio ? String(input.bio) : null,
-        organization: input.organization ? String(input.organization) : null,
-        jobTitle: input.jobTitle ? String(input.jobTitle) : null,
-        specialty: input.specialty ? String(input.specialty) : null,
+        bio,
+        organization,
+        jobTitle,
+        phone,
+        city,
+        country,
+        photo,
+        specialty,
+        registrationType,
         status: (input.status as never) ?? "INVITED",
       },
       select: {
@@ -101,8 +117,49 @@ const createSpeaker: ToolExecutor = async (input, ctx) => {
       },
     });
 
+    // Parity with REST POST /api/events/[eventId]/speakers — sync the full
+    // contact payload (phone/photo/city/country/bio/registrationType included
+    // so the initial Contact row isn't a thin shell).
+    await syncToContact({
+      organizationId: ctx.organizationId,
+      eventId: ctx.eventId,
+      email,
+      firstName,
+      lastName,
+      title: (input.title as string) ?? null,
+      organization,
+      jobTitle,
+      phone,
+      photo,
+      city,
+      country,
+      bio,
+      specialty,
+      registrationType,
+    });
+
+    // Audit log (fire-and-forget to avoid blocking the response).
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "Speaker",
+        entityId: speaker.id,
+        changes: { source: "mcp", speakerId: speaker.id, email },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_speaker audit-log-failed"));
+
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
+
+    // Parity with REST — notify org admins so they see MCP-added speakers.
+    notifyEventAdmins(ctx.eventId, {
+      type: "REGISTRATION",
+      title: "Speaker Added",
+      message: `${firstName} ${lastName} added as speaker (via MCP)`,
+      link: `/events/${ctx.eventId}/speakers`,
+    }).catch((err) => apiLogger.error({ err }, "agent:create_speaker notify-admins-failed"));
 
     return { success: true, speaker };
   } catch (err: unknown) {
@@ -482,6 +539,15 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
 
       // Refresh denormalized event stats (fire-and-forget)
       refreshEventStats(ctx.eventId);
+
+      // Parity with REST — one batched notification per bulk call (not per-row,
+      // to avoid swamping the admins' inbox on a 100-row import).
+      notifyEventAdmins(ctx.eventId, {
+        type: "REGISTRATION",
+        title: "Speakers Added (Bulk)",
+        message: `${created.length} speaker${created.length === 1 ? "" : "s"} added via MCP bulk import${errors.length ? ` (${errors.length} failed)` : ""}`,
+        link: `/events/${ctx.eventId}/speakers`,
+      }).catch((err) => apiLogger.error({ err }, "agent:create_speakers_bulk notify-admins-failed"));
     }
 
     return {
@@ -521,7 +587,7 @@ export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_speaker",
     description:
-      "Add a new speaker to the event. Email, firstName, and lastName are required.",
+      "Add a new speaker to the event. Email, firstName, and lastName are required. Notifies org admins and syncs to the org-wide Contact store.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -536,7 +602,12 @@ export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
         bio: { type: "string" },
         organization: { type: "string" },
         jobTitle: { type: "string" },
+        phone: { type: "string" },
+        city: { type: "string" },
+        country: { type: "string" },
+        photo: { type: "string", description: "Photo URL or relative path (e.g. /uploads/photos/...)" },
         specialty: { type: "string" },
+        registrationType: { type: "string" },
         status: {
           type: "string",
           enum: ["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"],
