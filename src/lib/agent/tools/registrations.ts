@@ -11,6 +11,7 @@ import {
   createRegistration,
   type ManualPaymentStatus,
   type ManualRegistrationStatus,
+  type RegistrationAttendeeRole,
   type RegistrationTitle,
 } from "@/services/registration-service";
 import {
@@ -24,6 +25,17 @@ import {
 const ALL_PAYMENT_STATUSES = new Set(["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]);
 const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
 const BULK_MAX = 100;
+
+// Mirrors Prisma's AttendeeRole enum. Listed here so MCP input validation
+// doesn't need to reach into @prisma/client at runtime.
+const ATTENDEE_ROLE_VALUES = new Set([
+  "ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA",
+  "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS",
+]);
+
+// RFC-light email regex, shared with other MCP inputs via EMAIL_RE.
+// Duplicated tolerance here because additionalEmail is optional and the
+// simplest "empty OR valid" check is clearer inline than a Zod wrapper.
 
 const listRegistrations: ToolExecutor = async (input, ctx) => {
   try {
@@ -175,6 +187,16 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
     if (rawTitle && !TITLE_VALUES.has(rawTitle)) {
       return { error: `Invalid title "${rawTitle}". Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
+    const rawRole = input.role ? String(input.role) : undefined;
+    if (rawRole && !ATTENDEE_ROLE_VALUES.has(rawRole)) {
+      return { error: `Invalid role "${rawRole}". Must be one of: ${[...ATTENDEE_ROLE_VALUES].join(", ")}` };
+    }
+    const rawAdditionalEmail = input.additionalEmail
+      ? String(input.additionalEmail).trim().toLowerCase()
+      : undefined;
+    if (rawAdditionalEmail && !EMAIL_RE.test(rawAdditionalEmail)) {
+      return { error: `Invalid additionalEmail format "${rawAdditionalEmail}"` };
+    }
 
     const result = await createRegistration({
       eventId: ctx.eventId,
@@ -184,15 +206,27 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       pricingTierId: input.pricingTierId ? String(input.pricingTierId) : undefined,
       attendee: {
         title: (rawTitle as RegistrationTitle | undefined) ?? null,
+        role: (rawRole as RegistrationAttendeeRole | undefined) ?? null,
         email,
+        additionalEmail: rawAdditionalEmail ?? null,
         firstName,
         lastName,
         organization: input.organization ? String(input.organization) : null,
         jobTitle: input.jobTitle ? String(input.jobTitle) : null,
         phone: input.phone ? String(input.phone) : null,
         city: input.city ? String(input.city) : null,
+        state: input.state ? String(input.state) : null,
+        zipCode: input.zipCode ? String(input.zipCode) : null,
         country: input.country ? String(input.country) : null,
         specialty: input.specialty ? String(input.specialty) : null,
+        customSpecialty: input.customSpecialty ? String(input.customSpecialty) : null,
+        associationName: input.associationName ? String(input.associationName) : null,
+        memberId: input.memberId ? String(input.memberId) : null,
+        studentId: input.studentId ? String(input.studentId) : null,
+        // Service accepts string | Date | null; pass through as-is, the
+        // service parses ISO strings and tolerates invalid dates by
+        // setting the field to null.
+        studentIdExpiry: input.studentIdExpiry ? String(input.studentIdExpiry) : null,
       },
       status: rawStatus as ManualRegistrationStatus,
       paymentStatus: input.paymentStatus as ManualPaymentStatus | undefined,
@@ -797,12 +831,40 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
           type: "string",
           enum: ["DR", "MR", "MRS", "MS", "PROF"],
         },
+        role: {
+          type: "string",
+          enum: ["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS"],
+          description: "Attendee demographic/professional role. Matches the public registration form classifications.",
+        },
+        additionalEmail: {
+          type: "string",
+          description: "Secondary email (cc on notifications). Optional.",
+        },
         organization: { type: "string" },
         jobTitle: { type: "string" },
         phone: { type: "string" },
         city: { type: "string" },
+        state: { type: "string" },
+        zipCode: { type: "string" },
         country: { type: "string" },
         specialty: { type: "string" },
+        customSpecialty: {
+          type: "string",
+          description: "Free-text specialty when `specialty` is 'Others'.",
+        },
+        associationName: { type: "string" },
+        memberId: {
+          type: "string",
+          description: "Member ID — required on the public form when registrationType name contains 'member'.",
+        },
+        studentId: {
+          type: "string",
+          description: "Student ID — required on the public form when registrationType name contains 'student'.",
+        },
+        studentIdExpiry: {
+          type: "string",
+          description: "ISO 8601 date (YYYY-MM-DD) for student ID expiry. Invalid dates are stored as null.",
+        },
       },
       required: ["email", "firstName", "lastName", "ticketTypeId"],
     },

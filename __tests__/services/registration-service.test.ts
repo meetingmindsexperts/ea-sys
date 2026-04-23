@@ -323,6 +323,127 @@ describe("createRegistration — happy path", () => {
     await createRegistration(BASE_INPUT);
     expect(mockRefreshStats).toHaveBeenCalledWith("evt-1");
   });
+
+  // ── New attendee fields (role, additionalEmail, state/zipCode,
+  //    customSpecialty, associationName, memberId, studentId,
+  //    studentIdExpiry) — backend accepts the full Attendee-model set.
+
+  it("persists full attendee payload including role, additionalEmail, membership IDs", async () => {
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: {
+        ...BASE_INPUT.attendee,
+        role: "PHYSICIAN",
+        additionalEmail: "  John.Secondary@Example.COM  ",
+        state: "NY",
+        zipCode: "10001",
+        customSpecialty: "Interventional Cardiology",
+        associationName: "American College of Cardiology",
+        memberId: "ACC-12345",
+        studentId: null,
+      },
+    });
+    const attCreate = mockDb.attendee.create.mock.calls[0][0];
+    expect(attCreate.data.role).toBe("PHYSICIAN");
+    // additionalEmail trimmed + lowercased inside the service
+    expect(attCreate.data.additionalEmail).toBe("john.secondary@example.com");
+    expect(attCreate.data.state).toBe("NY");
+    expect(attCreate.data.zipCode).toBe("10001");
+    expect(attCreate.data.customSpecialty).toBe("Interventional Cardiology");
+    expect(attCreate.data.associationName).toBe("American College of Cardiology");
+    expect(attCreate.data.memberId).toBe("ACC-12345");
+    expect(attCreate.data.studentId).toBeNull();
+  });
+
+  it("parses studentIdExpiry ISO string to Date", async () => {
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: {
+        ...BASE_INPUT.attendee,
+        studentId: "STU-9001",
+        studentIdExpiry: "2027-06-30",
+      },
+    });
+    const attCreate = mockDb.attendee.create.mock.calls[0][0];
+    expect(attCreate.data.studentIdExpiry).toBeInstanceOf(Date);
+    expect((attCreate.data.studentIdExpiry as Date).toISOString().slice(0, 10)).toBe("2027-06-30");
+  });
+
+  it("coerces invalid studentIdExpiry string to null (boundary-safe, doesn't throw)", async () => {
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: {
+        ...BASE_INPUT.attendee,
+        studentIdExpiry: "not-a-date",
+      },
+    });
+    const attCreate = mockDb.attendee.create.mock.calls[0][0];
+    expect(attCreate.data.studentIdExpiry).toBeNull();
+  });
+
+  it("accepts a Date directly on studentIdExpiry (no coercion needed)", async () => {
+    const d = new Date("2028-01-15T00:00:00Z");
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: { ...BASE_INPUT.attendee, studentIdExpiry: d },
+    });
+    const attCreate = mockDb.attendee.create.mock.calls[0][0];
+    expect(attCreate.data.studentIdExpiry).toBe(d);
+  });
+
+  it("threads new fields (role, additionalEmail, state, zipCode, memberId, studentIdExpiry) to syncToContact", async () => {
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: {
+        ...BASE_INPUT.attendee,
+        role: "STUDENT",
+        additionalEmail: "jd.cc@example.com",
+        state: "CA",
+        zipCode: "94016",
+        customSpecialty: null,
+        associationName: "Pre-Med Association",
+        memberId: null,
+        studentId: "STU-1",
+        studentIdExpiry: "2026-12-31",
+      },
+    });
+    const call = mockSyncToContact.mock.calls[0][0];
+    expect(call).toMatchObject({
+      role: "STUDENT",
+      additionalEmail: "jd.cc@example.com",
+      state: "CA",
+      zipCode: "94016",
+      associationName: "Pre-Med Association",
+      studentId: "STU-1",
+    });
+    expect(call.studentIdExpiry).toBeInstanceOf(Date);
+  });
+
+  it("normalizes empty-string attendee fields to null (direct-caller safety)", async () => {
+    await createRegistration({
+      ...BASE_INPUT,
+      attendee: {
+        ...BASE_INPUT.attendee,
+        additionalEmail: "",
+        state: "",
+        zipCode: "",
+        customSpecialty: "",
+        associationName: "",
+        memberId: "",
+        studentId: "",
+        studentIdExpiry: "",
+      },
+    });
+    const attCreate = mockDb.attendee.create.mock.calls[0][0];
+    expect(attCreate.data.additionalEmail).toBeNull();
+    expect(attCreate.data.state).toBeNull();
+    expect(attCreate.data.zipCode).toBeNull();
+    expect(attCreate.data.customSpecialty).toBeNull();
+    expect(attCreate.data.associationName).toBeNull();
+    expect(attCreate.data.memberId).toBeNull();
+    expect(attCreate.data.studentId).toBeNull();
+    expect(attCreate.data.studentIdExpiry).toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

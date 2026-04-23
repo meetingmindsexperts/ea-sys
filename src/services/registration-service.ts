@@ -74,6 +74,22 @@ export type ManualRegistrationStatus = (typeof MANUAL_REGISTRATION_STATUSES)[num
 
 export type RegistrationTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 
+/**
+ * Attendee's demographic / professional role. Mirrors the Prisma
+ * `AttendeeRole` enum; listed inline to keep this module free of
+ * Prisma-namespace coupling at the public-input boundary.
+ */
+export type RegistrationAttendeeRole =
+  | "ACADEMIA"
+  | "ALLIED_HEALTH"
+  | "MEDICAL_DEVICES"
+  | "PHARMA"
+  | "PHYSICIAN"
+  | "RESIDENT"
+  | "SPEAKER"
+  | "STUDENT"
+  | "OTHERS";
+
 export interface CreateRegistrationInput {
   eventId: string;
   organizationId: string;
@@ -101,7 +117,11 @@ export interface CreateRegistrationInput {
    */
   attendee: {
     title?: RegistrationTitle | null;
+    /** Demographic / professional classification (PHYSICIAN, STUDENT, ...). */
+    role?: RegistrationAttendeeRole | null;
     email: string;
+    /** Secondary email — public form collects it; cc on notifications. */
+    additionalEmail?: string | null;
     firstName: string;
     lastName: string;
     organization?: string | null;
@@ -109,11 +129,25 @@ export interface CreateRegistrationInput {
     phone?: string | null;
     photo?: string | null;
     city?: string | null;
+    state?: string | null;
+    zipCode?: string | null;
     country?: string | null;
     bio?: string | null;
     specialty?: string | null;
+    /** Free-text when `specialty === "Others"`. */
+    customSpecialty?: string | null;
     tags?: string[];
     dietaryReqs?: string | null;
+    /** Membership / student registration fields. */
+    associationName?: string | null;
+    memberId?: string | null;
+    studentId?: string | null;
+    /**
+     * ISO 8601 date string (`YYYY-MM-DD`) from callers, coerced to `Date`
+     * inside the service. Accept either so REST callers don't have to
+     * pre-parse and the service owns the conversion.
+     */
+    studentIdExpiry?: string | Date | null;
     customFields?: Prisma.InputJsonValue;
   };
 
@@ -205,16 +239,38 @@ export async function createRegistration(
   const firstName = input.attendee.firstName;
   const lastName = input.attendee.lastName;
   const attendeeTitle = input.attendee.title ?? null;
+  const attendeeRole = input.attendee.role ?? null;
+  // `additionalEmail` — public form accepts empty string meaning "not
+  // provided"; coerce to null so the DB column stays nullable-clean.
+  const additionalEmail = input.attendee.additionalEmail
+    ? input.attendee.additionalEmail.trim().toLowerCase()
+    : null;
   const organization = input.attendee.organization || null;
   const jobTitle = input.attendee.jobTitle || null;
   const phone = input.attendee.phone || null;
   const photo = input.attendee.photo || null;
   const city = input.attendee.city || null;
+  const state = input.attendee.state || null;
+  const zipCode = input.attendee.zipCode || null;
   const country = input.attendee.country || null;
   const bio = input.attendee.bio || null;
   const specialty = input.attendee.specialty || null;
+  const customSpecialty = input.attendee.customSpecialty || null;
   const tags = input.attendee.tags ?? [];
   const dietaryReqs = input.attendee.dietaryReqs || null;
+  const associationName = input.attendee.associationName || null;
+  const memberId = input.attendee.memberId || null;
+  const studentId = input.attendee.studentId || null;
+  // Accept either a Date or an ISO string from callers; normalize to Date
+  // (or null on empty string / invalid date). An invalid date falls to
+  // null rather than throwing — matches the "trust input, don't crash on
+  // bad data" boundary-safe posture of the service.
+  let studentIdExpiry: Date | null = null;
+  if (input.attendee.studentIdExpiry) {
+    const raw = input.attendee.studentIdExpiry;
+    const parsed = raw instanceof Date ? raw : new Date(raw);
+    studentIdExpiry = isNaN(parsed.getTime()) ? null : parsed;
+  }
   const customFields = input.attendee.customFields ?? {};
 
   // Validate paymentStatus input up front. Runtime check because callers
@@ -379,7 +435,9 @@ export async function createRegistration(
       const attendeeRecord = await tx.attendee.create({
         data: {
           title: attendeeTitle,
+          role: attendeeRole,
           email,
+          additionalEmail,
           firstName,
           lastName,
           organization,
@@ -387,12 +445,19 @@ export async function createRegistration(
           phone,
           photo,
           city,
+          state,
+          zipCode,
           country,
           bio,
           specialty,
+          customSpecialty,
           registrationType: ticketType?.name || null,
           tags,
           dietaryReqs,
+          associationName,
+          memberId,
+          studentId,
+          studentIdExpiry,
           customFields: customFields as Prisma.InputJsonValue,
         },
         select: { id: true },
@@ -456,6 +521,8 @@ export async function createRegistration(
   // ── Post-commit side effects ───────────────────────────────────────────────
 
   // Sync to org contact store (awaited; errors caught inside syncToContact).
+  // Threads the full attendee payload — Contact model mirrors Attendee
+  // so none of these drop on the other side.
   await syncToContact({
     organizationId,
     eventId,
@@ -463,15 +530,24 @@ export async function createRegistration(
     firstName,
     lastName,
     title: attendeeTitle,
+    role: attendeeRole,
+    additionalEmail,
     organization,
     jobTitle,
     phone,
     photo,
     city,
+    state,
+    zipCode,
     country,
     bio,
     specialty,
+    customSpecialty,
     registrationType: ticketType?.name || null,
+    associationName,
+    memberId,
+    studentId,
+    studentIdExpiry,
   });
 
   // Refresh denormalized event stats (fire-and-forget).

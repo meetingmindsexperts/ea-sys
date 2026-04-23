@@ -8,7 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createRegistration,
   type CreateRegistrationErrorCode,
@@ -45,7 +45,13 @@ const createRegistrationSchema = z.object({
   paymentStatus: manualPaymentStatusSchema.optional(),
   attendee: z.object({
     title: titleEnum.optional(),
+    // Demographic / professional classification — the public form collects
+    // this; admin create must accept it too. Same enum the public path uses.
+    role: attendeeRoleEnum.optional(),
     email: z.string().email().max(255),
+    // Secondary email for registrants who want notifications cc'd (e.g.
+    // personal + work). Public register accepts it; admin create must too.
+    additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
     firstName: z.string().min(1).max(100),
     lastName: z.string().min(1).max(100),
     organization: z.string().max(255).optional(),
@@ -53,11 +59,23 @@ const createRegistrationSchema = z.object({
     phone: z.string().max(50).optional(),
     photo: z.string().max(500).optional(),
     city: z.string().max(255).optional(),
+    state: z.string().max(255).optional(),
+    zipCode: z.string().max(20).optional(),
     country: z.string().max(255).optional(),
     bio: z.string().max(5000).optional(),
     specialty: z.string().max(255).optional(),
+    // Free-text when specialty is "Others" — parity with public register.
+    customSpecialty: z.string().max(255).optional(),
     tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
     dietaryReqs: z.string().max(2000).optional(),
+    // Membership / student registration fields — conditionally required on
+    // the public form based on the registration type name. Admin create
+    // accepts them unconditionally; organizer is trusted to verify the IDs.
+    associationName: z.string().max(255).optional(),
+    memberId: z.string().max(100).optional(),
+    studentId: z.string().max(100).optional(),
+    // ISO 8601 date string (YYYY-MM-DD). Coerced to Date in the service.
+    studentIdExpiry: z.string().max(20).optional(),
     customFields: z.record(z.string().max(100), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).optional(),
   }),
   notes: z.string().max(2000).optional(),
