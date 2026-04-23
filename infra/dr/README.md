@@ -65,18 +65,26 @@ echo 'GITHUB_DR_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' >> /home/ubuntu/
 
 Next `.env` cron run (02:30 IST) will ship it to Singapore.
 
-### 3. Set up the Mumbai→Singapore nightly `.env` cron
+### 3. Set up the Mumbai→Singapore backup crons
 
 On the Mumbai box (`sudo -iu ubuntu`, then `crontab -e`):
 
 ```cron
-# Nightly .env snapshot to Singapore DR bucket (02:30 IST, after other backups)
-30 2 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
+# Daily .env snapshot to Singapore DR bucket (21:00 UTC = 02:30 IST)
+0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
+
+# Hourly uploads mirror to Singapore DR bucket (covers user-uploaded media)
+0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude ".gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 ```
 
-This requires the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
-`s3:PutObject` on `arn:aws:s3:::ea-sys-dr-singapore/*` and `kms:Encrypt` on the
-Singapore KMS key — attach an inline policy when creating the role.
+Both require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
+`s3:PutObject` on `arn:aws:s3:::ea-sys-dr-singapore/*` and
+`kms:GenerateDataKey`/`kms:Encrypt` on the Singapore KMS key — attach the
+inline policy `DRBackupToSingapore` to the role.
+
+RPO implications:
+- `.env`: up to 24 hours of `.env` changes lost in a regional disaster. Acceptable (`.env` rarely changes). Run the command manually after adding a new secret if you need tighter.
+- Uploads: up to 1 hour of user uploads lost in a regional disaster. Tighten the cron to `*/5 * * * *` (every 5 min) if that's too loose.
 
 ### 4. Create `terraform.tfvars`
 
@@ -159,29 +167,36 @@ moment you want to find problems, not during a real outage.
 
 1. Mumbai region is healthy again and your Mumbai box either recovered or
    was rebuilt from the Mumbai EBS snapshot.
-2. **Cloudflare DNS** → `events` A record → point back at the Mumbai EIP.
-3. Verify: `curl -I https://events.meetingmindsgroup.com/api/health` + confirm
-   Cloudflare analytics show traffic hitting Mumbai origin again.
-4. `cd infra/dr && terraform destroy -auto-approve` — kills the Singapore box.
-5. **Check for data drift.** During the outage any uploads (`public/uploads/*`)
-   landed on the Singapore EBS volume. Those are **lost** when you
-   `terraform destroy`. This is the known gap — see the follow-up to move
-   media to Supabase storage.
+2. **Before flipping DNS back**, sync any uploads that happened on the
+   Singapore DR box back to the S3 bucket so Mumbai can restore them:
+   ```bash
+   # On the DR box (via SSM):
+   aws s3 sync /home/ubuntu/ea-sys/public/uploads/ \
+     s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1
+   ```
+   Then on Mumbai, pull them down:
+   ```bash
+   aws s3 sync s3://ea-sys-dr-singapore/uploads/ \
+     /home/ubuntu/ea-sys/public/uploads/ --region ap-southeast-1
+   ```
+3. **Registrar DNS** → `events` A record → point back at the Mumbai EIP.
+4. Verify: `curl -I https://events.meetingmindsgroup.com/api/health` returns
+   200 with `database: connected`.
+5. `cd infra/dr && terraform destroy -auto-approve` — kills the Singapore box.
+   (Don't destroy before step 2, or fresh uploads written during the outage
+   are gone.)
 
 ## Known gaps
 
-- **Uploaded media is not replicated.** Anything under `public/uploads/*`
-  written during the outage is on the Singapore EBS volume and is destroyed
-  when we tear down. Mitigation: flip `STORAGE_PROVIDER=supabase` in `.env`
-  (already a supported code path) so all media goes to Supabase Storage,
-  which survives Mumbai outages independently.
+- **Uploads written during the outage window itself are at risk.** The normal
+  flow is Mumbai hourly sync → S3 bucket → DR box pulls on boot. During an
+  outage, Mumbai's cron can't run. Uploads that happen *on the DR box* during
+  the outage live on its ephemeral EBS volume until step 2 of the post-incident
+  runbook above sends them back. If you skip that step or `terraform destroy`
+  before syncing, those outage-window uploads are lost. Future fix: a reverse
+  cron on the DR box that periodically pushes `public/uploads/` back to S3.
 - **Supabase dependency.** If Supabase itself is down, this DR plan doesn't
   help — we only fail over compute, not the DB. That's a separate round.
-- **Cloudflare IP ranges drift.** The SG uses the `cloudflare_ip_ranges`
-  Terraform data source so `terraform apply` picks up the current list at
-  plan time, but once the box is running, if Cloudflare adds a new CIDR
-  you need to `terraform apply` again to refresh the SG. Worth monitoring:
-  Cloudflare announces IP changes via RSS.
 - **10-minute RTO includes a Docker build.** `scripts/deploy.sh` does
   `docker compose build` on first run. If the build time balloons, the
   RTO balloons with it.

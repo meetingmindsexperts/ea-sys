@@ -67,6 +67,14 @@ docs/HANDOVER.md
 .claude/settings.local.json
 .claude/worktrees/
 .mcp.json
+
+# Terraform — anywhere in the repo (belt-and-braces; also gitignored in infra/dr/)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+terraform.tfvars
+*.auto.tfvars
+.terraform/
 test-results/
 playwright-report/
 .playwright-mcp/

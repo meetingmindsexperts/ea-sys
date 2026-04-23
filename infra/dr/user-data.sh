@@ -123,6 +123,18 @@ openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
 nginx -t
 systemctl enable --now nginx
 
+# --- 5b. Pull uploaded media from DR bucket (Mumbai syncs hourly) ---
+# STORAGE_PROVIDER=local means files live on the EC2 disk. Mumbai mirrors its
+# public/uploads/ to s3://${dr_bucket_name}/uploads/ hourly; here we pull the
+# latest snapshot so the DR box serves existing media immediately. Failure is
+# non-fatal — a fresh box with zero media is still better than no DR.
+mkdir -p /home/ubuntu/ea-sys/public/uploads
+sudo -u ubuntu aws s3 sync \
+  "s3://${dr_bucket_name}/uploads/" \
+  /home/ubuntu/ea-sys/public/uploads/ \
+  --region "${region}" \
+  --exclude ".gitkeep" || echo "[bootstrap] warn: uploads sync had issues (non-fatal)"
+
 # --- 6. First blue-green deploy ---
 cd /home/ubuntu/ea-sys
 sudo -u ubuntu -H bash scripts/deploy.sh || {
