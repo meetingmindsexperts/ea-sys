@@ -11,8 +11,8 @@ This document outlines the current development status of the Event Administratio
 
 ### Current In-Flight Work (April 2026)
 
-- **Services Refactor — three services shipped, one deferred.** Phase 0 (MCP parity bug fixes), Phase 1 (`accommodation-service.ts`), Phase 2a (`abstract-service.ts`), and Phase 2b (`speaker-service.ts`) all shipped in April. The remaining candidate — `registration-service.ts` — is **intentionally deferred** until the external public REST API spec is concrete, at which point the extraction happens alongside the new API endpoints. Rationale: Phase 0's in-place MCP patches already eliminated the confirmed drift bugs, so the remaining value from registration-service is future-facing; speculative extraction ahead of a concrete third caller would risk getting the service shape wrong. See `src/services/README.md` for conventions and `docs/HANDOVER.md` §2.5 + §14 for the full refactor philosophy.
-- **External REST API (Phase 3 of the refactor, planned).** A public REST API for third-party integrators is on the near-term roadmap. That API is what will drive the registration-service extraction — same pattern as REST + MCP, with the external API as the third caller sharing one service function per operation.
+- **Services Refactor — four services shipped (Phase 2 complete).** Phase 0 (MCP parity bug fixes), Phase 1 (`accommodation-service.ts`), Phase 2a (`abstract-service.ts`), Phase 2b (`speaker-service.ts`), and Phase 2c (`registration-service.ts`) all shipped in April. Phase 2c's extraction landed earlier than originally planned — the two callers were already aligned by Phase 0, which turned the planned deferral into a safe consolidation opportunity. See `src/services/README.md` for conventions and `docs/HANDOVER.md` §2.5 + §14 for the full refactor philosophy and commit refs.
+- **External REST API (Phase 3 of the refactor, planned).** A public REST API for third-party integrators is on the near-term roadmap. Its endpoints back onto the existing four services. New domain operations the API exposes get their own extractions at that point; no speculative work beforehand.
 
 ---
 

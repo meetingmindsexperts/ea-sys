@@ -158,19 +158,19 @@ Run: `npm run test` / `npm run test:coverage`
 
 **Remaining gap:** No E2E tests (Playwright/Cypress). Unit tests mock Prisma — no integration tests against a real database.
 
-### 2. Services Layer — Opportunistic Refactor (Phase 2 mostly shipped)
-**Status: Phase 0 + 1 + 2a + 2b shipped. Phase 2c absorbed into Phase 3 (external-API-driven).**
+### 2. Services Layer — Opportunistic Refactor (Phase 2 complete)
+**Status: Phase 0 + 1 + 2a + 2b + 2c shipped. Phase 3 pending external API spec.**
 
 Historically business logic lived directly in route handlers — the idiomatic Next.js App Router pattern and correct for a solo-developer, single-caller codebase. The services layer became valuable specifically when MCP arrived as a second caller and real drift showed up (the April 2026 audit found paid MCP registrations silently skipping the confirmation email + quote PDF).
 
-The refactor is **opportunistic**: extract when pain signals you, not on a schedule. Three services shipped, one deferred on purpose:
+The refactor is **opportunistic**: extract when pain signals you, not on a schedule. Four services shipped; Phase 3 expands the pattern to the external public API when its spec is concrete.
 
 - **Phase 0 — Bug fixes (shipped).** Patched confirmed drift in MCP `create_registration`, `create_registrations_bulk`, `create_speaker`, `create_speakers_bulk` to match the REST admin-create behavior. No architectural change — fixes ship before refactor.
 - **Phase 1 — Foundation (shipped).** Extracted [src/services/accommodation-service.ts](../src/services/accommodation-service.ts). Locked in the conventions every subsequent service follows: errors-as-values result type, typed-Date inputs, caller-identity via `source`, service-owned side effects. Full convention reference in [src/services/README.md](../src/services/README.md).
 - **Phase 2a — Abstract (shipped).** Extracted [src/services/abstract-service.ts](../src/services/abstract-service.ts) with `changeAbstractStatus()`. Centralizes the `requiredReviewCount` gate, WITHDRAWN terminal-state guard (REST tightening), reviewer notification fan-out with isolated failure handling.
 - **Phase 2b — Speaker (shipped).** Extracted [src/services/speaker-service.ts](../src/services/speaker-service.ts) with `createSpeaker()`. Covers REST admin POST + MCP `create_speaker`. Bulk paths intentionally left out — different mechanics.
-- **Phase 2c — Registration (deferred).** The biggest and Stripe-adjacent extraction. Phase 0's in-place patches already eliminated the confirmed drift bugs, so the remaining value is future-facing. Absorbed into **Phase 3** — the extraction will happen when the external public API spec is concrete and actually needs it.
-- **Phase 3 — External API-driven.** A public REST API is on the near-term roadmap. When it lands, whatever endpoints it exposes must back onto services. `registration-service.ts` is the most likely candidate. No speculative extraction ahead of the concrete surface.
+- **Phase 2c — Registration (shipped).** Extracted [src/services/registration-service.ts](../src/services/registration-service.ts) with `createRegistration()`. Covers REST admin POST + MCP `create_registration`. Centralizes the 9-error-code domain contract, the atomic soldCount guard with typed `RegistrationServiceSentinel`, and the Phase 0 confirmation-email gate (paid + outstanding), now structurally guaranteed. Public register + MCP bulk intentionally left inline — different concerns.
+- **Phase 3 — External API-driven (pending).** A public REST API is on the near-term roadmap. When it lands, its endpoints back onto the existing services: any new domain operation the API exposes gets its own extraction at that point. No speculative work ahead of the concrete surface.
 - **Phase 4 — Opportunistic (ongoing).** For single-caller routes, extract only when touching for a feature reason. No proactive refactor.
 
 **Guardrail:** services never import from `next/server`, never read sessions — they receive already-typed, already-authenticated inputs. Callers own auth, Zod parsing, rate limiting, and response shaping.
@@ -209,7 +209,7 @@ In-memory rate limiting resets on serverless cold starts. For Vercel production,
 Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs.
 
 ### Priority 4: Services Layer — Driven by External API
-Phases 0 / 1 / 2a / 2b shipped three services (accommodation, abstract, speaker). The remaining candidate is `registration-service`, deferred intentionally: Phase 0 already patched its confirmed drift bugs in-place, and the next forcing function is the external public API. When that API spec is concrete, extraction happens alongside the new endpoints. Until then, the opportunistic policy applies — extract only when touching the route for a feature reason.
+Phases 0 / 1 / 2a / 2b / 2c shipped four services (accommodation, abstract, speaker, registration). Phase 3 expands the pattern when the external public REST API spec lands — each new endpoint backs onto an existing or new service. Until then, the opportunistic policy applies — extract only when touching a route for a feature reason.
 
 ---
 

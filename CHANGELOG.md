@@ -6,6 +6,93 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Services refactor, Phase 2c (April 23)
+
+Fourth service extracted: `src/services/registration-service.ts` with
+`createRegistration()`. Both REST admin POST `/api/events/[eventId]/registrations`
+and MCP `create_registration` now delegate. Previously deferred into
+Phase 3; moved forward because Phase 0's in-place MCP patches already
+aligned the two callers, making this extraction a low-risk
+consolidation rather than a new alignment.
+
+Scope
+  - Single-create only.
+  - OUT of scope for this pass (tackle later): `/api/public/events/[slug]/register`
+    (Stripe checkout session + REGISTRANT account creation + orphan
+    attendee reuse + invoice auto-creation — different concerns);
+    `MCP create_registrations_bulk` (per-row error capture loop).
+
+Centralizes:
+  - 9 domain error codes in a finite TypeScript union (EVENT_NOT_FOUND,
+    TICKET_TYPE_NOT_FOUND, SALES_NOT_STARTED, SALES_ENDED, SOLD_OUT,
+    PRICING_TIER_NOT_FOUND, ALREADY_REGISTERED, INVALID_PAYMENT_STATUS,
+    UNKNOWN). REST caller's `HTTP_STATUS_FOR_REGISTRATION_ERROR` map
+    is compile-time exhaustive via `Record<CreateRegistrationErrorCode, number>`.
+  - Atomic tx: duplicate check (excluding CANCELLED) → attendee create →
+    `soldCount` `updateMany` with `{ lt: quantity }` guard → registration
+    create with qrCode + serialId.
+  - `RegistrationServiceSentinel` class for discriminating ALREADY_REGISTERED
+    and SOLD_OUT domain rollbacks from infrastructure failures.
+  - Empty-string → null normalization on all optional attendee fields —
+    last line of defense against direct-to-service callers storing `""`
+    in Contact records or tripping the Prisma title enum.
+  - `paymentStatus` defaulting: UNASSIGNED for paid tickets, COMPLIMENTARY
+    for free or no-ticket. Stripe-driven states rejected upstream.
+  - All side effects awaited-or-fire-and-forget in a fixed order: syncToContact
+    (awaited) → refreshEventStats → auditLog (with source=rest|mcp|api,
+    requestIp attached only on REST) → notifyEventAdmins (with source-aware
+    message) → sendRegistrationConfirmation gated on paid+outstanding. This
+    is the Phase 0 drift gate now structurally guaranteed so MCP-created
+    paid registrations cannot silently skip the confirmation email again.
+
+Caller reductions
+  - REST POST: ~290 → ~45 lines
+  - MCP create_registration executor: ~265 → ~85 lines (including
+    MCP-specific input coercion and response reshape that stay at the
+    tool boundary)
+
+Parity notes (verified by independent review agent — 45/45 checks)
+  - REST 201 response body unchanged; same include tree.
+  - REST HTTP status codes per error unchanged.
+  - REST error message for ALREADY_REGISTERED shifts from "Attendee
+    already registered for this event" to "A registration for <email>
+    already exists for this event". Dashboard uses the error string for
+    toast display only; no exact-match checks observed.
+  - MCP response shape fully preserved ({ success, attendee: {slim},
+    registration: {slim} }) via explicit reshape in the tool wrapper.
+  - MCP auto-pivot hint on ALREADY_REGISTERED preserved
+    (existingRegistrationId + suggestion to use update_registration).
+  - MCP TICKET_TYPE_NOT_FOUND hint preserved ("Use list_ticket_types to
+    get valid IDs").
+  - Audit log payload now writes the slim MCP-style summary
+    `{ source, ticketTypeId, paymentStatus, status, ip? }` — aligns with
+    Phase 1/2a/2b convention.
+  - Duplicate check moved INSIDE the transaction (was pre-tx on MCP
+    pre-migration). Structurally safer against race-condition holes.
+
+Phase 0 parity test update
+  - `__tests__/lib/agent-mcp-parity.test.ts`: tx proxy gains
+    `registration.findFirst` to mirror the new in-tx duplicate check.
+    `registration.create` mock fixture now returns the full
+    `{ attendee, ticketType }` relations the service includes. Both
+    changes faithfully mirror the new execution path.
+
+Test coverage
+  - 34 new unit tests in `__tests__/services/registration-service.test.ts`
+    covering all 9 error codes, SOLD_OUT race, email normalization on
+    both dup-check + create paths, paymentStatus defaults, requiresApproval
+    override, confirmation email gating (5 cases), audit source variants
+    for rest vs mcp, actor-name message variants, side-effect isolation.
+
+Verification
+  - `npx tsc --noEmit`           clean
+  - `npm run lint`               clean
+  - `npm test`                   1000/1000 (was 963; +34 service tests)
+  - Independent review-agent     SAFE TO PROCEED (45/45)
+  - e2e (manual-registration)    pre-existing login regression, verified
+                                 identical on HEAD~ — NOT caused by
+                                 Phase 2c; filed separately
+
 ### Fixed — Invoice auto-generation + UI label (April 22)
 
 Root cause of a production bug where registrants clicked "View Invoice"
