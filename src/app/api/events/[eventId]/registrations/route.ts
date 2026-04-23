@@ -3,27 +3,30 @@ import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { generateBarcode, normalizeTag } from "@/lib/utils";
-import { getNextSerialId } from "@/lib/registration-serial";
+import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
-import { syncToContact } from "@/lib/contact-sync";
-import { notifyEventAdmins } from "@/lib/notifications";
-import { refreshEventStats } from "@/lib/event-stats";
-import { sendRegistrationConfirmation } from "@/lib/email";
+import {
+  createRegistration,
+  type CreateRegistrationErrorCode,
+} from "@/services/registration-service";
 
-// Payment statuses where the registrant still owes money — auto-send the
-// confirmation email with the quote PDF attached. Skip PAID/COMPLIMENTARY
-// (admin settled) and Stripe-driven REFUNDED/FAILED (admin can re-send
-// manually from the detail sheet if needed).
-const OUTSTANDING_PAYMENT_STATUSES = new Set<PaymentStatus>([
-  PaymentStatus.UNASSIGNED,
-  PaymentStatus.UNPAID,
-  PaymentStatus.PENDING,
-]);
+// HTTP status mapping for the service's domain error codes. Compile-time
+// exhaustive via `Record<CreateRegistrationErrorCode, number>`.
+const HTTP_STATUS_FOR_REGISTRATION_ERROR: Record<CreateRegistrationErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  TICKET_TYPE_NOT_FOUND: 404,
+  SALES_NOT_STARTED: 400,
+  SALES_ENDED: 400,
+  SOLD_OUT: 400,
+  PRICING_TIER_NOT_FOUND: 404,
+  ALREADY_REGISTERED: 400,
+  INVALID_PAYMENT_STATUS: 400,
+  UNKNOWN: 500,
+};
 
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
@@ -209,262 +212,29 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus } = validated.data;
 
-    // Look up event (always needed) and ticket type (if provided).
-    // Event select carries everything sendRegistrationConfirmation needs so
-    // we don't re-query after the transaction for the email send.
-    const [event, ticketType] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          startDate: true,
-          venue: true,
-          city: true,
-          taxRate: true,
-          taxLabel: true,
-          bankDetails: true,
-          supportEmail: true,
-          organizationId: true,
-          organization: {
-            select: {
-              name: true,
-              companyName: true,
-              companyAddress: true,
-              companyCity: true,
-              companyState: true,
-              companyZipCode: true,
-              companyCountry: true,
-              taxId: true,
-              logo: true,
-            },
-          },
-        },
-      }),
-      ticketTypeId
-        ? db.ticketType.findFirst({
-            where: { id: ticketTypeId, eventId, isActive: true },
-            select: {
-              id: true, name: true, price: true, currency: true,
-              quantity: true, soldCount: true,
-              salesStart: true, salesEnd: true, requiresApproval: true,
-            },
-          })
-        : null,
-    ]);
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    if (ticketTypeId && !ticketType) {
-      return NextResponse.json(
-        { error: "Registration type not found or inactive" },
-        { status: 404 }
-      );
-    }
-
-    // Ticket type checks only when a type is selected
-    if (ticketType) {
-      const now = new Date();
-      if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
-        return NextResponse.json({ error: "Ticket sales have not started" }, { status: 400 });
-      }
-      if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
-        return NextResponse.json({ error: "Ticket sales have ended" }, { status: 400 });
-      }
-      if (ticketType.soldCount >= ticketType.quantity) {
-        return NextResponse.json({ error: "Tickets sold out" }, { status: 400 });
-      }
-    }
-
-    // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
-    const registration = await db.$transaction(async (tx) => {
-      // Check if attendee already registered for this event (same email + same event)
-      const existingRegistration = await tx.registration.findFirst({
-        where: {
-          eventId,
-          attendee: { email: attendee.email },
-          status: { notIn: ["CANCELLED"] },
-        },
-        select: { id: true },
-      });
-      if (existingRegistration) {
-        throw new Error("ALREADY_REGISTERED");
-      }
-
-      // Create a new attendee record for this registration
-      const attendeeRecord = await tx.attendee.create({
-        data: {
-          title: attendee.title || null,
-          email: attendee.email,
-          firstName: attendee.firstName,
-          lastName: attendee.lastName,
-          organization: attendee.organization || null,
-          jobTitle: attendee.jobTitle || null,
-          phone: attendee.phone || null,
-          photo: attendee.photo || null,
-          city: attendee.city || null,
-          country: attendee.country || null,
-          bio: attendee.bio || null,
-          specialty: attendee.specialty || null,
-          registrationType: ticketType?.name || null,
-          tags: attendee.tags || [],
-          dietaryReqs: attendee.dietaryReqs || null,
-          customFields: attendee.customFields || {},
-        },
-      });
-
-      // Atomically increment soldCount only when a ticket type is selected
-      if (ticketType && ticketTypeId) {
-        const updated = await tx.ticketType.updateMany({
-          where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-          data: { soldCount: { increment: 1 } },
-        });
-        if (updated.count === 0) {
-          throw new Error("SOLD_OUT");
-        }
-      }
-
-      // Create registration
-      const generatedBarcode = generateBarcode();
-      const serialId = await getNextSerialId(tx, eventId);
-      // Default: admin-created registrations start as UNASSIGNED for paid
-      // tickets, COMPLIMENTARY for free. Admin can override with any of the
-      // allowed manual statuses via input.paymentStatus.
-      const defaultPaymentStatus = !ticketType || Number(ticketType.price) === 0
-        ? "COMPLIMENTARY"
-        : "UNASSIGNED";
-      const reg = await tx.registration.create({
-        data: {
-          eventId,
-          ticketTypeId: ticketTypeId || null,
-          attendeeId: attendeeRecord.id,
-          serialId,
-          status: ticketType?.requiresApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: requestedPaymentStatus ?? defaultPaymentStatus,
-          qrCode: generatedBarcode,
-          notes: notes || null,
-        },
-        include: { attendee: true, ticketType: true },
-      });
-
-      return reg;
-    });
-
-    // Sync to org contact store (awaited — errors caught internally)
-    await syncToContact({
-      organizationId: session.user.organizationId!,
+    const result = await createRegistration({
       eventId,
-      email: attendee.email,
-      firstName: attendee.firstName,
-      lastName: attendee.lastName,
-      title: attendee.title || null,
-      organization: attendee.organization || null,
-      jobTitle: attendee.jobTitle || null,
-      phone: attendee.phone || null,
-      photo: attendee.photo || null,
-      city: attendee.city || null,
-      country: attendee.country || null,
-      bio: attendee.bio || null,
-      specialty: attendee.specialty || null,
-      registrationType: ticketType?.name || null,
+      organizationId: session.user.organizationId!,
+      userId: session.user.id,
+      ticketTypeId,
+      attendee,
+      notes,
+      paymentStatus: requestedPaymentStatus,
+      source: "rest",
+      requestIp: getClientIp(req),
+      actorFirstName: session.user.firstName ?? null,
     });
 
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Log the action (non-blocking for better response time)
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CREATE",
-        entityType: "Registration",
-        entityId: registration.id,
-        changes: { ...JSON.parse(JSON.stringify({ registration })), ip: getClientIp(req) },
-      },
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
-
-    // Notify admins of new registration
-    notifyEventAdmins(eventId, {
-      type: "REGISTRATION",
-      title: "Registration Added",
-      message: `${attendee.firstName} ${attendee.lastName} added by ${session.user.firstName || "organizer"}`,
-      link: `/events/${eventId}/registrations`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send registration notification" }));
-
-    // Send confirmation + quote PDF when the registrant still owes money.
-    // Mirrors the public-register path — quote attaches automatically inside
-    // sendRegistrationConfirmation when ticketPrice > 0 && organizationName.
-    if (
-      ticketType &&
-      Number(ticketType.price) > 0 &&
-      OUTSTANDING_PAYMENT_STATUSES.has(registration.paymentStatus)
-    ) {
-      sendRegistrationConfirmation({
-        to: attendee.email,
-        firstName: attendee.firstName,
-        lastName: attendee.lastName,
-        title: attendee.title || null,
-        organization: attendee.organization || null,
-        jobTitle: attendee.jobTitle || null,
-        eventName: event.name,
-        eventDate: event.startDate,
-        eventVenue: event.venue || "",
-        eventCity: event.city || "",
-        ticketType: ticketType.name,
-        registrationId: registration.id,
-        serialId: registration.serialId,
-        qrCode: registration.qrCode || "",
-        eventId: event.id,
-        eventSlug: event.slug,
-        ticketPrice: Number(ticketType.price),
-        ticketCurrency: ticketType.currency,
-        taxRate: event.taxRate ? Number(event.taxRate) : null,
-        taxLabel: event.taxLabel,
-        bankDetails: event.bankDetails,
-        supportEmail: event.supportEmail,
-        organizationName: event.organization.name,
-        companyName: event.organization.companyName,
-        companyAddress: event.organization.companyAddress,
-        companyCity: event.organization.companyCity,
-        companyState: event.organization.companyState,
-        companyZipCode: event.organization.companyZipCode,
-        companyCountry: event.organization.companyCountry,
-        taxId: event.organization.taxId,
-        logoPath: event.organization.logo,
-        billingCity: attendee.city || null,
-        billingCountry: attendee.country || null,
-      }).catch((err) =>
-        apiLogger.error({
-          err,
-          msg: "admin-create:registration-confirmation-send-failed",
-          registrationId: registration.id,
-        }),
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_REGISTRATION_ERROR[result.code] ?? 500;
+      return NextResponse.json(
+        { error: result.message, code: result.code, ...(result.meta ?? {}) },
+        { status },
       );
     }
 
-    return NextResponse.json(registration, { status: 201 });
+    return NextResponse.json(result.registration, { status: 201 });
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "ALREADY_REGISTERED") {
-        return NextResponse.json(
-          { error: "Attendee already registered for this event" },
-          { status: 400 }
-        );
-      }
-      if (error.message === "SOLD_OUT") {
-        return NextResponse.json(
-          { error: "Tickets sold out" },
-          { status: 400 }
-        );
-      }
-    }
     apiLogger.error({ err: error, msg: "Error creating registration" });
     return NextResponse.json(
       { error: "Failed to create registration" },

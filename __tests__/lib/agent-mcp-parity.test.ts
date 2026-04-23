@@ -25,7 +25,9 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
       speaker: { findFirst: vi.fn(), create: vi.fn() },
       auditLog: { create: vi.fn() },
       // $transaction receives a callback — invoke it with a tx proxy that
-      // points at the same mock methods.
+      // points at the same mock methods. Phase 2c moves the duplicate
+      // check inside the tx (previously done pre-tx in the MCP executor),
+      // so registration.findFirst is also needed on the tx proxy.
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => {
         return cb({
           attendee: { create: (...args: unknown[]) => (mockDb.attendee.create as (...a: unknown[]) => unknown)(...args) },
@@ -33,7 +35,10 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
             findUnique: (...args: unknown[]) => (mockDb.ticketType.findUnique as (...a: unknown[]) => unknown)(...args),
             updateMany: (...args: unknown[]) => (mockDb.ticketType.updateMany as (...a: unknown[]) => unknown)(...args),
           },
-          registration: { create: (...args: unknown[]) => (mockDb.registration.create as (...a: unknown[]) => unknown)(...args) },
+          registration: {
+            findFirst: (...args: unknown[]) => (mockDb.registration.findFirst as (...a: unknown[]) => unknown)(...args),
+            create: (...args: unknown[]) => (mockDb.registration.create as (...a: unknown[]) => unknown)(...args),
+          },
         });
       }),
     },
@@ -122,13 +127,26 @@ beforeEach(() => {
     email: "john@example.com",
   });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  // Service uses include: { attendee: true, ticketType: true } on
+  // registration.create, so the mock must return both relations.
   mockDb.registration.create.mockResolvedValue({
     id: "reg-1",
     status: "CONFIRMED",
     paymentStatus: "UNASSIGNED",
     serialId: 42,
     qrCode: "BARCODE-TEST-123",
-    ticketType: { name: "Standard" },
+    attendee: {
+      id: "att-1",
+      email: "john@example.com",
+      firstName: "John",
+      lastName: "Doe",
+    },
+    ticketType: {
+      id: "tt-1",
+      name: "Standard",
+      price: 100,
+      currency: "USD",
+    },
   });
   mockDb.auditLog.create.mockResolvedValue({});
   mockContactSync.syncToContact.mockResolvedValue(undefined);
