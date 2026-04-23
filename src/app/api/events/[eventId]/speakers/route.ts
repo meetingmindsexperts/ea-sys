@@ -8,7 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createSpeaker,
   type CreateSpeakerErrorCode,
@@ -23,7 +23,15 @@ const HTTP_STATUS_FOR_SPEAKER_ERROR: Record<CreateSpeakerErrorCode, number> = {
 
 const createSpeakerSchema = z.object({
   title: titleEnum.optional(),
+  // Demographic / professional classification — Speaker model has the
+  // same AttendeeRole column that Attendee has; the admin-create form
+  // was silently dropping it. Now accepted in parity with the public
+  // register path.
+  role: attendeeRoleEnum.optional(),
   email: z.string().email().max(255),
+  // Secondary email — parity with the Speaker DB column and with the
+  // registration-service field.
+  additionalEmail: z.string().email().max(255).optional().or(z.literal("")),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   bio: z.string().max(10000).optional(),
@@ -33,8 +41,12 @@ const createSpeakerSchema = z.object({
   website: z.string().url().max(500).optional().or(z.literal("")),
   photo: z.string().max(500).optional().or(z.literal("")),
   city: z.string().max(255).optional(),
+  state: z.string().max(255).optional(),
+  zipCode: z.string().max(20).optional(),
   country: z.string().max(255).optional(),
   specialty: z.string().max(255).optional(),
+  // Free-text when specialty is 'Others' — parity with Attendee.
+  customSpecialty: z.string().max(255).optional(),
   registrationType: z.string().max(255).optional(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   socialLinks: z.object({

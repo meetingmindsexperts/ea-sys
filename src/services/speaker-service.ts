@@ -26,6 +26,23 @@ import { notifyEventAdmins } from "@/lib/notifications";
 export type SpeakerStatus = "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED";
 export type SpeakerTitle = "DR" | "MR" | "MRS" | "MS" | "PROF";
 
+/**
+ * Speaker's demographic / professional role. Mirrors the Prisma
+ * `AttendeeRole` enum (same enum used by Attendee + Contact); listed
+ * inline to keep this module Prisma-namespace-free at the input
+ * boundary.
+ */
+export type SpeakerAttendeeRole =
+  | "ACADEMIA"
+  | "ALLIED_HEALTH"
+  | "MEDICAL_DEVICES"
+  | "PHARMA"
+  | "PHYSICIAN"
+  | "RESIDENT"
+  | "SPEAKER"
+  | "STUDENT"
+  | "OTHERS";
+
 export interface CreateSpeakerInput {
   eventId: string;
   organizationId: string;
@@ -38,6 +55,10 @@ export interface CreateSpeakerInput {
 
   // Optional attendee fields
   title?: SpeakerTitle | null;
+  /** Demographic / professional classification (PHYSICIAN, STUDENT, ...). */
+  role?: SpeakerAttendeeRole | null;
+  /** Secondary email — cc on notifications. */
+  additionalEmail?: string | null;
   bio?: string | null;
   organization?: string | null;
   jobTitle?: string | null;
@@ -45,8 +66,12 @@ export interface CreateSpeakerInput {
   website?: string | null;
   photo?: string | null;
   city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
   country?: string | null;
   specialty?: string | null;
+  /** Free-text when `specialty === "Others"`. */
+  customSpecialty?: string | null;
   registrationType?: string | null;
   tags?: string[];
   socialLinks?: { twitter?: string; linkedin?: string; github?: string };
@@ -92,6 +117,8 @@ export async function createSpeaker(
     firstName,
     lastName,
     title,
+    role,
+    additionalEmail,
     bio,
     organization,
     jobTitle,
@@ -99,8 +126,11 @@ export async function createSpeaker(
     website,
     photo,
     city,
+    state,
+    zipCode,
     country,
     specialty,
+    customSpecialty,
     registrationType,
     tags,
     socialLinks,
@@ -110,12 +140,19 @@ export async function createSpeaker(
   } = input;
 
   const normalizedEmail = email.trim().toLowerCase();
+  // `additionalEmail` is optional — coerce empty string to null AND trim +
+  // lowercase when present, matching the registrant path's convention so
+  // the DB column stays normalized regardless of which caller wrote it.
+  const normAdditionalEmail = additionalEmail
+    ? additionalEmail.trim().toLowerCase()
+    : null;
 
   // Normalize empty-string optional fields to null so direct-to-service
   // callers (future external APIs, tests) get the same semantics the REST
   // and MCP callers apply at their validation boundary. `?? null` alone
   // keeps `""`, which would bypass the Prisma title enum and fail at the DB.
   const normTitle = title ? title : null;
+  const normRole = role ? role : null;
   const normBio = bio ? bio : null;
   const normOrg = organization ? organization : null;
   const normJobTitle = jobTitle ? jobTitle : null;
@@ -123,8 +160,11 @@ export async function createSpeaker(
   const normWebsite = website ? website : null;
   const normPhoto = photo ? photo : null;
   const normCity = city ? city : null;
+  const normState = state ? state : null;
+  const normZipCode = zipCode ? zipCode : null;
   const normCountry = country ? country : null;
   const normSpecialty = specialty ? specialty : null;
+  const normCustomSpecialty = customSpecialty ? customSpecialty : null;
   const normRegType = registrationType ? registrationType : null;
 
   // Parallelize event scope check + duplicate check.
@@ -157,9 +197,11 @@ export async function createSpeaker(
       data: {
         eventId,
         email: normalizedEmail,
+        additionalEmail: normAdditionalEmail,
         firstName,
         lastName,
         title: normTitle as SpeakerTitle | null,
+        role: normRole as SpeakerAttendeeRole | null,
         bio: normBio,
         organization: normOrg,
         jobTitle: normJobTitle,
@@ -167,8 +209,11 @@ export async function createSpeaker(
         website: normWebsite,
         photo: normPhoto,
         city: normCity,
+        state: normState,
+        zipCode: normZipCode,
         country: normCountry,
         specialty: normSpecialty,
+        customSpecialty: normCustomSpecialty,
         registrationType: normRegType,
         tags: tags ?? [],
         socialLinks: socialLinks ?? {},
@@ -197,22 +242,29 @@ export async function createSpeaker(
   }
 
   // Sync the full contact payload to the org-wide Contact store (awaited;
-  // errors are caught inside syncToContact, never thrown here).
+  // errors are caught inside syncToContact, never thrown here). Contact
+  // model mirrors Speaker 1:1 on the shared attendee fields so the new
+  // role / additionalEmail / state / zipCode / customSpecialty all land.
   await syncToContact({
     organizationId,
     eventId,
     email: normalizedEmail,
+    additionalEmail: normAdditionalEmail,
     firstName,
     lastName,
     title: normTitle,
+    role: normRole,
     organization: normOrg,
     jobTitle: normJobTitle,
     phone: normPhone,
     photo: normPhoto,
     city: normCity,
+    state: normState,
+    zipCode: normZipCode,
     country: normCountry,
     bio: normBio,
     specialty: normSpecialty,
+    customSpecialty: normCustomSpecialty,
     registrationType: normRegType,
   });
 

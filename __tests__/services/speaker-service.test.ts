@@ -185,6 +185,48 @@ describe("createSpeaker — happy path", () => {
     expect(call[1].message).toBe("Alice Smith added as speaker (via MCP)");
   });
 
+  // ── New attendee fields on Speaker: parity with registration path.
+  //    Speaker Prisma model has role / additionalEmail / state / zipCode /
+  //    customSpecialty — all now accepted and persisted end-to-end.
+
+  it("persists role, additionalEmail, state, zipCode, customSpecialty on speaker.create", async () => {
+    await createSpeaker({
+      ...BASE_INPUT,
+      title: "DR",
+      role: "PHYSICIAN",
+      additionalEmail: "  Alice.Cc@Example.COM  ",
+      state: "CA",
+      zipCode: "94016",
+      customSpecialty: "Interventional Cardiology",
+    });
+    const createCall = mockDb.speaker.create.mock.calls[0][0];
+    expect(createCall.data.role).toBe("PHYSICIAN");
+    // additionalEmail trimmed + lowercased inside the service
+    expect(createCall.data.additionalEmail).toBe("alice.cc@example.com");
+    expect(createCall.data.state).toBe("CA");
+    expect(createCall.data.zipCode).toBe("94016");
+    expect(createCall.data.customSpecialty).toBe("Interventional Cardiology");
+  });
+
+  it("threads role, additionalEmail, state, zipCode, customSpecialty to syncToContact", async () => {
+    await createSpeaker({
+      ...BASE_INPUT,
+      role: "STUDENT",
+      additionalEmail: "alice.personal@example.com",
+      state: "NY",
+      zipCode: "10001",
+      customSpecialty: "Pre-med",
+    });
+    const call = mockSyncToContact.mock.calls[0][0];
+    expect(call).toMatchObject({
+      role: "STUDENT",
+      additionalEmail: "alice.personal@example.com",
+      state: "NY",
+      zipCode: "10001",
+      customSpecialty: "Pre-med",
+    });
+  });
+
   it("normalizes empty-string optional fields to null (direct-caller safety)", async () => {
     // A direct-to-service caller (future external API, test) might pass ""
     // for unset optional fields. The service must coerce to null so the
@@ -194,6 +236,8 @@ describe("createSpeaker — happy path", () => {
     await createSpeaker({
       ...BASE_INPUT,
       title: "" as never,
+      role: "" as never,
+      additionalEmail: "",
       bio: "",
       organization: "",
       jobTitle: "",
@@ -201,12 +245,17 @@ describe("createSpeaker — happy path", () => {
       website: "",
       photo: "",
       city: "",
+      state: "",
+      zipCode: "",
       country: "",
       specialty: "",
+      customSpecialty: "",
       registrationType: "",
     });
     const createCall = mockDb.speaker.create.mock.calls[0][0];
     expect(createCall.data.title).toBeNull();
+    expect(createCall.data.role).toBeNull();
+    expect(createCall.data.additionalEmail).toBeNull();
     expect(createCall.data.bio).toBeNull();
     expect(createCall.data.organization).toBeNull();
     expect(createCall.data.jobTitle).toBeNull();
@@ -214,8 +263,11 @@ describe("createSpeaker — happy path", () => {
     expect(createCall.data.website).toBeNull();
     expect(createCall.data.photo).toBeNull();
     expect(createCall.data.city).toBeNull();
+    expect(createCall.data.state).toBeNull();
+    expect(createCall.data.zipCode).toBeNull();
     expect(createCall.data.country).toBeNull();
     expect(createCall.data.specialty).toBeNull();
+    expect(createCall.data.customSpecialty).toBeNull();
     expect(createCall.data.registrationType).toBeNull();
   });
 });

@@ -9,9 +9,16 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
   createSpeaker,
+  type SpeakerAttendeeRole,
   type SpeakerStatus,
   type SpeakerTitle,
 } from "@/services/speaker-service";
+
+// Mirrors Prisma's AttendeeRole enum — validated at the MCP boundary.
+const ATTENDEE_ROLE_VALUES = new Set([
+  "ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA",
+  "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS",
+]);
 import {
   SPEAKER_AGREEMENT_TEMPLATE_MAX_SIZE,
   SpeakerAgreementTemplateError,
@@ -77,6 +84,16 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
     if (rawStatus && !SPEAKER_STATUSES.has(rawStatus)) {
       return { error: `Invalid status. Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
     }
+    const rawRole = input.role ? String(input.role) : undefined;
+    if (rawRole && !ATTENDEE_ROLE_VALUES.has(rawRole)) {
+      return { error: `Invalid role "${rawRole}". Must be one of: ${[...ATTENDEE_ROLE_VALUES].join(", ")}` };
+    }
+    const rawAdditionalEmail = input.additionalEmail
+      ? String(input.additionalEmail).trim().toLowerCase()
+      : undefined;
+    if (rawAdditionalEmail && !EMAIL_RE.test(rawAdditionalEmail)) {
+      return { error: `Invalid additionalEmail format "${rawAdditionalEmail}"` };
+    }
 
     const result = await createSpeaker({
       eventId: ctx.eventId,
@@ -86,14 +103,19 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
       firstName,
       lastName,
       title: (rawTitle as SpeakerTitle | undefined) ?? null,
+      role: (rawRole as SpeakerAttendeeRole | undefined) ?? null,
+      additionalEmail: rawAdditionalEmail ?? null,
       bio: input.bio ? String(input.bio).slice(0, 5000) : null,
       organization: input.organization ? String(input.organization).slice(0, 255) : null,
       jobTitle: input.jobTitle ? String(input.jobTitle).slice(0, 255) : null,
       phone: input.phone ? String(input.phone).slice(0, 50) : null,
       city: input.city ? String(input.city).slice(0, 255) : null,
+      state: input.state ? String(input.state).slice(0, 255) : null,
+      zipCode: input.zipCode ? String(input.zipCode).slice(0, 20) : null,
       country: input.country ? String(input.country).slice(0, 255) : null,
       photo: input.photo ? String(input.photo).slice(0, 500) : null,
       specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
+      customSpecialty: input.customSpecialty ? String(input.customSpecialty).slice(0, 255) : null,
       registrationType: input.registrationType ? String(input.registrationType).slice(0, 255) : null,
       status: (rawStatus as SpeakerStatus | undefined) ?? "INVITED",
       source: "mcp",
@@ -552,14 +574,29 @@ export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
           enum: ["DR", "MR", "MRS", "MS", "PROF"],
           description: "Honorific title",
         },
+        role: {
+          type: "string",
+          enum: ["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS"],
+          description: "Speaker demographic/professional role. Same enum as Attendee/Contact.",
+        },
+        additionalEmail: {
+          type: "string",
+          description: "Secondary email (cc on notifications). Optional.",
+        },
         bio: { type: "string" },
         organization: { type: "string" },
         jobTitle: { type: "string" },
         phone: { type: "string" },
         city: { type: "string" },
+        state: { type: "string" },
+        zipCode: { type: "string" },
         country: { type: "string" },
         photo: { type: "string", description: "Photo URL or relative path (e.g. /uploads/photos/...)" },
         specialty: { type: "string" },
+        customSpecialty: {
+          type: "string",
+          description: "Free-text specialty when `specialty` is 'Others'.",
+        },
         registrationType: { type: "string" },
         status: {
           type: "string",
