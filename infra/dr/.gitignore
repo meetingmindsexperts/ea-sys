@@ -1,0 +1,16 @@
+# Terraform state (contains resource IDs, never commit)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform variable files (may contain secrets like KMS ARN + account IDs)
+terraform.tfvars
+*.auto.tfvars
+
+# Terraform working directory
+.terraform/
+.terraform.lock.hcl
+
+# CLI crash logs
+crash.log
+crash.*.log

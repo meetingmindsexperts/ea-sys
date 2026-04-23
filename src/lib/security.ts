@@ -47,6 +47,12 @@ function getRateLimitStore(): Map<string, RateLimitEntry> {
 }
 
 export function getClientIp(req: Request): string {
+  // Cloudflare sets CF-Connecting-IP to the true client IP. Trustworthy when
+  // the security group only allows 80/443 from Cloudflare ranges — direct
+  // connections can't reach the origin to spoof this header.
+  const cfIp = req.headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp;
+
   const forwardedFor = req.headers.get("x-forwarded-for");
   if (forwardedFor) {
     return forwardedFor.split(",")[0]?.trim() || "unknown";
