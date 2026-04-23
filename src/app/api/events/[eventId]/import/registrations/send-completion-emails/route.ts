@@ -53,7 +53,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true, name: true, slug: true, startDate: true, venue: true, city: true, country: true },
+        select: {
+          id: true, name: true, slug: true, startDate: true,
+          venue: true, city: true, country: true,
+          // Per-event sender branding — without these, sendEmail falls
+          // back to env DEFAULT_FROM_EMAIL / DEFAULT_FROM_NAME which
+          // silently overrides the organizer's configured sender.
+          emailFromAddress: true, emailFromName: true,
+        },
       }),
       db.registration.findMany({
         where: { id: { in: registrationIds }, eventId, status: { notIn: ["CANCELLED"] } },
@@ -81,6 +88,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const eventDate = format(new Date(event.startDate), "MMM d, yyyy");
     const eventVenue = [event.venue, event.city, event.country].filter(Boolean).join(", ");
+    // Resolve the event's configured sender once; if not set, `undefined`
+    // lets sendEmail fall through to the provider defaults as intended.
+    const eventFrom = event.emailFromAddress
+      ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
+      : undefined;
 
     let sent = 0;
     let skipped = 0;
@@ -132,6 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           subject: template.subject,
           htmlContent: template.htmlContent,
           textContent: template.textContent,
+          from: eventFrom,
           logContext: {
             organizationId: session.user.organizationId ?? null,
             eventId,

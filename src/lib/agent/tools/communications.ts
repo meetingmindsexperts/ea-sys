@@ -99,6 +99,18 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
       };
     }
 
+    // Resolve per-event sender branding so agent-sent emails go FROM the
+    // organizer's configured address, not the env-level default. Pre-fix
+    // these sends silently fell through to DEFAULT_FROM_EMAIL /
+    // DEFAULT_FROM_NAME — overriding the event's own sender without warning.
+    const event = await db.event.findUnique({
+      where: { id: ctx.eventId },
+      select: { name: true, emailFromAddress: true, emailFromName: true },
+    });
+    const eventFrom = event?.emailFromAddress
+      ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
+      : undefined;
+
     let sent = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -109,6 +121,7 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
           to: [{ email: recipient.email, name: recipient.name }],
           subject,
           htmlContent: htmlMessage,
+          from: eventFrom,
           logContext: {
             organizationId: ctx.organizationId,
             eventId: ctx.eventId,
