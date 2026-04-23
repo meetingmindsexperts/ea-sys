@@ -5,10 +5,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 4.0"
-    }
   }
 }
 
@@ -16,24 +12,32 @@ provider "aws" {
   region = var.region
 }
 
-provider "cloudflare" {}
-
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"]
+  owners      = ["099720109477"] # Canonical
 
+  # Noble 24.04 to match the Mumbai prod box. The "hvm-ssd*" glob tolerates
+  # both the older gp2-backed and newer gp3-backed AMI paths — either is fine.
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-jammy-22.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-amd64-server-*"]
   }
 
   filter {
     name   = "virtualization-type"
     values = ["hvm"]
   }
-}
 
-data "cloudflare_ip_ranges" "cloudflare" {}
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
 
 data "aws_iam_policy_document" "ec2_assume" {
   statement {
@@ -84,30 +88,22 @@ resource "aws_iam_instance_profile" "dr" {
 
 resource "aws_security_group" "dr" {
   name        = "ea-sys-dr-singapore-sg"
-  description = "DR: 80/443 from Cloudflare only. No port 22 (SSM for shell)."
+  description = "DR: 80/443 open per var.http_allow_cidrs. No port 22 (SSM for shell)."
 
-  # HTTPS from Cloudflare ranges only
-  dynamic "ingress" {
-    for_each = data.cloudflare_ip_ranges.cloudflare.cidr_blocks
-    content {
-      description = "Cloudflare HTTPS"
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      cidr_blocks = [ingress.value]
-    }
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.http_allow_cidrs
   }
 
-  # HTTP from Cloudflare ranges only (ACME HTTP-01 + redirects)
-  dynamic "ingress" {
-    for_each = data.cloudflare_ip_ranges.cloudflare.cidr_blocks
-    content {
-      description = "Cloudflare HTTP"
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = [ingress.value]
-    }
+  ingress {
+    description = "HTTP (ACME HTTP-01 + redirects)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = var.http_allow_cidrs
   }
 
   # No SSH ingress. Shell access is via `aws ssm start-session`.

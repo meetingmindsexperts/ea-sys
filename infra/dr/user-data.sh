@@ -20,11 +20,20 @@ echo "[bootstrap] start: $(date -u)"
 # --- 1. OS packages ---
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
+# Note: Ubuntu 24.04 (Noble) removed the `awscli` apt package. We install AWS
+# CLI v2 manually from the official installer below.
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg git nginx awscli jq unattended-upgrades
+  ca-certificates curl gnupg git nginx jq unzip unattended-upgrades
 
 # Auto-apply security updates
 dpkg-reconfigure -plow unattended-upgrades || true
+
+# --- 1b. AWS CLI v2 (official installer — apt's awscli isn't on Noble) ---
+curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp/
+/tmp/aws/install
+rm -rf /tmp/aws /tmp/awscliv2.zip
+aws --version
 
 # --- 2. Docker + compose plugin ---
 install -m 0755 -d /etc/apt/keyrings

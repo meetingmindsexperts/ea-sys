@@ -132,10 +132,10 @@ moment you want to find problems, not during a real outage.
    terraform output public_ip
    ```
 
-4. **Update Cloudflare DNS.**
-   - Dashboard → DNS → `events` A record → replace value with the new IP.
-   - Leave **Proxied (orange cloud)** on.
-   - Propagation: ~30s through Cloudflare.
+4. **Update DNS at the registrar.**
+   - At your domain registrar (GoDaddy/etc.) → DNS → `events` A record → replace value with the new IP.
+   - TTL is usually 1 hour; lower it to 60 seconds before a known-risky change for faster failover.
+   - When a CDN (CloudFront/Cloudflare) is later added, this step updates the CDN origin instead of DNS directly, and tighten `http_allow_cidrs` in `terraform.tfvars` to the CDN's IP ranges.
 
 5. **Verify traffic is serving.**
    ```bash

@@ -38,3 +38,9 @@ variable "dr_kms_key_arn" {
   description = "KMS key ARN encrypting objects in the DR bucket. Created alongside the bucket; not managed by this module."
   type        = string
 }
+
+variable "http_allow_cidrs" {
+  description = "CIDRs allowed to reach ports 80/443 on the DR box. Default is wide-open (matches Mumbai's current posture). When a CDN (CloudFront, Cloudflare) is added, tighten to the CDN's IP ranges."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
