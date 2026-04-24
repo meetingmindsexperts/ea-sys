@@ -18,6 +18,8 @@ import {
 import { PhotoUpload } from "@/components/ui/photo-upload";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { ArrowLeft, Mic, Save, User, Briefcase, MapPin, Tag, Share2 } from "lucide-react";
 import { toast } from "sonner";
@@ -30,7 +32,9 @@ export default function NewSpeakerPage() {
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
+    role: "",
     email: "",
+    additionalEmail: "",
     firstName: "",
     lastName: "",
     bio: "",
@@ -39,7 +43,11 @@ export default function NewSpeakerPage() {
     website: "",
     photo: null as string | null,
     city: "",
+    state: "",
+    zipCode: "",
     country: "",
+    specialty: "",
+    customSpecialty: "",
     tags: [] as string[],
     status: "INVITED",
     registrationType: "",
@@ -55,11 +63,20 @@ export default function NewSpeakerPage() {
     setLoading(true);
     setError(null);
 
+    // Strip fields that Zod would reject on empty string. `role` and
+    // `title` are enum-typed on the backend — empty string isn't in the
+    // enum set. Other optional strings pass through as-is.
+    const payload = {
+      ...formData,
+      role: formData.role || undefined,
+      title: formData.title || undefined,
+    };
+
     try {
       const res = await fetch(`/api/events/${eventId}/speakers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
@@ -153,16 +170,39 @@ export default function NewSpeakerPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                required
+              <Label htmlFor="role">Role</Label>
+              <RoleSelect
+                value={formData.role}
+                onChange={(role) => setFormData({ ...formData, role })}
+                placeholder="Select a role (optional)"
               />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="additionalEmail">Additional Email</Label>
+                <Input
+                  id="additionalEmail"
+                  type="email"
+                  value={formData.additionalEmail}
+                  onChange={(e) =>
+                    setFormData({ ...formData, additionalEmail: e.target.value })
+                  }
+                  placeholder="Secondary / CC email (optional)"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -223,6 +263,39 @@ export default function NewSpeakerPage() {
               />
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="specialty">Specialty</Label>
+                <SpecialtySelect
+                  value={formData.specialty}
+                  onChange={(specialty) =>
+                    setFormData({
+                      ...formData,
+                      specialty,
+                      // Auto-clear customSpecialty when specialty moves away
+                      // from "Others" — mirrors the public register-form
+                      // UX. Prevents stale free-text from lingering in DB.
+                      customSpecialty: specialty === "Others" ? formData.customSpecialty : "",
+                    })
+                  }
+                />
+              </div>
+              {formData.specialty === "Others" && (
+                <div className="space-y-2">
+                  <Label htmlFor="customSpecialty">Custom Specialty *</Label>
+                  <Input
+                    id="customSpecialty"
+                    value={formData.customSpecialty}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customSpecialty: e.target.value })
+                    }
+                    placeholder="Specify..."
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="website">Website</Label>
               <Input
@@ -255,6 +328,26 @@ export default function NewSpeakerPage() {
                   value={formData.city}
                   onChange={(e) =>
                     setFormData({ ...formData, city: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="state">State / Province</Label>
+                <Input
+                  id="state"
+                  value={formData.state}
+                  onChange={(e) =>
+                    setFormData({ ...formData, state: e.target.value })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zipCode">Zip / Postal Code</Label>
+                <Input
+                  id="zipCode"
+                  value={formData.zipCode}
+                  onChange={(e) =>
+                    setFormData({ ...formData, zipCode: e.target.value })
                   }
                 />
               </div>
