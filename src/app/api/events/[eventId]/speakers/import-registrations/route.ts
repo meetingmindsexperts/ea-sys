@@ -44,18 +44,30 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         include: {
           attendee: {
+            // Select every Attendee column that has a matching Speaker
+            // column. Fields only on Attendee (dietaryReqs, customFields,
+            // memberId, studentId, studentIdExpiry, associationName) are
+            // registrant-specific and correctly omitted here.
             select: {
               title: true,
+              role: true,
               email: true,
+              additionalEmail: true,
               firstName: true,
               lastName: true,
               organization: true,
               jobTitle: true,
               phone: true,
+              photo: true,
               city: true,
+              state: true,
+              zipCode: true,
               country: true,
+              bio: true,
               specialty: true,
+              customSpecialty: true,
               registrationType: true,
+              tags: true,
             },
           },
         },
@@ -86,19 +98,31 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (dedupedToCreate.length > 0) {
       await db.speaker.createMany({
+        // Map every Attendee column onto the corresponding Speaker column.
+        // `undefined` is used for optional fields (Prisma treats it as
+        // "leave null") rather than explicit null so we match createMany's
+        // behaviour. Arrays default to [] at the DB when omitted.
         data: dedupedToCreate.map((r) => ({
           eventId,
           title: r.attendee.title ?? undefined,
+          role: r.attendee.role ?? undefined,
           email: r.attendee.email,
+          additionalEmail: r.attendee.additionalEmail ?? undefined,
           firstName: r.attendee.firstName,
           lastName: r.attendee.lastName,
           organization: r.attendee.organization ?? undefined,
           jobTitle: r.attendee.jobTitle ?? undefined,
           phone: r.attendee.phone ?? undefined,
+          photo: r.attendee.photo ?? undefined,
           city: r.attendee.city ?? undefined,
+          state: r.attendee.state ?? undefined,
+          zipCode: r.attendee.zipCode ?? undefined,
           country: r.attendee.country ?? undefined,
+          bio: r.attendee.bio ?? undefined,
           specialty: r.attendee.specialty ?? undefined,
+          customSpecialty: r.attendee.customSpecialty ?? undefined,
           registrationType: r.attendee.registrationType ?? undefined,
+          tags: r.attendee.tags.length > 0 ? r.attendee.tags : undefined,
         })),
         skipDuplicates: true,
       });
