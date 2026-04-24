@@ -147,4 +147,67 @@ describe("parseHtmlToBlocks", () => {
     if (para.kind !== "paragraph") throw new Error("expected paragraph");
     expect(para.runs.map((r) => r.text).join("")).toContain("Acme & Co <Ltd>");
   });
+
+  it("parses a table with tbody into a single table block with rows and cells", () => {
+    const blocks = parseHtmlToBlocks(
+      "<table><tbody>" +
+        "<tr><th>Col A</th><th>Col B</th></tr>" +
+        "<tr><td>A1</td><td>B1</td></tr>" +
+        "<tr><td>A2</td><td>B2</td></tr>" +
+        "</tbody></table>",
+    );
+    expect(blocks).toHaveLength(1);
+    const table = blocks[0];
+    if (table.kind !== "table") throw new Error("expected table");
+    expect(table.rows).toHaveLength(3);
+    expect(table.rows[0].cells).toHaveLength(2);
+    expect(table.rows[0].cells[0].isHeader).toBe(true);
+    expect(table.rows[0].cells[0].runs.map((r) => r.text).join("")).toBe("Col A");
+    expect(table.rows[1].cells[0].isHeader).toBe(false);
+    expect(table.rows[2].cells[1].runs.map((r) => r.text).join("")).toBe("B2");
+  });
+
+  it("parses a table without explicit tbody", () => {
+    const blocks = parseHtmlToBlocks(
+      "<table><tr><td>A</td><td>B</td></tr></table>",
+    );
+    expect(blocks).toHaveLength(1);
+    if (blocks[0].kind !== "table") throw new Error("expected table");
+    expect(blocks[0].rows).toHaveLength(1);
+    expect(blocks[0].rows[0].cells).toHaveLength(2);
+  });
+
+  it("preserves inline bold runs inside table cells", () => {
+    const blocks = parseHtmlToBlocks(
+      "<table><tr><td><strong>Label</strong></td><td>value</td></tr></table>",
+    );
+    if (blocks[0].kind !== "table") throw new Error("expected table");
+    const labelCell = blocks[0].rows[0].cells[0];
+    expect(labelCell.runs[0].bold).toBe(true);
+    expect(labelCell.runs[0].text).toBe("Label");
+  });
+
+  it("emits a callout block for <blockquote>", () => {
+    const blocks = parseHtmlToBlocks(
+      "<p>Before</p><blockquote>IMPORTANT — notice.</blockquote><p>After</p>",
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "callout", "paragraph"]);
+    if (blocks[1].kind !== "callout") throw new Error("expected callout");
+    expect(blocks[1].runs.map((r) => r.text).join("")).toContain("IMPORTANT");
+  });
+
+  it("closing a table without an explicit </tr> still captures the row", () => {
+    const blocks = parseHtmlToBlocks(
+      "<table><tr><td>A</td><td>B</td></table>",
+    );
+    if (blocks[0].kind !== "table") throw new Error("expected table");
+    expect(blocks[0].rows).toHaveLength(1);
+  });
+
+  it("treats <table> as a block boundary — paragraphs after it are separate", () => {
+    const blocks = parseHtmlToBlocks(
+      "<p>Intro</p><table><tr><td>A</td></tr></table><p>Outro</p>",
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "table", "paragraph"]);
+  });
 });

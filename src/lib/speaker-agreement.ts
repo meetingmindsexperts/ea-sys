@@ -501,10 +501,20 @@ interface InlineRun {
   link?: string;
 }
 
+interface TableCell {
+  runs: InlineRun[];
+  isHeader: boolean;
+}
+interface TableRow {
+  cells: TableCell[];
+}
+
 type Block =
   | { kind: "paragraph"; runs: InlineRun[] }
   | { kind: "heading"; level: number; runs: InlineRun[] }
   | { kind: "list-item"; ordered: boolean; index: number; depth: number; runs: InlineRun[] }
+  | { kind: "table"; rows: TableRow[] }
+  | { kind: "callout"; runs: InlineRun[] }
   | { kind: "rule" };
 
 /**
@@ -527,13 +537,23 @@ export function parseHtmlToBlocks(html: string): Block[] {
   type BlockCtx =
     | { kind: "paragraph" | "heading"; level?: number; runs: InlineRun[] }
     | { kind: "list"; ordered: boolean; counter: number; depth: number }
-    | { kind: "list-item"; ordered: boolean; index: number; depth: number; runs: InlineRun[] };
+    | { kind: "list-item"; ordered: boolean; index: number; depth: number; runs: InlineRun[] }
+    | { kind: "callout"; runs: InlineRun[] }
+    | { kind: "table"; rows: TableRow[] }
+    | { kind: "tr"; cells: TableCell[] }
+    | { kind: "cell"; isHeader: boolean; runs: InlineRun[] };
   const ctx: BlockCtx[] = [];
 
   const currentRunSlot = (): InlineRun[] | null => {
     for (let i = ctx.length - 1; i >= 0; i--) {
       const c = ctx[i];
-      if (c.kind === "paragraph" || c.kind === "heading" || c.kind === "list-item") {
+      if (
+        c.kind === "paragraph" ||
+        c.kind === "heading" ||
+        c.kind === "list-item" ||
+        c.kind === "callout" ||
+        c.kind === "cell"
+      ) {
         return c.runs;
       }
     }
@@ -580,9 +600,9 @@ export function parseHtmlToBlocks(html: string): Block[] {
   const flushTopBlock = () => {
     const top = ctx[ctx.length - 1];
     if (!top) return;
-    if (top.kind === "list") {
-      // Don't pop list containers on stray close/open boundaries — they're
-      // popped only when their matching </ul>/</ol> is seen.
+    if (top.kind === "list" || top.kind === "table" || top.kind === "tr") {
+      // Don't pop container contexts on stray close/open boundaries — they're
+      // popped only when their matching end tag is seen.
       return;
     }
     if (top.kind === "paragraph" && top.runs.length > 0) {
@@ -597,6 +617,18 @@ export function parseHtmlToBlocks(html: string): Block[] {
         depth: top.depth,
         runs: top.runs,
       });
+    } else if (top.kind === "callout" && top.runs.length > 0) {
+      blocks.push({ kind: "callout", runs: top.runs });
+    } else if (top.kind === "cell") {
+      // Cells can be flushed independently when </td> is seen; they flush
+      // into the enclosing row context, not into blocks directly.
+      for (let i = ctx.length - 2; i >= 0; i--) {
+        const row = ctx[i];
+        if (row.kind === "tr") {
+          row.cells.push({ runs: top.runs, isHeader: top.isHeader });
+          break;
+        }
+      }
     }
     ctx.pop();
   };
@@ -659,9 +691,50 @@ export function parseHtmlToBlocks(html: string): Block[] {
         blocks.push({ kind: "rule" });
         continue;
       }
-      if (tag === "p" || tag === "blockquote" || tag === "div") {
+      if (tag === "blockquote") {
+        flushTopBlock();
+        ctx.push({ kind: "callout", runs: [] });
+        continue;
+      }
+      if (tag === "p" || tag === "div") {
         flushTopBlock();
         ctx.push({ kind: "paragraph", runs: [] });
+        continue;
+      }
+      if (tag === "table") {
+        flushTopBlock();
+        ctx.push({ kind: "table", rows: [] });
+        continue;
+      }
+      if (tag === "tbody" || tag === "thead" || tag === "tfoot") {
+        // Transparent containers — table rows live under them.
+        continue;
+      }
+      if (tag === "tr") {
+        // Close any open cell first, then open a row under the enclosing table.
+        // If there's no table, create an implicit one so stray <tr> isn't lost.
+        for (let i = ctx.length - 1; i >= 0; i--) {
+          if (ctx[i].kind === "cell") {
+            flushTopBlock();
+            break;
+          }
+          if (ctx[i].kind === "table" || ctx[i].kind === "tr") break;
+        }
+        const hasTable = ctx.some((c) => c.kind === "table");
+        if (!hasTable) ctx.push({ kind: "table", rows: [] });
+        ctx.push({ kind: "tr", cells: [] });
+        continue;
+      }
+      if (tag === "td" || tag === "th") {
+        // Close any previously-open cell in the same row.
+        for (let i = ctx.length - 1; i >= 0; i--) {
+          if (ctx[i].kind === "cell") {
+            flushTopBlock();
+            break;
+          }
+          if (ctx[i].kind === "tr") break;
+        }
+        ctx.push({ kind: "cell", isHeader: tag === "th", runs: [] });
         continue;
       }
       if (/^h[1-6]$/.test(tag)) {
@@ -704,6 +777,75 @@ export function parseHtmlToBlocks(html: string): Block[] {
       }
       continue;
     }
+    if (tag === "td" || tag === "th") {
+      // Close the cell — flushes its runs into the enclosing row.
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "cell") {
+          flushTopBlock();
+          break;
+        }
+      }
+      continue;
+    }
+    if (tag === "tr") {
+      // Close the row — flush any open cell, then drain row into the table.
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "cell") {
+          flushTopBlock();
+          break;
+        }
+        if (ctx[i].kind === "tr") break;
+      }
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "tr") {
+          const row = ctx[i] as Extract<BlockCtx, { kind: "tr" }>;
+          for (let j = i - 1; j >= 0; j--) {
+            if (ctx[j].kind === "table") {
+              (ctx[j] as Extract<BlockCtx, { kind: "table" }>).rows.push({ cells: row.cells });
+              break;
+            }
+          }
+          ctx.splice(i, 1);
+          break;
+        }
+      }
+      continue;
+    }
+    if (tag === "tbody" || tag === "thead" || tag === "tfoot") {
+      continue;
+    }
+    if (tag === "table") {
+      // Close any open cell/row first, then drain the table into blocks.
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "cell") {
+          flushTopBlock();
+          break;
+        }
+        if (ctx[i].kind === "tr" || ctx[i].kind === "table") break;
+      }
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "tr") {
+          const row = ctx[i] as Extract<BlockCtx, { kind: "tr" }>;
+          for (let j = i - 1; j >= 0; j--) {
+            if (ctx[j].kind === "table") {
+              (ctx[j] as Extract<BlockCtx, { kind: "table" }>).rows.push({ cells: row.cells });
+              break;
+            }
+          }
+          ctx.splice(i, 1);
+          break;
+        }
+      }
+      for (let i = ctx.length - 1; i >= 0; i--) {
+        if (ctx[i].kind === "table") {
+          const tbl = ctx[i] as Extract<BlockCtx, { kind: "table" }>;
+          if (tbl.rows.length > 0) blocks.push({ kind: "table", rows: tbl.rows });
+          ctx.splice(i, 1);
+          break;
+        }
+      }
+      continue;
+    }
     // Unknown close — ignore
   }
 
@@ -712,9 +854,29 @@ export function parseHtmlToBlocks(html: string): Block[] {
     const top = ctx[ctx.length - 1];
     if (top.kind === "list") {
       ctx.pop();
-    } else {
-      flushTopBlock();
+      continue;
     }
+    if (top.kind === "cell") {
+      flushTopBlock();
+      continue;
+    }
+    if (top.kind === "tr") {
+      // Drain open row into enclosing table.
+      for (let j = ctx.length - 2; j >= 0; j--) {
+        if (ctx[j].kind === "table") {
+          (ctx[j] as Extract<BlockCtx, { kind: "table" }>).rows.push({ cells: top.cells });
+          break;
+        }
+      }
+      ctx.pop();
+      continue;
+    }
+    if (top.kind === "table") {
+      if (top.rows.length > 0) blocks.push({ kind: "table", rows: top.rows });
+      ctx.pop();
+      continue;
+    }
+    flushTopBlock();
   }
 
   return blocks;
@@ -727,6 +889,24 @@ function pickFont(bold: boolean, italic: boolean): string {
   if (bold) return "Helvetica-Bold";
   if (italic) return "Helvetica-Oblique";
   return "Helvetica";
+}
+
+/**
+ * Substitute glyphs that aren't in Helvetica's WinAnsi encoding so they
+ * render as legible ASCII in the PDF rather than missing-glyph boxes.
+ * Applied only at PDF emission — the acceptance HTML view keeps the
+ * original Unicode since browsers render it fine.
+ */
+function sanitizePdfText(s: string): string {
+  return s
+    .replace(/☐/g, "[ ]")
+    .replace(/☑/g, "[x]")
+    .replace(/☒/g, "[x]")
+    .replace(/[‐-―]/g, "-") // various dashes → ASCII hyphen (— is already WinAnsi but ‐-– etc. aren't always)
+    .replace(/[‘’]/g, "'") // smart single quotes
+    .replace(/[“”]/g, '"') // smart double quotes
+    .replace(/•/g, "•") // bullet (this IS in WinAnsi but belt-and-suspenders)
+    .replace(/ /g, " "); // nbsp
 }
 
 const HEADING_FONT_SIZE = [20, 17, 15, 13, 12, 11]; // h1..h6
@@ -784,7 +964,148 @@ function renderBlocksToDoc(doc: PDFKitDoc, blocks: Block[], contentWidth: number
       doc.moveDown(0.2);
       continue;
     }
+
+    if (block.kind === "callout") {
+      renderCallout(doc, block.runs, contentWidth);
+      continue;
+    }
+
+    if (block.kind === "table") {
+      renderTable(doc, block.rows, contentWidth);
+      continue;
+    }
   }
+}
+
+function renderCallout(doc: PDFKitDoc, runs: InlineRun[], contentWidth: number): void {
+  const leftBorderColor = "#d97706"; // amber — matches the app's callout style
+  const bgColor = "#fffbeb";
+  const padX = 12;
+  const padY = 10;
+
+  doc.moveDown(0.3);
+  const startY = doc.y;
+
+  // First-pass height estimate via a temporary render into a dry container:
+  // pdfkit exposes `heightOfString` which honors width+lineGap. Sum across runs.
+  let estimatedHeight = 0;
+  const innerWidth = contentWidth - padX * 2;
+  for (const run of runs) {
+    doc.font(pickFont(run.bold, run.italic)).fontSize(BODY_FONT_SIZE);
+    estimatedHeight += doc.heightOfString(sanitizePdfText(run.text), {
+      width: innerWidth,
+      lineGap: BODY_FONT_SIZE * (LINE_HEIGHT - 1),
+    });
+  }
+  const boxHeight = Math.max(BODY_FONT_SIZE * LINE_HEIGHT + padY * 2, estimatedHeight + padY * 2);
+
+  // Draw background + left border.
+  doc
+    .save()
+    .rect(doc.page.margins.left, startY, contentWidth, boxHeight)
+    .fill(bgColor)
+    .rect(doc.page.margins.left, startY, 4, boxHeight)
+    .fill(leftBorderColor)
+    .restore();
+
+  // Render text on top.
+  doc.fillColor("#92400e");
+  renderRunsLine(doc, runs, {
+    fontSize: BODY_FONT_SIZE,
+    width: innerWidth,
+    x: doc.page.margins.left + padX,
+    y: startY + padY,
+  });
+  doc.fillColor("black");
+
+  // Advance past the box (heightOfString approximation may be off by a line).
+  doc.y = Math.max(doc.y, startY + boxHeight);
+  doc.moveDown(0.5);
+}
+
+function renderTable(doc: PDFKitDoc, rows: TableRow[], contentWidth: number): void {
+  if (rows.length === 0) return;
+
+  // Column count = widest row's cell count. Equal widths; no colspan support yet.
+  const colCount = rows.reduce((max, r) => Math.max(max, r.cells.length), 0);
+  if (colCount === 0) return;
+  const colWidth = contentWidth / colCount;
+  const padX = 6;
+  const padY = 5;
+  const borderColor = "#d1d5db";
+  const headerBg = "#f3f4f6";
+
+  doc.moveDown(0.4);
+  const tableLeft = doc.page.margins.left;
+
+  for (const row of rows) {
+    // Measure row height = tallest cell.
+    const cellHeights: number[] = [];
+    for (let ci = 0; ci < colCount; ci++) {
+      const cell = row.cells[ci];
+      if (!cell) {
+        cellHeights.push(BODY_FONT_SIZE * LINE_HEIGHT);
+        continue;
+      }
+      let h = 0;
+      for (const run of cell.runs) {
+        doc
+          .font(pickFont(run.bold || cell.isHeader, run.italic))
+          .fontSize(BODY_FONT_SIZE);
+        h += doc.heightOfString(sanitizePdfText(run.text), {
+          width: colWidth - padX * 2,
+          lineGap: BODY_FONT_SIZE * (LINE_HEIGHT - 1),
+        });
+      }
+      cellHeights.push(Math.max(BODY_FONT_SIZE * LINE_HEIGHT, h));
+    }
+    const rowHeight = Math.max(...cellHeights) + padY * 2;
+
+    // Page-break if the row won't fit.
+    const bottom = doc.page.height - doc.page.margins.bottom;
+    if (doc.y + rowHeight > bottom) {
+      doc.addPage();
+    }
+
+    const rowY = doc.y;
+    const isHeader = row.cells.every((c) => c.isHeader);
+
+    // Background for header rows.
+    if (isHeader) {
+      doc.save().rect(tableLeft, rowY, contentWidth, rowHeight).fill(headerBg).restore();
+    }
+
+    // Cell contents.
+    for (let ci = 0; ci < colCount; ci++) {
+      const cell = row.cells[ci];
+      const cellX = tableLeft + ci * colWidth;
+      if (cell && cell.runs.length > 0) {
+        renderRunsLine(doc, cell.runs, {
+          fontSize: BODY_FONT_SIZE,
+          width: colWidth - padX * 2,
+          defaultBold: cell.isHeader,
+          x: cellX + padX,
+          y: rowY + padY,
+        });
+      }
+    }
+
+    // Borders: outer rectangle + vertical column dividers.
+    doc.strokeColor(borderColor).lineWidth(0.5);
+    doc.rect(tableLeft, rowY, contentWidth, rowHeight).stroke();
+    for (let ci = 1; ci < colCount; ci++) {
+      doc
+        .moveTo(tableLeft + ci * colWidth, rowY)
+        .lineTo(tableLeft + ci * colWidth, rowY + rowHeight)
+        .stroke();
+    }
+    doc.strokeColor("black").lineWidth(1);
+
+    doc.x = tableLeft;
+    doc.y = rowY + rowHeight;
+  }
+
+  doc.moveDown(0.5);
 }
 
 function renderRunsLine(
@@ -816,7 +1137,7 @@ function renderRunsLine(
     const color = run.link ? "#00aade" : "black";
     doc.fillColor(color);
 
-    doc.text(run.text, {
+    doc.text(sanitizePdfText(run.text), {
       continued: !isLast,
       underline: run.underline,
       width: opts.width,
