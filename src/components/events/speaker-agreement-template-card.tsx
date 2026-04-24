@@ -106,10 +106,14 @@ export function SpeakerAgreementTemplateCard({ eventId }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Speaker Agreement Template</CardTitle>
+        <CardTitle>Speaker Agreement Template (.docx)</CardTitle>
         <CardDescription>
-          Upload a .docx template with merge tokens. When you send a Speaker Agreement email, each
-          recipient will get a personalized .docx attachment with their own details filled in.
+          Optional. Upload a .docx template with merge tokens for a fully-designed Word-format
+          attachment. When uploaded, this takes precedence over the inline HTML body.
+          <span className="block mt-2 text-xs">
+            No .docx uploaded? Each speaker gets a PDF generated from the inline Speaker
+            Agreement HTML (edited in <strong>Event → Content → Speaker Agreement</strong>).
+          </span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">

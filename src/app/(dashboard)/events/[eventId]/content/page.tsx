@@ -239,15 +239,55 @@ export default function ContentPage() {
               <CardHeader>
                 <CardTitle>Speaker Agreement</CardTitle>
                 <CardDescription>
-                  Shown on the public speaker agreement page (linked from speaker agreement emails). Speakers must accept these terms to confirm their participation. A default agreement is seeded on event creation.
+                  Used in two places: (1) the public acceptance page linked from speaker agreement
+                  emails, and (2) as the PDF attached to speaker agreement emails when no .docx
+                  template is uploaded. Merge tokens below are replaced with each speaker&apos;s
+                  details at send time.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <TiptapEditor
                   content={content.speakerAgreementHtml}
                   onChange={(html) => setContent({ ...content, speakerAgreementHtml: html })}
                   placeholder="By accepting this agreement, you confirm your participation as a speaker..."
                 />
+                <details className="rounded-lg bg-muted/50 p-4">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Available merge tokens
+                  </summary>
+                  <p className="text-xs text-muted-foreground mt-3 mb-3">
+                    Type these anywhere in the agreement body (including the editor&apos;s Source
+                    view). They&apos;re replaced with the speaker&apos;s data when the agreement
+                    PDF is generated and when the acceptance page is rendered.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    {[
+                      ["{{speakerName}}", "Full prefixed name (e.g. Dr. Jane Smith)"],
+                      ["{{title}}", "Title prefix (e.g. Dr.)"],
+                      ["{{firstName}}", "First name"],
+                      ["{{lastName}}", "Last name"],
+                      ["{{speakerEmail}}", "Email"],
+                      ["{{eventName}}", "Event name"],
+                      ["{{eventStartDate}}", "Event start date"],
+                      ["{{eventEndDate}}", "Event end date"],
+                      ["{{eventVenue}}", "Venue"],
+                      ["{{eventAddress}}", "Address"],
+                      ["{{organizationName}}", "Organization name"],
+                      ["{{sessionTitles}}", "Session titles"],
+                      ["{{topicTitles}}", "Topic titles"],
+                      ["{{sessionDateTime}}", "First session start"],
+                      ["{{trackNames}}", "Track names"],
+                      ["{{role}}", "Session roles"],
+                    ].map(([token, description]) => (
+                      <div key={token} className="flex items-baseline gap-2">
+                        <code className="font-mono bg-background px-1.5 py-0.5 rounded border">
+                          {token}
+                        </code>
+                        <span className="text-muted-foreground">{description}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               </CardContent>
             </Card>
 

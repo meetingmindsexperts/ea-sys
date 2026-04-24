@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { refreshEventStats } from "@/lib/event-stats";
+import { buildSpeakerEmailContext, mergeAgreementHtml } from "@/lib/speaker-agreement";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -97,7 +98,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not belong to this event." }, { status: 400 });
     }
 
-    const agreementHtml = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
+    const rawAgreementHtml = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
+
+    // Token-merge so the page shows the same text the speaker got in the
+    // PDF attached to their email. Falls back to raw HTML if the context
+    // can't be built (e.g. speaker has no sessions yet).
+    const context = await buildSpeakerEmailContext(speaker.event.id, speaker.id);
+    const agreementHtml = context ? mergeAgreementHtml(rawAgreementHtml, context) : rawAgreementHtml;
 
     return NextResponse.json({
       alreadyAccepted: speaker.agreementAcceptedAt !== null,
@@ -188,7 +195,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ success: true, alreadyAccepted: true, acceptedAt: speaker.agreementAcceptedAt });
     }
 
-    const snapshot = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
+    // Snapshot the merged HTML so the accepted text is literally what the
+    // speaker saw — not the pre-merge template with `{{speakerName}}` in it.
+    const rawSnapshot = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
+    const context = await buildSpeakerEmailContext(speaker.event.id, speaker.id);
+    const snapshot = context ? mergeAgreementHtml(rawSnapshot, context) : rawSnapshot;
     const acceptedAt = new Date();
 
     await db.$transaction([

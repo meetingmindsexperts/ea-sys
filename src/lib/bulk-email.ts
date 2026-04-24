@@ -10,7 +10,14 @@ import {
   brandingFrom,
   type EmailBranding,
 } from "./email";
-import { buildSpeakerEmailContext, generateSpeakerAgreementDocx, SPEAKER_AGREEMENT_DOCX_MIME } from "./speaker-agreement";
+import {
+  buildSpeakerEmailContext,
+  generateSpeakerAgreementDocx,
+  generateSpeakerAgreementPdf,
+  pickAgreementAttachmentMode,
+  SPEAKER_AGREEMENT_DOCX_MIME,
+  SPEAKER_AGREEMENT_PDF_MIME,
+} from "./speaker-agreement";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -168,10 +175,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     triggeredByUserId,
   } = input;
 
-  // Speaker-agreement bulk sends require an uploaded .docx template — fail
-  // fast before resolving recipients so we don't half-process and stress
-  // Zoom/email rate limits with errors.
-  const needsAgreementDocx = emailType === "agreement" && recipientType === "speakers";
+  // Speaker-agreement bulk sends need either an uploaded .docx template OR
+  // inline agreement HTML on the event — fail fast before resolving
+  // recipients so we don't half-process and stress email rate limits.
+  const needsAgreementAttachment = emailType === "agreement" && recipientType === "speakers";
 
   // Validate attachment size
   if (attachments?.length) {
@@ -199,15 +206,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       emailHeaderImage: true,
       emailFooterHtml: true,
       speakerAgreementTemplate: true,
+      speakerAgreementHtml: true,
     },
   });
   if (!event) {
     throw new BulkEmailError("Event not found", 404);
   }
 
-  if (needsAgreementDocx && !event.speakerAgreementTemplate) {
+  const agreementMode = needsAgreementAttachment
+    ? pickAgreementAttachmentMode({
+        hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
+        hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
+      })
+    : null;
+
+  if (needsAgreementAttachment && !agreementMode) {
     throw new BulkEmailError(
-      "Upload a speaker agreement template under Event Settings → Email Branding → Speaker Agreement Template before sending agreement emails.",
+      "Upload a .docx template or add inline agreement HTML (Event → Content → Speaker Agreement) before sending agreement emails.",
       400,
     );
   }
@@ -554,9 +569,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         try {
           const emailContent = await generateEmailForRecipient(recipient);
 
-          // Per-recipient personalized .docx attachment for speaker agreements
+          // Per-recipient personalized attachment for speaker agreements.
+          // Precedence: explicit .docx upload wins; else inline HTML → PDF.
           let recipientAttachments: BulkEmailAttachment[] | undefined = attachments;
-          if (needsAgreementDocx) {
+          if (agreementMode === "docx") {
             const doc = await generateSpeakerAgreementDocx({
               eventId,
               speakerId: recipient.id,
@@ -568,6 +584,22 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               name: doc.filename,
               content: doc.buffer.toString("base64"),
               contentType: SPEAKER_AGREEMENT_DOCX_MIME,
+            };
+            recipientAttachments = attachments
+              ? [...attachments, personalizedAttachment]
+              : [personalizedAttachment];
+          } else if (agreementMode === "pdf") {
+            const doc = await generateSpeakerAgreementPdf({
+              eventId,
+              speakerId: recipient.id,
+            });
+            if (!doc) {
+              throw new Error("Failed to generate agreement PDF");
+            }
+            const personalizedAttachment: BulkEmailAttachment = {
+              name: doc.filename,
+              content: doc.buffer.toString("base64"),
+              contentType: SPEAKER_AGREEMENT_PDF_MIME,
             };
             recipientAttachments = attachments
               ? [...attachments, personalizedAttachment]
