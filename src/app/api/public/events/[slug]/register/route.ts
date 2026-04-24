@@ -11,7 +11,6 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { createInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
 
 const registrationSchema = z.object({
@@ -621,21 +620,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Auto-create invoice for paid tickets (non-blocking)
-    if (finalPrice > 0) {
-      (async () => {
-        try {
-          const inv = await createInvoice({
-            registrationId: registration.id,
-            eventId: event.id,
-            organizationId: event.organizationId,
-          });
-          await sendInvoiceEmail(inv.id);
-        } catch (invErr) {
-          apiLogger.error({ err: invErr, msg: "Failed to auto-create invoice", registrationId: registration.id });
-        }
-      })();
-    }
+    // INTENTIONALLY no invoice auto-creation here.
+    //   - Pre-payment, the registrant already received the Quote PDF as
+    //     an attachment on the confirmation email (via
+    //     `sendRegistrationConfirmation` → attaches `generateQuotePDF`).
+    //   - Post-payment, the Stripe webhook creates the Receipt via
+    //     `createReceipt` + `sendInvoiceEmail`.
+    //   - A formal INVOICE row is an admin-triggered artifact from the
+    //     dashboard /events/[id]/invoices page, never auto-generated
+    //     at registration time. Organizer reported the old auto-call
+    //     as confusing — the registrant saw a sent invoice before
+    //     they'd paid.
 
     return NextResponse.json(
       {

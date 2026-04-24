@@ -588,6 +588,15 @@ export function drawFooters(doc: PDFKit.PDFDocument, createdAt: Date): void {
     const rightX = PAGE_MARGIN + pageWidth;
     const footerY = doc.page.height - 40;
 
+    // Writing into the bottom-margin band: pdfkit treats any text whose
+    // starting y is below `pageHeight - bottom-margin` as overflow and
+    // auto-appends a new page, which silently bloats the document (for a
+    // one-page quote this was producing a 3-page PDF with two blanks).
+    // Suppress the bottom margin for the duration of the footer write
+    // and restore it afterwards so nothing else is affected.
+    const origBottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+
     // Thin rule above
     doc.lineWidth(0.5).strokeColor(COLOR_RULE)
       .moveTo(leftX, footerY).lineTo(rightX, footerY).stroke();
@@ -601,6 +610,8 @@ export function drawFooters(doc: PDFKit.PDFDocument, createdAt: Date): void {
         width: pageWidth,
         align: "right",
       });
+
+    doc.page.margins.bottom = origBottom;
   }
 }
 
