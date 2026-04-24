@@ -400,6 +400,24 @@ function escapeHtmlForAgreement(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
+const SAFE_HREF_SCHEMES = ["http:", "https:", "mailto:", "tel:"] as const;
+/**
+ * Accept only known-safe URL schemes for anchor hrefs in agreement HTML.
+ * Relative URLs (starting with `/` or `#`) are allowed. Anything else
+ * (javascript:, data:, file:, vbscript:, etc.) becomes empty so the
+ * anchor renders as plain underlined text with no link annotation.
+ */
+function sanitizeHref(raw: string): string {
+  const href = raw.trim();
+  if (!href) return "";
+  if (href.startsWith("/") || href.startsWith("#")) return href;
+  const lower = href.toLowerCase();
+  for (const scheme of SAFE_HREF_SCHEMES) {
+    if (lower.startsWith(scheme)) return href;
+  }
+  return "";
+}
+
 /**
  * Resolve the inline agreement HTML for an event, merged with a speaker's
  * context. Used by the public acceptance page AND by the PDF generator, so
@@ -445,16 +463,44 @@ interface Token {
   text?: string;
 }
 
+// Common named HTML entities that routinely appear in Word / web paste
+// content. Extending beyond this is not worth it — everything else can
+// still be written as a numeric entity like `&#8594;`.
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  mdash: "—",
+  ndash: "–",
+  hellip: "…",
+  ldquo: "“",
+  rdquo: "”",
+  lsquo: "‘",
+  rsquo: "’",
+  bull: "•",
+  middot: "·",
+  euro: "€",
+  laquo: "«",
+  raquo: "»",
+  sect: "§",
+  para: "¶",
+  deg: "°",
+  plusmn: "±",
+  times: "×",
+  divide: "÷",
+};
+
 function decodeEntities(s: string): string {
   return s
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&([a-zA-Z]+);/g, (m, name) => NAMED_ENTITIES[name] ?? m);
 }
 
 function tokenizeHtml(html: string): Token[] {
@@ -560,10 +606,14 @@ export function parseHtmlToBlocks(html: string): Block[] {
     return null;
   };
 
-  const pushText = (raw: string) => {
+  const pushText = (raw: string, opts?: { preserveNewlines?: boolean }) => {
     if (!raw) return;
-    // Collapse internal whitespace but preserve at least one space between runs.
-    const text = raw.replace(/\s+/g, " ");
+    // Collapse internal whitespace but preserve at least one space between
+    // runs. When `preserveNewlines` is set (e.g. from <br>), `\n` is kept
+    // as a hard line break for pdfkit to honor at render time.
+    const text = opts?.preserveNewlines
+      ? raw.replace(/[ \t]+/g, " ") // collapse horizontal whitespace only
+      : raw.replace(/\s+/g, " ");
     if (!text) return;
 
     const slot = currentRunSlot();
@@ -676,14 +726,18 @@ export function parseHtmlToBlocks(html: string): Block[] {
       if (tag === "em" || tag === "i") { italicStack.push(true); continue; }
       if (tag === "u") { underlineStack.push(true); continue; }
       if (tag === "a") {
-        linkStack.push(tok.attrs?.href ?? "");
+        // Whitelist URL schemes so an organizer pasting `javascript:` /
+        // `data:` / `file:` from an untrusted source can't turn the PDF
+        // into a phishing vector. Unknown schemes render as plain text
+        // (empty href string on the run means no link annotation emitted).
+        linkStack.push(sanitizeHref(tok.attrs?.href ?? ""));
         continue;
       }
       if (tag === "span") continue; // transparent
 
       // Block-level
       if (tag === "br") {
-        pushText("\n");
+        pushText("\n", { preserveNewlines: true });
         continue;
       }
       if (tag === "hr") {
@@ -697,6 +751,13 @@ export function parseHtmlToBlocks(html: string): Block[] {
         continue;
       }
       if (tag === "p" || tag === "div") {
+        // Tiptap emits `<li><p>text</p></li>` and `<td><p>text</p></td>` —
+        // if we flush on <p>, the enclosing li/cell becomes empty + stray
+        // paragraph. Treat <p> as transparent inside list-items and cells.
+        const top = ctx[ctx.length - 1];
+        if (top && (top.kind === "list-item" || top.kind === "cell")) {
+          continue;
+        }
         flushTopBlock();
         ctx.push({ kind: "paragraph", runs: [] });
         continue;
@@ -763,7 +824,16 @@ export function parseHtmlToBlocks(html: string): Block[] {
     if (tag === "a") { linkStack.pop(); continue; }
     if (tag === "span") continue;
 
-    if (tag === "p" || tag === "blockquote" || tag === "div" || /^h[1-6]$/.test(tag) || tag === "li") {
+    if (tag === "p" || tag === "div") {
+      // Mirror of the open-tag logic — transparent inside list-items and cells.
+      const top = ctx[ctx.length - 1];
+      if (top && (top.kind === "list-item" || top.kind === "cell")) {
+        continue;
+      }
+      flushTopBlock();
+      continue;
+    }
+    if (tag === "blockquote" || /^h[1-6]$/.test(tag) || tag === "li") {
       flushTopBlock();
       continue;
     }
@@ -898,7 +968,7 @@ function pickFont(bold: boolean, italic: boolean): string {
  * original Unicode since browsers render it fine.
  */
 function sanitizePdfText(s: string): string {
-  return s
+  const substituted = s
     .replace(/☐/g, "[ ]")
     .replace(/☑/g, "[x]")
     .replace(/☒/g, "[x]")
@@ -907,6 +977,24 @@ function sanitizePdfText(s: string): string {
     .replace(/[“”]/g, '"') // smart double quotes
     .replace(/•/g, "•") // bullet (this IS in WinAnsi but belt-and-suspenders)
     .replace(/ /g, " "); // nbsp
+  // Defensive sweep: codepoints outside printable ASCII + Latin-1
+  // Supplement get replaced with "?". pdfkit's default WinAnsi encoder
+  // throws on unencodable codepoints — this stops a stray emoji / CJK /
+  // box-drawing char from nuking a whole batch of PDFs.
+  let out = "";
+  for (const ch of substituted) {
+    const cp = ch.codePointAt(0) ?? 0;
+    const safe =
+      cp === 0x0a || cp === 0x09 ||
+      (cp >= 0x20 && cp <= 0x7e) ||
+      (cp >= 0xa0 && cp <= 0xff) ||
+      cp === 0x2013 || cp === 0x2014 || // en/em dashes (WinAnsi-mapped)
+      cp === 0x2022 || // bullet
+      cp === 0x20ac || // euro
+      cp === 0x2122; // trademark
+    out += safe ? ch : "?";
+  }
+  return out;
 }
 
 const HEADING_FONT_SIZE = [20, 17, 15, 13, 12, 11]; // h1..h6
@@ -950,17 +1038,25 @@ function renderBlocksToDoc(doc: PDFKitDoc, blocks: Block[], contentWidth: number
     if (block.kind === "list-item") {
       const indent = LIST_INDENT * (block.depth + 1);
       const marker = block.ordered ? `${block.index}.` : "•";
-      const startX = doc.page.margins.left + indent - LIST_INDENT + 4;
-      doc.font("Helvetica").fontSize(BODY_FONT_SIZE).fillColor("black");
-      doc.text(marker, startX, doc.y, { continued: false, lineBreak: false });
-      // Render runs on the same line with a hanging indent.
+      const markerX = doc.page.margins.left + indent - LIST_INDENT + 4;
+      const textX = doc.page.margins.left + indent;
       const itemWidth = contentWidth - indent;
+
+      // Draw the marker with lineBreak:false so it doesn't advance y. Then
+      // capture that baseline and render the runs at THE SAME y, at the
+      // hanging-indent x. `renderRunsLine` will call doc.text which wraps
+      // multi-line content correctly within `itemWidth`.
+      const baselineY = doc.y;
+      doc.font("Helvetica").fontSize(BODY_FONT_SIZE).fillColor("black");
+      doc.text(marker, markerX, baselineY, { lineBreak: false });
+
       renderRunsLine(doc, block.runs, {
         fontSize: BODY_FONT_SIZE,
         width: itemWidth,
-        x: doc.page.margins.left + indent,
-        y: doc.y - BODY_FONT_SIZE * LINE_HEIGHT, // stay on same line as marker
+        x: textX,
+        y: baselineY,
       });
+      // renderRunsLine leaves doc.y advanced to the line after the wrapped text.
       doc.moveDown(0.2);
       continue;
     }

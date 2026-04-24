@@ -210,4 +210,96 @@ describe("parseHtmlToBlocks", () => {
     );
     expect(blocks.map((b) => b.kind)).toEqual(["paragraph", "table", "paragraph"]);
   });
+
+  // ── Review-follow-up regressions ─────────────────────────────────────
+
+  it("<p> inside <li> is transparent — Tiptap's <li><p>text</p></li> form", () => {
+    // Tiptap's default `@tiptap/extension-bullet-list` wraps list content
+    // in <p>. Before the fix this produced empty bullets + orphan paragraphs.
+    const blocks = parseHtmlToBlocks(
+      "<ul><li><p>First item</p></li><li><p>Second item</p></li></ul>",
+    );
+    const items = blocks.filter((b) => b.kind === "list-item");
+    expect(items).toHaveLength(2);
+    expect(items[0].kind === "list-item" ? items[0].runs[0].text : "").toBe("First item");
+    expect(items[1].kind === "list-item" ? items[1].runs[0].text : "").toBe("Second item");
+    // No orphan empty paragraphs.
+    expect(blocks.filter((b) => b.kind === "paragraph")).toHaveLength(0);
+  });
+
+  it("<p> inside <td> is transparent — prevents orphan paragraphs in tables", () => {
+    const blocks = parseHtmlToBlocks(
+      "<table><tr><td><p>Cell A</p></td><td><p>Cell B</p></td></tr></table>",
+    );
+    if (blocks[0].kind !== "table") throw new Error("expected table");
+    const row = blocks[0].rows[0];
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].runs.map((r) => r.text).join("")).toBe("Cell A");
+    expect(row.cells[1].runs.map((r) => r.text).join("")).toBe("Cell B");
+  });
+
+  it("<br> preserves the line break rather than collapsing to a space", () => {
+    const blocks = parseHtmlToBlocks("<p>Line one<br/>Line two</p>");
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    const joined = para.runs.map((r) => r.text).join("");
+    expect(joined).toContain("\n");
+    expect(joined).toMatch(/Line one\s*\n\s*Line two/);
+  });
+
+  it("decodes a broad set of named HTML entities, not just amp/lt/gt", () => {
+    const blocks = parseHtmlToBlocks(
+      "<p>&copy; 2026 &mdash; &hellip;&ldquo;hi&rdquo; &trade; &euro;100</p>",
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    const text = para.runs.map((r) => r.text).join("");
+    expect(text).toContain("©");
+    expect(text).toContain("—");
+    expect(text).toContain("…");
+    expect(text).toContain("“");
+    expect(text).toContain("”");
+    expect(text).toContain("™");
+    expect(text).toContain("€");
+  });
+
+  it("unknown named entities pass through unchanged", () => {
+    const blocks = parseHtmlToBlocks("<p>&unknownthing; test</p>");
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(para.runs.map((r) => r.text).join("")).toContain("&unknownthing;");
+  });
+
+  it("<a href='javascript:...'> strips the dangerous scheme — run becomes plain underlined text", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p>Click <a href="javascript:alert(1)">here</a> and <a href="data:text/html,x">here</a>.</p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    // The anchor text must still render, but no clickable link annotation.
+    const linked = para.runs.filter((r) => r.link);
+    expect(linked).toHaveLength(0);
+    const anchorText = para.runs.find((r) => r.text.includes("here"));
+    expect(anchorText?.underline).toBe(true); // still styled as an anchor
+  });
+
+  it("<a href> with safe schemes (http/https/mailto/tel) is preserved", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p><a href="https://example.com">web</a> <a href="mailto:x@y.com">email</a> <a href="tel:+1234">call</a></p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    const links = para.runs.filter((r) => r.link);
+    expect(links).toHaveLength(3);
+    expect(links[0].link).toBe("https://example.com");
+    expect(links[1].link).toBe("mailto:x@y.com");
+    expect(links[2].link).toBe("tel:+1234");
+  });
+
+  it("<a href='/internal'> relative path is preserved", () => {
+    const blocks = parseHtmlToBlocks('<p><a href="/page">link</a></p>');
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(para.runs.find((r) => r.link)?.link).toBe("/page");
+  });
 });
