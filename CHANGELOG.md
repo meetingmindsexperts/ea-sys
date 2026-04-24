@@ -6,6 +6,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Inline speaker-agreement HTML → PDF attachment (April 24)
+
+Speaker-agreement emails now attach a personalized PDF rendered from
+the event's existing inline `Event.speakerAgreementHtml` (already
+edited in Event → Content → Speaker Agreement via Tiptap), alongside
+the existing `.docx` template upload path.
+
+Motivation
+  - Before this change, organizers had to upload a .docx template
+    with `{token}` placeholders before any agreement email could
+    carry an attachment. If the upload was missing, the email sent
+    with just a link to the online acceptance page — easy to miss.
+  - Many organizers already maintain their agreement body in the
+    inline Tiptap editor (same field that powers the public
+    acceptance page at `/e/[slug]/speaker-agreement?token=...`).
+    Reusing that content as an emailed PDF means the speaker reads
+    the same text in the attachment and on the acceptance page —
+    byte-for-byte once merge tokens fill in.
+
+Precedence
+  - `.docx` template uploaded → generate .docx attachment (existing
+    behavior preserved for organizers who already configured one).
+  - Else inline HTML set (seeded on event create) → generate PDF.
+  - Else → 400 with an error pointing at both paths.
+
+PDF rendering
+  - Pure pdfkit (already a project dep). Deliberately did NOT add
+    `pdfmake`, `html-to-pdfmake`, or `jsdom` — hand-rolled HTML
+    tokenizer + block parser + renderer at ~700 lines, testable in
+    isolation.
+  - Supported HTML (the Tiptap subset plus common Word-paste):
+    `<p> <h1>..<h6> <ul> <ol> <li> <strong>/<b> <em>/<i> <u>
+    <a href> <br> <hr> <blockquote> <div> <span> <table> <tbody>
+    <thead> <tr> <td> <th>`. Unknown tags flatten to inner text.
+  - Tables render as a grid with header background, padded cells,
+    vertical dividers, and page-break when a row doesn't fit.
+  - `<blockquote>` renders as a callout with amber left border +
+    tinted background (matches the `IMPORTANT — …` pattern used in
+    the MMG Invited Faculty Participation Agreement template).
+  - Token merge uses the existing `buildSpeakerEmailContext` +
+    `mergeAgreementHtml` helpers — HTML values are escaped,
+    unknown tokens left in place to surface typos.
+
+Acceptance-page parity
+  - `GET /api/public/events/[slug]/speaker-agreement` now token-
+    merges the HTML before returning. The acceptance page and the
+    emailed PDF render identical text for a given speaker.
+  - `POST …/accept` snapshots the merged HTML into
+    `Speaker.agreementTextSnapshot` so the stored "what the
+    speaker accepted" matches what they actually read, not the
+    pre-merge template.
+
+Hardening (from independent review)
+  - `<a href>` URL scheme whitelist (`http`, `https`, `mailto`,
+    `tel`, relative `/`/`#`). Anything else — `javascript:`,
+    `data:`, `file:`, `vbscript:` — renders as plain underlined
+    text with no clickable link annotation, defusing pasted
+    phishing URLs.
+  - Defensive Unicode sanitizer. Helvetica's WinAnsi encoder
+    throws on unencodable codepoints — a stray emoji / CJK /
+    box-drawing char in a pasted template would otherwise kill
+    the whole batch per speaker. Maps anything outside printable
+    ASCII + Latin-1 Supplement (+ a few known-safe mapped points)
+    to `?`. Targeted substitutions for `☐ ☑ ☒ → ← ≤ ≥ ≈ × ÷ …
+    † ‡` + smart quotes, NBSP, non-WinAnsi dashes.
+  - Named HTML entity decoder expanded from 6 to 26 common Word/
+    web paste entities (`&copy; &mdash; &hellip; &ldquo; &rdquo;`
+    etc.), keeping the acceptance page and the PDF in sync.
+  - `<p>` inside `<li>` or `<td>` is transparent. Tiptap's default
+    bullet-list extension emits `<li><p>text</p></li>`; without
+    this fix every bullet list rendered as empty bullets followed
+    by orphan paragraphs.
+  - List-item renderer records baseline Y before drawing the
+    marker, so runs render on the same line rather than above the
+    marker (an earlier off-by-one against pdfkit's lineBreak:false
+    behavior).
+  - `<br>` now preserves the line break (was being collapsed to a
+    space by the whitespace-collapse pass).
+
+Files
+  - `src/lib/speaker-agreement.ts` — tokenizer, parser, renderer,
+    PDF generator, token-merge helpers, href sanitizer, Unicode
+    sweep. ~1000 lines, no new deps.
+  - `src/lib/bulk-email.ts` — bulk-send precedence + per-recipient
+    attachment generation.
+  - `src/app/api/public/events/[slug]/speaker-agreement/route.ts`
+    — token-merge on GET + snapshot on POST.
+  - `src/app/(dashboard)/events/[eventId]/content/page.tsx` —
+    collapsible merge-token reference under the editor.
+  - `src/components/events/speaker-agreement-template-card.tsx`
+    — precedence explained in the card description.
+  - `__tests__/lib/speaker-agreement-pdf.test.ts` — 26 unit tests
+    (parser, merge, entities, href whitelist, list items, tables,
+    callouts, unknown tags, truncated HTML).
+
+Notes
+  - Single-send route (`POST /api/events/[id]/speakers/[sid]/email`)
+    has the same precedence wiring as bulk; sitting in the working
+    tree while a parallel email-change feature is in flight on the
+    same file. Bulk-send covers the same functionality in the
+    meantime.
+  - Full suite: 1063/1063 passing. End-to-end smoke generates a
+    valid PDF (~5.6KB) from an MMG-template-shaped agreement with
+    a 7-row parties table, 5-row benefits table, IMPORTANT
+    callout, and 4-item acceptance checklist.
+
 ### Changed — Email immutability + dedicated Change Email flow (April 24)
 
 Locked `email` out of the general-purpose PUT schemas on Speaker,
