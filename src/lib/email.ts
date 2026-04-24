@@ -563,52 +563,74 @@ Best regards,
 
   {
     slug: "speaker-agreement",
-    name: "Speaker Agreement",
-    subject: "Speaker Agreement - {{eventName}}",
+    name: "Invited Faculty Participation Agreement",
+    subject: "Invited Faculty Participation Agreement — {{eventName}}",
     htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
-    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Speaker Agreement</h1>
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Invited Faculty Participation Agreement</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{speakerName}}</strong>,</p>
-    <p>Thank you for agreeing to speak at <strong>{{eventName}}</strong>. We are excited to have you as part of our event!</p>
+    <p>Thank you for agreeing to participate as invited faculty at <strong>{{eventName}}</strong>. On behalf of {{organizerName}}, please find attached the <strong>Invited Faculty Participation Agreement</strong> setting out the terms of your engagement.</p>
     {{presentationDetails}}
+    <div style="background: #fffbeb; padding: 14px 18px; border-left: 4px solid #d97706; margin: 20px 0; color: #92400e; font-size: 14px;">
+      <strong>Important:</strong> No speaker fee or honorarium is provided under this Agreement. Faculty receive pre-approved travel and accommodation support only, in accordance with applicable GCC healthcare and Mecomed compliance standards.
+    </div>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
-      <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
+      <h3 style="margin-top: 0; color: #374151; font-size: 15px;">Key points</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.6;">
+        <li>Presentation slides are due <strong>no later than 45 days before the Conference start date</strong>.</li>
+        <li>All travel must be <strong>pre-approved in writing</strong> by {{organizerName}} before booking.</li>
+        <li>A completed <strong>Conflict of Interest Declaration Form</strong> is required prior to the Conference.</li>
+        <li>CME/CPD recording consent is described in Section 5 of the attached Agreement.</li>
+      </ul>
+    </div>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151; font-size: 15px;">Event details</h3>
       <table style="width: 100%; border-collapse: collapse;">
-        <tr><td style="padding: 8px 0; color: #6b7280;">Event:</td><td style="padding: 8px 0; font-weight: 500;">{{eventName}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Date:</td><td style="padding: 8px 0; font-weight: 500;">{{eventDate}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Venue:</td><td style="padding: 8px 0; font-weight: 500;">{{eventVenue}}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Event:</td><td style="padding: 6px 0; font-weight: 500;">{{eventName}}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Date:</td><td style="padding: 6px 0; font-weight: 500;">{{eventDate}}</td></tr>
+        <tr><td style="padding: 6px 0; color: #6b7280;">Venue:</td><td style="padding: 6px 0; font-weight: 500;">{{eventVenue}}</td></tr>
       </table>
     </div>
-    <p><strong>Your personalized speaker agreement is attached to this email.</strong> Please review it, sign, and return it at your earliest convenience.</p>
-    <p>You can also review and confirm the agreement online by clicking the button below:</p>
+    <p><strong>Your personalized Agreement is attached to this email as a PDF.</strong> Please review it and confirm your participation by clicking the button below — no printing or signing is required.</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{agreementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Accept Agreement</a>
     </div>
     <p style="color: #6b7280; font-size: 13px; text-align: center;">This link is unique to you and will expire in 30 days.</p>
-    <p>If you have any questions, please don&apos;t hesitate to reach out.</p>
+    <p>{{personalMessage}}</p>
+    <p>If you have any questions about the Agreement, please reach out before confirming.</p>
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
     {{organizerSignature}}
   </div>`,
-    textContent: `Speaker Agreement - {{eventName}}
+    textContent: `Invited Faculty Participation Agreement — {{eventName}}
 
 Dear {{speakerName}},
 
-Thank you for agreeing to speak at {{eventName}}.
+Thank you for agreeing to participate as invited faculty at {{eventName}}. On behalf of {{organizerName}}, please find attached the Invited Faculty Participation Agreement setting out the terms of your engagement.
 
 {{presentationDetailsText}}
 
-Event Details:
+IMPORTANT: No speaker fee or honorarium is provided under this Agreement. Faculty receive pre-approved travel and accommodation support only, in accordance with applicable GCC healthcare and Mecomed compliance standards.
+
+Key points:
+- Presentation slides are due no later than 45 days before the Conference start date.
+- All travel must be pre-approved in writing by {{organizerName}} before booking.
+- A completed Conflict of Interest Declaration Form is required prior to the Conference.
+- CME/CPD recording consent is described in Section 5 of the attached Agreement.
+
+Event details:
 - Event: {{eventName}}
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
 
-Your personalized speaker agreement is attached to this email. Please review it, sign, and return it at your earliest convenience.
-
-You can also review and confirm the agreement online here:
+Your personalized Agreement is attached to this email as a PDF. Please review it and confirm your participation here — no printing or signing required:
 {{agreementLink}}
 
 This link is unique to you and will expire in 30 days.
+
+{{personalMessage}}
+
+If you have any questions about the Agreement, please reach out before confirming.
 
 Best regards,
 {{organizerName}}
