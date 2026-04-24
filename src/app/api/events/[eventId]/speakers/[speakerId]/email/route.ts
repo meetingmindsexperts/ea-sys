@@ -80,6 +80,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = sendEmailSchema.safeParse(body);
 
     if (!validated.success) {
+        apiLogger.warn({ msg: "events/speakers/email:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
@@ -326,6 +327,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const body = await req.json();
     const parsed = changeEmailSchema.safeParse(body);
     if (!parsed.success) {
+        apiLogger.warn({ msg: "events/speakers/email:zod-validation-failed", errors: parsed.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: parsed.error.flatten() },
         { status: 400 }

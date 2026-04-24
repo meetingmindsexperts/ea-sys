@@ -54,6 +54,7 @@ export async function PUT(req: Request) {
 
     const validated = credentialsSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "organization/eventsair/credentials:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 

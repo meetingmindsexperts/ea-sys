@@ -48,6 +48,7 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const validated = updateProfileSchema.safeParse(body);
     if (!validated.success) {
+        apiLogger.warn({ msg: "profile:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 },

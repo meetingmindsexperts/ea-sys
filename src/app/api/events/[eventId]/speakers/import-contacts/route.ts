@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "events/speakers/import-contacts:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 

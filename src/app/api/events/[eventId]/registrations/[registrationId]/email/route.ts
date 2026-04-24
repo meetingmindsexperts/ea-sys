@@ -235,6 +235,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const body = await req.json();
     const parsed = changeEmailSchema.safeParse(body);
     if (!parsed.success) {
+        apiLogger.warn({ msg: "events/registrations/email:zod-validation-failed", errors: parsed.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: parsed.error.flatten() },
         { status: 400 }

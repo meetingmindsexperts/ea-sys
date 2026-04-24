@@ -36,6 +36,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const validated = bulkTagsSchema.safeParse(body);
     if (!validated.success) {
+        apiLogger.warn({ msg: "events/registrations/bulk-tags:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

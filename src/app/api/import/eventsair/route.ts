@@ -26,6 +26,7 @@ export async function POST(req: Request) {
 
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "import/eventsair:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 

@@ -39,7 +39,12 @@ const createSpeakerSchema = z.object({
   jobTitle: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
   website: z.string().url().max(500).optional().or(z.literal("")),
-  photo: z.string().max(500).optional().or(z.literal("")),
+  // `.nullable()` alongside `.optional()` is intentional — the Add Speaker
+  // form initializes `photo: null` (not undefined) when no upload has
+  // happened yet. Without this, a fresh form submits `{ photo: null }`
+  // and Zod rejects with a generic "Expected string, received null" that
+  // doesn't name a field in the UI.
+  photo: z.string().max(500).optional().nullable().or(z.literal("")),
   city: z.string().max(255).optional(),
   state: z.string().max(255).optional(),
   zipCode: z.string().max(20).optional(),
@@ -145,8 +150,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = createSpeakerSchema.safeParse(body);
 
     if (!validated.success) {
+      // Log the field errors so server-side debugging has a trail. The
+      // client-side toast shows the same info, but the log lets us
+      // diagnose after the fact without asking the user to reproduce.
+      const flat = validated.error.flatten();
+      apiLogger.warn({
+        msg: "speaker-create:zod-validation-failed",
+        eventId,
+        userId: session.user.id,
+        fieldErrors: flat.fieldErrors,
+        formErrors: flat.formErrors,
+      });
       return NextResponse.json(
-        { error: "Invalid input", details: validated.error.flatten() },
+        { error: "Invalid input", details: flat },
         { status: 400 }
       );
     }

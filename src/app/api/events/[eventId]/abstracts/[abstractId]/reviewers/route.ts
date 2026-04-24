@@ -48,6 +48,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const validated = assignSchema.safeParse(body);
     if (!validated.success) {
+        apiLogger.warn({ msg: "events/abstracts/reviewers:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 },

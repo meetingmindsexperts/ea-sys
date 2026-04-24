@@ -83,12 +83,40 @@ export default function NewSpeakerPage() {
         toast.success("Speaker added successfully");
         router.push(`/events/${eventId}/speakers`);
       } else {
-        const data = await res.json();
-        setError(data.error || "Failed to create speaker");
+        const data = await res.json().catch(() => ({}));
+        // Zod validation failures include `details.fieldErrors` — surface
+        // them instead of the bare "Invalid input" so the user knows
+        // which field is broken. Fall back to the code/message / generic
+        // error if the response isn't Zod-shaped.
+        const fieldErrors = data?.details?.fieldErrors as
+          | Record<string, string[] | undefined>
+          | undefined;
+        const formErrors = data?.details?.formErrors as string[] | undefined;
+        const perFieldLines = fieldErrors
+          ? Object.entries(fieldErrors)
+              .filter(([, msgs]) => Array.isArray(msgs) && msgs.length > 0)
+              .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
+          : [];
+        const formLines = formErrors ?? [];
+        const detailLines = [...perFieldLines, ...formLines];
+        const message =
+          detailLines.length > 0
+            ? `${data.error ?? "Invalid input"} — ${detailLines.join("; ")}`
+            : data.code
+              ? `${data.error ?? "Failed to create speaker"} (${data.code})`
+              : data.error || "Failed to create speaker";
+        console.error("[speaker-create] server rejected payload", {
+          status: res.status,
+          error: data.error,
+          code: data.code,
+          fieldErrors,
+          formErrors,
+        });
+        setError(message);
       }
     } catch (err) {
-      console.error("[speaker-create] failed", err);
-      setError("An error occurred. Please try again.");
+      console.error("[speaker-create] network or unexpected error", err);
+      setError(err instanceof Error ? err.message : "An error occurred. Please try again.");
     } finally {
       setLoading(false);
     }

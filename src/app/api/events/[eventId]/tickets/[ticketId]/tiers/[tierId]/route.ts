@@ -56,6 +56,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const validated = updateTierSchema.safeParse(body);
     if (!validated.success) {
+        apiLogger.warn({ msg: "events/tickets/tiers:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

@@ -110,6 +110,7 @@ export async function POST(req: Request) {
     const validated = createEventSchema.safeParse(body);
 
     if (!validated.success) {
+        apiLogger.warn({ msg: "events:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

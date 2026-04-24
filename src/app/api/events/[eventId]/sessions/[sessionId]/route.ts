@@ -153,6 +153,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const validated = updateSessionSchema.safeParse(body);
 
     if (!validated.success) {
+        apiLogger.warn({ msg: "events/sessions:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }

@@ -58,6 +58,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const parsed = createKeySchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "organization/api-keys:zod-validation-failed", errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
