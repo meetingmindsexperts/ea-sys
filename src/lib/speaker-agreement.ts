@@ -30,6 +30,12 @@ export interface SpeakerEmailContext {
   lastName: string;
   speakerName: string;
   speakerEmail: string;
+  // Extended speaker fields — used by the MMG-style agreement HTML
+  // ("{{jobTitle}}, {{speakerOrganization}}, {{speakerCountry}}"
+  // appears in the Parties & Key Terms table).
+  jobTitle: string;
+  speakerOrganization: string;
+  speakerCountry: string;
 
   // Event details
   eventName: string;
@@ -37,8 +43,10 @@ export interface SpeakerEmailContext {
   eventStartDate: string;
   eventEndDate: string;
   eventDate: string;
+  eventDateRange: string; // "Start — End" or just start if same-day
   eventVenue: string;
   eventAddress: string;
+  eventCity: string;
   organizationName: string;
 
   // Presentation details
@@ -47,6 +55,9 @@ export interface SpeakerEmailContext {
   sessionDateTime: string;
   trackNames: string;
   role: string;
+
+  // Rendered-at-send-time fields
+  signedDate: string; // today, formatted for the agreement signature line
 
   // Pre-rendered HTML/text blocks for email templates
   presentationDetails: string;
@@ -59,6 +70,9 @@ interface SpeakerEmailContextRow {
     firstName: string;
     lastName: string;
     email: string;
+    jobTitle: string | null;
+    organization: string | null;
+    country: string | null;
     sessions: Array<{
       role: string;
       session: {
@@ -87,6 +101,7 @@ interface SpeakerEmailContextRow {
     endDate: Date;
     venue: string | null;
     address: string | null;
+    city: string | null;
     organization: { name: string };
   };
 }
@@ -100,6 +115,9 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         firstName: true,
         lastName: true,
         email: true,
+        jobTitle: true,
+        organization: true,
+        country: true,
         sessions: {
           select: {
             role: true,
@@ -141,6 +159,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         endDate: true,
         venue: true,
         address: true,
+        city: true,
         organization: { select: { name: true } },
       },
     }),
@@ -223,21 +242,36 @@ export async function buildSpeakerEmailContext(
   const { speaker, event } = row;
   const presentation = buildPresentationBlocks(row);
 
+  // Build date range — single-day events show just the start date; multi-day
+  // events show "Start — End" using an en-dash so the MMG template's
+  // "{{eventDateRange}} · {{eventVenue}}, {{eventCity}}" line reads naturally.
+  const startStr = formatDate(event.startDate);
+  const endStr = formatDate(event.endDate);
+  const eventDateRange =
+    startStr === endStr ? startStr : `${startStr} – ${endStr}`;
+
   return {
     title: getTitleLabel(speaker.title),
     firstName: speaker.firstName,
     lastName: speaker.lastName,
     speakerName: formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
     speakerEmail: speaker.email,
+    jobTitle: speaker.jobTitle ?? "",
+    speakerOrganization: speaker.organization ?? "",
+    speakerCountry: speaker.country ?? "",
 
     eventName: event.name,
     eventSlug: event.slug,
-    eventStartDate: formatDate(event.startDate),
-    eventEndDate: formatDate(event.endDate),
-    eventDate: formatDate(event.startDate),
+    eventStartDate: startStr,
+    eventEndDate: endStr,
+    eventDate: startStr,
+    eventDateRange,
     eventVenue: event.venue ?? "TBA",
     eventAddress: event.address ?? "",
+    eventCity: event.city ?? "",
     organizationName: event.organization.name,
+
+    signedDate: formatDate(new Date()),
 
     sessionTitles: presentation.sessionTitles,
     topicTitles: presentation.topicTitles,
@@ -364,13 +398,19 @@ export function mergeAgreementHtml(html: string, ctx: SpeakerEmailContext): stri
     lastName: ctx.lastName,
     speakerName: ctx.speakerName,
     speakerEmail: ctx.speakerEmail,
+    jobTitle: ctx.jobTitle,
+    speakerOrganization: ctx.speakerOrganization,
+    speakerCountry: ctx.speakerCountry,
     eventName: ctx.eventName,
     eventStartDate: ctx.eventStartDate,
     eventEndDate: ctx.eventEndDate,
     eventDate: ctx.eventDate,
+    eventDateRange: ctx.eventDateRange,
     eventVenue: ctx.eventVenue,
     eventAddress: ctx.eventAddress,
+    eventCity: ctx.eventCity,
     organizationName: ctx.organizationName,
+    signedDate: ctx.signedDate,
     sessionTitles: ctx.sessionTitles,
     topicTitles: ctx.topicTitles,
     sessionDateTime: ctx.sessionDateTime,
