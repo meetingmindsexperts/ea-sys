@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Email immutability + dedicated Change Email flow (April 24)
+
+Locked `email` out of the general-purpose PUT schemas on Speaker,
+Registration, and Contact. Clients must now use new dedicated PATCH
+`/email` endpoints that perform collision check + User.email cascade
++ Contact re-sync + audit log inside a single transaction.
+
+Motivation
+  - Organizer reported identity drift: the inline email input on the
+    Speaker detail sheet (and latent on Contact PUT) updated only the
+    entity row, leaving linked `User.email` and the org `Contact` row
+    stale. Subsequent contact-sync runs or login flows would then see
+    three canonical-email copies disagreeing with each other.
+
+New surface
+  - `PATCH /api/events/[eventId]/speakers/[speakerId]/email` — checks
+    `Speaker.(eventId, email)` + `User.email` global unique; cascades
+    to `User.email` when `speaker.userId` is set; re-points the org
+    Contact (updates or merges).
+  - `PATCH /api/events/[eventId]/registrations/[registrationId]/email`
+    — mutates `Attendee.email` or **clones the Attendee row** when it
+    is shared across multiple registrations (public-register's orphan
+    reuse path can produce this); cascades `User.email` if
+    `registration.userId` is set.
+  - `PATCH /api/contacts/[contactId]/email` — org-scoped; does NOT
+    cascade to any Speaker / User / Registration by design (Contact is
+    a CRM snapshot, and propagating from there would re-introduce
+    exactly the drift this feature prevents). UI surfaces this
+    explicitly in the change-email dialog.
+
+Shared helpers at `src/lib/email-change.ts`
+  - `normalizeEmail(raw)` — trims + lowercases + Zod-validates.
+  - `repointOrgContactEmail(tx, { organizationId, oldEmail, newEmail })`
+    — returns `"updated" | "merged" | "none"`. When a Contact at the
+    new email already exists in the org, the old Contact row is
+    deleted (silent merge — the organizer already has a canonical row
+    at the target address).
+
+Error model (7 codes surfaced in responses)
+  - `INVALID_EMAIL` 400, `NO_CHANGE` 400, `EMAIL_IMMUTABLE` 400 (from
+    the locked PUT paths), `SPEAKER_EMAIL_TAKEN` 409,
+    `USER_EMAIL_TAKEN` 409, `CONTACT_EMAIL_TAKEN` 409, `EMAIL_TAKEN`
+    409 (P2002 race fallback — collision check to transaction commit
+    window).
+
+Defensive tightening
+  - Speaker PATCH warns (but does not reject) when an unlinked speaker
+    moves to an email that shadows an existing unrelated User row — a
+    later register-to-account link flow may surface a collision at
+    that point, so the audit trail flags the risk up front.
+  - Registration PATCH's Attendee-clone decision is inside the same
+    transaction as the mutation, so the sibling-count read is
+    consistent with the write.
+
+Rate limits
+  - Shared bucket `email-change:${session.user.id}` — 30/hr — for
+    Speaker + Registration (same user, same operation class).
+  - Separate `contact-email-change:org:${organizationId}` — 30/hr —
+    for Contact, because contact edits can come from API keys where
+    `userId` is null.
+
+UI
+  - New shared `src/components/change-email-dialog.tsx` (new email +
+    confirm fields, current-email readout, contact-mode hint).
+  - Speaker / Registration / Contact detail sheets: email input is
+    now disabled + read-only with a "Change" button that opens the
+    dialog. Speaker save also strips `email` from the PUT payload as
+    a defense-in-depth measure.
+
+Tests (29 new)
+  - `__tests__/lib/email-change.test.ts` (6) — `normalizeEmail` edge
+    cases + `repointOrgContactEmail` update/merge/none paths.
+  - `__tests__/api/change-email-routes.test.ts` (23) — all 3 routes,
+    every error code, the shared-Attendee clone path, and the
+    shadow-User warn path.
+
+Verification
+  - tsc clean, lint clean, `npm run build` clean, full vitest suite
+    1055/1055 (up from 1048 pre-feature). Review-agent checkpoint
+    passed with both blockers addressed (B1 shared-Attendee clone,
+    B2 shadow-User warn). E2E deferred — same seeded-test-DB
+    environment limitation flagged earlier in the week.
+
+Shipped in commit `5da24e6`.
+
 ### Changed — Services refactor, Phase 2c (April 23)
 
 Fourth service extracted: `src/services/registration-service.ts` with
