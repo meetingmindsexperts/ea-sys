@@ -624,10 +624,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     //   - Pre-payment, the registrant already received the Quote PDF as
     //     an attachment on the confirmation email (via
     //     `sendRegistrationConfirmation` → attaches `generateQuotePDF`).
-    //   - Post-payment, the Stripe webhook creates the Receipt via
-    //     `createReceipt` + `sendInvoiceEmail`.
-    //   - A formal INVOICE row is an admin-triggered artifact from the
-    //     dashboard /events/[id]/invoices page, never auto-generated
+    //   - Post-payment, the Stripe webhook creates the Invoice
+    //     (type=INVOICE, status=PAID) via `createPaidInvoice` +
+    //     `sendInvoiceEmail`. Stripe sends its own receipt email
+    //     separately — ours is the system invoice.
+    //   - A formal INVOICE row issued BEFORE payment is an
+    //     admin-triggered artifact from the dashboard
+    //     /events/[id]/invoices page only, never auto-generated
     //     at registration time. Organizer reported the old auto-call
     //     as confusing — the registrant saw a sent invoice before
     //     they'd paid.

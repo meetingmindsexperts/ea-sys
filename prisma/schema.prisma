@@ -408,17 +408,28 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id               String        @id @default(cuid())
-  registrationId   String
-  amount           Decimal       @db.Decimal(10, 2)
-  currency         String        @default("USD")
-  stripePaymentId  String?       @unique
-  stripeCustomerId String?
-  status           PaymentStatus @default(PENDING)
-  receiptUrl       String?
-  metadata         Json          @default("{}")
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  registrationId    String
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("USD")
+  stripePaymentId   String?       @unique
+  stripeCustomerId  String?
+  status            PaymentStatus @default(PENDING)
+  receiptUrl        String?
+  // Card / payment instrument details captured from the Stripe PaymentIntent
+  // at settlement time. `cardBrand` + `cardLast4` appear on the post-payment
+  // Invoice PDF and the registration Billing panel so organizers can
+  // reconcile. `paymentMethodType` is Stripe's top-level classification
+  // (`card`, `bank_transfer`, `sepa_debit`, etc.). `paidAt` is the authoritative
+  // settlement timestamp — `createdAt` records when we inserted the row,
+  // which drifts from the actual capture moment under webhook retries.
+  cardBrand         String?
+  cardLast4         String?
+  paymentMethodType String?
+  paidAt            DateTime?
+  metadata          Json          @default("{}")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   invoice      Invoice?

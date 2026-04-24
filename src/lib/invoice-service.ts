@@ -166,15 +166,39 @@ export async function createInvoice(params: {
 
 // ── Create Receipt ──────────────────────────────────────────────────────────
 
-export async function createReceipt(params: {
+/**
+ * Creates (or promotes) the post-payment Invoice row. The caller is the
+ * Stripe webhook on `payment_intent.succeeded` / `checkout.session.completed`.
+ *
+ * Naming note: our system's post-payment artifact is now the **INVOICE**
+ * (status=PAID). Stripe sends its own receipt email separately — we no
+ * longer emit a RECEIPT document. Legacy RECEIPT rows remain in the DB
+ * and render via the legacy receipt-pdf renderer.
+ *
+ * Behavior:
+ *   - If an existing admin-created INVOICE row exists for this registration,
+ *     update it in-place (status → PAID, paidDate, paymentMethod, etc.).
+ *     Prevents duplicate-invoice numbering.
+ *   - Otherwise mint a new INVOICE with status PAID.
+ */
+export async function createPaidInvoice(params: {
   registrationId: string;
   eventId: string;
   organizationId: string;
   paymentId: string;
   paymentMethod?: string;
   paymentReference?: string;
+  paidAt?: Date;
 }): Promise<Invoice> {
-  const { registrationId, eventId, organizationId, paymentId, paymentMethod, paymentReference } = params;
+  const {
+    registrationId,
+    eventId,
+    organizationId,
+    paymentId,
+    paymentMethod,
+    paymentReference,
+    paidAt,
+  } = params;
 
   const registration = await db.registration.findUniqueOrThrow({
     where: { id: registrationId },
@@ -184,19 +208,40 @@ export async function createReceipt(params: {
   const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
   const eventCode = await resolveEventCode(
     { id: eventId, code: registration.event.code, name: registration.event.name },
-    { registrationId, flow: "RECEIPT" },
+    { registrationId, flow: "INVOICE" },
   );
 
-  const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-    const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
-      tx, eventId, "RECEIPT", eventCode
-    );
+  const paid = paidAt ?? new Date();
 
-    // Mark any existing invoice for this registration as PAID
-    await tx.invoice.updateMany({
-      where: { registrationId, type: "INVOICE", status: { in: ["DRAFT", "SENT", "OVERDUE"] } },
-      data: { status: "PAID", paidDate: new Date() },
+  const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    // If an admin pre-created an INVOICE (status=SENT/DRAFT/OVERDUE) for
+    // this registration, promote it to PAID in place rather than minting
+    // a duplicate. Matches the "manual invoice then payment lands" flow.
+    const existing = await tx.invoice.findFirst({
+      where: {
+        registrationId,
+        type: "INVOICE",
+        status: { in: ["DRAFT", "SENT", "OVERDUE"] },
+      },
+      orderBy: { createdAt: "desc" },
     });
+
+    if (existing) {
+      return tx.invoice.update({
+        where: { id: existing.id },
+        data: {
+          status: "PAID",
+          paidDate: paid,
+          paymentId,
+          paymentMethod: paymentMethod || "stripe",
+          paymentReference,
+        },
+      });
+    }
+
+    const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
+      tx, eventId, "INVOICE", eventCode
+    );
 
     return tx.invoice.create({
       data: {
@@ -204,12 +249,12 @@ export async function createReceipt(params: {
         eventId,
         registrationId,
         paymentId,
-        type: "RECEIPT",
+        type: "INVOICE",
         invoiceNumber,
         sequenceNumber,
         status: "PAID",
         issueDate: new Date(),
-        paidDate: new Date(),
+        paidDate: paid,
         subtotal: price,
         discountCode,
         discountAmount: discount,
@@ -224,9 +269,20 @@ export async function createReceipt(params: {
     });
   });
 
-  apiLogger.info({ msg: "Receipt created", invoiceNumber: receipt.invoiceNumber, registrationId, total: Number(receipt.total), currency });
-  return receipt;
+  apiLogger.info({
+    msg: "Paid invoice created",
+    invoiceNumber: invoice.invoiceNumber,
+    registrationId,
+    total: Number(invoice.total),
+    currency,
+  });
+  return invoice;
 }
+
+/** @deprecated Renamed to `createPaidInvoice`. Kept temporarily so any unmigrated
+ *  external code still compiles; delegates 1:1 to the new function. Remove after
+ *  the next release cycle. */
+export const createReceipt = createPaidInvoice;
 
 // ── Create Credit Note ──────────────────────────────────────────────────────
 
@@ -382,7 +438,20 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     return generateCreditNotePDF(cnData);
   }
 
-  // Default: INVOICE
+  // Default: INVOICE (pre-payment = SENT/DRAFT, post-payment = PAID).
+  // When the linked Payment row is loaded (see `payment` include on the
+  // loader callers), we pass its card/settlement fields through so the
+  // Payment Received block on paid PDFs shows "Visa ending 4242".
+  const payment = invoice.payment as
+    | {
+        cardBrand?: string | null;
+        cardLast4?: string | null;
+        paymentMethodType?: string | null;
+        paidAt?: Date | null;
+        stripePaymentId?: string | null;
+      }
+    | null
+    | undefined;
   const invoiceData: InvoicePDFData = {
     invoiceNumber: invoice.invoiceNumber,
     issueDate: invoice.issueDate,
@@ -427,6 +496,11 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     discountAmount: Number(invoice.discountAmount) || 0,
     bankDetails: reg.event.bankDetails,
     supportEmail: reg.event.supportEmail,
+    paymentMethodType: payment?.paymentMethodType ?? invoice.paymentMethod ?? null,
+    cardBrand: payment?.cardBrand ?? null,
+    cardLast4: payment?.cardLast4 ?? null,
+    paidAt: payment?.paidAt ?? invoice.paidDate ?? null,
+    paymentReference: payment?.stripePaymentId ?? invoice.paymentReference ?? null,
   };
   return generateInvoicePDF(invoiceData);
 }
@@ -437,6 +511,18 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
     include: {
       registration: { include: registrationInclude },
       parentInvoice: { select: { invoiceNumber: true } },
+      // `payment` carries the card details (brand, last4, settle time) we
+      // render on the paid-invoice PDF's "Payment Received" block. Null for
+      // admin-created-then-not-yet-paid INVOICEs.
+      payment: {
+        select: {
+          cardBrand: true,
+          cardLast4: true,
+          paymentMethodType: true,
+          paidAt: true,
+          stripePaymentId: true,
+        },
+      },
     },
   });
 
@@ -463,6 +549,15 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
         },
       },
       parentInvoice: { select: { invoiceNumber: true } },
+      payment: {
+        select: {
+          cardBrand: true,
+          cardLast4: true,
+          paymentMethodType: true,
+          paidAt: true,
+          stripePaymentId: true,
+        },
+      },
     },
   });
 

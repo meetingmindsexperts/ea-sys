@@ -48,6 +48,10 @@ export interface Payment {
   currency: string;
   status: string;
   createdAt: string;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  paymentMethodType?: string | null;
+  paidAt?: string | null;
 }
 
 export interface Accommodation {

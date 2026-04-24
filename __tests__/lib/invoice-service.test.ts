@@ -78,7 +78,7 @@ vi.mock("@/lib/utils", () => ({
   }),
 }));
 
-import { createInvoice, createReceipt, createCreditNote, cancelInvoice } from "@/lib/invoice-service";
+import { createInvoice, createPaidInvoice, createCreditNote, cancelInvoice } from "@/lib/invoice-service";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -136,6 +136,11 @@ function setupTxMock(onData?: (data: Record<string, unknown>) => void) {
     const txMock = {
       invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
       invoice: {
+        // `createPaidInvoice` probes for an existing SENT/DRAFT/OVERDUE
+        // invoice before minting a fresh one. Default to "none" so
+        // callers exercise the create path unless they explicitly
+        // override via `mockFindFirst.mockResolvedValueOnce(...)`.
+        findFirst: mockFindFirst.mockResolvedValue(null),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn().mockResolvedValue({}),
         create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
@@ -263,34 +268,74 @@ describe("createInvoice", () => {
   });
 });
 
-describe("createReceipt", () => {
+describe("createPaidInvoice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
   });
 
-  it("creates a receipt with PAID status", async () => {
+  it("mints a fresh INVOICE with status PAID when no pre-existing invoice", async () => {
+    mockFindFirst.mockResolvedValueOnce(null); // no existing SENT invoice
     setupTxMock();
-    const result = await createReceipt({
+    const result = await createPaidInvoice({
       registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
       paymentId: "pay-1", paymentMethod: "stripe", paymentReference: "pi_123",
     });
-    expect(result.type).toBe("RECEIPT");
+    expect(result.type).toBe("INVOICE");
     expect(result.status).toBe("PAID");
     expect(result.paymentMethod).toBe("stripe");
     expect(result.paymentReference).toBe("pi_123");
   });
 
   it("defaults paymentMethod to stripe", async () => {
+    mockFindFirst.mockResolvedValueOnce(null);
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });
 
-    await createReceipt({
+    await createPaidInvoice({
       registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
       paymentId: "pay-1",
     });
 
     expect(captured.paymentMethod).toBe("stripe");
+    expect(captured.type).toBe("INVOICE");
+    expect(captured.status).toBe("PAID");
+  });
+
+  it("promotes an existing SENT invoice in place rather than duplicating", async () => {
+    // A pre-existing admin-created INVOICE exists → we update it to PAID
+    // instead of minting a second row with a fresh invoice number.
+    mockFindFirst.mockResolvedValueOnce({ id: "inv-existing", invoiceNumber: "INV-2026-0001" });
+    mockUpdate.mockResolvedValueOnce({
+      id: "inv-existing",
+      type: "INVOICE",
+      status: "PAID",
+      invoiceNumber: "INV-2026-0001",
+      paymentMethod: "stripe",
+    });
+    // Swap tx to route through update, not create
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      return fn({
+        invoice: {
+          findFirst: mockFindFirst,
+          create: mockCreate,
+          update: mockUpdate,
+          updateMany: mockUpdateMany,
+        },
+      });
+    });
+
+    const result = await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1",
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "inv-existing" },
+      data: expect.objectContaining({ status: "PAID", paymentId: "pay-1" }),
+    }));
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(result.invoiceNumber).toBe("INV-2026-0001");
   });
 });
 

@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Post-payment Invoice semantic + card details capture (April 24)
+
+Two related reworks driven by an organizer request.
+
+**(1) Post-payment document is now an INVOICE, not a RECEIPT.** Stripe sends
+its own receipt email separately — our system emits the Invoice. The old
+`createReceipt()` function is renamed to `createPaidInvoice()`, emits
+`type: "INVOICE"` with `status: "PAID"`, and uses the unified INVOICE-prefix
+numbering sequence. A temporary `createReceipt` re-export is kept for
+external callers but should be considered deprecated. If an admin
+pre-created an INVOICE (status=SENT/DRAFT/OVERDUE) for this registration,
+`createPaidInvoice` **promotes it in place** (update → status=PAID,
+paidDate, paymentMethod, paymentReference) rather than minting a second
+row with a fresh number — fixes the "admin sent an invoice, then the
+registrant paid, now there are two invoice numbers" edge case.
+
+**(2) Card / payment-method details captured from Stripe.** Four new
+nullable columns on `Payment`: `cardBrand`, `cardLast4`,
+`paymentMethodType`, `paidAt`. The Stripe webhook (`checkout.session.completed`)
+now fetches the PaymentIntent's latest charge and pulls
+`payment_method_details.{type, card.brand, card.last4}` + `charge.created`
+(the authoritative settlement timestamp — `createdAt` drifts under
+webhook retries). Migration
+`20260424000000_add_payment_card_details`, all nullable so legacy
+rows remain valid.
+
+**Invoice PDF** gets a new "Payment Received" block on paid invoices
+that renders e.g. *"Paid on 24 Apr 2026 via Visa ending 4242"* +
+*"Reference: pi_3QXYZ..."*, placed between the totals and the
+pre-existing notes/bank-details section. Bank details are now
+suppressed on paid invoices (no point showing transfer instructions
+after settlement). New reusable helper `drawPaymentReceived()` in
+`src/lib/pdf/document-layout.ts`; `InvoicePDFData` gets optional
+`paymentMethodType`, `cardBrand`, `cardLast4`, `paidAt`,
+`paymentReference` fields. `generatePDFForInvoice` + `sendInvoiceEmail`
+both now include the `payment` relation when loading the invoice so
+the card detail flows through.
+
+**Registration detail sheet → Billing & Payments tab** gets two
+enhancements: each payment row now shows the instrument below the
+amount/date (*"via Visa ending 4242"* or *"via bank transfer"* for
+non-card methods), using `paidAt` as the date when available
+(falls back to `createdAt`). A new "Download" row under Payment
+History surfaces the `InvoiceDownloadButtons` component (the same
+one used in the registrant `/my-registration` portal) whenever
+`paymentStatus === "PAID"`, so admins can pull the invoice PDF
+directly from the sheet.
+
+Tests
+  - Existing `invoice-service.test.ts` `createReceipt` suite renamed
+    + extended: 3 cases cover `type: "INVOICE"` + `status: "PAID"`
+    emission, the "no pre-existing invoice → mint new" path, and a
+    new case that asserts promotion-in-place when an admin-created
+    SENT invoice is present.
+  - `setupTxMock` extended to mock `tx.invoice.findFirst` default to
+    null so existing tests exercise the mint path.
+
+Verification: tsc clean, lint clean, `npm run build` clean, full
+vitest suite 1064/1064 (from 1063 pre-feature). Manual PDF smoke:
+paid-invoice renders on 1 page with the Payment Received block
+visible, reference line, and the existing "PAID" watermark.
+
 ### Added — Inline speaker-agreement HTML → PDF attachment (April 24)
 
 Speaker-agreement emails now attach a personalized PDF rendered from

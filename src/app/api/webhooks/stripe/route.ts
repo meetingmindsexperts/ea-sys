@@ -5,7 +5,7 @@ import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { createReceipt, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
+import { createPaidInvoice, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
 
 export async function POST(req: Request) {
@@ -78,8 +78,18 @@ export async function POST(req: Request) {
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
 
-      // Fetch receipt URL from the payment intent's latest charge
+      // Pull the latest charge off the PaymentIntent to capture:
+      //   - Stripe's own receipt URL (we surface this in the portal)
+      //   - payment_method_details — card brand + last 4, or bank-transfer
+      //     type, so the Billing panel and the Invoice PDF can reconcile
+      //     "Paid via Visa ending 4242 on 2026-04-24"
+      //   - the actual settlement timestamp (`charge.created`), distinct
+      //     from our row-insert time which drifts under webhook retries
       let receiptUrl: string | null = null;
+      let cardBrand: string | null = null;
+      let cardLast4: string | null = null;
+      let paymentMethodType: string | null = null;
+      let paidAt: Date | null = null;
       if (paymentIntentId) {
         try {
           const stripe = getStripe();
@@ -90,9 +100,20 @@ export async function POST(req: Request) {
           if (chargeId) {
             const charge = await stripe.charges.retrieve(chargeId);
             receiptUrl = charge.receipt_url || null;
+            const pmd = charge.payment_method_details;
+            if (pmd) {
+              paymentMethodType = pmd.type || null;
+              if (pmd.card) {
+                cardBrand = pmd.card.brand || null;
+                cardLast4 = pmd.card.last4 || null;
+              }
+            }
+            if (charge.created) {
+              paidAt = new Date(charge.created * 1000);
+            }
           }
         } catch (err) {
-          apiLogger.warn({ err, msg: "Failed to fetch Stripe receipt URL", paymentIntentId });
+          apiLogger.warn({ err, msg: "Failed to fetch Stripe receipt URL / payment method details", paymentIntentId });
         }
       }
 
@@ -119,6 +140,10 @@ export async function POST(req: Request) {
             stripeCustomerId: customerId,
             status: "PAID",
             receiptUrl,
+            cardBrand,
+            cardLast4,
+            paymentMethodType,
+            paidAt: paidAt ?? new Date(),
             metadata: { checkoutSessionId: session.id },
           },
         });
@@ -150,28 +175,30 @@ export async function POST(req: Request) {
         apiLogger.error({ err, msg: "Failed to send payment confirmation email", registrationId })
       );
 
-      // Auto-create receipt (non-blocking)
+      // Auto-create the post-payment Invoice (status=PAID) and email it.
+      // Stripe sends its own receipt email separately — this is our system
+      // invoice with our numbering + branding. Non-blocking.
       (async () => {
         try {
-          // Find the payment record just created
           const payment = await db.payment.findFirst({
             where: { registrationId, status: "PAID" },
             orderBy: { createdAt: "desc" },
             select: { id: true },
           });
           if (payment) {
-            const receipt = await createReceipt({
+            const invoice = await createPaidInvoice({
               registrationId,
               eventId: registration.event.id,
               organizationId: registration.event.organizationId,
               paymentId: payment.id,
-              paymentMethod: "stripe",
+              paymentMethod: paymentMethodType || "card",
               paymentReference: paymentIntentId || undefined,
+              paidAt: paidAt ?? undefined,
             });
-            await sendInvoiceEmail(receipt.id);
+            await sendInvoiceEmail(invoice.id);
           }
         } catch (err) {
-          apiLogger.error({ err, msg: "Failed to auto-create receipt", registrationId });
+          apiLogger.error({ err, msg: "Failed to auto-create paid invoice", registrationId });
         }
       })();
     } catch (err) {

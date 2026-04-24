@@ -518,6 +518,67 @@ export function drawNotesAndDisclaimer(
   return y + 6;
 }
 
+// ── Region 5b: Payment Received (only on paid invoices) ──
+
+export interface PaymentReceivedInput {
+  /** "card", "bank_transfer", etc. — Stripe's payment_method_details.type */
+  paymentMethodType?: string | null;
+  /** "visa", "mastercard", "amex", ... — lowercase as Stripe returns it */
+  cardBrand?: string | null;
+  /** 4-digit suffix */
+  cardLast4?: string | null;
+  /** Settlement timestamp (preferred over invoice.paidDate when available) */
+  paidAt?: Date | null;
+  /** Stripe PaymentIntent id or bank-transfer reference */
+  reference?: string | null;
+}
+
+/**
+ * Renders a 1–2 line "Payment Received" block used on paid invoices. Kept
+ * separate from the existing bank-details block because paid invoices never
+ * show both (bank details are for unpaid transfers only).
+ */
+export function drawPaymentReceived(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  input: PaymentReceivedInput
+): number {
+  const pageWidth = doc.page.width - PAGE_MARGIN * 2;
+  const leftX = PAGE_MARGIN;
+
+  doc.fontSize(8).fillColor(COLOR_TEXT).font("Helvetica-Bold")
+    .text("Payment Received:", leftX, y);
+  y += 14;
+
+  const parts: string[] = [];
+  if (input.paidAt) {
+    parts.push(`Paid on ${formatDateShort(input.paidAt)}`);
+  }
+
+  // Prefer card-level detail ("via Visa ending 4242"); fall back to the
+  // generic payment_method_details.type when card details aren't available
+  // (bank transfers, SEPA, etc.).
+  if (input.cardBrand && input.cardLast4) {
+    const brandLabel = input.cardBrand.charAt(0).toUpperCase() + input.cardBrand.slice(1);
+    parts.push(`via ${brandLabel} ending ${input.cardLast4}`);
+  } else if (input.paymentMethodType) {
+    const typeLabel = input.paymentMethodType.replace(/_/g, " ");
+    parts.push(`via ${typeLabel}`);
+  }
+
+  doc.fontSize(8).fillColor(COLOR_TEXT).font("Helvetica")
+    .text(parts.join(" ") || "Received", leftX, y, { width: pageWidth });
+  y += 12;
+
+  if (input.reference) {
+    doc.fontSize(7).fillColor(COLOR_MUTED).font("Helvetica")
+      .text(`Reference: ${input.reference}`, leftX, y, { width: pageWidth });
+    y += 10;
+  }
+
+  return y + 6;
+}
+
 // ── Region 6: Bank Details ──
 
 export function drawBankDetails(

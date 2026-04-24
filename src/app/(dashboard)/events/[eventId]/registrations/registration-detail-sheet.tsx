@@ -72,6 +72,7 @@ import { formatSerialId } from "@/lib/registration-serial";
 import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
+import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -1451,18 +1452,47 @@ export function RegistrationDetailSheet({
                   {selectedRegistration.payments && selectedRegistration.payments.length > 0 ? (
                     <>
                       <div className="space-y-2">
-                        {selectedRegistration.payments.map((payment) => (
-                          <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                            <div>
-                              <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
-                              <div className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</div>
+                        {selectedRegistration.payments.map((payment) => {
+                          // Prefer the Stripe `paidAt` (actual settlement) over `createdAt`
+                          // (row-insert time — drifts under webhook retries).
+                          const settledAt = payment.paidAt || payment.createdAt;
+                          // Card-first instrument label; falls back to the generic
+                          // payment_method_details.type (bank_transfer, sepa_debit, etc.).
+                          let instrument: string | null = null;
+                          if (payment.cardBrand && payment.cardLast4) {
+                            const brand = payment.cardBrand.charAt(0).toUpperCase() + payment.cardBrand.slice(1);
+                            instrument = `${brand} ending ${payment.cardLast4}`;
+                          } else if (payment.paymentMethodType) {
+                            instrument = payment.paymentMethodType.replace(/_/g, " ");
+                          }
+                          return (
+                            <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                              <div className="min-w-0">
+                                <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
+                                <div className="text-sm text-muted-foreground">{formatDateTime(settledAt)}</div>
+                                {instrument && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    via {instrument}
+                                  </div>
+                                )}
+                              </div>
+                              <Badge variant="outline">
+                                {payment.status}
+                              </Badge>
                             </div>
-                            <Badge variant="outline">
-                              {payment.status}
-                            </Badge>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
+
+                      {/* Download Invoice — only meaningful once payment has settled */}
+                      {selectedRegistration.paymentStatus === "PAID" && (
+                        <div className="pt-2 border-t border-slate-100">
+                          <div className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-2">
+                            Download
+                          </div>
+                          <InvoiceDownloadButtons registrationId={selectedRegistration.id} />
+                        </div>
+                      )}
                       {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (
                         <Button
                           variant="outline"

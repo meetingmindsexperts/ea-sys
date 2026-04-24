@@ -8,6 +8,7 @@ import {
   drawTotals,
   drawNotesAndDisclaimer,
   drawBankDetails,
+  drawPaymentReceived,
   drawFooters,
   ensureSpace,
   loadLocalLogo,
@@ -74,6 +75,16 @@ export interface InvoicePDFData {
   // Payment info
   bankDetails: string | null;
   supportEmail: string | null;
+
+  // Settled-payment details, populated when status === "PAID" and the
+  // linked Payment row has them. Rendered as a one-line Payment Received
+  // block below the totals on paid invoices — e.g.
+  //   "Paid on 24 Apr 2026 via Visa ending 4242 (Ref: pi_3Q...)"
+  paymentMethodType?: string | null;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  paidAt?: Date | null;
+  paymentReference?: string | null;
 }
 
 const INVOICE_NOTES = [
@@ -194,7 +205,19 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       y = ensureSpace(doc, y, 120);
       y = drawNotesAndDisclaimer(doc, y, INVOICE_NOTES, showVatDisclaimer);
 
-      // ── 6. Bank details (only when unpaid) ──
+      // ── 6a. Payment received (only when paid) ──
+      if (isPaid && (data.paidAt || data.cardLast4 || data.paymentMethodType)) {
+        y = ensureSpace(doc, y, 60);
+        y = drawPaymentReceived(doc, y, {
+          paymentMethodType: data.paymentMethodType,
+          cardBrand: data.cardBrand,
+          cardLast4: data.cardLast4,
+          paidAt: data.paidAt,
+          reference: data.paymentReference,
+        });
+      }
+
+      // ── 6b. Bank details (only when unpaid — nothing to transfer to once settled) ──
       if (data.bankDetails && !isPaid) {
         y = ensureSpace(doc, y, 90);
         drawBankDetails(doc, y, data.bankDetails);
