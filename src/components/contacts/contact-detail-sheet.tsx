@@ -33,6 +33,7 @@ import {
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { useContact, useUpdateContact, useDeleteContact, queryKeys } from "@/hooks/use-api";
 import { EmailLogCard } from "@/components/communications/email-log-card";
+import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -70,6 +71,7 @@ export function ContactDetailSheet({
   const deleteContact = useDeleteContact();
 
   const [isEditing, setIsEditing] = useState(false);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [editData, setEditData] = useState({
     title: "" as string,
@@ -322,8 +324,20 @@ export function ContactDetailSheet({
                 </div>
                 <div className="space-y-2">
                   <Label>Email</Label>
-                  <Input value={editData.email} disabled className="bg-muted" />
-                  <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                  <div className="flex gap-2">
+                    <Input value={editData.email} disabled readOnly className="flex-1 bg-muted" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setChangeEmailOpen(true)}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Email changes go through a dedicated flow with collision check.
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -583,6 +597,20 @@ export function ContactDetailSheet({
           )}
         </div>
       </SheetContent>
+
+      {contact && (
+        <ChangeEmailDialog
+          open={changeEmailOpen}
+          onOpenChange={setChangeEmailOpen}
+          currentEmail={contact.email}
+          endpoint={`/api/contacts/${contact.id}/email`}
+          entityLabel="contact"
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.contact(contact.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+          }}
+        />
+      )}
     </Sheet>
   );
 }

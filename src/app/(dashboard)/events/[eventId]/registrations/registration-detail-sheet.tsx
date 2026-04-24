@@ -71,6 +71,7 @@ import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from
 import { formatSerialId } from "@/lib/registration-serial";
 import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -226,6 +227,7 @@ export function RegistrationDetailSheet({
   const [selectedEmailType, setSelectedEmailType] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -580,8 +582,20 @@ export function RegistrationDetailSheet({
                     </div>
                     <div className="space-y-2">
                       <Label>Email</Label>
-                      <Input value={selectedRegistration.attendee.email} disabled className="bg-muted" />
-                      <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                      <div className="flex gap-2">
+                        <Input value={selectedRegistration.attendee.email} disabled readOnly className="flex-1 bg-muted" />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setChangeEmailOpen(true)}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Email changes cascade to login + contact records.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="edit-phone">Phone</Label>
@@ -1618,6 +1632,19 @@ export function RegistrationDetailSheet({
         onOpenChange={setPreviewOpen}
         subject={previewData.subject}
         htmlContent={previewData.htmlContent}
+      />
+    )}
+
+    {selectedRegistration && (
+      <ChangeEmailDialog
+        open={changeEmailOpen}
+        onOpenChange={setChangeEmailOpen}
+        currentEmail={selectedRegistration.attendee.email}
+        endpoint={`/api/events/${eventId}/registrations/${selectedRegistration.id}/email`}
+        entityLabel="registration"
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+        }}
       />
     )}
     </>

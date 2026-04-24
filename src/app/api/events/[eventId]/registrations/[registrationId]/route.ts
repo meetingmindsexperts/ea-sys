@@ -13,6 +13,13 @@ import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 
+// NOTE: `attendee.email` is intentionally NOT in this schema. Email is
+// immutable at the general-purpose update path — use the dedicated
+// `PATCH /api/events/[eventId]/registrations/[registrationId]/email`
+// route instead, which performs the collision check + User.email cascade
+// + Contact re-sync + audit log atomically. A plain field-level edit here
+// would silently split identity across Registration / Attendee / User /
+// Contact (the organizer-reported bug that motivated this lockdown).
 const updateRegistrationSchema = z.object({
   status: z.nativeEnum(RegistrationStatus).optional(),
   paymentStatus: z.nativeEnum(PaymentStatus).optional(),
@@ -155,6 +162,26 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const body = await req.json();
+
+    // Email is immutable via the general-purpose update path. Return a
+    // clear error code rather than silently stripping the field so clients
+    // know to route through the dedicated email-change endpoint.
+    if (
+      body &&
+      typeof body === "object" &&
+      body.attendee &&
+      typeof body.attendee === "object" &&
+      "email" in body.attendee
+    ) {
+      return NextResponse.json(
+        {
+          error: "Email cannot be changed via this endpoint. Use PATCH /api/events/[eventId]/registrations/[registrationId]/email instead — it performs the collision check + User.email cascade + Contact re-sync atomically.",
+          code: "EMAIL_IMMUTABLE",
+        },
+        { status: 400 }
+      );
+    }
+
     const validated = updateRegistrationSchema.safeParse(body);
 
     if (!validated.success) {

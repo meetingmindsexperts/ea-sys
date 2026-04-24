@@ -10,9 +10,13 @@ import { deletePhoto } from "@/lib/storage";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
+// NOTE: `email` is intentionally NOT in this schema. Email is immutable
+// at the general-purpose update path — use the dedicated
+// `PATCH /api/contacts/[contactId]/email` route instead. MCP
+// `update_contact` already rejects email changes with EMAIL_IMMUTABLE;
+// this aligns the REST side.
 const updateContactSchema = z.object({
   title: titleEnum.optional().nullable(),
-  email: z.string().email().max(255).optional(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   organization: z.string().max(255).optional().nullable(),
@@ -131,6 +135,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Email is immutable via the general-purpose update path. Return a
+    // clear error code rather than silently stripping the field so clients
+    // know to route through the dedicated email-change endpoint.
+    if (body && typeof body === "object" && "email" in body) {
+      return NextResponse.json(
+        {
+          error: "Email cannot be changed via this endpoint. Use PATCH /api/contacts/[contactId]/email instead — it performs the collision check + User.email cascade + Contact re-sync atomically.",
+          code: "EMAIL_IMMUTABLE",
+        },
+        { status: 400 }
+      );
+    }
+
     const validated = updateContactSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "Contact update validation failed", contactId, errors: validated.error.flatten() });
@@ -153,24 +170,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     if (!contact) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
-    }
-
-    // Check email uniqueness if changing email
-    if (validated.data.email) {
-      const existing = await db.contact.findFirst({
-        where: {
-          organizationId: ctx.organizationId,
-          email: validated.data.email,
-          id: { not: contactId },
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        return NextResponse.json(
-          { error: "A contact with this email already exists" },
-          { status: 409 }
-        );
-      }
     }
 
     const updateData = {

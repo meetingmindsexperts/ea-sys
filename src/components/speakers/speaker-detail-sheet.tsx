@@ -60,6 +60,7 @@ import {
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { queryKeys, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -159,6 +160,7 @@ export function SpeakerDetailSheet({
   const [sendingEmail, setSendingEmail] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewEmail = async () => {
@@ -247,11 +249,15 @@ export function SpeakerDetailSheet({
     if (!speaker) return;
     setSaving(true);
     try {
+      // Strip email — it's immutable on this path. Use the Change Email
+      // dialog (which PATCHes /email) for the cascading update.
+      const { email: _ignored, ...editable } = editData;
+      void _ignored;
       const res = await fetch(`/api/events/${eventId}/speakers/${speaker.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...editData,
+          ...editable,
           photo: editData.photo ?? null,
         }),
       });
@@ -469,7 +475,20 @@ export function SpeakerDetailSheet({
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Email</Label>
-                          <Input value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
+                          <div className="flex gap-2">
+                            <Input value={editData.email} disabled readOnly className="flex-1" />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setChangeEmailOpen(true)}
+                            >
+                              Change
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Email changes cascade to login + contact records.
+                          </p>
                         </div>
                         <div className="space-y-2">
                           <Label>Phone</Label>
@@ -759,6 +778,20 @@ export function SpeakerDetailSheet({
           onOpenChange={setPreviewOpen}
           subject={previewData.subject}
           htmlContent={previewData.htmlContent}
+        />
+      )}
+
+      {speaker && (
+        <ChangeEmailDialog
+          open={changeEmailOpen}
+          onOpenChange={setChangeEmailOpen}
+          currentEmail={speaker.email}
+          endpoint={`/api/events/${eventId}/speakers/${speaker.id}/email`}
+          entityLabel="speaker"
+          onSuccess={() => {
+            fetchSpeaker();
+            queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+          }}
         />
       )}
     </>

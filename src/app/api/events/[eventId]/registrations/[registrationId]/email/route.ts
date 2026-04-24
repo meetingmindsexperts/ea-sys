@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -6,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
+import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 
 const sendEmailSchema = z.object({
   type: z.enum(["confirmation", "reminder", "payment-reminder", "custom"]).default("confirmation"),
@@ -192,5 +194,205 @@ export async function POST(req: Request, { params }: RouteParams) {
       { error: "Failed to send email" },
       { status: 500 }
     );
+  }
+}
+
+// PATCH changes the canonical email on the underlying Attendee (and the
+// linked User row, if Registration.userId is set). This is the
+// dedicated flow that the general-purpose registration PUT route
+// rejects — see updateRegistrationSchema comment in ../route.ts. The
+// Attendee row is the natural mutation target even though multiple
+// registrations could share it; in practice each registration has its
+// own Attendee in EA-SYS, and we de-duplicate inside the transaction
+// only when a sibling Attendee at the new email already exists.
+const changeEmailSchema = z.object({
+  newEmail: z.string().email().max(255),
+});
+
+export async function PATCH(req: Request, { params }: RouteParams) {
+  try {
+    const [{ eventId, registrationId }, session] = await Promise.all([params, auth()]);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const denied = denyReviewer(session);
+    if (denied) return denied;
+
+    const changeLimit = checkRateLimit({
+      key: `email-change:${session.user.id}`,
+      limit: 30,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!changeLimit.allowed) {
+      return NextResponse.json(
+        { error: "Email change rate limit reached. Maximum 30 per hour." },
+        { status: 429, headers: { "Retry-After": String(changeLimit.retryAfterSeconds) } }
+      );
+    }
+
+    const body = await req.json();
+    const parsed = changeEmailSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const newEmail = normalizeEmail(parsed.data.newEmail);
+    if (!newEmail) {
+      return NextResponse.json({ error: "Invalid email address", code: "INVALID_EMAIL" }, { status: 400 });
+    }
+
+    const [event, registration] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true, organizationId: true },
+      }),
+      db.registration.findFirst({
+        where: { id: registrationId, eventId },
+        select: {
+          id: true,
+          userId: true,
+          attendee: { select: { id: true, email: true } },
+        },
+      }),
+    ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    if (!registration) {
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    const oldEmail = registration.attendee.email.toLowerCase();
+    if (oldEmail === newEmail) {
+      return NextResponse.json({ error: "New email is the same as the current email", code: "NO_CHANGE" }, { status: 400 });
+    }
+
+    // Collision check for User.email (global unique).
+    const userCollision = registration.userId
+      ? await db.user.findFirst({
+          where: { email: newEmail, id: { not: registration.userId } },
+          select: { id: true },
+        })
+      : null;
+
+    if (userCollision) {
+      return NextResponse.json(
+        { error: "Another user account already uses that email", code: "USER_EMAIL_TAKEN" },
+        { status: 409 }
+      );
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      // If the Attendee row is shared across multiple Registrations
+      // (schema allows it — public register's orphan-attendee reuse path
+      // can produce this), mutating email in place would silently change
+      // it for siblings. Clone the Attendee into a fresh row for this
+      // registration and leave the original untouched.
+      const siblingCount = await tx.registration.count({
+        where: { attendeeId: registration.attendee.id, id: { not: registrationId } },
+      });
+
+      let updatedAttendee;
+      let attendeeCloned = false;
+
+      if (siblingCount > 0) {
+        const snapshot = await tx.attendee.findUnique({
+          where: { id: registration.attendee.id },
+        });
+        if (!snapshot) {
+          throw new Error("ATTENDEE_DISAPPEARED");
+        }
+        const { id: _oldId, createdAt: _c, updatedAt: _u, customFields, ...rest } = snapshot;
+        void _oldId;
+        void _c;
+        void _u;
+        const clone = await tx.attendee.create({
+          data: {
+            ...rest,
+            email: newEmail,
+            customFields: (customFields ?? {}) as Prisma.InputJsonValue,
+          },
+        });
+        await tx.registration.update({
+          where: { id: registrationId },
+          data: { attendeeId: clone.id },
+        });
+        updatedAttendee = clone;
+        attendeeCloned = true;
+      } else {
+        updatedAttendee = await tx.attendee.update({
+          where: { id: registration.attendee.id },
+          data: { email: newEmail },
+        });
+      }
+
+      if (registration.userId) {
+        await tx.user.update({
+          where: { id: registration.userId },
+          data: { email: newEmail },
+        });
+      }
+
+      const contactAction = await repointOrgContactEmail(tx, {
+        organizationId: event.organizationId,
+        oldEmail,
+        newEmail,
+      });
+
+      return { updatedAttendee, contactAction, attendeeCloned };
+    });
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "UPDATE",
+          entityType: "Registration",
+          entityId: registrationId,
+          changes: {
+            field: "email",
+            before: oldEmail,
+            after: newEmail,
+            attendeeId: result.updatedAttendee.id,
+            attendeeCloned: result.attendeeCloned,
+            userCascaded: Boolean(registration.userId),
+            contactAction: result.contactAction,
+            ip: getClientIp(req),
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ msg: "registration email-change audit log failed", err }));
+
+    apiLogger.info({
+      msg: "registration email changed",
+      eventId,
+      registrationId,
+      attendeeCloned: result.attendeeCloned,
+      userCascaded: Boolean(registration.userId),
+      contactAction: result.contactAction,
+    });
+
+    return NextResponse.json({
+      attendee: result.updatedAttendee,
+      attendeeCloned: result.attendeeCloned,
+      userCascaded: Boolean(registration.userId),
+      contactAction: result.contactAction,
+    });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
+      return NextResponse.json(
+        { error: "That email was just taken by another record. Try again.", code: "EMAIL_TAKEN" },
+        { status: 409 }
+      );
+    }
+    apiLogger.error({ err: error, msg: "Error changing registration email" });
+    return NextResponse.json({ error: "Failed to change email" }, { status: 500 });
   }
 }

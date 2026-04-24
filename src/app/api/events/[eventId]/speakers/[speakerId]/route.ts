@@ -12,9 +12,15 @@ import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 
+// NOTE: `email` is intentionally NOT in this schema. Email is immutable
+// at the general-purpose update path — use the dedicated
+// `PATCH /api/events/[eventId]/speakers/[speakerId]/email` route instead,
+// which performs the collision check + User.email cascade + Contact
+// re-sync + audit log atomically. A plain field-level edit here would
+// silently split identity across Speaker / User / Contact (the organizer-
+// reported bug that motivated this lockdown).
 const updateSpeakerSchema = z.object({
   title: titleEnum.optional().nullable(),
-  email: z.string().email().max(255).optional(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   bio: z.string().max(10000).optional(),
@@ -148,6 +154,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const body = await req.json();
+
+    // Email is immutable via the general-purpose update path. Return a
+    // clear error code rather than silently stripping the field so clients
+    // know to route through the dedicated email-change endpoint.
+    if (body && typeof body === "object" && "email" in body) {
+      return NextResponse.json(
+        {
+          error: "Email cannot be changed via this endpoint. Use PATCH /api/events/[eventId]/speakers/[speakerId]/email instead — it performs the collision check + User.email cascade + Contact re-sync atomically.",
+          code: "EMAIL_IMMUTABLE",
+        },
+        { status: 400 }
+      );
+    }
+
     const validated = updateSpeakerSchema.safeParse(body);
 
     if (!validated.success) {
@@ -160,29 +180,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // If email is being changed, check for duplicates
-    if (data.email && data.email !== existingSpeaker.email) {
-      const duplicateSpeaker = await db.speaker.findFirst({
-        where: {
-          eventId,
-          email: data.email,
-          id: { not: speakerId },
-        },
-      });
-
-      if (duplicateSpeaker) {
-        return NextResponse.json(
-          { error: "Speaker with this email already exists for this event" },
-          { status: 400 }
-        );
-      }
-    }
-
     const speaker = await db.speaker.update({
       where: { id: speakerId },
       data: {
         ...(data.title !== undefined && { title: data.title || null }),
-        ...(data.email && { email: data.email }),
         ...(data.firstName && { firstName: data.firstName }),
         ...(data.lastName && { lastName: data.lastName }),
         ...(data.bio !== undefined && { bio: data.bio || null }),
