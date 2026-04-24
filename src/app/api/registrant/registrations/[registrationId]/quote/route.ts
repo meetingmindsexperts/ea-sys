@@ -22,12 +22,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fetch registration with all needed data
+    // Fetch registration with all needed data. Reviewers/submitters
+    // (role != REGISTRANT but organizationId == null) are rejected
+    // here — Prisma would otherwise throw a validation error on the
+    // nested relation filter.
+    const isRegistrant = session.user.role === "REGISTRANT";
+    if (!isRegistrant && !session.user.organizationId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
         // Allow owner or org members
-        ...(session.user.role === "REGISTRANT"
+        ...(isRegistrant
           ? { userId: session.user.id }
           : { event: { organizationId: session.user.organizationId! } }),
       },

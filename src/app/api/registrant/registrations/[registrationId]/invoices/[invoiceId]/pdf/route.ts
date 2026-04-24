@@ -19,11 +19,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify ownership
+    // Verify ownership. See sibling `/invoices/route.ts` for the
+    // null-organizationId guard — REVIEWER / SUBMITTER sessions have
+    // `organizationId: null` and would otherwise produce a Prisma
+    // validation error instead of a clean 403.
+    const isRegistrant = session.user.role === "REGISTRANT";
+    if (!isRegistrant && !session.user.organizationId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        ...(session.user.role === "REGISTRANT"
+        ...(isRegistrant
           ? { userId: session.user.id }
           : { event: { organizationId: session.user.organizationId! } }),
       },

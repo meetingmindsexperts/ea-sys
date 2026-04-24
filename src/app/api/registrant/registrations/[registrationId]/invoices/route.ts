@@ -18,10 +18,21 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Scope the lookup by role. REGISTRANTs are org-independent so we
+    // match on ownership (userId). Everyone else must be scoped to
+    // their org — and if `organizationId` is null (e.g., a REVIEWER /
+    // SUBMITTER who wandered into this route, or a stale session),
+    // Prisma's nested relation filter rejects the query rather than
+    // silently matching every event. Short-circuit to 403 instead.
+    const isRegistrant = session.user.role === "REGISTRANT";
+    if (!isRegistrant && !session.user.organizationId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        ...(session.user.role === "REGISTRANT"
+        ...(isRegistrant
           ? { userId: session.user.id }
           : { event: { organizationId: session.user.organizationId! } }),
       },
