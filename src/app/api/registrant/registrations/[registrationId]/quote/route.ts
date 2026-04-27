@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { generateQuotePDF } from "@/lib/quote-pdf";
-import { formatQuoteNumber } from "@/lib/invoice-numbering";
+import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 
 interface RouteParams {
   params: Promise<{ registrationId: string }>;
@@ -11,14 +11,35 @@ interface RouteParams {
 
 /**
  * GET /api/registrant/registrations/[registrationId]/quote
- * Generates and returns a PDF quote for the registration.
- * Accessible by the registration owner (REGISTRANT) or admin/organizer.
+ *
+ * Generates and returns a PDF quote for the registration. Accessible by
+ * the registration owner (REGISTRANT) or admin/organizer.
+ *
+ * @deprecated UI no longer calls this directly — both `e/[slug]/my-registration`
+ *   and `InvoiceDownloadButtons` now use the unauthenticated public route
+ *   `/api/public/events/[slug]/registrations/[id]/document`. This route is
+ *   kept for backwards-compat with stale links / bookmarks. Once Sentry
+ *   confirms zero traffic over a release cycle, remove it.
+ *
+ *   Why we moved away: when a registrant's NextAuth JWT session lapsed
+ *   (24-hour maxAge), the browser still rendered the cached `/my-registration`
+ *   page. Clicking the `<a download>` link hit this route, got a JSON 401
+ *   back, and saved it as `quote.json` — a confusing UX we had no way to
+ *   recover from at the route layer.
  */
 export async function GET(_req: Request, { params }: RouteParams) {
+  // Capture early so the catch block can log routing context even if
+  // params/auth fail.
+  let registrationId: string | undefined;
+  let session: Session | null = null;
   try {
-    const [session, { registrationId }] = await Promise.all([auth(), params]);
+    [session, { registrationId }] = await Promise.all([
+      auth() as Promise<Session | null>,
+      params,
+    ]);
 
     if (!session?.user) {
+      apiLogger.warn({ msg: "registrant/quote:unauthenticated", registrationId });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -28,6 +49,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // nested relation filter.
     const isRegistrant = session.user.role === "REGISTRANT";
     if (!isRegistrant && !session.user.organizationId) {
+      apiLogger.warn({
+        msg: "registrant/quote:forbidden-no-org",
+        registrationId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -73,76 +100,40 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({
+        msg: "registrant/quote:not-found",
+        registrationId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const price = registration.pricingTier
-      ? Number(registration.pricingTier.price)
-      : Number(registration.ticketType?.price ?? 0);
+    // Shared builder — see `src/lib/quote-pdf.ts buildQuotePDFFromRegistration`.
+    // Same code path as `/api/public/events/[slug]/registrations/[id]/document`.
+    const { buffer, filename } = await buildQuotePDFFromRegistration(registration);
 
-    const currency = registration.pricingTier
-      ? registration.pricingTier.currency
-      : registration.ticketType?.currency ?? "USD";
-
-    const eventCode = registration.event.code || registration.event.name.slice(0, 6).toUpperCase();
-    const quoteNumber = registration.serialId
-      ? formatQuoteNumber(eventCode, registration.serialId)
-      : `${eventCode}-Q-${registration.id.slice(-4).toUpperCase()}`;
-
-    const org = registration.event.organization;
-
-    const pdfBuffer = await generateQuotePDF({
-      quoteNumber,
-      date: registration.createdAt,
-      eventName: registration.event.name,
-      eventDate: registration.event.startDate,
-      eventVenue: registration.event.venue,
-      eventCity: registration.event.city,
-      firstName: registration.attendee.firstName,
-      lastName: registration.attendee.lastName,
-      email: registration.attendee.email,
-      organization: registration.attendee.organization,
-      title: registration.attendee.title,
-      jobTitle: registration.attendee.jobTitle,
-      billingFirstName: registration.billingFirstName,
-      billingLastName: registration.billingLastName,
-      billingEmail: registration.billingEmail,
-      billingPhone: registration.billingPhone,
-      billingAddress: registration.billingAddress,
-      billingCity: registration.billingCity || registration.attendee.city,
-      billingState: registration.billingState,
-      billingZipCode: registration.billingZipCode,
-      billingCountry: registration.billingCountry || registration.attendee.country,
-      taxNumber: registration.taxNumber,
-      registrationType: registration.ticketType?.name ?? "General",
-      pricingTier: registration.pricingTier?.name || null,
-      price,
-      currency,
-      taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
-      taxLabel: registration.event.taxLabel || "VAT",
-      bankDetails: registration.event.bankDetails,
-      supportEmail: registration.event.supportEmail,
-      organizationName: org.name,
-      companyName: org.companyName,
-      companyAddress: org.companyAddress,
-      companyCity: org.companyCity,
-      companyState: org.companyState,
-      companyZipCode: org.companyZipCode,
-      companyCountry: org.companyCountry,
-      taxId: org.taxId,
-      logoPath: org.logo,
-    });
-
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="quote-${registration.id.slice(-8)}.pdf"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
     });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error generating quote PDF" });
+    // Surface routing context + the Prisma error code (when present) so
+    // Sentry groups DB connectivity failures (P1001 / P1008 / P1017)
+    // distinctly from logic errors. Without this, a transient pooler drop
+    // and a real bug share the same fingerprint.
+    apiLogger.error({
+      err: error,
+      msg: "registrant/quote:render-failed",
+      registrationId,
+      userId: session?.user?.id ?? null,
+      role: session?.user?.role ?? null,
+      prismaCode: (error as { code?: string })?.code ?? null,
+    });
     return NextResponse.json({ error: "Failed to generate quote" }, { status: 500 });
   }
 }

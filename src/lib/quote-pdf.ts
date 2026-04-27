@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { apiLogger } from "./logger";
+import { formatQuoteNumber } from "./invoice-numbering";
 import {
   PAGE_MARGIN,
   drawHeader,
@@ -209,4 +210,165 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       reject(err);
     }
   });
+}
+
+// ── Shared registration → quote PDF builder ────────────────────────────────
+//
+// Both `/api/registrant/registrations/[id]/quote` (auth-required) and
+// `/api/public/events/[slug]/registrations/[id]/document` (public, post-
+// checkout fallback) used to repeat the same ~70 lines of registration→
+// quote-PDF mapping verbatim. This builder is the single source of truth.
+//
+// The shape below is the minimal nested SELECT both callers rely on; a
+// fresh `findFirst({ include: { ... } })` whose result fits the type below
+// will work. Don't pass a registration with the wrong includes — TypeScript
+// will catch the missing fields, not silently miss them.
+
+export interface RegistrationForQuotePDF {
+  id: string;
+  serialId: number | null;
+  createdAt: Date;
+  billingFirstName: string | null;
+  billingLastName: string | null;
+  billingEmail: string | null;
+  billingPhone: string | null;
+  billingAddress: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZipCode: string | null;
+  billingCountry: string | null;
+  taxNumber: string | null;
+  attendee: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    organization: string | null;
+    title: string | null;
+    jobTitle: string | null;
+    city: string | null;
+    country: string | null;
+  };
+  // Decimal columns surface as Prisma.Decimal at runtime; we accept the
+  // structural type and Number()-coerce inside the builder.
+  ticketType: { name: string; price: unknown; currency: string } | null;
+  pricingTier: { name: string; price: unknown; currency: string } | null;
+  event: {
+    name: string;
+    code: string | null;
+    startDate: Date;
+    venue: string | null;
+    city: string | null;
+    taxRate: unknown;
+    taxLabel: string | null;
+    bankDetails: string | null;
+    supportEmail: string | null;
+    organization: {
+      name: string;
+      companyName: string | null;
+      companyAddress: string | null;
+      companyCity: string | null;
+      companyState: string | null;
+      companyZipCode: string | null;
+      companyCountry: string | null;
+      taxId: string | null;
+      logo: string | null;
+    };
+  };
+}
+
+export interface QuotePDFBuildResult {
+  buffer: Buffer;
+  filename: string;
+  quoteNumber: string;
+}
+
+/**
+ * Derive the quote number for a registration. Uses the formal
+ * `formatQuoteNumber(eventCode, serialId)` when both are available; falls
+ * back to `${eventCode}-Q-${last-4-of-id}` for legacy registrations
+ * without a serialId.
+ */
+function deriveQuoteNumber(
+  eventCode: string,
+  serialId: number | null,
+  registrationId: string,
+): string {
+  return serialId
+    ? formatQuoteNumber(eventCode, serialId)
+    : `${eventCode}-Q-${registrationId.slice(-4).toUpperCase()}`;
+}
+
+/**
+ * Build a quote PDF for a registration. Single source of truth for the
+ * registration → `generateQuotePDF` parameter mapping.
+ *
+ * Returns the rendered buffer + a stable filename + the derived quote
+ * number. Caller is responsible for the HTTP layer (response, headers,
+ * auth, rate limit).
+ */
+export async function buildQuotePDFFromRegistration(
+  registration: RegistrationForQuotePDF,
+): Promise<QuotePDFBuildResult> {
+  const price = registration.pricingTier
+    ? Number(registration.pricingTier.price)
+    : Number(registration.ticketType?.price ?? 0);
+
+  const currency = registration.pricingTier
+    ? registration.pricingTier.currency
+    : registration.ticketType?.currency ?? "USD";
+
+  const eventCode =
+    registration.event.code || registration.event.name.slice(0, 6).toUpperCase();
+  const quoteNumber = deriveQuoteNumber(eventCode, registration.serialId, registration.id);
+
+  const org = registration.event.organization;
+
+  const buffer = await generateQuotePDF({
+    quoteNumber,
+    date: registration.createdAt,
+    eventName: registration.event.name,
+    eventDate: registration.event.startDate,
+    eventVenue: registration.event.venue,
+    eventCity: registration.event.city,
+    firstName: registration.attendee.firstName,
+    lastName: registration.attendee.lastName,
+    email: registration.attendee.email,
+    organization: registration.attendee.organization,
+    title: registration.attendee.title,
+    jobTitle: registration.attendee.jobTitle,
+    billingFirstName: registration.billingFirstName,
+    billingLastName: registration.billingLastName,
+    billingEmail: registration.billingEmail,
+    billingPhone: registration.billingPhone,
+    billingAddress: registration.billingAddress,
+    // Personal city/country are the fallback when billing fields are blank
+    // — same behavior both call sites had before extraction.
+    billingCity: registration.billingCity || registration.attendee.city,
+    billingState: registration.billingState,
+    billingZipCode: registration.billingZipCode,
+    billingCountry: registration.billingCountry || registration.attendee.country,
+    taxNumber: registration.taxNumber,
+    registrationType: registration.ticketType?.name ?? "General",
+    pricingTier: registration.pricingTier?.name || null,
+    price,
+    currency,
+    taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
+    taxLabel: registration.event.taxLabel || "VAT",
+    bankDetails: registration.event.bankDetails,
+    supportEmail: registration.event.supportEmail,
+    organizationName: org.name,
+    companyName: org.companyName,
+    companyAddress: org.companyAddress,
+    companyCity: org.companyCity,
+    companyState: org.companyState,
+    companyZipCode: org.companyZipCode,
+    companyCountry: org.companyCountry,
+    taxId: org.taxId,
+    logoPath: org.logo,
+  });
+
+  // Filename pattern matches what both routes used previously, so download
+  // history / browser autocomplete is unchanged.
+  const filename = `quote-${registration.id.slice(-8)}.pdf`;
+  return { buffer, filename, quoteNumber };
 }

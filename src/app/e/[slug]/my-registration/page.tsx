@@ -360,7 +360,10 @@ export default function EventMyRegistrationPage() {
                           </div>
                         </div>
                         {isPaid && price > 0 && (
-                          <InvoiceDownloadButtons registrationId={reg.id} />
+                          <InvoiceDownloadButtons
+                            registrationId={reg.id}
+                            eventSlug={slug}
+                          />
                         )}
                       </div>
                     )}
@@ -465,7 +468,22 @@ export default function EventMyRegistrationPage() {
                         </Button>
                         {price > 0 && (
                           <Button variant="outline" size="sm" asChild>
-                            <a href={`/api/registrant/registrations/${reg.id}/quote`} download>
+                            {/*
+                              Public unauth-tolerant route — when the user's
+                              JWT session lapses on a stale tab, the
+                              previous auth-required route returned JSON 401
+                              and the browser saved it as `quote.json`.
+                              `/document` serves the latest finalized
+                              document (PAID Invoice if it exists, else
+                              Quote PDF) with the correct attachment headers
+                              regardless of session state. Registration
+                              CUIDs are unguessable + slug+id must match
+                              + 30 req/hr/IP rate-limited.
+                            */}
+                            <a
+                              href={`/api/public/events/${slug}/registrations/${reg.id}/document`}
+                              download
+                            >
                               <Download className="mr-2 h-3.5 w-3.5" /> Quote
                             </a>
                           </Button>

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { generateQuotePDF } from "@/lib/quote-pdf";
+import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
-import { formatQuoteNumber } from "@/lib/invoice-numbering";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
 interface RouteParams {
@@ -116,67 +115,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Fallback: Quote PDF (pre-payment or when no Invoice row exists yet).
-    const price = registration.pricingTier
-      ? Number(registration.pricingTier.price)
-      : Number(registration.ticketType?.price ?? 0);
-    const currency = registration.pricingTier
-      ? registration.pricingTier.currency
-      : registration.ticketType?.currency ?? "USD";
+    // The mapping registration → generateQuotePDF lives in `quote-pdf.ts`
+    // — single source of truth shared with the auth-required quote route.
+    const { buffer, filename } = await buildQuotePDFFromRegistration(registration);
 
-    const eventCode = registration.event.code || registration.event.name.slice(0, 6).toUpperCase();
-    const quoteNumber = registration.serialId
-      ? formatQuoteNumber(eventCode, registration.serialId)
-      : `${eventCode}-Q-${registration.id.slice(-4).toUpperCase()}`;
-
-    const org = registration.event.organization;
-
-    const pdfBuffer = await generateQuotePDF({
-      quoteNumber,
-      date: registration.createdAt,
-      eventName: registration.event.name,
-      eventDate: registration.event.startDate,
-      eventVenue: registration.event.venue,
-      eventCity: registration.event.city,
-      firstName: registration.attendee.firstName,
-      lastName: registration.attendee.lastName,
-      email: registration.attendee.email,
-      organization: registration.attendee.organization,
-      title: registration.attendee.title,
-      jobTitle: registration.attendee.jobTitle,
-      billingFirstName: registration.billingFirstName,
-      billingLastName: registration.billingLastName,
-      billingEmail: registration.billingEmail,
-      billingPhone: registration.billingPhone,
-      billingAddress: registration.billingAddress,
-      billingCity: registration.billingCity || registration.attendee.city,
-      billingState: registration.billingState,
-      billingZipCode: registration.billingZipCode,
-      billingCountry: registration.billingCountry || registration.attendee.country,
-      taxNumber: registration.taxNumber,
-      registrationType: registration.ticketType?.name ?? "General",
-      pricingTier: registration.pricingTier?.name || null,
-      price,
-      currency,
-      taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
-      taxLabel: registration.event.taxLabel || "VAT",
-      bankDetails: registration.event.bankDetails,
-      supportEmail: registration.event.supportEmail,
-      organizationName: org.name,
-      companyName: org.companyName,
-      companyAddress: org.companyAddress,
-      companyCity: org.companyCity,
-      companyState: org.companyState,
-      companyZipCode: org.companyZipCode,
-      companyCountry: org.companyCountry,
-      taxId: org.taxId,
-      logoPath: org.logo,
-    });
-
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="quote-${registration.id.slice(-8)}.pdf"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
     });
