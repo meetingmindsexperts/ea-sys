@@ -48,10 +48,12 @@ async function main() {
   const result = await db.event.updateMany({
     where: {
       id: { in: targets.map((t) => t.id) },
-      // Defense-in-depth: re-check the NULL predicate at write time in
-      // case a parallel organizer just set HTML on an event between
-      // our read and write.
+      // Defense-in-depth: re-check BOTH null predicates at write time so
+      // a parallel organizer who set HTML, uploaded a docx, OR did both
+      // between our read and our write will not be overwritten. Symmetric
+      // with the read query.
       speakerAgreementHtml: null,
+      speakerAgreementTemplate: { equals: Prisma.DbNull },
     },
     data: { speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML },
   });

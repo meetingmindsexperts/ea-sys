@@ -308,4 +308,82 @@ describe("parseHtmlToBlocks", () => {
     if (para.kind !== "paragraph") throw new Error("expected paragraph");
     expect(para.runs.find((r) => r.link)?.link).toBe("/page");
   });
+
+  // ── Pre-deploy review (round 2) regressions ────────────────────────
+
+  it("uppercase href schemes are accepted as-is (case-insensitive match)", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p><a href="HTTPS://example.com">a</a> <a href="MAILTO:x@y.com">b</a></p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    const links = para.runs.filter((r) => r.link);
+    expect(links).toHaveLength(2);
+    expect(links[0].link).toBe("HTTPS://example.com");
+    expect(links[1].link).toBe("MAILTO:x@y.com");
+  });
+
+  it("leading whitespace before a dangerous scheme still strips the link", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p><a href="  javascript:alert(1)">click</a></p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(para.runs.find((r) => r.link)).toBeUndefined();
+  });
+
+  it("mixed-case JaVaScRiPt: still stripped", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p><a href="JaVaScRiPt:alert(1)">click</a></p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(para.runs.find((r) => r.link)).toBeUndefined();
+  });
+
+  it("tab/newline injection inside a scheme is not bypassed", () => {
+    const blocks = parseHtmlToBlocks(
+      '<p><a href="java\tscript:alert(1)">x</a></p>',
+    );
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(para.runs.find((r) => r.link)).toBeUndefined();
+  });
+
+  it("attribute that looks like a tag (<script>) doesn't inject — value is captured only as attr text", () => {
+    // The tokenizer captures `<p title="<script>alert(1)</script>">` with the
+    // full quoted string as the title attribute. Since we never emit
+    // attribute values into the rendered output, the script text must NOT
+    // appear in any run's text.
+    const blocks = parseHtmlToBlocks(
+      '<p title="<script>alert(1)</script>">hello</p>',
+    );
+    expect(blocks).toHaveLength(1);
+    const para = blocks[0];
+    if (para.kind !== "paragraph") throw new Error("expected paragraph");
+    const allText = para.runs.map((r) => r.text).join("");
+    expect(allText).toContain("hello");
+    expect(allText).not.toContain("script");
+    expect(allText).not.toContain("alert");
+  });
+});
+
+// ── End-to-end token coverage check ──────────────────────────────────
+//
+// Drift guard: every {{token}} that appears in DEFAULT_SPEAKER_AGREEMENT_HTML
+// MUST have a corresponding entry in the merge map exposed via
+// mergeAgreementHtml. Without this test, an organizer or future PR could
+// add a token to the default that silently fails to resolve in production.
+
+describe("DEFAULT_SPEAKER_AGREEMENT_HTML — token coverage", () => {
+  it("every {{token}} in the default agreement HTML resolves under the merge map", async () => {
+    const { mergeAgreementHtml: mergeFn } = await import("@/lib/speaker-agreement");
+    const { DEFAULT_SPEAKER_AGREEMENT_HTML } = await import("@/lib/default-terms");
+
+    // Surface unresolved tokens — anything matching {{...}} after merge is a
+    // bug (organizer typo or unwired field).
+    const merged = mergeFn(DEFAULT_SPEAKER_AGREEMENT_HTML, ctx);
+    const leftover = merged.match(/\{\{\s*\w+\s*\}\}/g);
+    expect(leftover, `Unresolved tokens: ${leftover?.join(", ") ?? ""}`).toBeNull();
+  });
 });

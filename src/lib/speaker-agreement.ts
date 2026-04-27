@@ -416,8 +416,13 @@ export function mergeAgreementHtml(html: string, ctx: SpeakerEmailContext): stri
     sessionDateTime: ctx.sessionDateTime,
     trackNames: ctx.trackNames,
     role: ctx.role,
-    // These two carry HTML on purpose for the email body; for the agreement
-    // body we expose the plain-text variants under the same names.
+    // The DEFAULT_SPEAKER_AGREEMENT_HTML doesn't reference these, but an
+    // organizer editing inline HTML may type `{{presentationDetails}}` —
+    // we surface the plain-text variant for both names because the
+    // pre-rendered HTML form is reserved for the email body (rendered via
+    // `renderAndWrap`'s rawHtmlKeys path), where embedding raw <table>
+    // markup makes sense; on the agreement page the surrounding HTML
+    // structure is already a real document, so plain text is safer.
     presentationDetails: ctx.presentationDetailsText,
     presentationDetailsText: ctx.presentationDetailsText,
   };
@@ -1012,7 +1017,11 @@ function sanitizePdfText(s: string): string {
     .replace(/☐/g, "[ ]")
     .replace(/☑/g, "[x]")
     .replace(/☒/g, "[x]")
-    .replace(/[‐-―]/g, "-") // various dashes → ASCII hyphen (— is already WinAnsi but ‐-– etc. aren't always)
+    // Non-WinAnsi dashes only — explicit enumeration so we don't accidentally
+    // include en-dash (U+2013) or em-dash (U+2014), which ARE WinAnsi-safe and
+    // get preserved by the allowlist below. Earlier `[‐-―]` was a range
+    // U+2010..U+2015 that swallowed en/em dashes, making the allowlist dead.
+    .replace(/[‐‑‒―]/g, "-")
     .replace(/[‘’]/g, "'") // smart single quotes
     .replace(/[“”]/g, '"') // smart double quotes
     .replace(/•/g, "•") // bullet (this IS in WinAnsi but belt-and-suspenders)

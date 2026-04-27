@@ -146,6 +146,7 @@ export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 interface ResolvedRecipient {
   id: string;
   email: string;
+  additionalEmail?: string | null;
   firstName: string;
   lastName: string;
   ticketType?: string;
@@ -181,6 +182,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // recipients so we don't half-process and stress email rate limits.
   const needsAgreementAttachment = emailType === "agreement" && recipientType === "speakers";
 
+  // Custom emails need both subject and message. This is a batch-wide
+  // misconfiguration — checking it inside the per-recipient loop produces
+  // N copies of the same error in `result.errors`, so hoist it here.
+  if (emailType === "custom" && (!customSubject || !customMessage)) {
+    throw new BulkEmailError("Custom emails require subject and message", 400);
+  }
+
   // Validate attachment size
   if (attachments?.length) {
     const totalSize = attachments.reduce((sum, a) => sum + a.content.length, 0);
@@ -204,6 +212,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       settings: true,
       emailFromAddress: true,
       emailFromName: true,
+      emailCcAddresses: true,
       emailHeaderImage: true,
       emailFooterHtml: true,
       speakerAgreementTemplate: true,
@@ -272,11 +281,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
       },
-      select: { id: true, email: true, firstName: true, lastName: true },
+      select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true },
     });
     recipients = speakers.map((s) => ({
       id: s.id,
       email: s.email,
+      additionalEmail: s.additionalEmail,
       firstName: s.firstName,
       lastName: s.lastName,
     }));
@@ -289,7 +299,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       },
       select: {
         id: true,
-        speaker: { select: { email: true, firstName: true, lastName: true } },
+        speaker: { select: { email: true, additionalEmail: true, firstName: true, lastName: true } },
       },
     });
     const seen = new Set<string>();
@@ -299,6 +309,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         recipients.push({
           id: a.id,
           email: a.speaker.email,
+          additionalEmail: a.speaker.additionalEmail,
           firstName: a.speaker.firstName,
           lastName: a.speaker.lastName,
         });
@@ -318,12 +329,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         id: true,
         serialId: true,
         ticketType: { select: { name: true } },
-        attendee: { select: { email: true, firstName: true, lastName: true } },
+        attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true } },
       },
     });
     recipients = registrations.map((r) => ({
       id: r.id,
       email: r.attendee.email,
+      additionalEmail: r.attendee.additionalEmail,
       firstName: r.attendee.firstName,
       lastName: r.attendee.lastName,
       ticketType: r.ticketType?.name,
@@ -388,6 +400,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           eventName: event.name,
           emailFromAddress: event.emailFromAddress,
           emailFromName: event.emailFromName,
+          emailCcAddresses: event.emailCcAddresses ?? [],
           emailHeaderImage: event.emailHeaderImage,
           emailFooterHtml: event.emailFooterHtml,
         };
@@ -523,11 +536,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
 
     if (emailType === "custom") {
-      if (!customSubject || !customMessage) {
-        throw new BulkEmailError("Custom emails require subject and message", 400);
-      }
-      vars.subject = customSubject;
-      vars.message = customMessage;
+      // Pre-flight already verified subject + message are present (see
+      // hoisted check above the recipient resolve), so this is just
+      // hydration of the per-recipient vars.
+      vars.subject = customSubject!;
+      vars.message = customMessage!;
     }
 
     if (webinarEnrichment) {
@@ -617,7 +630,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
                   : ("OTHER" as const);
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
-            cc: brandingCc(branding, [{ email: recipient.email }]),
+            cc: brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail]),
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,
             textContent: emailContent.textContent,

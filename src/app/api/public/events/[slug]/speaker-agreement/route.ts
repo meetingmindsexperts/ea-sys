@@ -101,10 +101,24 @@ export async function GET(req: Request, { params }: RouteParams) {
     const rawAgreementHtml = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
 
     // Token-merge so the page shows the same text the speaker got in the
-    // PDF attached to their email. Falls back to raw HTML if the context
-    // can't be built (e.g. speaker has no sessions yet).
+    // PDF attached to their email — non-negotiable, the speaker accepts
+    // what they read. If the context can't be built we MUST NOT fall back
+    // to the unmerged template (it'd contain literal `{{token}}` strings
+    // and the snapshot stored on accept would diverge from what the user
+    // sees, both of which break the byte-for-byte parity guarantee).
     const context = await buildSpeakerEmailContext(speaker.event.id, speaker.id);
-    const agreementHtml = context ? mergeAgreementHtml(rawAgreementHtml, context) : rawAgreementHtml;
+    if (!context) {
+      apiLogger.error({
+        msg: "speaker-agreement:context-build-failed",
+        speakerId: speaker.id,
+        eventId: speaker.event.id,
+      });
+      return NextResponse.json(
+        { error: "Unable to load agreement at this time. Please contact the event organizer." },
+        { status: 500 },
+      );
+    }
+    const agreementHtml = mergeAgreementHtml(rawAgreementHtml, context);
 
     return NextResponse.json({
       alreadyAccepted: speaker.agreementAcceptedAt !== null,
@@ -184,7 +198,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (speaker.agreementAcceptedAt) {
-      // Idempotent — delete token and return success
+      // Idempotent — first acceptance wins. We deliberately do NOT update
+      // `agreementTextSnapshot` on re-acceptance, so the legally-binding
+      // text remains locked at the moment of first click even if the
+      // organizer edits the agreement HTML after that point.
       await db.verificationToken.delete({ where: { token: hashedToken } }).catch(() => {});
       apiLogger.info({
         msg: "Speaker agreement re-acceptance attempted (already accepted)",
@@ -197,9 +214,22 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Snapshot the merged HTML so the accepted text is literally what the
     // speaker saw — not the pre-merge template with `{{speakerName}}` in it.
+    // Mirror the GET handler: never store the unmerged template.
     const rawSnapshot = speaker.event.speakerAgreementHtml || DEFAULT_SPEAKER_AGREEMENT_HTML;
     const context = await buildSpeakerEmailContext(speaker.event.id, speaker.id);
-    const snapshot = context ? mergeAgreementHtml(rawSnapshot, context) : rawSnapshot;
+    if (!context) {
+      apiLogger.error({
+        msg: "speaker-agreement:context-build-failed-on-accept",
+        speakerId: speaker.id,
+        eventId: speaker.event.id,
+        ip: clientIp,
+      });
+      return NextResponse.json(
+        { error: "Unable to record acceptance at this time. Please contact the event organizer." },
+        { status: 500 },
+      );
+    }
+    const snapshot = mergeAgreementHtml(rawSnapshot, context);
     const acceptedAt = new Date();
 
     await db.$transaction([
