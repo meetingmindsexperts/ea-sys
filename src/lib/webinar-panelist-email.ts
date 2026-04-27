@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   brandingFrom,
+  brandingCc,
   getEventTemplate,
   getDefaultTemplate,
   renderAndWrap,
@@ -114,6 +115,7 @@ export async function sendPanelistInvite(
   try {
     await sendEmail({
       to: [{ email: panelistEmail, name: panelistName }],
+      cc: brandingCc(branding, [{ email: panelistEmail }]),
       ...rendered,
       from: brandingFrom(branding),
       logContext: {

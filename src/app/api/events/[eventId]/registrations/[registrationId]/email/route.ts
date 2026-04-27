@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
@@ -148,6 +148,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await sendEmail({
       to: [{ email: registration.attendee.email, name: attendeeName }],
+      cc: brandingCc(branding, [{ email: registration.attendee.email }]),
       ...rendered,
       from: brandingFrom(branding),
       logContext: {

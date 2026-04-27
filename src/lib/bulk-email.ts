@@ -8,6 +8,7 @@ import {
   getDefaultTemplate,
   renderAndWrap,
   brandingFrom,
+  brandingCc,
   type EmailBranding,
 } from "./email";
 import {
@@ -616,6 +617,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
                   : ("OTHER" as const);
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
+            cc: brandingCc(branding, [{ email: recipient.email }]),
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,
             textContent: emailContent.textContent,

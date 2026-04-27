@@ -31,6 +31,13 @@ const updateEventSchema = z.object({
   emailFooterHtml: z.string().max(10000).nullable().optional(),
   emailFromAddress: z.string().email().max(255).nullable().optional(),
   emailFromName: z.string().max(255).nullable().optional(),
+  // Per-event auto-CC list. Server re-validates each entry against the
+  // email regex and lowercases — the UI does the same on save, this is
+  // belt-and-braces for direct API callers.
+  emailCcAddresses: z
+    .array(z.string().trim().toLowerCase().email().max(255))
+    .max(20)
+    .optional(),
   registrationTermsHtml: z.string().max(50000).nullable().optional(),
   registrationWelcomeHtml: z.string().max(50000).nullable().optional(),
   abstractWelcomeHtml: z.string().max(50000).nullable().optional(),
@@ -148,6 +155,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       emailFooterHtml,
       emailFromAddress,
       emailFromName,
+      emailCcAddresses,
       registrationTermsHtml,
       registrationWelcomeHtml,
       abstractWelcomeHtml,
@@ -216,6 +224,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(emailFooterHtml !== undefined && { emailFooterHtml }),
         ...(emailFromAddress !== undefined && { emailFromAddress }),
         ...(emailFromName !== undefined && { emailFromName }),
+        ...(emailCcAddresses !== undefined && { emailCcAddresses }),
         ...(registrationTermsHtml !== undefined && { registrationTermsHtml }),
         ...(registrationWelcomeHtml !== undefined && { registrationWelcomeHtml }),
         ...(abstractWelcomeHtml !== undefined && { abstractWelcomeHtml }),

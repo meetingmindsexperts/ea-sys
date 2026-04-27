@@ -12,6 +12,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TagInput } from "@/components/ui/tag-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
@@ -95,6 +96,7 @@ interface Event {
   emailFooterHtml: string | null;
   emailFromAddress: string | null;
   emailFromName: string | null;
+  emailCcAddresses: string[];
   supportEmail: string | null;
   taxRate: number | null;
   taxLabel: string | null;
@@ -229,6 +231,7 @@ export default function EventSettingsPage() {
     emailFooterHtml: "",
     emailFromAddress: "",
     emailFromName: "",
+    emailCcAddresses: [] as string[],
   });
 
   const fetchEvent = useCallback(async () => {
@@ -293,6 +296,7 @@ export default function EventSettingsPage() {
           emailFooterHtml: data.emailFooterHtml || "",
           emailFromAddress: data.emailFromAddress || "",
           emailFromName: data.emailFromName || "",
+          emailCcAddresses: Array.isArray(data.emailCcAddresses) ? data.emailCcAddresses : [],
         });
       }
     } catch (error) {
@@ -402,6 +406,7 @@ export default function EventSettingsPage() {
           emailFooterHtml: brandingSettings.emailFooterHtml || null,
           emailFromAddress: brandingSettings.emailFromAddress || null,
           emailFromName: brandingSettings.emailFromName || null,
+          emailCcAddresses: brandingSettings.emailCcAddresses,
         }),
       });
 
@@ -1264,6 +1269,25 @@ export default function EventSettingsPage() {
               <p className="text-sm text-muted-foreground">
                 Override the default sender for all emails from this event. The email domain must be verified in your email provider (Brevo/SendGrid). Leave blank to use the system default.
               </p>
+
+              <div className="space-y-2">
+                <Label>Auto-CC Addresses</Label>
+                <TagInput
+                  value={brandingSettings.emailCcAddresses}
+                  onChange={(next) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      emailCcAddresses: next
+                        .map((e) => e.trim().toLowerCase())
+                        .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+                    })
+                  }
+                  placeholder="ops@yourdomain.com, then Enter"
+                />
+                <p className="text-sm text-muted-foreground">
+                  These addresses are silently CC&apos;d on every email this event sends — registration confirmations, payment receipts, speaker invites, abstract status updates, bulk emails, manual single-sends. The recipient sees them. Leave empty for no auto-CC. Invalid addresses are rejected on save.
+                </p>
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="emailHeaderImage">Email Header Image URL</Label>

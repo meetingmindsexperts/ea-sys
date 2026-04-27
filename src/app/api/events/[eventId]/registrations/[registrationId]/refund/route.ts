@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getStripe } from "@/lib/stripe";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -199,6 +199,7 @@ async function sendRefundConfirmationEmail(
 
   await sendEmail({
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
+    cc: brandingCc(branding, [{ email: registration.attendee.email }]),
     ...rendered,
     from: brandingFrom(branding),
     logContext: {

@@ -26,6 +26,18 @@ const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || "Event Management Syste
 
 export interface SendEmailParams {
   to: { email: string; name?: string }[];
+  /**
+   * Carbon-copy recipients. Visible to the primary recipient. Used by
+   * the per-event auto-CC feature (Event.emailCcAddresses) so
+   * organizers and partner inboxes silently get a copy of every
+   * event-scoped send. Empty/undefined = no CC.
+   */
+  cc?: { email: string; name?: string }[];
+  /**
+   * Blind carbon-copy recipients. NOT visible to the primary
+   * recipient. Reserve for compliance/audit observers.
+   */
+  bcc?: { email: string; name?: string }[];
   subject: string;
   htmlContent: string;
   textContent?: string;
@@ -80,6 +92,12 @@ const brevoProvider: EmailProvider = {
       name: params.from?.name || DEFAULT_FROM_NAME,
     };
     sendSmtpEmail.to = params.to.map((r) => ({ email: r.email, name: r.name || r.email }));
+    if (params.cc?.length) {
+      sendSmtpEmail.cc = params.cc.map((r) => ({ email: r.email, name: r.name || r.email }));
+    }
+    if (params.bcc?.length) {
+      sendSmtpEmail.bcc = params.bcc.map((r) => ({ email: r.email, name: r.name || r.email }));
+    }
     sendSmtpEmail.subject = params.subject;
     sendSmtpEmail.htmlContent = params.htmlContent;
     if (params.textContent) sendSmtpEmail.textContent = params.textContent;
@@ -114,6 +132,12 @@ const sendGridProvider: EmailProvider = {
 
     const msg: sgMail.MailDataRequired = {
       to: params.to.map((r) => ({ email: r.email, name: r.name || r.email })),
+      ...(params.cc?.length && {
+        cc: params.cc.map((r) => ({ email: r.email, name: r.name || r.email })),
+      }),
+      ...(params.bcc?.length && {
+        bcc: params.bcc.map((r) => ({ email: r.email, name: r.name || r.email })),
+      }),
       from: {
         email: params.from?.email || DEFAULT_FROM_EMAIL,
         name: params.from?.name || DEFAULT_FROM_NAME,
@@ -258,6 +282,13 @@ export interface EmailBranding {
   emailFooterHtml?: string | null;
   emailFromAddress?: string | null;
   emailFromName?: string | null;
+  /**
+   * Per-event auto-CC list (Event.emailCcAddresses). Every send that
+   * uses this branding object will automatically CC these addresses.
+   * Caller still owns explicit cc/bcc on `sendEmail` — the auto list
+   * is merged in via `brandingCc()`.
+   */
+  emailCcAddresses?: string[];
   eventName?: string;
 }
 
@@ -1336,7 +1367,14 @@ export async function getEventTemplate(
     }),
     db.event.findFirst({
       where: { id: eventId },
-      select: { emailHeaderImage: true, emailFooterHtml: true, emailFromAddress: true, emailFromName: true, name: true },
+      select: {
+        emailHeaderImage: true,
+        emailFooterHtml: true,
+        emailFromAddress: true,
+        emailFromName: true,
+        emailCcAddresses: true,
+        name: true,
+      },
     }),
   ]);
 
@@ -1345,6 +1383,7 @@ export async function getEventTemplate(
     emailFooterHtml: event?.emailFooterHtml,
     emailFromAddress: event?.emailFromAddress,
     emailFromName: event?.emailFromName,
+    emailCcAddresses: event?.emailCcAddresses ?? [],
     eventName: event?.name,
   };
 
@@ -1397,6 +1436,34 @@ export function brandingFrom(branding: EmailBranding): SendEmailParams["from"] {
     return { email: branding.emailFromAddress, name: branding.emailFromName || undefined };
   }
   return undefined;
+}
+
+/**
+ * Extract the auto-CC list from branding. Returns undefined when no
+ * addresses are configured — callers can spread the result directly
+ * into `sendEmail`'s cc field. Trims and lowercases each address and
+ * de-duplicates against any explicit caller-supplied recipients
+ * (passed via `extra`) so an organizer who sets their own email as
+ * both the registrant AND the CC doesn't get a duplicate copy.
+ *
+ * Usage:
+ *   await sendEmail({
+ *     to: [{ email: registrant.email }],
+ *     cc: brandingCc(branding, [{ email: registrant.email }]),
+ *     ...rendered,
+ *   });
+ */
+export function brandingCc(
+  branding: EmailBranding,
+  extra?: { email: string }[]
+): SendEmailParams["cc"] {
+  if (!branding.emailCcAddresses?.length) return undefined;
+  const exclude = new Set((extra ?? []).map((r) => r.email.trim().toLowerCase()));
+  const cc = branding.emailCcAddresses
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0 && !exclude.has(e))
+    .map((email) => ({ email }));
+  return cc.length > 0 ? cc : undefined;
 }
 
 // ── Helper function to send registration confirmation ──────────────────────────
@@ -1587,6 +1654,7 @@ export async function sendRegistrationConfirmation(params: {
 
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],
+    cc: brandingCc(branding, [{ email: params.to }]),
     subject,
     htmlContent,
     textContent,

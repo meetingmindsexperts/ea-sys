@@ -169,6 +169,11 @@ model Event {
   emailFooterHtml  String?   @db.Text
   emailFromAddress String?
   emailFromName    String?
+  // Addresses CC'd on every event-scoped email — both automated
+  // (registration confirmation, speaker invite, abstract status,
+  // bulk email, scheduled email) and manual single-sends from the
+  // detail sheets. Empty array = no auto-CC.
+  emailCcAddresses String[]  @default([])
   supportEmail           String?
   registrationTermsHtml    String?   @db.Text
   registrationWelcomeHtml  String?   @db.Text

@@ -7,7 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 
 const registerSchema = z.object({
   title: titleEnum,
@@ -314,6 +314,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const rendered = renderAndWrap(t, vars, branding);
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
+        cc: brandingCc(branding, [{ email: emailLower }]),
         ...rendered,
         from: brandingFrom(branding),
         logContext: {
