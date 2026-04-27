@@ -440,6 +440,18 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
       return { success: true, accommodation: existing, message: `Already in status ${status}` };
     }
 
+    // Optimistic-lock token (W2-F8). Optional during rollout — when
+    // missing, falls back to legacy unconditional path with a warn log.
+    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "accommodation",
+        resourceId: accommodationId,
+        source: "mcp",
+      });
+    }
+
     // Room counter adjustments around CANCELLED transitions (matches REST route logic)
     const wasActive = existing.status !== "CANCELLED";
     const willBeActive = status !== "CANCELLED";
@@ -466,9 +478,21 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
         });
       }
 
-      return tx.accommodation.update({
+      // Optimistic lock fires inside the tx so a stale-write rejection
+      // rolls back the room-counter delta we just applied.
+      const lockedUpdate = await tx.accommodation.updateMany({
+        where: {
+          id: accommodationId,
+          ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+        },
+        data: { status: status as never, updatedAt: new Date() },
+      });
+      if (lockedUpdate.count === 0) {
+        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
+      }
+
+      return tx.accommodation.findUniqueOrThrow({
         where: { id: accommodationId },
-        data: { status: status as never },
         select: {
           id: true,
           status: true,
@@ -494,6 +518,16 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
   } catch (err) {
     if (err instanceof Error && err.message === "NO_ROOMS_AVAILABLE") {
       return { error: "Cannot reinstate: no rooms available in that room type" };
+    }
+    if (err instanceof Error && err.message === "STALE_WRITE") {
+      apiLogger.info({ msg: "accommodation:stale-write-rejected", source: "mcp" });
+      return {
+        error: "This booking was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
+        code: "STALE_WRITE",
+      };
+    }
+    if (err instanceof Error && err.message === "ACCOMMODATION_DISAPPEARED") {
+      return { error: "Accommodation not found or no longer accessible" };
     }
     apiLogger.error({ err }, "agent:update_accommodation_status failed");
     return { error: err instanceof Error ? err.message : "Failed to update accommodation status" };

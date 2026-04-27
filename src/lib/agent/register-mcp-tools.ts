@@ -448,8 +448,9 @@ export function registerAllMcpTools(
       photo: z.string().nullable().optional(),
       tags: z.array(z.string()).optional(),
     }},
-    { name: "update_session", description: "Update a session's metadata. Validates that startTime/endTime fall within the parent event's date range. Does NOT touch topics or speakers — use add_topic_to_session for that.", params: {
+    { name: "update_session", description: "Update a session's metadata. Validates that startTime/endTime fall within the parent event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session for those. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       sessionId: z.string(),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       name: z.string().optional(),
       description: z.string().optional(),
       startTime: z.string().optional().describe("ISO 8601 datetime"),
@@ -519,8 +520,9 @@ export function registerAllMcpTools(
       guestCount: z.number().optional(),
       specialRequests: z.string().optional(),
     }},
-    { name: "update_accommodation_status", description: "Change accommodation status: PENDING / CONFIRMED / CHECKED_IN / CHECKED_OUT / CANCELLED. Cancelling releases the room; reinstating re-checks availability.", params: {
+    { name: "update_accommodation_status", description: "Change accommodation status: PENDING / CONFIRMED / CHECKED_IN / CHECKED_OUT / CANCELLED. Cancelling releases the room; reinstating re-checks availability. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       accommodationId: z.string(),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.enum(["PENDING", "CONFIRMED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED"]),
     }},
     // ─── Invoice writes ───

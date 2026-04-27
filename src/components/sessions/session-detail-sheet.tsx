@@ -64,6 +64,7 @@ interface SessionData {
   location: string | null;
   capacity: number | null;
   status: string;
+  updatedAt: string;
   track: { id: string; name: string; color: string } | null;
   speakers: SessionSpeaker[];
   topics: SessionTopic[];
@@ -186,6 +187,10 @@ export function SessionDetailSheet({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // W2-F8 — server compares against the row's current
+          // updatedAt and returns 409 STALE_WRITE if someone else
+          // wrote since this sheet was opened.
+          expectedUpdatedAt: session.updatedAt,
           topics: topicForms.map((t, i) => ({
             title: t.title,
             duration: t.duration ? parseInt(t.duration) : undefined,
@@ -196,6 +201,14 @@ export function SessionDetailSheet({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
+        if (res.status === 409 && err?.code === "STALE_WRITE") {
+          toast.error(
+            "This session was modified by someone else after you opened it. Reloading the latest version — please review and re-save your changes.",
+          );
+          fetchSession();
+          setIsEditing(false);
+          return;
+        }
         throw new Error(err?.error || "Failed to save");
       }
       const updated: SessionData = await res.json();

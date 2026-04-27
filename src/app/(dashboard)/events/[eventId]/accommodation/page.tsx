@@ -79,6 +79,7 @@ interface Accommodation {
   totalPrice: number;
   currency: string;
   confirmationNo: string | null;
+  updatedAt: string;
   registration?: {
     attendee: {
       firstName: string;
@@ -278,14 +279,20 @@ export default function AccommodationPage() {
     });
   };
 
-  const handleStatusUpdate = async (accommodationId: string, status: string) => {
+  const handleStatusUpdate = async (
+    accommodationId: string,
+    status: string,
+    expectedUpdatedAt: string,
+  ) => {
     try {
       const res = await fetch(
         `/api/events/${eventId}/accommodations/${accommodationId}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
+          // W2-F8 — server returns 409 STALE_WRITE if another admin
+          // flipped this booking's status since the page rendered.
+          body: JSON.stringify({ status, expectedUpdatedAt }),
         }
       );
       if (res.ok) {
@@ -294,7 +301,14 @@ export default function AccommodationPage() {
         fetchHotels();
       } else {
         const err = await res.json();
-        toast.error(err.error || "Failed to update status");
+        if (res.status === 409 && err.code === "STALE_WRITE") {
+          toast.error(
+            "This booking was modified by someone else. Reloading the latest status.",
+          );
+          fetchAccommodations();
+        } else {
+          toast.error(err.error || "Failed to update status");
+        }
       }
     } catch {
       toast.error("Failed to update status");
@@ -895,7 +909,7 @@ export default function AccommodationPage() {
                               size="sm"
                               variant="outline"
                               className="text-green-700 border-green-200 hover:bg-green-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CONFIRMED")}
+                              onClick={() => handleStatusUpdate(booking.id, "CONFIRMED", booking.updatedAt)}
                             >
                               Confirm
                             </Button>
@@ -903,7 +917,7 @@ export default function AccommodationPage() {
                               size="sm"
                               variant="outline"
                               className="text-red-700 border-red-200 hover:bg-red-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED")}
+                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
                             >
                               Cancel
                             </Button>
@@ -915,7 +929,7 @@ export default function AccommodationPage() {
                               size="sm"
                               variant="outline"
                               className="text-blue-700 border-blue-200 hover:bg-blue-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CHECKED_IN")}
+                              onClick={() => handleStatusUpdate(booking.id, "CHECKED_IN", booking.updatedAt)}
                             >
                               Check In
                             </Button>
@@ -923,7 +937,7 @@ export default function AccommodationPage() {
                               size="sm"
                               variant="outline"
                               className="text-red-700 border-red-200 hover:bg-red-50"
-                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED")}
+                              onClick={() => handleStatusUpdate(booking.id, "CANCELLED", booking.updatedAt)}
                             >
                               Cancel
                             </Button>
@@ -934,7 +948,7 @@ export default function AccommodationPage() {
                             size="sm"
                             variant="outline"
                             className="text-gray-700 border-gray-200 hover:bg-gray-50"
-                            onClick={() => handleStatusUpdate(booking.id, "CHECKED_OUT")}
+                            onClick={() => handleStatusUpdate(booking.id, "CHECKED_OUT", booking.updatedAt)}
                           >
                             Check Out
                           </Button>
@@ -944,7 +958,7 @@ export default function AccommodationPage() {
                             size="sm"
                             variant="outline"
                             className="text-yellow-700 border-yellow-200 hover:bg-yellow-50"
-                            onClick={() => handleStatusUpdate(booking.id, "PENDING")}
+                            onClick={() => handleStatusUpdate(booking.id, "PENDING", booking.updatedAt)}
                           >
                             Reinstate
                           </Button>

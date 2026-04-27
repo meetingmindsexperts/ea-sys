@@ -74,6 +74,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   });
 
   const status = abstract.status as string;
+  const abstractUpdatedAt = abstract.updatedAt as string;
   const canEdit = editableStatuses.includes(status);
   const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
 
@@ -98,11 +99,14 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const reviewScore = reviewData?.aggregates.meanOverall ?? null;
 
   const updateMutation = useMutation({
-    mutationFn: async (data: typeof editData & { status?: string }) => {
+    mutationFn: async (data: typeof editData & { status?: string; expectedUpdatedAt?: string }) => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // W2-F8 — server returns 409 STALE_WRITE if a co-reviewer or
+          // chair wrote since this edit page was opened.
+          expectedUpdatedAt: data.expectedUpdatedAt,
           title: data.title,
           content: data.content,
           specialty: data.specialty || undefined,
@@ -114,19 +118,28 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Failed to update abstract");
+        const e = new Error(err.error || "Failed to update abstract") as Error & { code?: string; status?: number };
+        e.code = err.code;
+        e.status = res.status;
+        throw e;
       }
       return res.json();
+    },
+    onError: (error: Error & { code?: string; status?: number }) => {
+      if (error.status === 409 && error.code === "STALE_WRITE") {
+        toast.error(
+          "This abstract was modified by someone else after you opened it. Reloading the latest version.",
+        );
+        queryClient.invalidateQueries({ queryKey: ["abstract", abstractId] });
+        return;
+      }
+      toast.error(error.message);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
       queryClient.invalidateQueries({ queryKey: ["abstract", abstractId] });
       toast.success("Abstract updated");
       router.push(`/events/${eventId}/abstracts`);
-    },
-    onError: (err: Error) => {
-      console.error("[EditAbstract] Update failed:", err.message);
-      toast.error(err.message);
     },
   });
 
@@ -248,7 +261,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
                     disabled={isPending}
-                    onClick={() => updateMutation.mutate({ ...editData, status: "SUBMITTED" })}
+                    onClick={() => updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt })}
                   >
                     {updateMutation.isPending ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting…</>
@@ -261,7 +274,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   variant={status === "DRAFT" ? "outline" : "default"}
                   className={status !== "DRAFT" ? "w-full btn-gradient font-semibold h-11" : "w-full"}
                   disabled={isPending}
-                  onClick={() => updateMutation.mutate(editData)}
+                  onClick={() => updateMutation.mutate({ ...editData, expectedUpdatedAt: abstractUpdatedAt })}
                 >
                   <Save className="mr-2 h-4 w-4" />
                   {updateMutation.isPending ? "Saving…" : "Save Changes"}
@@ -287,7 +300,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     disabled={isPending}
                     onClick={() => {
                       if (confirm("Withdraw this abstract? You can contact the organiser to reverse this.")) {
-                        updateMutation.mutate({ ...editData, status: "WITHDRAWN" });
+                        updateMutation.mutate({ ...editData, status: "WITHDRAWN", expectedUpdatedAt: abstractUpdatedAt });
                       }
                     }}
                   >
@@ -395,7 +408,17 @@ export default function EditAbstractPage() {
   const { data: tracksData = [] } = useTracks(eventId);
   const tracks = tracksData as Track[];
 
-  const { data: abstract, isLoading } = useQuery({
+  const { data: abstract, isLoading } = useQuery<{
+    id: string;
+    updatedAt: string;
+    title: string;
+    content: string;
+    status: string;
+    specialty: string | null;
+    presentationType: string | null;
+    trackId: string | null;
+    themeId: string | null;
+  }>({
     queryKey: ["abstract", abstractId],
     queryFn: async () => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`);

@@ -5,8 +5,10 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { optimisticLockField } from "@/lib/optimistic-lock";
 
 const updateAccommodationSchema = z.object({
+  ...optimisticLockField,
   roomTypeId: z.string().optional(),
   checkIn: z.string().datetime().optional(),
   checkOut: z.string().datetime().optional(),
@@ -121,6 +123,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+    if (!data.expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "accommodation",
+        resourceId: accommodationId,
+      });
+    }
     let totalPrice: number = Number(existingAccommodation.totalPrice);
     let newRoomTypeId = existingAccommodation.roomTypeId;
 
@@ -213,8 +222,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
         });
       }
 
-      return tx.accommodation.update({
-        where: { id: accommodationId },
+      // Optimistic lock (W2-F8). If supplied, the conditional updateMany
+      // rejects stale writes — and because we're inside the transaction,
+      // the room-counter changes above roll back too. The sentinel-throw
+      // pattern matches the registration PUT route.
+      const lockedUpdate = await tx.accommodation.updateMany({
+        where: {
+          id: accommodationId,
+          ...(data.expectedUpdatedAt && { updatedAt: new Date(data.expectedUpdatedAt) }),
+        },
         data: {
           ...(data.roomTypeId && { roomTypeId: newRoomTypeId }),
           ...(data.checkIn && { checkIn: new Date(data.checkIn) }),
@@ -224,7 +240,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(data.status && { status: data.status }),
           ...(data.confirmationNo !== undefined && { confirmationNo: data.confirmationNo || null }),
           totalPrice,
+          updatedAt: new Date(),
         },
+      });
+      if (lockedUpdate.count === 0) {
+        throw new Error(data.expectedUpdatedAt ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
+      }
+
+      return tx.accommodation.findUniqueOrThrow({
+        where: { id: accommodationId },
         include: {
           registration: { include: { attendee: true } },
           speaker: {
@@ -262,6 +286,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
   } catch (error) {
     if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
       return NextResponse.json({ error: "No rooms available" }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "STALE_WRITE") {
+      apiLogger.info({ msg: "accommodation:stale-write-rejected" });
+      return NextResponse.json(
+        {
+          error: "This booking was modified by someone else after you opened it. Reload the latest version and try again.",
+          code: "STALE_WRITE",
+        },
+        { status: 409 }
+      );
+    }
+    if (error instanceof Error && error.message === "ACCOMMODATION_DISAPPEARED") {
+      return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
     apiLogger.error({ err: error, msg: "Error updating accommodation" });
     return NextResponse.json(

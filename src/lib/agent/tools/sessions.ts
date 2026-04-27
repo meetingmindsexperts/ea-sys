@@ -378,9 +378,40 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       return { error: "No fields provided to update" };
     }
 
-    const updated = await db.eventSession.update({
+    // Optimistic-lock token (W2-F8). Optional during rollout — missing
+    // token falls back to legacy unconditional path with a warn log.
+    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "session",
+        resourceId: sessionId,
+        source: "mcp",
+      });
+    }
+
+    const updateRes = await db.eventSession.updateMany({
+      where: {
+        id: sessionId,
+        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+      },
+      data: { ...updates, updatedAt: new Date() } as never,
+    });
+    if (updateRes.count === 0) {
+      const stillExists = await db.eventSession.findFirst({
+        where: { id: sessionId, eventId: ctx.eventId },
+        select: { id: true },
+      });
+      if (!stillExists) return { error: `Session ${sessionId} not found or access denied` };
+      apiLogger.info({ msg: "session:stale-write-rejected", sessionId, source: "mcp" });
+      return {
+        error: "This session was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
+        code: "STALE_WRITE",
+      };
+    }
+
+    const updated = await db.eventSession.findUniqueOrThrow({
       where: { id: sessionId },
-      data: updates,
       select: {
         id: true,
         name: true,

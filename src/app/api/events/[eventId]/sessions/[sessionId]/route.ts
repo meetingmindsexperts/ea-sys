@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
+import { optimisticLockField } from "@/lib/optimistic-lock";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -23,6 +24,7 @@ const sessionSpeakerSchema = z.object({
 });
 
 const updateSessionSchema = z.object({
+  ...optimisticLockField,
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
   trackId: z.string().max(100).nullable().optional(),
@@ -49,6 +51,7 @@ const sessionSelect = {
   location: true,
   capacity: true,
   status: true,
+  updatedAt: true,
   track: { select: { id: true, name: true, color: true } },
   abstract: { select: { id: true, title: true } },
   speakers: {
@@ -258,8 +261,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    const eventSession = await db.eventSession.update({
-      where: { id: sessionId },
+    // Optimistic lock (W2-F8). Conditional updateMany rejects stale
+    // writes — if zero rows updated and the row still exists, the
+    // caller's expectedUpdatedAt is stale.
+    const expectedUpdatedAt = data.expectedUpdatedAt;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "session",
+        resourceId: sessionId,
+      });
+    }
+
+    const updateRes = await db.eventSession.updateMany({
+      where: {
+        id: sessionId,
+        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+      },
       data: {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description || null }),
@@ -270,7 +288,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.location !== undefined && { location: data.location || null }),
         ...(data.capacity !== undefined && { capacity: data.capacity }),
         ...(data.status && { status: data.status }),
+        updatedAt: new Date(),
       },
+    });
+
+    if (updateRes.count === 0) {
+      const stillExists = await db.eventSession.findFirst({
+        where: { id: sessionId, eventId },
+        select: { id: true },
+      });
+      if (!stillExists) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      apiLogger.info({ msg: "session:stale-write-rejected", sessionId, eventId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "This session was modified by someone else after you opened it. Reload the latest version and try again.",
+          code: "STALE_WRITE",
+        },
+        { status: 409 }
+      );
+    }
+
+    const eventSession = await db.eventSession.findUniqueOrThrow({
+      where: { id: sessionId },
       select: sessionSelect,
     });
 

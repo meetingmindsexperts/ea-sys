@@ -11,6 +11,7 @@ import {
   type AbstractTransitionStatus,
   type ChangeAbstractStatusErrorCode,
 } from "@/services/abstract-service";
+import { optimisticLockField } from "@/lib/optimistic-lock";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -26,6 +27,7 @@ const HTTP_STATUS_FOR_ABSTRACT_ERROR: Record<ChangeAbstractStatusErrorCode, numb
 // This PUT handles abstract metadata + status transitions only.
 // Individual reviewer submissions go through POST /submissions.
 const updateAbstractSchema = z.object({
+  ...optimisticLockField,
   title: z.string().min(1).max(500).optional(),
   content: z.string().min(1).max(50000).optional(),
   trackId: z.string().max(100).nullable().optional(),
@@ -272,8 +274,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Non-status-change path: field-only updates (optionally with a
     // DRAFT → SUBMITTED transition by the submitter).
-    const abstract = await db.abstract.update({
-      where: { id: abstractId },
+    //
+    // Optimistic lock (W2-F8). When supplied, the conditional updateMany
+    // rejects stale writes — multiple reviewers/chair editing the same
+    // abstract simultaneously is a real concurrency hazard.
+    const expectedUpdatedAt = data.expectedUpdatedAt;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "abstract",
+        resourceId: abstractId,
+      });
+    }
+
+    const updateRes = await db.abstract.updateMany({
+      where: {
+        id: abstractId,
+        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+      },
       data: {
         ...(data.title && { title: data.title }),
         ...(data.content && { content: data.content }),
@@ -283,7 +301,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.status && { status: data.status }),
         ...(isSubmission && { submittedAt: new Date() }),
+        updatedAt: new Date(),
       },
+    });
+
+    if (updateRes.count === 0) {
+      const stillExists = await db.abstract.findFirst({
+        where: { id: abstractId, eventId },
+        select: { id: true },
+      });
+      if (!stillExists) {
+        return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+      }
+      apiLogger.info({ msg: "abstract:stale-write-rejected", abstractId, eventId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "This abstract was modified by someone else after you opened it. Reload the latest version and try again.",
+          code: "STALE_WRITE",
+        },
+        { status: 409 }
+      );
+    }
+
+    const abstract = await db.abstract.findUniqueOrThrow({
+      where: { id: abstractId },
       include: {
         speaker: true,
         track: true,
