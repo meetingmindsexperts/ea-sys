@@ -502,10 +502,221 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
   },
 ];
 
+// ─── W2-F3 fix: session speaker management via MCP ────────────────────────
+//
+// Wave-2 confirmed update_session can't change speakers — operators had
+// to delete-and-recreate (loses session id + topics + delegate picks)
+// or use the dashboard UI for day-of speaker swaps. Below: idempotent
+// add / remove / replace tools matching the SessionSpeaker join-table.
+//
+// All three tools verify the session is in the caller's event (org-scope)
+// and that any provided speakers belong to that same event.
+
+const SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
+
+async function findSessionInEvent(sessionId: string, eventId: string) {
+  return db.eventSession.findFirst({
+    where: { id: sessionId, eventId },
+    select: { id: true },
+  });
+}
+
+const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = String(input.sessionId ?? "").trim();
+    const speakerId = String(input.speakerId ?? "").trim();
+    const rawRole = input.role ? String(input.role).toUpperCase() : "SPEAKER";
+    if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
+    if (!speakerId) return { error: "speakerId is required", code: "MISSING_SPEAKER_ID" };
+    if (!SESSION_ROLES.has(rawRole)) {
+      return { error: `Invalid role. Must be one of: ${[...SESSION_ROLES].join(", ")}`, code: "INVALID_ROLE" };
+    }
+
+    const session = await findSessionInEvent(sessionId, ctx.eventId);
+    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
+
+    const speaker = await db.speaker.findFirst({
+      where: { id: speakerId, eventId: ctx.eventId },
+      select: { id: true },
+    });
+    if (!speaker) return { error: `Speaker ${speakerId} not found in this event`, code: "SPEAKER_NOT_FOUND" };
+
+    // Idempotent — composite primary key (sessionId, speakerId). If the
+    // row already exists with the same role, we no-op; with a different
+    // role, we update it (so callers can use this to change roles too).
+    const existing = await db.sessionSpeaker.findUnique({
+      where: { sessionId_speakerId: { sessionId, speakerId } },
+      select: { role: true },
+    });
+    if (existing && existing.role === rawRole) {
+      return { sessionSpeaker: { sessionId, speakerId, role: rawRole }, alreadyAssigned: true };
+    }
+    const result = await db.sessionSpeaker.upsert({
+      where: { sessionId_speakerId: { sessionId, speakerId } },
+      create: { sessionId, speakerId, role: rawRole as never },
+      update: { role: rawRole as never },
+      select: { sessionId: true, speakerId: true, role: true },
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: existing ? "UPDATE" : "CREATE",
+        entityType: "SessionSpeaker",
+        entityId: `${sessionId}:${speakerId}`,
+        changes: { source: "mcp", role: rawRole, ...(existing && { previousRole: existing.role }) },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:add_speaker_to_session audit-log-failed"));
+
+    return { sessionSpeaker: result, alreadyAssigned: false, roleChanged: Boolean(existing) };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:add_speaker_to_session failed");
+    return { error: err instanceof Error ? err.message : "Failed to add speaker to session" };
+  }
+};
+
+const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = String(input.sessionId ?? "").trim();
+    const speakerId = String(input.speakerId ?? "").trim();
+    if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
+    if (!speakerId) return { error: "speakerId is required", code: "MISSING_SPEAKER_ID" };
+
+    const session = await findSessionInEvent(sessionId, ctx.eventId);
+    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
+
+    const result = await db.sessionSpeaker.deleteMany({
+      where: { sessionId, speakerId },
+    });
+    if (result.count === 0) {
+      return { success: false, message: "Speaker was not assigned to this session", alreadyRemoved: true };
+    }
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "DELETE",
+        entityType: "SessionSpeaker",
+        entityId: `${sessionId}:${speakerId}`,
+        changes: { source: "mcp" },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:remove_speaker_from_session audit-log-failed"));
+
+    return { success: true, sessionId, speakerId };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:remove_speaker_from_session failed");
+    return { error: err instanceof Error ? err.message : "Failed to remove speaker from session" };
+  }
+};
+
+const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
+  try {
+    const sessionId = String(input.sessionId ?? "").trim();
+    if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
+
+    const rawAssignments = Array.isArray(input.assignments) ? input.assignments : null;
+    if (!rawAssignments) {
+      return { error: "assignments must be an array of {speakerId, role?} objects", code: "MISSING_ASSIGNMENTS" };
+    }
+    if (rawAssignments.length > 100) {
+      return { error: "Too many assignments (max 100)", code: "TOO_MANY_ASSIGNMENTS" };
+    }
+
+    // Normalise + validate each assignment up front so we don't
+    // half-apply on bad input.
+    const normalised: { speakerId: string; role: string }[] = [];
+    for (let i = 0; i < rawAssignments.length; i++) {
+      const a = rawAssignments[i] as Record<string, unknown> | null;
+      if (!a || typeof a !== "object") {
+        return { error: `Assignment ${i}: must be an object`, code: "INVALID_ASSIGNMENT" };
+      }
+      const speakerId = a.speakerId ? String(a.speakerId).trim() : "";
+      const role = a.role ? String(a.role).toUpperCase() : "SPEAKER";
+      if (!speakerId) return { error: `Assignment ${i}: speakerId required`, code: "INVALID_ASSIGNMENT" };
+      if (!SESSION_ROLES.has(role)) {
+        return { error: `Assignment ${i}: invalid role "${role}"`, code: "INVALID_ROLE" };
+      }
+      normalised.push({ speakerId, role });
+    }
+
+    // Reject duplicate speakerIds in the same payload — composite PK
+    // would 409 anyway, but a clean upfront error is friendlier.
+    const seen = new Set<string>();
+    for (const n of normalised) {
+      if (seen.has(n.speakerId)) {
+        return { error: `Duplicate speakerId in assignments: ${n.speakerId}`, code: "DUPLICATE_SPEAKER_ID" };
+      }
+      seen.add(n.speakerId);
+    }
+
+    const session = await findSessionInEvent(sessionId, ctx.eventId);
+    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
+
+    if (normalised.length > 0) {
+      const speakerIds = normalised.map((n) => n.speakerId);
+      const validSpeakers = await db.speaker.findMany({
+        where: { id: { in: speakerIds }, eventId: ctx.eventId },
+        select: { id: true },
+      });
+      const validIds = new Set(validSpeakers.map((s) => s.id));
+      const missing = speakerIds.filter((id) => !validIds.has(id));
+      if (missing.length > 0) {
+        return {
+          error: `Speakers not in this event: ${missing.join(", ")}`,
+          code: "SPEAKER_NOT_FOUND",
+          missingSpeakerIds: missing,
+        };
+      }
+    }
+
+    // Single transaction so the swap is atomic — never an in-between
+    // state where the session has zero speakers (which the public
+    // session page would render as "TBA").
+    const result = await db.$transaction(async (tx) => {
+      const beforeRows = await tx.sessionSpeaker.findMany({
+        where: { sessionId },
+        select: { speakerId: true, role: true },
+      });
+      await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
+      if (normalised.length > 0) {
+        await tx.sessionSpeaker.createMany({
+          data: normalised.map((n) => ({ sessionId, speakerId: n.speakerId, role: n.role as never })),
+        });
+      }
+      return { before: beforeRows, after: normalised };
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "REPLACE",
+        entityType: "SessionSpeaker",
+        entityId: sessionId,
+        changes: { source: "mcp", before: result.before, after: result.after },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:replace_session_speakers audit-log-failed"));
+
+    return {
+      sessionId,
+      assignments: result.after,
+      previousAssignmentCount: result.before.length,
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:replace_session_speakers failed");
+    return { error: err instanceof Error ? err.message : "Failed to replace session speakers" };
+  }
+};
+
 export const SESSION_EXECUTORS: Record<string, ToolExecutor> = {
   list_sessions: listSessions,
   create_session: createSession,
   update_session: updateSession,
   add_topic_to_session: addTopicToSession,
+  add_speaker_to_session: addSpeakerToSession,
+  remove_speaker_from_session: removeSpeakerFromSession,
+  replace_session_speakers: replaceSessionSpeakers,
   list_live_sessions_now: listLiveSessionsNow,
 };

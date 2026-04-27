@@ -1,4 +1,4 @@
-import { RegistrationStatus, SpeakerStatus } from "@prisma/client";
+import { PaymentStatus, RegistrationStatus, SpeakerStatus } from "@prisma/client";
 import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
@@ -59,7 +59,16 @@ export interface BulkEmailAttachment {
 }
 
 export interface BulkEmailFilters {
+  /** RegistrationStatus filter (PENDING/CONFIRMED/CANCELLED/WAITLISTED/CHECKED_IN) — registrations recipient only */
   status?: string;
+  /**
+   * PaymentStatus filter (UNPAID/PAID/PENDING/COMPLIMENTARY/UNASSIGNED/REFUNDED/FAILED).
+   * Registrations recipient only. Closes W2-F4 — the unpaid-chase
+   * workflow (`paymentStatus=UNPAID`) was previously blocked at the
+   * bulk-send endpoint and operators had to send to a broader
+   * audience or fall back to external tools.
+   */
+  paymentStatus?: string;
   ticketTypeId?: string;
 }
 
@@ -130,6 +139,7 @@ export const bulkEmailSchema = z.object({
   filters: z
     .object({
       status: z.string().max(50).optional(),
+      paymentStatus: z.string().max(50).optional(),
       ticketTypeId: z.string().max(100).optional(),
     })
     .optional(),
@@ -137,6 +147,7 @@ export const bulkEmailSchema = z.object({
 
 const speakerStatusSchema = z.nativeEnum(SpeakerStatus);
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
+const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 
 // Max total attachment size: 10MB
 export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -318,11 +329,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   } else {
     const parsedStatus = filters?.status ? registrationStatusSchema.safeParse(filters.status) : null;
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
+    const parsedPaymentStatus = filters?.paymentStatus ? paymentStatusSchema.safeParse(filters.paymentStatus) : null;
+    const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const registrations = await db.registration.findMany({
       where: {
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
+        ...(paymentStatus && { paymentStatus }),
         ...(filters?.ticketTypeId ? { ticketTypeId: filters.ticketTypeId } : {}),
       },
       select: {

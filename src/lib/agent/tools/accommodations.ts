@@ -120,6 +120,226 @@ const listRoomTypes: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// ─── W2-F2 fix: room-type CRUD via MCP ────────────────────────────────────
+//
+// Wave-2 verification confirmed that MCP could create hotels but not the
+// room types those hotels offer, so create_accommodation always failed
+// with "Room type not found or inactive". Below: create / update /
+// delete tools, all org-scoped via the parent hotel's eventId.
+//
+// Delete is soft (`isActive: false`) when the room type has bookings,
+// hard otherwise — same semantics as the dashboard UI.
+
+const createRoomType: ToolExecutor = async (input, ctx) => {
+  try {
+    const hotelId = String(input.hotelId ?? "").trim();
+    const name = String(input.name ?? "").trim();
+    const totalRooms = Number(input.totalRooms);
+    const pricePerNight = Number(input.pricePerNight);
+    if (!hotelId) return { error: "hotelId is required", code: "MISSING_HOTEL_ID" };
+    if (!name) return { error: "name is required", code: "MISSING_NAME" };
+    if (!Number.isInteger(totalRooms) || totalRooms < 1) {
+      return { error: "totalRooms must be a positive integer", code: "INVALID_TOTAL_ROOMS" };
+    }
+    if (!Number.isFinite(pricePerNight) || pricePerNight < 0) {
+      return { error: "pricePerNight must be a non-negative number", code: "INVALID_PRICE" };
+    }
+
+    // Org-scope check: the parent hotel must belong to the caller's event.
+    const hotel = await db.hotel.findFirst({
+      where: { id: hotelId, eventId: ctx.eventId },
+      select: { id: true },
+    });
+    if (!hotel) return { error: `Hotel ${hotelId} not found in this event`, code: "HOTEL_NOT_FOUND" };
+
+    const capacity = input.capacity != null ? Number(input.capacity) : 2;
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      return { error: "capacity must be a positive integer", code: "INVALID_CAPACITY" };
+    }
+
+    const currency = input.currency ? String(input.currency).slice(0, 10) : "USD";
+    const description = input.description != null ? String(input.description).slice(0, 2000) : null;
+
+    const roomType = await db.roomType.create({
+      data: {
+        hotelId,
+        name,
+        description,
+        pricePerNight,
+        currency,
+        capacity,
+        totalRooms,
+      },
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        pricePerNight: true,
+        currency: true,
+        totalRooms: true,
+        bookedRooms: true,
+        isActive: true,
+      },
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "CREATE",
+        entityType: "RoomType",
+        entityId: roomType.id,
+        changes: { source: "mcp", hotelId, name, totalRooms, pricePerNight, currency },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:create_room_type audit-log-failed"));
+
+    return {
+      roomType: { ...roomType, pricePerNight: Number(roomType.pricePerNight), available: roomType.totalRooms - roomType.bookedRooms },
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:create_room_type failed");
+    return { error: err instanceof Error ? err.message : "Failed to create room type" };
+  }
+};
+
+const updateRoomType: ToolExecutor = async (input, ctx) => {
+  try {
+    const roomTypeId = String(input.roomTypeId ?? "").trim();
+    if (!roomTypeId) return { error: "roomTypeId is required", code: "MISSING_ROOM_TYPE_ID" };
+
+    // Org-scope via the parent hotel's eventId.
+    const existing = await db.roomType.findFirst({
+      where: { id: roomTypeId, hotel: { eventId: ctx.eventId } },
+      select: { id: true, totalRooms: true, bookedRooms: true },
+    });
+    if (!existing) return { error: `Room type ${roomTypeId} not found`, code: "ROOM_TYPE_NOT_FOUND" };
+
+    const updates: Record<string, unknown> = {};
+    if (input.name != null) {
+      const n = String(input.name).trim();
+      if (!n) return { error: "name cannot be empty", code: "INVALID_NAME" };
+      updates.name = n;
+    }
+    if (input.description !== undefined) {
+      updates.description = input.description ? String(input.description).slice(0, 2000) : null;
+    }
+    if (input.pricePerNight !== undefined) {
+      const p = Number(input.pricePerNight);
+      if (!Number.isFinite(p) || p < 0) return { error: "pricePerNight must be non-negative", code: "INVALID_PRICE" };
+      updates.pricePerNight = p;
+    }
+    if (input.currency !== undefined) updates.currency = String(input.currency).slice(0, 10);
+    if (input.capacity !== undefined) {
+      const c = Number(input.capacity);
+      if (!Number.isInteger(c) || c < 1) return { error: "capacity must be a positive integer", code: "INVALID_CAPACITY" };
+      updates.capacity = c;
+    }
+    if (input.totalRooms !== undefined) {
+      const t = Number(input.totalRooms);
+      if (!Number.isInteger(t) || t < 0) return { error: "totalRooms must be a non-negative integer", code: "INVALID_TOTAL_ROOMS" };
+      // Don't let the cap drop below the current booked count — that would
+      // imply rooms-in-use > rooms-existing, which corrupts capacity math.
+      if (t < existing.bookedRooms) {
+        return {
+          error: `totalRooms (${t}) cannot be less than bookedRooms (${existing.bookedRooms}). Cancel bookings first.`,
+          code: "TOTAL_BELOW_BOOKED",
+        };
+      }
+      updates.totalRooms = t;
+    }
+    if (input.isActive !== undefined) updates.isActive = Boolean(input.isActive);
+
+    if (Object.keys(updates).length === 0) {
+      return { error: "No fields provided to update", code: "NO_FIELDS" };
+    }
+
+    const updated = await db.roomType.update({
+      where: { id: roomTypeId },
+      data: updates,
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        pricePerNight: true,
+        currency: true,
+        totalRooms: true,
+        bookedRooms: true,
+        isActive: true,
+      },
+    });
+
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "UPDATE",
+        entityType: "RoomType",
+        entityId: roomTypeId,
+        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:update_room_type audit-log-failed"));
+
+    return {
+      roomType: { ...updated, pricePerNight: Number(updated.pricePerNight), available: updated.totalRooms - updated.bookedRooms },
+    };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_room_type failed");
+    return { error: err instanceof Error ? err.message : "Failed to update room type" };
+  }
+};
+
+const deleteRoomType: ToolExecutor = async (input, ctx) => {
+  try {
+    const roomTypeId = String(input.roomTypeId ?? "").trim();
+    if (!roomTypeId) return { error: "roomTypeId is required", code: "MISSING_ROOM_TYPE_ID" };
+
+    const existing = await db.roomType.findFirst({
+      where: { id: roomTypeId, hotel: { eventId: ctx.eventId } },
+      select: { id: true, _count: { select: { accommodations: true } } },
+    });
+    if (!existing) return { error: `Room type ${roomTypeId} not found`, code: "ROOM_TYPE_NOT_FOUND" };
+
+    // Soft delete when there are bookings — cascading the related
+    // accommodation rows via Prisma's `onDelete` would silently nuke
+    // bookings + their audit trail. Soft delete preserves history and
+    // matches the dashboard UI's behavior.
+    if (existing._count.accommodations > 0) {
+      const updated = await db.roomType.update({
+        where: { id: roomTypeId },
+        data: { isActive: false },
+        select: { id: true, name: true, isActive: true },
+      });
+      db.auditLog.create({
+        data: {
+          eventId: ctx.eventId,
+          userId: ctx.userId,
+          action: "DEACTIVATE",
+          entityType: "RoomType",
+          entityId: roomTypeId,
+          changes: { source: "mcp", reason: "has-accommodations", soft: true },
+        },
+      }).catch((err) => apiLogger.error({ err }, "agent:delete_room_type audit-log-failed"));
+      return { roomType: updated, soft: true, message: "Room type has bookings; soft-deleted (isActive=false). Existing bookings unchanged." };
+    }
+
+    await db.roomType.delete({ where: { id: roomTypeId } });
+    db.auditLog.create({
+      data: {
+        eventId: ctx.eventId,
+        userId: ctx.userId,
+        action: "DELETE",
+        entityType: "RoomType",
+        entityId: roomTypeId,
+        changes: { source: "mcp", soft: false },
+      },
+    }).catch((err) => apiLogger.error({ err }, "agent:delete_room_type audit-log-failed"));
+    return { success: true, roomTypeId, soft: false };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:delete_room_type failed");
+    return { error: err instanceof Error ? err.message : "Failed to delete room type" };
+  }
+};
+
 const createAccommodationTool: ToolExecutor = async (input, ctx) => {
   try {
     const registrationId = input.registrationId ? String(input.registrationId).trim() : undefined;
@@ -322,6 +542,9 @@ export const ACCOMMODATION_EXECUTORS: Record<string, ToolExecutor> = {
   create_hotel: createHotel,
   list_accommodations: listAccommodations,
   list_room_types: listRoomTypes,
+  create_room_type: createRoomType,
+  update_room_type: updateRoomType,
+  delete_room_type: deleteRoomType,
   create_accommodation: createAccommodationTool,
   update_accommodation_status: updateAccommodationStatus,
 };

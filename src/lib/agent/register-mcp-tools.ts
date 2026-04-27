@@ -316,9 +316,11 @@ export function registerAllMcpTools(
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
     }},
-    { name: "send_bulk_email", description: "Email speakers or registrations.", params: {
+    { name: "send_bulk_email", description: "Email speakers or registrations. Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
       recipientType: z.enum(["speakers", "registrations"]), emailType: z.string(),
-      subject: z.string(), htmlMessage: z.string(), statusFilter: z.string().optional(),
+      subject: z.string(), htmlMessage: z.string(),
+      statusFilter: z.string().optional(),
+      paymentStatusFilter: z.enum(["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
     }},
     { name: "create_abstract_theme", description: "Create an abstract theme.", params: { name: z.string() }},
     { name: "create_review_criterion", description: "Create a review criterion.", params: { name: z.string(), weight: z.number() }},
@@ -357,6 +359,44 @@ export function registerAllMcpTools(
     { name: "create_hotel", description: "Add a hotel.", params: {
       name: z.string(), address: z.string().optional(), stars: z.number().optional(),
       contactEmail: z.string().optional(), contactPhone: z.string().optional(),
+    }},
+    { name: "create_room_type", description: "Add a room type to a hotel. W2-F2 fix — MCP can now fully bootstrap accommodation: create_hotel → create_room_type → create_accommodation. capacity defaults to 2; currency defaults to USD.", params: {
+      hotelId: z.string(),
+      name: z.string(),
+      totalRooms: z.number().int().min(1),
+      pricePerNight: z.number().min(0),
+      capacity: z.number().int().min(1).optional(),
+      currency: z.string().optional(),
+      description: z.string().optional(),
+    }},
+    { name: "update_room_type", description: "Update a room type's price, capacity, totalRooms, name, description, currency, or isActive. totalRooms cannot drop below current bookedRooms.", params: {
+      roomTypeId: z.string(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      pricePerNight: z.number().min(0).optional(),
+      currency: z.string().optional(),
+      capacity: z.number().int().min(1).optional(),
+      totalRooms: z.number().int().min(0).optional(),
+      isActive: z.boolean().optional(),
+    }},
+    { name: "delete_room_type", description: "Delete a room type. Soft-deletes (isActive=false) when bookings exist to preserve history; hard-deletes when no bookings.", params: {
+      roomTypeId: z.string(),
+    }},
+    { name: "add_speaker_to_session", description: "Assign a speaker to a session with a role. W2-F3 fix — replaces the old delete-and-recreate workaround for day-of speaker swaps. Idempotent: re-calling with the same role is a no-op; calling with a different role updates the existing assignment. Roles: SPEAKER, MODERATOR, CHAIRPERSON, PANELIST.", params: {
+      sessionId: z.string(),
+      speakerId: z.string(),
+      role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]).optional(),
+    }},
+    { name: "remove_speaker_from_session", description: "Remove a speaker from a session. Idempotent — returns alreadyRemoved=true when the speaker wasn't assigned.", params: {
+      sessionId: z.string(),
+      speakerId: z.string(),
+    }},
+    { name: "replace_session_speakers", description: "Replace ALL speakers on a session in a single atomic operation. Use for day-of swaps: pass the new full speaker list. assignments=[] clears all speakers. Max 100 assignments per call.", params: {
+      sessionId: z.string(),
+      assignments: z.array(z.object({
+        speakerId: z.string(),
+        role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]).optional(),
+      })),
     }},
     { name: "check_in_registration", description: "Check in a registration.", params: { registrationId: z.string() }},
     { name: "create_contact", description: "Create a contact.", params: {

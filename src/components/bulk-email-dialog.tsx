@@ -43,6 +43,12 @@ interface BulkEmailDialogProps {
   /** "all" when no specific IDs selected (send to all matching filters) */
   selectionMode: "selected" | "all";
   statusFilter?: string;
+  /**
+   * Optional `PaymentStatus` filter — registrations recipient only.
+   * Closes W2-F4 (unpaid-chase workflow). Caller passes through from
+   * the registrations list filter bar.
+   */
+  paymentStatusFilter?: string;
   ticketTypeFilter?: string;
 }
 
@@ -147,6 +153,7 @@ export function BulkEmailDialog({
   recipientCount,
   selectionMode,
   statusFilter,
+  paymentStatusFilter,
   ticketTypeFilter,
 }: BulkEmailDialogProps) {
   const [emailType, setEmailType] = useState<string>(getDefaultEmailType(recipientType));
@@ -265,6 +272,7 @@ export function BulkEmailDialog({
           : undefined,
       filters: {
         ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
+        ...(paymentStatusFilter && paymentStatusFilter !== "all" ? { paymentStatus: paymentStatusFilter } : {}),
         ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
       },
     };

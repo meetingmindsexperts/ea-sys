@@ -16,6 +16,15 @@ export type ToolExecutor = (
 export const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 export const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
 export const MANUAL_REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "WAITLISTED"]);
+export const ALL_PAYMENT_STATUSES = new Set([
+  "UNASSIGNED",
+  "UNPAID",
+  "PENDING",
+  "PAID",
+  "COMPLIMENTARY",
+  "REFUNDED",
+  "FAILED",
+]);
 export const TITLE_VALUES = new Set(["DR", "MR", "MRS", "MS", "PROF"]);
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MAX_EMAIL_RECIPIENTS = 500;

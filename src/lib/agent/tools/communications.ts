@@ -7,6 +7,7 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import {
   SPEAKER_STATUSES,
   REGISTRATION_STATUSES,
+  ALL_PAYMENT_STATUSES,
   MAX_EMAIL_RECIPIENTS,
   type ToolExecutor,
 } from "./_shared";
@@ -40,15 +41,30 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
 
     const recipientType = String(input.recipientType);
     const rawStatusFilter = input.statusFilter ? String(input.statusFilter) : undefined;
+    const rawPaymentStatusFilter = input.paymentStatusFilter ? String(input.paymentStatusFilter) : undefined;
 
-    // Validate statusFilter against known enums
+    // Validate statusFilter against known enums (registration status only — not payment)
     if (rawStatusFilter) {
       const validSet = recipientType === "speakers" ? SPEAKER_STATUSES : REGISTRATION_STATUSES;
       if (!validSet.has(rawStatusFilter)) {
         return { error: `Invalid statusFilter "${rawStatusFilter}". Must be one of: ${[...validSet].join(", ")}` };
       }
     }
+    // paymentStatusFilter only meaningful for registrations recipient type.
+    // Closes W2-F4 — the unpaid-chase workflow needs this. Reject early
+    // when set on the speakers branch so callers don't silently ignore it.
+    if (rawPaymentStatusFilter) {
+      if (recipientType !== "registrations") {
+        return { error: "paymentStatusFilter is only valid when recipientType is 'registrations'." };
+      }
+      if (!ALL_PAYMENT_STATUSES.has(rawPaymentStatusFilter)) {
+        return {
+          error: `Invalid paymentStatusFilter "${rawPaymentStatusFilter}". Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}`,
+        };
+      }
+    }
     const statusFilter = rawStatusFilter;
+    const paymentStatusFilter = rawPaymentStatusFilter;
 
     // Track the entity id per recipient so each send produces an EmailLog row
     // linked to the specific speaker/registration (visible on their detail
@@ -74,6 +90,7 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
         where: {
           eventId: ctx.eventId,
           ...(statusFilter ? { status: statusFilter as never } : {}),
+          ...(paymentStatusFilter ? { paymentStatus: paymentStatusFilter as never } : {}),
         },
         select: {
           id: true,
@@ -410,7 +427,13 @@ export const COMMUNICATION_TOOL_DEFINITIONS: Tool[] = [
         statusFilter: {
           type: "string",
           description:
-            "Optional status filter: e.g. CONFIRMED for registrations, INVITED for speakers",
+            "Optional registration/speaker status filter (PENDING/CONFIRMED/CANCELLED/WAITLISTED/CHECKED_IN for registrations, INVITED/CONFIRMED/DECLINED/CANCELLED for speakers). Cannot filter by payment status — use paymentStatusFilter for that.",
+        },
+        paymentStatusFilter: {
+          type: "string",
+          enum: ["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"],
+          description:
+            "Optional payment status filter — registrations recipient only. Closes W2-F4: use paymentStatusFilter='UNPAID' for the unpaid-chase workflow. Combinable with statusFilter (e.g. CONFIRMED + UNPAID).",
         },
       },
       required: ["recipientType", "emailType", "subject", "htmlMessage"],
