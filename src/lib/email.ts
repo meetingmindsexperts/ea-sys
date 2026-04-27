@@ -245,8 +245,39 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 // ── Template variable rendering ────────────────────────────────────────────────
 
 /**
+ * Variables that are ALWAYS server-built HTML blocks (never user input).
+ * Treated as raw HTML automatically — callers don't need to opt them in via
+ * `rawHtmlKeys`, which forced every site to remember the same tedious list
+ * and missed sites rendered the markup as escaped text in the email.
+ *
+ * Keep this list strictly to fields built from template-literals in code
+ * (with their inner user-input pieces already individually `escapeHtml`'d).
+ * User-controlled strings like `personalMessage` and `organizerSignature`
+ * stay caller-managed — only the caller knows whether the source is a
+ * trusted Tiptap editor's HTML or a raw string from a free-form input.
+ */
+const DEFAULT_RAW_HTML_KEYS = new Set([
+  // Built in stripe webhook + sendRegistrationConfirmation +
+  // /api/events/[id]/registrations/[id]/email payment-reminder branch.
+  "paymentBlock",
+  // Stripe webhook only.
+  "receiptBlock",
+  "taxBlock",
+  // Speaker email helper — see buildSpeakerEmailContext().
+  "presentationDetails",
+  // Webinar enrichment in bulk-email.ts.
+  "passcodeBlock",
+  "recordingBlock",
+]);
+
+/**
  * Replace {{variable}} placeholders with values, HTML-escaping all values.
  * Unmatched placeholders are left as-is.
+ *
+ * `DEFAULT_RAW_HTML_KEYS` and any caller-supplied `rawHtmlKeys` are merged —
+ * either source treats the matching value as raw HTML (no escaping). Use
+ * `rawHtmlKeys` for caller-specific fields like `personalMessage` that are
+ * trusted in some contexts but not others.
  */
 export function renderTemplate(
   template: string,
@@ -256,7 +287,7 @@ export function renderTemplate(
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = variables[key];
     if (value === undefined) return `{{${key}}}`;
-    if (rawHtmlKeys?.has(key)) return String(value);
+    if (DEFAULT_RAW_HTML_KEYS.has(key) || rawHtmlKeys?.has(key)) return String(value);
     return escapeHtml(String(value));
   });
 }
