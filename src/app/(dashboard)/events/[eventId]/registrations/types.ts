@@ -94,6 +94,7 @@ export interface Registration {
   billingZipCode: string | null;
   billingCountry: string | null;
   createdAt: string;
+  updatedAt: string;
   attendee: Attendee;
   ticketType: TicketType | null;
   pricingTier?: PricingTier | null;

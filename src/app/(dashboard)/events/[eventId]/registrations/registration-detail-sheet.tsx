@@ -189,7 +189,12 @@ export function RegistrationDetailSheet({
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.error || "Failed to update registration");
+        // Surface the error code so onError can branch on STALE_WRITE
+        // and refetch instead of just toasting a generic message.
+        const e = new Error(error.error || "Failed to update registration") as Error & { code?: string; status?: number };
+        e.code = error.code;
+        e.status = res.status;
+        throw e;
       }
       return res.json();
     },
@@ -198,7 +203,15 @@ export function RegistrationDetailSheet({
       setSelectedRegistration(data);
       toast.success("Registration updated");
     },
-    onError: (error: Error) => {
+    onError: (error: Error & { code?: string; status?: number }) => {
+      if (error.status === 409 && error.code === "STALE_WRITE") {
+        toast.error(
+          "This registration was modified by someone else after you opened it. Reloading the latest version — please review and re-save your changes.",
+        );
+        queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+        setIsEditing(false);
+        return;
+      }
       toast.error(error.message);
     },
   });
@@ -348,6 +361,9 @@ export function RegistrationDetailSheet({
       {
         id: selectedRegistration.id,
         data: {
+          // Optimistic-lock token (W2-F8): server returns 409 STALE_WRITE
+          // if another admin / agent wrote since this sheet was opened.
+          expectedUpdatedAt: selectedRegistration.updatedAt,
           notes: editData.notes || undefined,
           dtcmBarcode: editData.dtcmBarcode.trim() || null,
           taxNumber: editData.taxNumber.trim() || null,

@@ -240,9 +240,43 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       return { error: "No fields provided to update" };
     }
 
-    const updated = await db.speaker.update({
+    // Optimistic-lock token (W2-F8 fix): when supplied, the conditional
+    // updateMany rejects writes that would silently overwrite a concurrent
+    // edit. Optional during rollout — missing tokens fall back to the
+    // legacy unconditional path with a warn log.
+    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "speaker",
+        resourceId: speakerId,
+        source: "mcp",
+      });
+    }
+
+    const updateResult = await db.speaker.updateMany({
+      where: {
+        id: speakerId,
+        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+      },
+      data: { ...updates, updatedAt: new Date() },
+    });
+    if (updateResult.count === 0) {
+      // Distinguish the row-gone case from a stale-write rejection.
+      const stillExists = await db.speaker.findFirst({
+        where: { id: speakerId, event: { organizationId: ctx.organizationId } },
+        select: { id: true },
+      });
+      if (!stillExists) return { error: `Speaker ${speakerId} not found or access denied` };
+      apiLogger.info({ msg: "speaker:stale-write-rejected", speakerId, source: "mcp" });
+      return {
+        error: "This speaker was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
+        code: "STALE_WRITE",
+      };
+    }
+
+    const updated = await db.speaker.findUniqueOrThrow({
       where: { id: speakerId },
-      data: updates,
       select: {
         id: true,
         title: true,

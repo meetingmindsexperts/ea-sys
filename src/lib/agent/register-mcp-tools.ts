@@ -366,8 +366,9 @@ export function registerAllMcpTools(
       tags: z.array(z.string()).optional(),
     }},
     // ─── Actions / updates ───
-    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund.", params: {
+    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       registrationId: z.string(),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.nativeEnum(RegistrationStatus).optional(),
       paymentStatus: z.nativeEnum(PaymentStatus).optional(),
       ticketTypeId: z.string().optional(),
@@ -389,8 +390,9 @@ export function registerAllMcpTools(
         dietaryReqs: z.string().optional(),
       }).optional(),
     }},
-    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags.", params: {
+    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       speakerId: z.string(),
+      expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
       firstName: z.string().optional(),

@@ -429,8 +429,37 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (a.dietaryReqs != null) attendeeUpdates.dietaryReqs = String(a.dietaryReqs).slice(0, 2000);
     }
 
-    // Transaction: ticket type change needs soldCount adjustments on both tiers
-    const result = await db.$transaction(async (tx) => {
+    // Optimistic-lock token (W2-F8 fix). Optional during rollout — when
+    // missing, the conditional updateMany below falls back to id-only
+    // matching with a warn log so we can audit which clients haven't
+    // migrated.
+    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "registration",
+        resourceId: registrationId,
+        source: "mcp",
+      });
+    }
+
+    // Transaction: ticket type change needs soldCount adjustments on both
+    // tiers. The optimistic-lock check on registration sits inside the
+    // same transaction so a stale-write rejection rolls back any
+    // soldCount delta we just applied.
+    type UpdateResult = {
+      ok: true;
+      registration: {
+        id: string;
+        status: string;
+        paymentStatus: string;
+        ticketTypeId: string | null;
+        notes: string | null;
+        attendee: { id: string; firstName: string; lastName: string; email: string };
+      };
+    } | { ok: false; reason: "STALE_WRITE" | "REGISTRATION_DISAPPEARED" };
+
+    const txResult: UpdateResult = await db.$transaction(async (tx) => {
       if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
         if (existing.ticketTypeId) {
           await tx.ticketType.update({
@@ -444,17 +473,30 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         });
       }
 
-      const regData: Prisma.RegistrationUpdateInput = {};
+      const regData: Prisma.RegistrationUncheckedUpdateInput = { updatedAt: new Date() };
       if (status) regData.status = status as never;
       if (paymentStatus) regData.paymentStatus = paymentStatus as never;
-      if (newTicketTypeId) regData.ticketType = { connect: { id: newTicketTypeId } };
+      if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
       if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
       if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
       if (input.notes !== undefined) regData.notes = String(input.notes).slice(0, 2000);
 
-      const updated = await tx.registration.update({
-        where: { id: registrationId },
+      const updateRes = await tx.registration.updateMany({
+        where: {
+          id: registrationId,
+          ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+        },
         data: regData,
+      });
+      if (updateRes.count === 0) {
+        // Throw to roll back the soldCount changes above. The reason is
+        // smuggled out via the message so the outer catch can branch
+        // on a clean code rather than parsing an opaque error.
+        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "REGISTRATION_DISAPPEARED");
+      }
+
+      const updated = await tx.registration.findUniqueOrThrow({
+        where: { id: registrationId },
         select: {
           id: true,
           status: true,
@@ -472,8 +514,33 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         });
       }
 
-      return updated;
+      return { ok: true as const, registration: updated };
+    }).catch((err) => {
+      if (err instanceof Error && err.message === "STALE_WRITE") {
+        return { ok: false as const, reason: "STALE_WRITE" as const };
+      }
+      if (err instanceof Error && err.message === "REGISTRATION_DISAPPEARED") {
+        return { ok: false as const, reason: "REGISTRATION_DISAPPEARED" as const };
+      }
+      throw err;
     });
+
+    if (!txResult.ok && txResult.reason === "STALE_WRITE") {
+      apiLogger.info({ msg: "registration:stale-write-rejected", registrationId, source: "mcp" });
+      return {
+        error: "This registration was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
+        code: "STALE_WRITE",
+      };
+    }
+    if (!txResult.ok && txResult.reason === "REGISTRATION_DISAPPEARED") {
+      return { error: `Registration ${registrationId} not found or access denied` };
+    }
+    if (!txResult.ok) {
+      // Exhaustive guard — both `ok: false` reasons handled above. Keeps
+      // the type-narrowing happy without an unsafe cast.
+      return { error: "Failed to update registration" };
+    }
+    const result = txResult.registration;
 
     await db.auditLog.create({
       data: {

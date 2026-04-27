@@ -11,6 +11,7 @@ import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
+import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock";
 
 // NOTE: `email` is intentionally NOT in this schema. Email is immutable
 // at the general-purpose update path — use the dedicated
@@ -20,6 +21,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 // silently split identity across Speaker / User / Contact (the organizer-
 // reported bug that motivated this lockdown).
 const updateSpeakerSchema = z.object({
+  ...optimisticLockField,
   title: titleEnum.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
@@ -180,26 +182,55 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    const speaker = await db.speaker.update({
+    // Build the change set in the same shape we used to pass to update().
+    // Explicit `updatedAt: new Date()` so the optimistic-lock check below
+    // bumps the version token even when no other column changes.
+    const changeData = {
+      ...(data.title !== undefined && { title: data.title || null }),
+      ...(data.firstName && { firstName: data.firstName }),
+      ...(data.lastName && { lastName: data.lastName }),
+      ...(data.bio !== undefined && { bio: data.bio || null }),
+      ...(data.organization !== undefined && { organization: data.organization || null }),
+      ...(data.jobTitle !== undefined && { jobTitle: data.jobTitle || null }),
+      ...(data.phone !== undefined && { phone: data.phone || null }),
+      ...(data.website !== undefined && { website: data.website || null }),
+      ...(data.photo !== undefined && { photo: data.photo || null }),
+      ...(data.city !== undefined && { city: data.city || null }),
+      ...(data.country !== undefined && { country: data.country || null }),
+      ...(data.specialty !== undefined && { specialty: data.specialty || null }),
+      ...(data.registrationType !== undefined && { registrationType: data.registrationType || null }),
+      ...(data.tags !== undefined && { tags: data.tags }),
+      ...(data.socialLinks && { socialLinks: data.socialLinks }),
+      ...(data.status && { status: data.status }),
+      updatedAt: new Date(),
+    };
+
+    const lockResult = await runOptimisticUpdate({
+      model: db.speaker,
+      where: { id: speakerId, eventId },
+      data: changeData,
+      expectedUpdatedAt: data.expectedUpdatedAt,
+      resourceLabel: "speaker",
+      resourceId: speakerId,
+    });
+
+    if (!lockResult.ok && lockResult.reason === "NOT_FOUND") {
+      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+    }
+    if (!lockResult.ok && lockResult.reason === "STALE_WRITE") {
+      apiLogger.info({ msg: "speaker:stale-write-rejected", speakerId, eventId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "This speaker was modified by someone else after you opened it. Reload the latest version and try again.",
+          code: "STALE_WRITE",
+        },
+        { status: 409 }
+      );
+    }
+
+    // Fetch the freshly-updated row for the response.
+    const speaker = await db.speaker.findUniqueOrThrow({
       where: { id: speakerId },
-      data: {
-        ...(data.title !== undefined && { title: data.title || null }),
-        ...(data.firstName && { firstName: data.firstName }),
-        ...(data.lastName && { lastName: data.lastName }),
-        ...(data.bio !== undefined && { bio: data.bio || null }),
-        ...(data.organization !== undefined && { organization: data.organization || null }),
-        ...(data.jobTitle !== undefined && { jobTitle: data.jobTitle || null }),
-        ...(data.phone !== undefined && { phone: data.phone || null }),
-        ...(data.website !== undefined && { website: data.website || null }),
-        ...(data.photo !== undefined && { photo: data.photo || null }),
-        ...(data.city !== undefined && { city: data.city || null }),
-        ...(data.country !== undefined && { country: data.country || null }),
-        ...(data.specialty !== undefined && { specialty: data.specialty || null }),
-        ...(data.registrationType !== undefined && { registrationType: data.registrationType || null }),
-        ...(data.tags !== undefined && { tags: data.tags }),
-        ...(data.socialLinks && { socialLinks: data.socialLinks }),
-        ...(data.status && { status: data.status }),
-      },
       include: {
         _count: {
           select: {

@@ -92,6 +92,7 @@ interface Speaker {
   status: string;
   agreementAcceptedAt: string | null;
   createdAt: string;
+  updatedAt: string;
   socialLinks: {
     twitter?: string;
     linkedin?: string;
@@ -259,6 +260,10 @@ export function SpeakerDetailSheet({
         body: JSON.stringify({
           ...editable,
           photo: editData.photo ?? null,
+          // Optimistic-lock token (W2-F8): server compares against the
+          // row's current `updatedAt` and returns 409 STALE_WRITE if
+          // someone else wrote since this sheet was opened.
+          expectedUpdatedAt: speaker.updatedAt,
         }),
       });
       if (res.ok) {
@@ -269,7 +274,17 @@ export function SpeakerDetailSheet({
         queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
       } else {
         const data = await res.json();
-        toast.error(data.error || "Failed to update");
+        if (res.status === 409 && data.code === "STALE_WRITE") {
+          toast.error(
+            "This speaker was modified by someone else after you opened it. Reloading the latest version — please review and re-save your changes.",
+          );
+          // Refetch so the user is editing fresh state when they retry.
+          fetchSpeaker();
+          queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+          setIsEditing(false);
+        } else {
+          toast.error(data.error || "Failed to update");
+        }
       }
     } catch {
       toast.error("Failed to update speaker");

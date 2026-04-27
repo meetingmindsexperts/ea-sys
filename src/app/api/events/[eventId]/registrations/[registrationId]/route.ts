@@ -12,6 +12,7 @@ import { titleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
+import { optimisticLockField } from "@/lib/optimistic-lock";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -21,6 +22,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 // would silently split identity across Registration / Attendee / User /
 // Contact (the organizer-reported bug that motivated this lockdown).
 const updateRegistrationSchema = z.object({
+  ...optimisticLockField,
   status: z.nativeEnum(RegistrationStatus).optional(),
   paymentStatus: z.nativeEnum(PaymentStatus).optional(),
   badgeType: z.string().max(50).optional().nullable(),
@@ -269,7 +271,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
       });
     }
 
-    // Wrap soldCount + registration update in a transaction to prevent race conditions
+    const expectedUpdatedAt = validated.data.expectedUpdatedAt;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "registration",
+        resourceId: registrationId,
+      });
+    }
+
+    // Wrap soldCount + registration update in a transaction to prevent race
+    // conditions on the soldCount counter, AND to make the optimistic lock
+    // atomic with the soldCount adjustments — so a stale-write rejection
+    // rolls back any decrement/increment we just did to the related
+    // ticketType row.
     const registration = await db.$transaction(async (tx) => {
       const effectiveStatus = status || existingRegistration.status;
       const isBecomingCancelled = effectiveStatus === "CANCELLED" && existingRegistration.status !== "CANCELLED";
@@ -322,26 +337,43 @@ export async function PUT(req: Request, { params }: RouteParams) {
         });
       }
 
-      return tx.registration.update({
-        where: { id: registrationId },
-        data: {
-          ...(status && { status }),
-          ...(paymentStatus && { paymentStatus }),
-          ...(badgeType !== undefined && { badgeType }),
-          ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
-          ...(ticketTypeId && { ticketTypeId }),
-          ...(notes !== undefined && { notes: notes || null }),
-          ...(taxNumber !== undefined && { taxNumber: taxNumber || null }),
-          ...(billingFirstName !== undefined && { billingFirstName: billingFirstName || null }),
-          ...(billingLastName !== undefined && { billingLastName: billingLastName || null }),
-          ...(billingEmail !== undefined && { billingEmail: billingEmail || null }),
-          ...(billingPhone !== undefined && { billingPhone: billingPhone || null }),
-          ...(billingAddress !== undefined && { billingAddress: billingAddress || null }),
-          ...(billingCity !== undefined && { billingCity: billingCity || null }),
-          ...(billingState !== undefined && { billingState: billingState || null }),
-          ...(billingZipCode !== undefined && { billingZipCode: billingZipCode || null }),
-          ...(billingCountry !== undefined && { billingCountry: billingCountry || null }),
+      const changeData = {
+        ...(status && { status }),
+        ...(paymentStatus && { paymentStatus }),
+        ...(badgeType !== undefined && { badgeType }),
+        ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
+        ...(ticketTypeId && { ticketTypeId }),
+        ...(notes !== undefined && { notes: notes || null }),
+        ...(taxNumber !== undefined && { taxNumber: taxNumber || null }),
+        ...(billingFirstName !== undefined && { billingFirstName: billingFirstName || null }),
+        ...(billingLastName !== undefined && { billingLastName: billingLastName || null }),
+        ...(billingEmail !== undefined && { billingEmail: billingEmail || null }),
+        ...(billingPhone !== undefined && { billingPhone: billingPhone || null }),
+        ...(billingAddress !== undefined && { billingAddress: billingAddress || null }),
+        ...(billingCity !== undefined && { billingCity: billingCity || null }),
+        ...(billingState !== undefined && { billingState: billingState || null }),
+        ...(billingZipCode !== undefined && { billingZipCode: billingZipCode || null }),
+        ...(billingCountry !== undefined && { billingCountry: billingCountry || null }),
+        updatedAt: new Date(),
+      };
+
+      // Optimistic lock: when the client sent expectedUpdatedAt, write
+      // only if the row still has that timestamp. Throws STALE_WRITE
+      // through the catch block (and rolls back the soldCount changes
+      // above by virtue of being inside the transaction).
+      const updateResult = await tx.registration.updateMany({
+        where: {
+          id: registrationId,
+          ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
         },
+        data: changeData,
+      });
+      if (updateResult.count === 0) {
+        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "REGISTRATION_DISAPPEARED");
+      }
+
+      return tx.registration.findUniqueOrThrow({
+        where: { id: registrationId },
         include: {
           attendee: true,
           ticketType: true,
@@ -390,6 +422,19 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { error: "Registration type is at full capacity" },
         { status: 409 }
       );
+    }
+    if (error instanceof Error && error.message === "STALE_WRITE") {
+      apiLogger.info({ msg: "registration:stale-write-rejected", registrationId });
+      return NextResponse.json(
+        {
+          error: "This registration was modified by someone else after you opened it. Reload the latest version and try again.",
+          code: "STALE_WRITE",
+        },
+        { status: 409 }
+      );
+    }
+    if (error instanceof Error && error.message === "REGISTRATION_DISAPPEARED") {
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
     // P2002 unique constraint violation — most likely on dtcmBarcode
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
