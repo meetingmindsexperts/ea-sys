@@ -6,6 +6,224 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Quote/Invoice download UX + Sentry diagnostic context (April 27)
+
+Three bundled fixes for the registration → quote → payment → invoice
+flow. Read-only audit confirmed the user-facing money flow is correct
+as designed (registration emits Quote PDF; Stripe webhook emits PAID
+Invoice via `createPaidInvoice` + `sendInvoiceEmail`). What needed
+fixing was the download UX and the diagnostic context.
+
+**`quote.json` bug — finally killed.** When a registrant's NextAuth
+JWT lapsed (24h `maxAge`) on a stale tab, the Download Quote / Invoice
+buttons fired auth-required routes that returned JSON 401 with no
+`Content-Disposition`. Browsers saved the response as `quote.json` /
+`pdf.json` per the URL's last segment.
+
+  - `e/[slug]/my-registration/page.tsx:468` Quote link now points at
+    the existing public `/api/public/events/[slug]/registrations/[id]/document`
+    route (no auth, IP rate-limited 30/hr, slug+id-must-match). That
+    route already existed for the post-checkout confirmation page;
+    reusing it here closes the loop.
+  - `InvoiceDownloadButtons` gains an optional `eventSlug` prop. When
+    provided (registrant portal), the "Download Quote" fallback uses
+    `/document`. Without it (admin sheet, etc.) keeps the auth-required
+    `/quote` route — admin sessions don't experience the same
+    JWT-expiry bug class.
+  - Invoice / Receipt buttons converted from `<a href download>` to a
+    fetch-then-blob pattern. On 401/403 toasts "Session expired" and
+    aborts; on other non-OK statuses surfaces the server's error
+    message. Replaces the silent `pdf.json` save.
+
+**Sentry issue 111629996 — diagnostic context.** Production Prisma
+errors on `GET /api/registrant/registrations/[id]/quote` were grouped
+under one fingerprint with no routing context. Auth is JWT-strategy so
+`auth()` doesn't hit the DB — the single Prisma call is
+`db.registration.findFirst` with a heavy nested include. The catch
+block previously logged just `{ err, msg }` so we couldn't distinguish
+a transient Supabase pooler dropout from a real bug.
+
+  - Catch block now logs `registrationId`, `userId`, `role`, and
+    `prismaCode` (Prisma errors carry `error.code` like `P1001` /
+    `P1008` / `P1017` for connectivity issues).
+  - Pre-action 401/403/404 paths also get `apiLogger.warn` with
+    routing context — every error path produces a server log.
+  - JSDoc marks the route deprecated; UI no longer calls it. Kept
+    for stale bookmarks. Once Sentry confirms zero traffic over a
+    release cycle, remove it.
+
+**Code dedupe.** `/document` and `/quote` duplicated ~70 lines of
+registration → `generateQuotePDF` parameter mapping verbatim.
+Extracted as `buildQuotePDFFromRegistration(registration)` in
+`src/lib/quote-pdf.ts`. Both routes now call the helper. Single source
+of truth for the quote-number derivation (`formatQuoteNumber` for
+serialId-bearing registrations, `${eventCode}-Q-${id4}` for legacy)
+and the `generateQuotePDF` parameter shape.
+
+Files
+  - `src/lib/quote-pdf.ts` (new helper)
+  - `src/app/api/public/events/[slug]/registrations/[id]/document/route.ts`
+  - `src/app/api/registrant/registrations/[id]/quote/route.ts`
+  - `src/app/e/[slug]/my-registration/page.tsx`
+  - `src/components/invoices/invoice-download-buttons.tsx` (rewrite)
+
+Verification
+  - tsc + lint clean, full suite 1086/1086 passing.
+  - Both routes still return identical PDFs (same shared builder).
+
+Deferred (only if Sentry diagnostics confirm need)
+  - Bounded retry helper (`withRetry(fn, { codes: ["P1001", "P1017"] })`)
+    in `src/lib/db.ts` for the registrant routes. Surgical scope —
+    not blanket-retry everything.
+
+### Fixed — Add Speaker `photo:null` rejection + system-wide silent-400 logging sweep (April 27)
+
+User reported "Invalid input" on the Add Speaker form with no field
+name in the UI and no server log. Root cause: the form initialized
+`photo: null` but `createSpeakerSchema` accepted only `string | "" |
+undefined` — Zod rejected with a generic message that wasn't
+surfaced. The fix scope expanded into a system-wide hardening because
+the same silent-400 pattern appeared 44 other places.
+
+**Direct fix**
+
+  - `createSpeakerSchema.photo` now accepts `.nullable()` (mirrors the
+    update schema; `speaker-service` already normalizes null → null).
+  - `POST /speakers` emits `apiLogger.warn` with the flattened Zod
+    errors — schema drift is now visible in prod logs.
+  - Add Speaker page surfaces `data.details.fieldErrors` so the user
+    sees WHICH field failed; `console.error` includes the full payload
+    for devtools inspection.
+
+**System-wide sweep — every silent 400 now logs**
+
+User feedback: "I do not like that there is no logs when something is
+not working, please logging is extremely important." Saved as a
+feedback memory (`feedback_always_log_failures.md`) so future sessions
+honor the rule.
+
+  - New shared helper at `src/lib/api-errors.ts`: `zodErrorResponse()`
+    + `apiErrorResponse()` — log + return the right NextResponse in
+    one call. Intended pattern for new code.
+  - Programmatic migration: added `apiLogger.warn` before every
+    previously-silent `"Invalid input"` 400 across **44 sites in 43
+    route files** (auth, organization, registrations, speakers,
+    contacts, abstracts, events, tickets, hotels, accommodations,
+    sessions, tracks, reviewers, scheduled emails, invoices,
+    bulk-tags, bulk-type, profile, public/register, etc.). Coverage
+    after sweep: 0 silent `"Invalid input"` paths remain across
+    `src/app/api/`.
+
+Verification
+  - tsc clean, lint clean, full suite 1080/1080 passing.
+
+### Speaker agreement — MMG default + email alignment + post-deploy review (April 24)
+
+Bundled follow-up to the inline-HTML→PDF feature. Three coordinated
+changes:
+
+**(1) MMG Invited Faculty Participation Agreement as the default HTML.**
+The user provided
+`MMG_Invited_Speaker_Faculty_Agreement_InPerson_TEMPLATE.docx` at the
+repo root as the actual agreement content. Earlier I had treated it
+only as a visual reference for renderer upgrades — the legal text
+itself was never wired in. Fixed: converted the docx body to HTML with
+EA-SYS merge tokens, replaced `DEFAULT_SPEAKER_AGREEMENT_HTML`. New
+events get the real MMG agreement on create.
+
+  - Every `{{CONFERENCE_FULL_NAME}}` → `{{eventName}}`, `{{FULL NAME}},
+    {{Title}}, {{Institution}}, {{Country}}` → `{{speakerName}},
+    {{jobTitle}}, {{speakerOrganization}}, {{speakerCountry}}`,
+    `{{DATE(S)}}` → `{{eventDateRange}}` (en-dashed), `{{MMG_EMAIL}}`
+    drops to `{{organizationName}}` so the doc isn't hardcoded MMG.
+  - `SpeakerEmailContext` extended with 6 new fields: `jobTitle`,
+    `speakerOrganization`, `speakerCountry`, `eventCity`,
+    `eventDateRange`, `signedDate`. Prisma selects in
+    `loadSpeakerEmailRow` widened to load them. `mergeAgreementHtml`'s
+    token map wired up.
+  - HTML structure: 13 numbered sections, IMPORTANT blockquote callout,
+    7-row Parties & Key Terms table, 5-row Benefits table (with `<th>`
+    header row), ☐ acceptance checklist (5 items).
+  - Smoke against a real IOHNC 2026 speaker (Khaled Al Qawasmeh, Tawam
+    Hospital, UAE) produces a 15.5KB valid PDF with the full MMG
+    agreement rendered; acceptance page shows identical text.
+
+**(2) Backfill script for existing events.**
+`scripts/backfill-speaker-agreement-html.ts` — dry-run default,
+`--write` to apply. Found that 21 of 24 events in the production DB
+have neither inline `speakerAgreementHtml` nor a `.docx` template
+(legacy events created before the field existed). Without the backfill,
+agreement emails on those events return 400. Idempotent (scoped to
+NULL-HTML + NULL-docx rows via `Prisma.DbNull`); safe to re-run.
+
+  ```
+  npx tsx scripts/backfill-speaker-agreement-html.ts          # preview
+  npx tsx scripts/backfill-speaker-agreement-html.ts --write  # apply
+  ```
+
+**(3) Email template aligned with MMG framing.**
+`src/lib/email.ts` `speaker-agreement` template was generic ("Speaker
+Agreement", "thank you for agreeing to speak") — mismatched against
+the formal MMG legal text in the attachment. Updated:
+
+  - Subject: `"Invited Faculty Participation Agreement — {{eventName}}"`
+  - Body H1 + greeting reframe as "participate as invited faculty".
+  - Adds an amber-left-border IMPORTANT callout matching the
+    blockquote at the top of the agreement PDF (no speaker fee /
+    travel + accommodation only / Mecomed compliance).
+  - Adds a "Key points" box summarizing the 4 things the speaker will
+    encounter: 45-day slide deadline, travel pre-approval, COI form,
+    CME/CPD recording consent → Section 5.
+  - `personalMessage` slot moved above the sign-off so organizer
+    customization lands naturally.
+  - Plain-text mirror updated. `speaker-invitation` template
+    intentionally left generic — pre-agreement warm-up, not formal
+    legal text.
+
+**(4) Pre-deploy review (round 2) — 17 findings, 9 addressed.**
+Independent review-agent surfaced: 0 BLOCKER, 3 HIGH, 6 MEDIUM, 6 LOW,
+2 NIT. Fix-and-ship verdict. The HIGH + reviewer-tagged MEDIUM/LOW
+items closed:
+
+  - **#2 (HIGH)**: dash regex `[‐-―]` was a U+2010..U+2015 RANGE that
+    swallowed en-dash (U+2013) and em-dash (U+2014). The WinAnsi
+    allowlist later in `sanitizePdfText` preserved those two as
+    WinAnsi-safe — but they were already gone by then. Fixed: explicit
+    enumeration `[‐‑‒―]` so en/em dashes survive into the allowlist
+    and render correctly.
+  - **#7 (HIGH)**: public acceptance route (GET + POST) used to fall
+    back to the raw unmerged template when `buildSpeakerEmailContext`
+    returned null. That violated the byte-for-byte parity guarantee
+    (speaker would see `{{speakerName}}` literals on the page; the
+    `agreementTextSnapshot` stored on accept could differ from what
+    they read on GET). Fixed: both paths return 500 with
+    `apiLogger.error` instead of unmerged HTML.
+  - **#1 (HIGH)**: `presentationDetails` map entries looked like dead
+    code. Documented — they're graceful-degradation for organizer-typed
+    tokens; comment clarified.
+  - **#11 (LOW)**: drift guard test added — every `{{token}}` in
+    `DEFAULT_SPEAKER_AGREEMENT_HTML` must resolve under
+    `mergeAgreementHtml`'s value map. Catches future-PR drift where a
+    new context field is added but not wired (or vice versa).
+  - **#4, #5, #8, #13, #14**: malicious-attribute parser test, three
+    new href tests (uppercase, leading-whitespace, mixed-case,
+    tab-injection), comment on first-acceptance-wins snapshot
+    semantics, hoisted custom-email validation out of per-recipient
+    loop, backfill `updateMany` defense-in-depth re-checks JSON null
+    on docx column.
+  - Deferred (post-ship hardening / docs / product calls):
+    memory ceiling, brandingCc comment, sync render, ☐ glyph delta,
+    empty-string semantics, table page-break.
+
+Verification across this batch
+  - tsc clean (my files), lint clean, full suite 1063/1063 → 1080/1080
+    (added 6 new tests for the review fixes; +others from parallel
+    work).
+  - 32 unit tests just for the parser/renderer/merge.
+
+Commits: `0acbf23` (MMG default), `488d744` (backfill script),
+`ed8168c` (email template), `98e3f55` (review fixes round 2).
+
 ### Changed — Post-payment Invoice semantic + card details capture (April 24)
 
 Two related reworks driven by an organizer request.
