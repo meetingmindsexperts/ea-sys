@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { loginAs, pickSelect } from "./fixtures/login";
+import { EVENT_ID } from "./fixtures/seed-constants";
 
 test("admin can create an event and see it in the list", async ({ page }) => {
   await loginAs(page, "ADMIN");
@@ -41,4 +42,45 @@ test("admin can create an event and see it in the list", async ({ page }) => {
   // appears twice (header + card), so pin to the first link.
   await page.goto("/events");
   await expect(page.getByRole("link", { name: uniqueName }).first()).toBeVisible();
+});
+
+test("speaker PUT with stale expectedUpdatedAt → 409 STALE_WRITE", async ({ page }) => {
+  // W2-F8 mirror of the registration spec — same lock helper backs the
+  // speaker route, so we just need a single round-trip to prove the
+  // contract holds for Speaker too. Lighter than the registration spec
+  // since the heavy lifting (404 vs 409 disambiguation, transaction
+  // rollback) is shared code already covered there + in the
+  // optimistic-lock unit tests.
+  await loginAs(page, "ADMIN");
+
+  // The seed creates a single speaker (the SUBMITTER user) on the
+  // shared E2E event. Pull the row to capture its updatedAt.
+  const listRes = await page.request.get(`/api/events/${EVENT_ID}/speakers`);
+  expect(listRes.ok()).toBeTruthy();
+  const speakers = (await listRes.json()) as Array<{ id: string; updatedAt: string; email: string }>;
+  const target = speakers.find((s) => s.email === "submitter@test.local");
+  expect(target, "seeded SUBMITTER speaker must exist").toBeDefined();
+  if (!target) throw new Error("seed missing");
+
+  const readUpdatedAt = target.updatedAt;
+
+  // CSRF guard in proxy.ts requires the Origin header to match host
+  // for cookie-authed PUTs — Playwright's page.request doesn't set
+  // Origin automatically. Inject it explicitly.
+  const origin = new URL(page.url()).origin;
+
+  // First write with the read-time token bumps updatedAt.
+  const fresh = await page.request.put(`/api/events/${EVENT_ID}/speakers/${target.id}`, {
+    headers: { Origin: origin },
+    data: { bio: "concurrent-write spec — first speaker edit", expectedUpdatedAt: readUpdatedAt },
+  });
+  expect(fresh.status()).toBe(200);
+
+  // Replay the stale token — must hit the 409 STALE_WRITE branch.
+  const stale = await page.request.put(`/api/events/${EVENT_ID}/speakers/${target.id}`, {
+    headers: { Origin: origin },
+    data: { bio: "concurrent-write spec — stale speaker edit", expectedUpdatedAt: readUpdatedAt },
+  });
+  expect(stale.status()).toBe(409);
+  expect((await stale.json()).code).toBe("STALE_WRITE");
 });

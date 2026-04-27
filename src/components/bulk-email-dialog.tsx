@@ -162,6 +162,10 @@ export function BulkEmailDialog({
   const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [scheduledFor, setScheduledFor] = useState<string>("");
+  // W2-F4 — local payment-status filter control. Seed from the prop so
+  // pages that already pass a value (e.g. via "Email all unpaid" link)
+  // render the dropdown pre-selected. Registrations recipient only.
+  const [localPaymentFilter, setLocalPaymentFilter] = useState<string>(paymentStatusFilter ?? "all");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
@@ -272,7 +276,12 @@ export function BulkEmailDialog({
           : undefined,
       filters: {
         ...(statusFilter && statusFilter !== "all" ? { status: statusFilter } : {}),
-        ...(paymentStatusFilter && paymentStatusFilter !== "all" ? { paymentStatus: paymentStatusFilter } : {}),
+        // W2-F4 — local Select drives the value; falls back to the prop
+        // when the consumer pre-seeds it. Only meaningful for the
+        // registrations recipient type.
+        ...(recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all"
+          ? { paymentStatus: localPaymentFilter }
+          : {}),
         ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
       },
     };
@@ -453,6 +462,33 @@ export function BulkEmailDialog({
             </p>
           </div>
 
+          {/* W2-F4 — payment-status filter (registrations only). Lets the
+              organizer narrow the audience to e.g. UNPAID for the
+              "email all unpaid" workflow without leaving the dialog. */}
+          {recipientType === "registrations" && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-email-payment-status">Payment status</Label>
+              <Select value={localPaymentFilter} onValueChange={setLocalPaymentFilter}>
+                <SelectTrigger id="bulk-email-payment-status" aria-label="Payment status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All payment statuses</SelectItem>
+                  <SelectItem value="UNPAID">Unpaid</SelectItem>
+                  <SelectItem value="UNASSIGNED">Unassigned</SelectItem>
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="PAID">Paid</SelectItem>
+                  <SelectItem value="COMPLIMENTARY">Complimentary</SelectItem>
+                  <SelectItem value="REFUNDED">Refunded</SelectItem>
+                  <SelectItem value="FAILED">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Combine with status filter to target e.g. CONFIRMED + UNPAID.
+              </p>
+            </div>
+          )}
+
           {/* Recipient summary */}
           <div className="rounded-md border p-3 text-sm">
             <p className="font-medium">
@@ -460,6 +496,9 @@ export function BulkEmailDialog({
             </p>
             {statusFilter && statusFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by status: {statusFilter}</p>
+            )}
+            {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
+              <p className="text-muted-foreground">Filtered by payment: {localPaymentFilter}</p>
             )}
           </div>
 

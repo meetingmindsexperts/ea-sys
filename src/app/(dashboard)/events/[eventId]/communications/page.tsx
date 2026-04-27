@@ -100,6 +100,7 @@ export default function CommunicationsPage() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [activeAudience, setActiveAudience] = useState<RecipientType>("registrations");
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | undefined>();
+  const [activePaymentStatusFilter, setActivePaymentStatusFilter] = useState<string | undefined>();
   const [activeTicketTypeFilter, setActiveTicketTypeFilter] = useState<string | undefined>();
 
   // Computed counts
@@ -145,6 +146,12 @@ export default function CommunicationsPage() {
     setActiveAudience(audience);
     if (audience === "registrations") {
       setActiveStatusFilter(undefined);
+      // W2-F4 — pass the page-level payment filter through so e.g.
+      // "Unpaid" pre-selects in the dialog. Saves the organizer
+      // re-selecting the same value twice.
+      setActivePaymentStatusFilter(
+        regPaymentFilter !== "all" ? regPaymentFilter : undefined
+      );
       setActiveTicketTypeFilter(
         regTypeFilter !== "all" ? regTypeFilter : undefined
       );
@@ -152,9 +159,11 @@ export default function CommunicationsPage() {
       setActiveStatusFilter(
         speakerStatusFilter !== "all" ? speakerStatusFilter : undefined
       );
+      setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
     } else {
       setActiveStatusFilter(undefined);
+      setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
     }
     setEmailDialogOpen(true);
@@ -444,6 +453,7 @@ export default function CommunicationsPage() {
         recipientCount={getAudienceCount(activeAudience)}
         selectionMode="all"
         statusFilter={activeStatusFilter}
+        paymentStatusFilter={activePaymentStatusFilter}
         ticketTypeFilter={activeTicketTypeFilter}
       />
     </div>
