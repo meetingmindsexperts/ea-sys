@@ -38,7 +38,7 @@ export async function POST(
           serialId: true,
           eventId: true,
           paymentStatus: true,
-          attendee: { select: { firstName: true, lastName: true, email: true } },
+          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true } },
           ticketType: { select: { name: true, currency: true } },
           pricingTier: { select: { currency: true } },
           event: { select: { id: true, name: true, startDate: true } },
@@ -157,7 +157,7 @@ async function sendRefundConfirmationEmail(
   registration: {
     id: string;
     serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string };
+    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null };
     ticketType: { name: string } | null;
     event: { id: string; name: string; startDate: Date };
   },
@@ -199,7 +199,11 @@ async function sendRefundConfirmationEmail(
 
   await sendEmail({
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
-    cc: brandingCc(branding, [{ email: registration.attendee.email }]),
+    cc: brandingCc(
+      branding,
+      [{ email: registration.attendee.email }],
+      [registration.attendee.additionalEmail],
+    ),
     ...rendered,
     from: brandingFrom(branding),
     logContext: {

@@ -314,7 +314,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const rendered = renderAndWrap(t, vars, branding);
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
-        cc: brandingCc(branding, [{ email: emailLower }]),
+        cc: brandingCc(branding, [{ email: emailLower }], [data.additionalEmail || null]),
         ...rendered,
         from: brandingFrom(branding),
         logContext: {

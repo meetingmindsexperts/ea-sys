@@ -100,6 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const org = registration.event.organization;
     const result = await sendRegistrationConfirmation({
       to: registration.attendee.email,
+      additionalEmail: registration.attendee.additionalEmail,
       firstName: registration.attendee.firstName,
       lastName: registration.attendee.lastName,
       title: registration.attendee.title,

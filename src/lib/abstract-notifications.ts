@@ -34,6 +34,7 @@ export interface NotifyAbstractStatusChangeParams {
   speaker: {
     id?: string;
     email: string | null;
+    additionalEmail?: string | null;
     firstName: string;
     lastName: string;
   };
@@ -104,7 +105,11 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
         const rendered = renderAndWrap(t, vars, branding);
         await sendEmail({
           to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
-          cc: brandingCc(branding, [{ email: speaker.email }]),
+          cc: brandingCc(
+            branding,
+            [{ email: speaker.email }],
+            [speaker.additionalEmail],
+          ),
           ...rendered,
           from: brandingFrom(branding),
           logContext: {

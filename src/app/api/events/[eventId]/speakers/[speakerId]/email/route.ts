@@ -240,7 +240,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
-      cc: brandingCc(branding, [{ email: speaker.email }]),
+      cc: brandingCc(
+        branding,
+        [{ email: speaker.email }],
+        [speaker.additionalEmail],
+      ),
       ...rendered,
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,

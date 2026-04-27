@@ -51,10 +51,13 @@ export async function sendPanelistInvite(
         })
       : Promise.resolve(null),
     params.speakerId
-      ? Promise.resolve({ id: params.speakerId })
+      ? db.speaker.findUnique({
+          where: { id: params.speakerId },
+          select: { id: true, additionalEmail: true },
+        })
       : db.speaker.findUnique({
           where: { eventId_email: { eventId, email: panelistEmail.toLowerCase() } },
-          select: { id: true },
+          select: { id: true, additionalEmail: true },
         }),
   ]);
 

@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       const registration = await db.registration.findUnique({
         where: { id: registrationId },
         include: {
-          attendee: { select: { firstName: true, lastName: true, email: true } },
+          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true } },
           ticketType: { select: { name: true, price: true, currency: true } },
           pricingTier: { select: { price: true, currency: true } },
           event: { select: { id: true, organizationId: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
@@ -296,7 +296,7 @@ async function sendPaymentConfirmationEmail(
   registration: {
     id: string;
     serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string };
+    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null };
     ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
     event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
@@ -392,7 +392,11 @@ async function sendPaymentConfirmationEmail(
 
   await sendEmail({
     to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
-    cc: brandingCc(branding, [{ email: registration.attendee.email }]),
+    cc: brandingCc(
+      branding,
+      [{ email: registration.attendee.email }],
+      [registration.attendee.additionalEmail],
+    ),
     ...rendered,
     from: brandingFrom(branding),
     logContext: {

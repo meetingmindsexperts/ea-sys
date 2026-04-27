@@ -232,7 +232,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           const rendered = renderAndWrap(tpl, vars, branding);
           return sendEmail({
             to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
-            cc: brandingCc(branding, [{ email: abstract.speaker!.email }]),
+            cc: brandingCc(
+              branding,
+              [{ email: abstract.speaker!.email }],
+              [abstract.speaker!.additionalEmail],
+            ),
             ...rendered,
             from: brandingFrom(branding),
             logContext: {

@@ -123,7 +123,7 @@ export async function changeAbstractStatus(
       title: true,
       status: true,
       event: { select: { id: true, name: true, slug: true, settings: true } },
-      speaker: { select: { id: true, email: true, firstName: true, lastName: true } },
+      speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true } },
     },
   });
   if (!abstract) {
@@ -253,6 +253,7 @@ export async function changeAbstractStatus(
         speaker: {
           id: abstract.speaker?.id,
           email: abstract.speaker?.email ?? null,
+          additionalEmail: abstract.speaker?.additionalEmail ?? null,
           firstName: abstract.speaker?.firstName ?? "",
           lastName: abstract.speaker?.lastName ?? "",
         },

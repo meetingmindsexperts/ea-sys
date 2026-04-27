@@ -259,7 +259,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         billingCountry: true,
         attendee: {
           select: {
-            email: true, firstName: true, lastName: true, title: true,
+            email: true, additionalEmail: true, firstName: true, lastName: true, title: true,
             organization: true, jobTitle: true, phone: true, city: true, country: true,
             specialty: true, registrationType: true,
             associationName: true, memberId: true, studentId: true, studentIdExpiry: true,
@@ -434,6 +434,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const org = registration.event.organization;
       await sendRegistrationConfirmation({
         to: email,
+        additionalEmail: registration.attendee.additionalEmail,
         firstName,
         lastName,
         title: title || null,

@@ -602,6 +602,7 @@ export async function createRegistration(
   ) {
     sendRegistrationConfirmation({
       to: email,
+      additionalEmail,
       firstName,
       lastName,
       title: attendeeTitle,

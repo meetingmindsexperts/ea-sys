@@ -573,6 +573,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       try {
         await sendRegistrationConfirmation({
           to: email,
+          additionalEmail: additionalEmail || null,
           firstName,
           lastName,
           title: title || null,

@@ -1439,30 +1439,67 @@ export function brandingFrom(branding: EmailBranding): SendEmailParams["from"] {
 }
 
 /**
- * Extract the auto-CC list from branding. Returns undefined when no
- * addresses are configured — callers can spread the result directly
- * into `sendEmail`'s cc field. Trims and lowercases each address and
- * de-duplicates against any explicit caller-supplied recipients
- * (passed via `extra`) so an organizer who sets their own email as
- * both the registrant AND the CC doesn't get a duplicate copy.
+ * Build the CC list (event-level + per-recipient).
+ *
+ * Two independent sources are merged:
+ *   1. **Event-level auto-CC** — `branding.emailCcAddresses`, set by
+ *      organizers in Event Settings. Optional. Typically used for
+ *      org-level observers (ops/admin inbox).
+ *   2. **Per-recipient additional emails** — passed via the third
+ *      argument. Sourced from `Attendee.additionalEmail` /
+ *      `Speaker.additionalEmail` — the registrant/speaker's own
+ *      backup or secretary inbox that they provided at signup.
+ *
+ * Both lists are independently optional. If both are empty (or fully
+ * deduped against the primary recipient) the helper returns
+ * `undefined` so the spread is a no-op.
+ *
+ * The `exclude` set (typically the primary `to` recipient) is removed
+ * from both sources so an organizer who lists their own email as
+ * both registrant and CC, or whose `additionalEmail` matches their
+ * primary, doesn't receive a duplicate copy.
+ *
+ * Returned addresses are trim+lowercased; the merged list is
+ * deduplicated case-insensitively across both sources.
  *
  * Usage:
  *   await sendEmail({
- *     to: [{ email: registrant.email }],
- *     cc: brandingCc(branding, [{ email: registrant.email }]),
+ *     to: [{ email: attendee.email }],
+ *     cc: brandingCc(branding,
+ *                    [{ email: attendee.email }],
+ *                    [attendee.additionalEmail]),
  *     ...rendered,
  *   });
  */
 export function brandingCc(
   branding: EmailBranding,
-  extra?: { email: string }[]
+  exclude?: { email: string }[],
+  additionalEmails?: (string | null | undefined)[]
 ): SendEmailParams["cc"] {
-  if (!branding.emailCcAddresses?.length) return undefined;
-  const exclude = new Set((extra ?? []).map((r) => r.email.trim().toLowerCase()));
-  const cc = branding.emailCcAddresses
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => e.length > 0 && !exclude.has(e))
-    .map((email) => ({ email }));
+  const excludeSet = new Set((exclude ?? []).map((r) => r.email.trim().toLowerCase()));
+
+  const seen = new Set<string>();
+  const cc: { email: string }[] = [];
+
+  // Event-level CC first so the order is stable across renders.
+  for (const raw of branding.emailCcAddresses ?? []) {
+    const e = raw.trim().toLowerCase();
+    if (!e || excludeSet.has(e) || seen.has(e)) continue;
+    seen.add(e);
+    cc.push({ email: e });
+  }
+
+  // Per-recipient additionals — null/undefined/empty entries silently
+  // dropped so callers can pass nullable schema fields without first
+  // filtering.
+  for (const raw of additionalEmails ?? []) {
+    if (!raw) continue;
+    const e = raw.trim().toLowerCase();
+    if (!e || excludeSet.has(e) || seen.has(e)) continue;
+    seen.add(e);
+    cc.push({ email: e });
+  }
+
   return cc.length > 0 ? cc : undefined;
 }
 
@@ -1470,6 +1507,12 @@ export function brandingCc(
 
 export async function sendRegistrationConfirmation(params: {
   to: string;
+  /**
+   * Registrant's secondary inbox (Attendee.additionalEmail). Auto-CC'd
+   * on this confirmation when present. Independent of the event-level
+   * `Event.emailCcAddresses` list.
+   */
+  additionalEmail?: string | null;
   firstName: string;
   lastName?: string;
   title?: string | null;
@@ -1654,7 +1697,7 @@ export async function sendRegistrationConfirmation(params: {
 
   return sendEmail({
     to: [{ email: params.to, name: params.firstName }],
-    cc: brandingCc(branding, [{ email: params.to }]),
+    cc: brandingCc(branding, [{ email: params.to }], [params.additionalEmail]),
     subject,
     htmlContent,
     textContent,

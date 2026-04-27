@@ -148,7 +148,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await sendEmail({
       to: [{ email: registration.attendee.email, name: attendeeName }],
-      cc: brandingCc(branding, [{ email: registration.attendee.email }]),
+      cc: brandingCc(
+        branding,
+        [{ email: registration.attendee.email }],
+        [registration.attendee.additionalEmail],
+      ),
       ...rendered,
       from: brandingFrom(branding),
       logContext: {
