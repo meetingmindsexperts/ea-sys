@@ -93,6 +93,7 @@ interface Event {
   bannerImage: string | null;
   footerHtml: string | null;
   emailHeaderImage: string | null;
+  emailFooterImage: string | null;
   emailFooterHtml: string | null;
   emailFromAddress: string | null;
   emailFromName: string | null;
@@ -228,6 +229,7 @@ export default function EventSettingsPage() {
     bannerImage: "",
     footerHtml: "",
     emailHeaderImage: "",
+    emailFooterImage: "",
     emailFooterHtml: "",
     emailFromAddress: "",
     emailFromName: "",
@@ -293,6 +295,7 @@ export default function EventSettingsPage() {
           bannerImage: data.bannerImage || "",
           footerHtml: data.footerHtml || "",
           emailHeaderImage: data.emailHeaderImage || "",
+          emailFooterImage: data.emailFooterImage || "",
           emailFooterHtml: data.emailFooterHtml || "",
           emailFromAddress: data.emailFromAddress || "",
           emailFromName: data.emailFromName || "",
@@ -403,6 +406,7 @@ export default function EventSettingsPage() {
           bannerImage: brandingSettings.bannerImage || null,
           footerHtml: brandingSettings.footerHtml || null,
           emailHeaderImage: brandingSettings.emailHeaderImage || null,
+          emailFooterImage: brandingSettings.emailFooterImage || null,
           emailFooterHtml: brandingSettings.emailFooterHtml || null,
           emailFromAddress: brandingSettings.emailFromAddress || null,
           emailFromName: brandingSettings.emailFromName || null,
@@ -1303,7 +1307,7 @@ export default function EventSettingsPage() {
                   placeholder="https://example.com/email-header.png"
                 />
                 <p className="text-sm text-muted-foreground">
-                  This image appears at the top of all event emails. Recommended size: 600x150px.
+                  Top-of-email banner. <strong>Recommended size: 1200×300px</strong> (renders crisp at 600×150 on retina displays). Keep under 150KB. Renders responsive on Gmail / Outlook / Apple Mail.
                 </p>
                 {brandingSettings.emailHeaderImage && (
                   <div className="mt-4 border rounded-lg overflow-hidden max-w-[600px]">
@@ -1312,6 +1316,36 @@ export default function EventSettingsPage() {
                       alt="Email header preview"
                       width={600}
                       height={150}
+                      className="w-full h-auto object-cover"
+                      unoptimized
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="emailFooterImage">Email Footer Image URL</Label>
+                <Input
+                  id="emailFooterImage"
+                  value={brandingSettings.emailFooterImage}
+                  onChange={(e) =>
+                    setBrandingSettings({
+                      ...brandingSettings,
+                      emailFooterImage: e.target.value,
+                    })
+                  }
+                  placeholder="https://example.com/email-footer.png"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Bottom-of-email logo or sign-off image. Optional. <strong>Recommended size: 1200×200px</strong> (slim footer renders at 600×100 with retina sharpness). Keep under 100KB. Same responsive treatment as the header — fits the email body width across every client.
+                </p>
+                {brandingSettings.emailFooterImage && (
+                  <div className="mt-4 border rounded-lg overflow-hidden max-w-[600px]">
+                    <Image
+                      src={brandingSettings.emailFooterImage}
+                      alt="Email footer preview"
+                      width={600}
+                      height={100}
                       className="w-full h-auto object-cover"
                       unoptimized
                     />

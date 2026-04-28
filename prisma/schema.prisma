@@ -166,6 +166,12 @@ model Event {
   bannerImage    String?
   footerHtml     String?     @db.Text
   emailHeaderImage String?
+  // Responsive logo / sign-off image rendered at the very bottom of
+  // every event email body (below the optional emailFooterHtml).
+  // Same responsive treatment as emailHeaderImage — width="600"
+  // attribute + max-width:600px CSS so Outlook desktop and modern
+  // clients both render at the email-body width.
+  emailFooterImage String?
   emailFooterHtml  String?   @db.Text
   emailFromAddress String?
   emailFromName    String?

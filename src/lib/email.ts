@@ -310,6 +310,14 @@ export function renderTemplatePlain(
 
 export interface EmailBranding {
   emailHeaderImage?: string | null;
+  /**
+   * Responsive logo / sign-off image rendered at the very bottom of
+   * the email body, below the optional emailFooterHtml block. Same
+   * `width="600"` + `max-width: 600px` treatment as the header so
+   * Outlook desktop and modern clients render at the email-body
+   * width.
+   */
+  emailFooterImage?: string | null;
   emailFooterHtml?: string | null;
   emailFromAddress?: string | null;
   emailFromName?: string | null;
@@ -323,6 +331,57 @@ export interface EmailBranding {
   eventName?: string;
 }
 
+// ── Responsive email-image helpers ────────────────────────────────────
+//
+// Email images need a careful belt-and-braces approach: modern clients
+// (Apple Mail, Gmail web/iOS/Android, Outlook 365 web) honour CSS
+// `width: 100%; max-width: 600px`, but Outlook on Windows desktop
+// strips most CSS and renders the image at its natural pixel size
+// unless an HTML `width="600"` attribute is present. Pairing both
+// gives a single render that fits the 600px email body across every
+// client we support, on retina-class displays included.
+
+const RESPONSIVE_IMG_STYLE =
+  "display: block; width: 100%; max-width: 600px; height: auto; border: 0; line-height: 100%; outline: none; text-decoration: none;";
+
+/**
+ * Build a `<tr><td><img></td></tr>` block carrying the responsive
+ * attribute set used for header + footer images. `align="center"` on
+ * the parent `<td>` is the Outlook fallback for `display: block` on
+ * the image.
+ */
+function responsiveImageBlock(src: string, alt: string): string {
+  return `<tr><td style="padding: 0;" align="center">
+    <img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" width="600" border="0" style="${RESPONSIVE_IMG_STYLE}" />
+  </td></tr>`;
+}
+
+/**
+ * Rewrite every `<img>` in the body HTML to carry the same responsive
+ * attribute set as the header/footer helpers. Defends against Tiptap-
+ * inserted images without explicit width/style — and against
+ * organizer-set widths that would otherwise overflow the 600px email
+ * body. Idempotent (running twice produces the same output).
+ *
+ * Regex-based on purpose: this runs on the JSDOM-free server path,
+ * and the input is already a constrained subset (Tiptap output +
+ * server-rendered template literals, both well-formed). Strips any
+ * existing `width`, `border`, and `style` attributes on each `<img>`
+ * before re-emitting them so the canonical set always wins.
+ */
+export function normalizeBodyImages(html: string): string {
+  return html.replace(/<img\b([^>]*?)\/?>/gi, (_match, attrs: string) => {
+    const cleaned = attrs
+      .replace(/\s(?:width|border)\s*=\s*"[^"]*"/gi, "")
+      .replace(/\s(?:width|border)\s*=\s*'[^']*'/gi, "")
+      .replace(/\sstyle\s*=\s*"[^"]*"/gi, "")
+      .replace(/\sstyle\s*=\s*'[^']*'/gi, "")
+      .trim();
+    const prefix = cleaned.length > 0 ? ` ${cleaned}` : "";
+    return `<img${prefix} width="600" border="0" style="${RESPONSIVE_IMG_STYLE}" />`;
+  });
+}
+
 /**
  * Wrap body HTML content with a consistent email layout including header image
  * and footer. Uses table-based layout for email client compatibility.
@@ -331,11 +390,12 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
 
   // Convert relative image URLs to absolute
-  const headerSrc = branding.emailHeaderImage
-    ? branding.emailHeaderImage.startsWith("http")
-      ? branding.emailHeaderImage
-      : `${appUrl}${branding.emailHeaderImage}`
-    : null;
+  const resolveSrc = (raw: string | null | undefined): string | null => {
+    if (!raw) return null;
+    return raw.startsWith("http") ? raw : `${appUrl}${raw}`;
+  };
+  const headerSrc = resolveSrc(branding.emailHeaderImage);
+  const footerImageSrc = resolveSrc(branding.emailFooterImage);
 
   // If the template body already opens with an <img> tag (e.g. an admin
   // pasted a banner into the WYSIWYG editor), skip our auto-injected header
@@ -345,13 +405,21 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
   const bodyOpensWithImage = /^[\s\S]{0,400}<img\b/i.test(bodyHtml);
 
   const headerBlock = headerSrc && !bodyOpensWithImage
-    ? `<tr><td style="padding: 0;">
-        <img src="${escapeHtml(headerSrc)}" alt="${escapeHtml(branding.eventName || "Event")}" style="display: block; width: 100%; max-width: 600px; height: auto;" />
-      </td></tr>`
+    ? responsiveImageBlock(headerSrc, branding.eventName || "Event")
     : "";
 
+  const footerImageBlock = footerImageSrc
+    ? responsiveImageBlock(footerImageSrc, branding.eventName || "Event")
+    : "";
+
+  // Normalize any <img> in the Tiptap-edited body to the same responsive
+  // attribute set the header/footer use — defends against organizer-
+  // inserted images that would otherwise overflow Outlook desktop or
+  // render at unexpected widths on mobile.
+  const normalizedBody = normalizeBodyImages(bodyHtml);
+
   const footerContent = branding.emailFooterHtml
-    ? branding.emailFooterHtml
+    ? normalizeBodyImages(branding.emailFooterHtml)
     : branding.eventName
       ? `<p>This email was sent regarding ${escapeHtml(branding.eventName)}</p>`
       : `<p>Sent from MMGroup EventsHub</p>`;
@@ -370,9 +438,10 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
           ${headerBlock}
           <tr>
             <td style="padding: 24px 30px;">
-              ${bodyHtml}
+              ${normalizedBody}
             </td>
           </tr>
+          ${footerImageBlock}
           <tr>
             <td style="text-align: center; padding: 20px; color: #6b7280; font-size: 12px;">
               ${footerContent}
@@ -1400,6 +1469,7 @@ export async function getEventTemplate(
       where: { id: eventId },
       select: {
         emailHeaderImage: true,
+        emailFooterImage: true,
         emailFooterHtml: true,
         emailFromAddress: true,
         emailFromName: true,
@@ -1411,6 +1481,7 @@ export async function getEventTemplate(
 
   const branding: EmailBranding = {
     emailHeaderImage: event?.emailHeaderImage,
+    emailFooterImage: event?.emailFooterImage,
     emailFooterHtml: event?.emailFooterHtml,
     emailFromAddress: event?.emailFromAddress,
     emailFromName: event?.emailFromName,

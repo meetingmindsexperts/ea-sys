@@ -225,6 +225,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       emailFromName: true,
       emailCcAddresses: true,
       emailHeaderImage: true,
+      emailFooterImage: true,
       emailFooterHtml: true,
       speakerAgreementTemplate: true,
       speakerAgreementHtml: true,
@@ -416,6 +417,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           emailFromName: event.emailFromName,
           emailCcAddresses: event.emailCcAddresses ?? [],
           emailHeaderImage: event.emailHeaderImage,
+          emailFooterImage: event.emailFooterImage,
           emailFooterHtml: event.emailFooterHtml,
         };
 

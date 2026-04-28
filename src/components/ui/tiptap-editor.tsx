@@ -16,6 +16,7 @@ import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { toast } from "sonner";
+import { MediaPickerDialog } from "@/components/media/media-picker-dialog";
 
 // ── Custom extensions for structural HTML preservation ──────────────────────
 
@@ -190,6 +191,13 @@ function ToolbarButton({
 }
 
 function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  // Media-library picker state for the "Insert Image" button. Replaces the
+  // legacy `window.prompt()` URL paste — organizers now upload via the
+  // dialog (or pick from previously-uploaded files), which routes through
+  // the magic-byte-validated `/api/media` endpoint and inserts the public
+  // `/uploads/media/...` URL the email renderer can resolve.
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
+
   const addLink = useCallback(() => {
     if (!editor) return;
     const previousUrl = editor.getAttributes("link").href;
@@ -204,10 +212,16 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
   const addImage = useCallback(() => {
     if (!editor) return;
-    const url = window.prompt("Enter image URL:");
-    if (!url) return;
-    editor.chain().focus().setImage({ src: url }).run();
+    setImagePickerOpen(true);
   }, [editor]);
+
+  const handleImageSelect = useCallback(
+    (url: string) => {
+      if (!editor) return;
+      editor.chain().focus().setImage({ src: url }).run();
+    },
+    [editor],
+  );
 
   if (!editor) return null;
 
@@ -449,6 +463,12 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
           <Redo className="h-4 w-4" />
         </ToolbarButton>
       </div>
+
+      <MediaPickerDialog
+        open={imagePickerOpen}
+        onOpenChange={setImagePickerOpen}
+        onSelect={handleImageSelect}
+      />
     </div>
   );
 }
@@ -505,7 +525,12 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
       }),
       Color,
       Link.configure({ openOnClick: false, HTMLAttributes: { style: "color: #00aade; text-decoration: underline;" } }),
-      Image.configure({ inline: true, allowBase64: true }),
+      // allowBase64 deliberately omitted — base64-pasted images
+      // inflate the email past Gmail's 102KB clip threshold. The
+      // toolbar's "Insert Image" button now routes through the
+      // MediaPickerDialog → /api/media upload, which validates the
+      // file via magic-byte check and returns a public URL.
+      Image.configure({ inline: true }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder: placeholder || "Start writing your email content..." }),
       Table.configure({ resizable: false, HTMLAttributes: { role: "presentation" } }),
