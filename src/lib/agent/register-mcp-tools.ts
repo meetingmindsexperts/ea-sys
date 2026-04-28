@@ -22,7 +22,25 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: AgentC
   const start = Date.now();
   try {
     const result = await executor(input, ctx);
-    apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs: Date.now() - start });
+    const durationMs = Date.now() - start;
+    // Tools return validation failures as `{ error, code? }` rather than throwing
+    // (MCP convention — caller gets a structured error in the tool result, not
+    // a transport-level failure). Demote those to warn-level so they show up in
+    // /logs without pretending the call succeeded.
+    if (result && typeof result === "object" && "error" in result) {
+      const errObj = result as { error?: unknown; code?: unknown };
+      apiLogger.warn({
+        msg: "MCP tool validation-error",
+        tool: name,
+        eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
+        durationMs,
+        err: typeof errObj.error === "string" ? errObj.error : JSON.stringify(errObj.error),
+        code: typeof errObj.code === "string" ? errObj.code : undefined,
+      });
+    } else {
+      apiLogger.info({ msg: "MCP tool call", tool: name, eventId: ctx.eventId, organizationId: ctx.organizationId, durationMs });
+    }
     return typeof result === "string" ? result : JSON.stringify(result, null, 2);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

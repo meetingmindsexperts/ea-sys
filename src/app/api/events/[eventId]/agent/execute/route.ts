@@ -124,6 +124,7 @@ async function runAgentLoop(
 
       const executor = TOOL_EXECUTOR_MAP[toolName];
       let result: unknown;
+      const toolStart = Date.now();
 
       if (!executor) {
         result = { error: `Unknown tool: ${toolName}` };
@@ -132,6 +133,32 @@ async function runAgentLoop(
       } else {
         if (MUTATING_TOOLS.has(toolName)) context.counters.creates++;
         result = await executor(toolInput, context);
+      }
+
+      // Mirror the MCP transport's logging convention so the in-app agent path
+      // shows up in /logs at the same level (info on success, warn on
+      // validation-error returns, error already covered by the executor's own
+      // try/catch). Without this, agent runs were silent on validation failures.
+      const toolDurationMs = Date.now() - toolStart;
+      if (result && typeof result === "object" && "error" in (result as object)) {
+        const errObj = result as { error?: unknown; code?: unknown };
+        apiLogger.warn({
+          msg: "agent tool validation-error",
+          tool: toolName,
+          eventId: context.eventId,
+          organizationId: context.organizationId,
+          durationMs: toolDurationMs,
+          err: typeof errObj.error === "string" ? errObj.error : JSON.stringify(errObj.error),
+          code: typeof errObj.code === "string" ? errObj.code : undefined,
+        });
+      } else {
+        apiLogger.info({
+          msg: "agent tool call",
+          tool: toolName,
+          eventId: context.eventId,
+          organizationId: context.organizationId,
+          durationMs: toolDurationMs,
+        });
       }
 
       send({
