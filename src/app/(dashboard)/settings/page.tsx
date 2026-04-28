@@ -1103,11 +1103,14 @@ function EventsAirCard() {
 
 // ── API Keys sub-component ────────────────────────────────────────────────────
 function ApiKeysCard() {
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const { data: apiKeys = [], isLoading } = useApiKeys();
   const createKey = useCreateApiKey();
   const revokeKey = useRevokeApiKey();
 
   const [name, setName] = useState("");
+  const [internalTier, setInternalTier] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -1117,9 +1120,13 @@ function ApiKeysCard() {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      const result = await createKey.mutateAsync({ name: name.trim() });
+      const result = await createKey.mutateAsync({
+        name: name.trim(),
+        rateLimitTier: isSuperAdmin && internalTier ? "INTERNAL" : "NORMAL",
+      });
       setNewKey(result.key);
       setName("");
+      setInternalTier(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to create API key");
     }
@@ -1179,6 +1186,7 @@ function ApiKeysCard() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Key prefix</TableHead>
+                  <TableHead>Tier</TableHead>
                   <TableHead>Last used</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead />
@@ -1190,6 +1198,13 @@ function ApiKeysCard() {
                     <TableCell className="font-medium">{k.name}</TableCell>
                     <TableCell>
                       <code className="text-xs bg-muted px-2 py-1 rounded">{k.prefix}…</code>
+                    </TableCell>
+                    <TableCell>
+                      {k.rateLimitTier === "INTERNAL" ? (
+                        <Badge variant="destructive">INTERNAL</Badge>
+                      ) : (
+                        <Badge variant="outline">NORMAL</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{formatLastUsed(k.lastUsedAt)}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
@@ -1260,6 +1275,24 @@ function ApiKeysCard() {
                   required
                 />
               </div>
+              {isSuperAdmin && (
+                <div className="flex items-start justify-between gap-4 rounded-md border border-amber-300 bg-amber-50 p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="internal-tier" className="text-sm font-medium">
+                      Internal key (bypass rate limit)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Skips the 100/hr MCP rate limit. Use only for trusted automation —
+                      every request is logged. SUPER_ADMIN-only.
+                    </p>
+                  </div>
+                  <Switch
+                    id="internal-tier"
+                    checked={internalTier}
+                    onCheckedChange={setInternalTier}
+                  />
+                </div>
+              )}
               <div className="flex gap-2 justify-end">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
                 <Button type="submit" className="btn-gradient" disabled={createKey.isPending}>
@@ -1303,4 +1336,5 @@ interface ApiKeyRow {
   createdAt: string;
   lastUsedAt: string | null;
   expiresAt: string | null;
+  rateLimitTier: "NORMAL" | "INTERNAL";
 }

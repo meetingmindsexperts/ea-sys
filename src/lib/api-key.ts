@@ -1,8 +1,11 @@
 import { createHash, randomBytes } from "crypto";
+import { ApiKeyRateLimitTier } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 const PREFIX = "mmg_";
+
+export type RateLimitTier = ApiKeyRateLimitTier;
 
 /** Generate a new plaintext API key — returned once to the caller, never stored. */
 export function generateApiKey(): string {
@@ -19,8 +22,10 @@ export function keyPrefix(key: string): string {
   return key.slice(0, 12);
 }
 
-/** Validate an API key from a request header. Returns the organizationId or null. */
-export async function validateApiKey(rawKey: string): Promise<{ organizationId: string } | null> {
+/** Validate an API key from a request header. Returns the organizationId + rateLimitTier or null. */
+export async function validateApiKey(
+  rawKey: string,
+): Promise<{ organizationId: string; rateLimitTier: RateLimitTier } | null> {
   if (!rawKey.startsWith(PREFIX)) return null;
 
   const hash = hashApiKey(rawKey);
@@ -32,6 +37,7 @@ export async function validateApiKey(rawKey: string): Promise<{ organizationId: 
       organizationId: true,
       isActive: true,
       expiresAt: true,
+      rateLimitTier: true,
     },
   });
 
@@ -43,5 +49,5 @@ export async function validateApiKey(rawKey: string): Promise<{ organizationId: 
     .update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } })
     .catch((err) => apiLogger.error({ err, msg: "Failed to update API key lastUsedAt" }));
 
-  return { organizationId: apiKey.organizationId };
+  return { organizationId: apiKey.organizationId, rateLimitTier: apiKey.rateLimitTier };
 }

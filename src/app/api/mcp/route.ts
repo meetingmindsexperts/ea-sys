@@ -17,7 +17,13 @@ function cleanExpiredSessions() {
   }
 }
 
-async function authenticate(req: Request): Promise<{ organizationId: string; keyPrefix: string } | null> {
+type AuthResult = {
+  organizationId: string;
+  keyPrefix: string;
+  rateLimitTier: "NORMAL" | "INTERNAL";
+};
+
+async function authenticate(req: Request): Promise<AuthResult | null> {
   const authHeader = req.headers.get("authorization");
   const apiKeyHeader = req.headers.get("x-api-key");
   const key = apiKeyHeader || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null);
@@ -26,13 +32,23 @@ async function authenticate(req: Request): Promise<{ organizationId: string; key
   // Try API-key path first (backward-compat for Claude Desktop + mcp-remote + n8n)
   const apiKey = await validateApiKey(key);
   if (apiKey) {
-    return { organizationId: apiKey.organizationId, keyPrefix: key.slice(0, 12) };
+    return {
+      organizationId: apiKey.organizationId,
+      keyPrefix: key.slice(0, 12),
+      rateLimitTier: apiKey.rateLimitTier,
+    };
   }
 
-  // Fall back to OAuth 2.1 Bearer access token (claude.ai web, Anthropic Console)
+  // Fall back to OAuth 2.1 Bearer access token (claude.ai web, Anthropic Console).
+  // OAuth tokens are user-driven browser connections — always NORMAL tier so a
+  // leaked grant can never bypass the abuse backstop.
   const oauth = await validateOAuthAccessToken(key);
   if (oauth) {
-    return { organizationId: oauth.organizationId, keyPrefix: "oauth-" + key.slice(0, 10) };
+    return {
+      organizationId: oauth.organizationId,
+      keyPrefix: "oauth-" + key.slice(0, 10),
+      rateLimitTier: "NORMAL",
+    };
   }
 
   return null;
@@ -78,42 +94,51 @@ async function handleMcp(req: Request): Promise<Response> {
   }
 
   // Rate limit: 100 MCP requests per hour per API key / OAuth token.
-  // Emit a spec-compliant 429 with Retry-After header + structured body so
-  // clients can back off intelligently instead of guessing.
+  // INTERNAL-tier keys (SUPER_ADMIN-issued, for trusted automation) bypass the
+  // ceiling but every request is logged so a leaked key surfaces in `/logs`.
   const MCP_RATE_LIMIT = 100;
   const MCP_RATE_WINDOW_MS = 60 * 60 * 1000;
-  const rl = checkRateLimit({
-    key: `mcp-${authResult.keyPrefix}`,
-    limit: MCP_RATE_LIMIT,
-    windowMs: MCP_RATE_WINDOW_MS,
-  });
-  if (!rl.allowed) {
-    apiLogger.warn(
-      { msg: "MCP rate-limit rejection", keyPrefix: authResult.keyPrefix, retryAfterSeconds: rl.retryAfterSeconds },
-      "mcp:rate-limited",
-    );
-    return withCors(
-      req,
-      new Response(
-        JSON.stringify({
-          error: `Rate limit exceeded: ${MCP_RATE_LIMIT} MCP requests per hour. Retry after ${rl.retryAfterSeconds}s.`,
-          code: "RATE_LIMITED",
-          retryAfterSeconds: rl.retryAfterSeconds,
-          limit: MCP_RATE_LIMIT,
-          windowSeconds: Math.floor(MCP_RATE_WINDOW_MS / 1000),
-        }),
-        {
-          status: 429,
-          headers: {
-            "Content-Type": "application/json",
-            "Retry-After": String(rl.retryAfterSeconds),
+  if (authResult.rateLimitTier !== "INTERNAL") {
+    const rl = checkRateLimit({
+      key: `mcp-${authResult.keyPrefix}`,
+      limit: MCP_RATE_LIMIT,
+      windowMs: MCP_RATE_WINDOW_MS,
+    });
+    if (!rl.allowed) {
+      apiLogger.warn(
+        { msg: "MCP rate-limit rejection", keyPrefix: authResult.keyPrefix, retryAfterSeconds: rl.retryAfterSeconds },
+        "mcp:rate-limited",
+      );
+      return withCors(
+        req,
+        new Response(
+          JSON.stringify({
+            error: `Rate limit exceeded: ${MCP_RATE_LIMIT} MCP requests per hour. Retry after ${rl.retryAfterSeconds}s.`,
+            code: "RATE_LIMITED",
+            retryAfterSeconds: rl.retryAfterSeconds,
+            limit: MCP_RATE_LIMIT,
+            windowSeconds: Math.floor(MCP_RATE_WINDOW_MS / 1000),
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": String(rl.retryAfterSeconds),
+            },
           },
-        },
-      ),
-    );
+        ),
+      );
+    }
+  } else {
+    apiLogger.info({
+      msg: "mcp:internal-key-used",
+      keyPrefix: authResult.keyPrefix,
+      organizationId: authResult.organizationId,
+      method: req.method,
+    });
   }
 
-  apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix });
+  apiLogger.info({ msg: "MCP request", method: req.method, organizationId: authResult.organizationId, keyPrefix: authResult.keyPrefix, tier: authResult.rateLimitTier });
 
   // Ensure Accept header includes text/event-stream (required by MCP SDK).
   // Some clients (n8n) only send Accept: application/json which causes a 406.

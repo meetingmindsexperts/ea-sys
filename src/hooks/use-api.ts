@@ -591,12 +591,15 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; expiresAt?: string }) =>
-      fetchApi<{ key: string; prefix: string }>("/api/organization/api-keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
+    mutationFn: (data: { name: string; expiresAt?: string; rateLimitTier?: "NORMAL" | "INTERNAL" }) =>
+      fetchApi<{ key: string; prefix: string; rateLimitTier: "NORMAL" | "INTERNAL" }>(
+        "/api/organization/api-keys",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys });
     },

@@ -9,6 +9,7 @@ import { apiLogger } from "@/lib/logger";
 const createKeySchema = z.object({
   name: z.string().min(1).max(64),
   expiresAt: z.string().datetime().optional(),
+  rateLimitTier: z.enum(["NORMAL", "INTERNAL"]).default("NORMAL"),
 });
 
 export async function GET() {
@@ -31,6 +32,7 @@ export async function GET() {
         createdAt: true,
         lastUsedAt: true,
         expiresAt: true,
+        rateLimitTier: true,
       },
       orderBy: { createdAt: "desc" },
     });
@@ -62,6 +64,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
+    // INTERNAL-tier keys bypass the MCP rate limit, so they're a privileged
+    // capability gated to SUPER_ADMIN. ADMIN can issue NORMAL keys freely.
+    if (parsed.data.rateLimitTier === "INTERNAL" && session.user.role !== "SUPER_ADMIN") {
+      apiLogger.warn({
+        msg: "organization/api-keys:internal-tier-denied",
+        userId: session.user.id,
+        role: session.user.role,
+      });
+      return NextResponse.json(
+        { error: "Only SUPER_ADMIN can issue INTERNAL-tier keys" },
+        { status: 403 },
+      );
+    }
+
     const rawKey = generateApiKey();
     const hash = hashApiKey(rawKey);
     const prefix = keyPrefix(rawKey);
@@ -73,11 +89,24 @@ export async function POST(req: Request) {
         keyHash: hash,
         prefix,
         expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+        rateLimitTier: parsed.data.rateLimitTier,
       },
     });
 
+    if (parsed.data.rateLimitTier === "INTERNAL") {
+      apiLogger.info({
+        msg: "organization/api-keys:internal-tier-issued",
+        userId: session.user.id,
+        organizationId: session.user.organizationId,
+        prefix,
+      });
+    }
+
     // Return the plaintext key ONCE — it is never stored and cannot be retrieved again
-    return NextResponse.json({ key: rawKey, prefix }, { status: 201 });
+    return NextResponse.json(
+      { key: rawKey, prefix, rateLimitTier: parsed.data.rateLimitTier },
+      { status: 201 },
+    );
   } catch (error) {
     apiLogger.error({ err: error, msg: "Failed to create API key" });
     return NextResponse.json(
