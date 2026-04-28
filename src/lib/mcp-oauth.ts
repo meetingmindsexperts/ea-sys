@@ -49,6 +49,7 @@ export async function validateOAuthAccessToken(raw: string): Promise<{
   organizationId: string;
   userId: string;
   clientId: string;
+  rateLimitTier: "NORMAL" | "INTERNAL";
 } | null> {
   if (!raw.startsWith(ACCESS_TOKEN_PREFIX)) return null;
   const tokenHash = hashToken(raw);
@@ -61,6 +62,10 @@ export async function validateOAuthAccessToken(raw: string): Promise<{
       clientId: true,
       expiresAt: true,
       revokedAt: true,
+      // Pull the tier off the parent client row in the same query — every
+      // OAuth grant minted from a SUPER_ADMIN-flipped INTERNAL client
+      // bypasses the MCP rate limit.
+      client: { select: { rateLimitTier: true } },
     },
   });
   if (!row) return null;
@@ -76,6 +81,7 @@ export async function validateOAuthAccessToken(raw: string): Promise<{
     organizationId: row.organizationId,
     userId: row.userId,
     clientId: row.clientId,
+    rateLimitTier: row.client.rateLimitTier,
   };
 }
 

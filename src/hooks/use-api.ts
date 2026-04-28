@@ -617,6 +617,43 @@ export function useRevokeApiKey() {
   });
 }
 
+// ============ OAUTH CLIENTS (claude.ai web etc.) ============
+export interface OAuthClientRow {
+  clientId: string;
+  clientName: string | null;
+  rateLimitTier: "NORMAL" | "INTERNAL";
+  createdAt: string;
+  activeTokenCount: number;
+  revokedTokenCount: number;
+  lastUsedAt: string | null;
+  users: Array<{ id: string; name: string; email: string }>;
+}
+
+export function useOAuthClients() {
+  return useQuery({
+    queryKey: ["oauth-clients"],
+    queryFn: () => fetchApi<OAuthClientRow[]>("/api/organization/oauth-clients"),
+  });
+}
+
+export function useUpdateOAuthClientTier() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, rateLimitTier }: { clientId: string; rateLimitTier: "NORMAL" | "INTERNAL" }) =>
+      fetchApi<{ clientId: string; rateLimitTier: "NORMAL" | "INTERNAL" }>(
+        `/api/organization/oauth-clients/${encodeURIComponent(clientId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rateLimitTier }),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["oauth-clients"] });
+    },
+  });
+}
+
 // ============ EVENTSAIR ============
 export function useEventsAirConfig() {
   return useQuery({

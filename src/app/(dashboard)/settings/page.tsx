@@ -62,6 +62,9 @@ import {
   useEventsAirConfig,
   useSaveEventsAirCredentials,
   useTestEventsAirConnection,
+  useOAuthClients,
+  useUpdateOAuthClientTier,
+  type OAuthClientRow,
   queryKeys,
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
@@ -931,8 +934,9 @@ export default function SettingsPage() {
 
         {/* API Keys */}
         {isAdmin && (
-          <TabsContent value="api-keys">
+          <TabsContent value="api-keys" className="space-y-6">
             <ApiKeysCard />
+            <OAuthClientsCard />
           </TabsContent>
         )}
 
@@ -1325,6 +1329,116 @@ function ApiKeysCard() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+// ── OAuth Clients sub-component ───────────────────────────────────────────────
+// Lists every claude.ai (or other OAuth) registration that has issued at
+// least one token to a user in this org. SUPER_ADMIN can flip tier to
+// INTERNAL — every token minted from the registration then bypasses the
+// MCP 100/hr rate limit. Per-DCR-registration scope, never per-user-globally.
+function OAuthClientsCard() {
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+  const { data: clients = [], isLoading } = useOAuthClients();
+  const updateTier = useUpdateOAuthClientTier();
+
+  const handleToggleTier = async (client: OAuthClientRow, nextTier: "NORMAL" | "INTERNAL") => {
+    try {
+      await updateTier.mutateAsync({ clientId: client.clientId, rateLimitTier: nextTier });
+      toast.success(
+        nextTier === "INTERNAL"
+          ? `Set ${client.clientName ?? client.clientId.slice(0, 12)} to INTERNAL — bypasses rate limit`
+          : `Reverted ${client.clientName ?? client.clientId.slice(0, 12)} to NORMAL`,
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update tier");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-50 text-violet-600">
+            <Key className="h-4 w-4" />
+          </div>
+          OAuth Connections (claude.ai web etc.)
+        </CardTitle>
+        <CardDescription className="mt-1">
+          Browser-based MCP clients connect via OAuth instead of API keys. Each row
+          here is one &quot;Add integration&quot; event. SUPER_ADMIN can flip tier to
+          INTERNAL to bypass the 100/hr rate limit for that specific connection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
+        ) : clients.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No OAuth connections yet. They appear after someone connects EA-SYS via
+            their claude.ai integrations panel.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Client</TableHead>
+                <TableHead>User(s)</TableHead>
+                <TableHead>Tier</TableHead>
+                <TableHead>Active tokens</TableHead>
+                <TableHead>Last used</TableHead>
+                {isSuperAdmin && <TableHead />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {clients.map((c) => (
+                <TableRow key={c.clientId}>
+                  <TableCell>
+                    <div className="font-medium">{c.clientName ?? "Unnamed client"}</div>
+                    <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                      {c.clientId.slice(0, 24)}…
+                    </code>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {c.users.length === 0
+                      ? <span className="text-muted-foreground">—</span>
+                      : c.users.map((u) => u.email).join(", ")}
+                  </TableCell>
+                  <TableCell>
+                    {c.rateLimitTier === "INTERNAL" ? (
+                      <Badge variant="destructive">INTERNAL</Badge>
+                    ) : (
+                      <Badge variant="outline">NORMAL</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{c.activeTokenCount}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {c.lastUsedAt ? new Date(c.lastUsedAt).toLocaleDateString() : "Never"}
+                  </TableCell>
+                  {isSuperAdmin && (
+                    <TableCell>
+                      <Switch
+                        checked={c.rateLimitTier === "INTERNAL"}
+                        onCheckedChange={(checked) =>
+                          handleToggleTier(c, checked ? "INTERNAL" : "NORMAL")
+                        }
+                        disabled={updateTier.isPending}
+                      />
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {!isSuperAdmin && clients.some((c) => c.rateLimitTier === "INTERNAL") && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Tier changes are SUPER_ADMIN-only.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

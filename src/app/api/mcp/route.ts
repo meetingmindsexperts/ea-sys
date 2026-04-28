@@ -40,14 +40,15 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
   }
 
   // Fall back to OAuth 2.1 Bearer access token (claude.ai web, Anthropic Console).
-  // OAuth tokens are user-driven browser connections — always NORMAL tier so a
-  // leaked grant can never bypass the abuse backstop.
+  // Tier comes from the parent McpOAuthClient row — defaults to NORMAL so a
+  // leaked grant can never bypass the backstop. SUPER_ADMIN can flip the
+  // client to INTERNAL after the user has connected once via DCR.
   const oauth = await validateOAuthAccessToken(key);
   if (oauth) {
     return {
       organizationId: oauth.organizationId,
       keyPrefix: "oauth-" + key.slice(0, 10),
-      rateLimitTier: "NORMAL",
+      rateLimitTier: oauth.rateLimitTier,
     };
   }
 

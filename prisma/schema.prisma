@@ -1363,6 +1363,7 @@ model McpOAuthClient {
   grantTypes              String[] @default(["authorization_code", "refresh_token"])
   tokenEndpointAuthMethod String   @default("none")
   scope                   String   @default("mcp")
+  rateLimitTier           ApiKeyRateLimitTier @default(NORMAL)
   createdAt               DateTime @default(now())
 
   authCodes    McpOAuthAuthCode[]
