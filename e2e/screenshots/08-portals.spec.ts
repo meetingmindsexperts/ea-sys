@@ -36,7 +36,12 @@ test("reviewer portal (/my-reviews)", async ({ page }) => {
 
 test("submitter portal (abstracts list)", async ({ page }) => {
   await loginAs(page, "SUBMITTER");
-  // Submitters land on their event's abstracts page after login.
+  // Submitters land on their event's abstracts page after login. The
+  // post-login URL is event-scoped (/events/{id}/abstracts) — the
+  // loginAs helper waits for any non-/login URL, so we explicitly
+  // navigate to the seeded event's abstracts page to guarantee the
+  // shot is what the manual expects.
+  await page.goto(`/events/e2e-event-id/abstracts`);
   await page.waitForLoadState("networkidle");
   await snap(page, {
     chapter: CHAPTER,

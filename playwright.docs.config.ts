@@ -78,8 +78,14 @@ export default defineConfig({
         // means this is always the one we just started.
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
-        env: testDbUrl
-          ? { DATABASE_URL: testDbUrl, DIRECT_URL: testDbUrl, PORT }
-          : { PORT },
+        env: {
+          PORT,
+          // Override NextAuth + public URL so absolute redirects land on
+          // the dedicated screenshot port (otherwise the submitter portal
+          // bounces to NEXTAUTH_URL=localhost:3000 mid-test).
+          NEXTAUTH_URL: baseURL,
+          NEXT_PUBLIC_APP_URL: baseURL,
+          ...(testDbUrl ? { DATABASE_URL: testDbUrl, DIRECT_URL: testDbUrl } : {}),
+        },
       },
 });

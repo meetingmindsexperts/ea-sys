@@ -1,6 +1,9 @@
 /**
- * Chapter 4 — Sessions, schedule, abstracts (light coverage; empty seeds
- * for these areas are useful for "before you create anything" screenshots).
+ * Chapter 4 — Sessions, agenda, abstracts.
+ *
+ * Sessions live under /events/[id]/agenda (table view) and
+ * /events/[id]/agenda/calendar (timeline view). There is no separate
+ * /tracks page — tracks are managed inside agenda.
  */
 import { test } from "@playwright/test";
 import { loginAs } from "../fixtures/login";
@@ -11,22 +14,26 @@ const CHAPTER = "04-sessions-and-abstracts";
 
 test.describe.configure({ mode: "serial" });
 
-test("schedule (calendar empty state)", async ({ page }) => {
+test("agenda (sessions list)", async ({ page }) => {
   await loginAs(page, "ADMIN");
-  await page.goto(`/events/${EVENT_ID}/schedule`);
+  await page.goto(`/events/${EVENT_ID}/agenda`);
   await page.waitForLoadState("networkidle");
   await snap(page, {
     chapter: CHAPTER,
-    name: "01-schedule-calendar",
+    name: "01-agenda-list",
     mask: maskVolatile(page),
   });
 });
 
-test("tracks page", async ({ page }) => {
+test("agenda calendar view", async ({ page }) => {
   await loginAs(page, "ADMIN");
-  await page.goto(`/events/${EVENT_ID}/tracks`).catch(() => undefined);
+  await page.goto(`/events/${EVENT_ID}/agenda/calendar`);
   await page.waitForLoadState("networkidle");
-  await snap(page, { chapter: CHAPTER, name: "02-tracks-page" });
+  await snap(page, {
+    chapter: CHAPTER,
+    name: "02-agenda-calendar",
+    mask: maskVolatile(page),
+  });
 });
 
 test("abstracts list", async ({ page }) => {
