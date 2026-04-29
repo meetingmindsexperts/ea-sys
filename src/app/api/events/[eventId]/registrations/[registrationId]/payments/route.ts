@@ -146,6 +146,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: { select: { price: true, currency: true } },
         pricingTier: { select: { price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
+        // We only block the 409 when there's actually a Payment row to
+        // duplicate. Admin-flipped-without-recording is a real recovery
+        // case (status PAID but no Payment row yet) — let it through.
+        _count: { select: { payments: true } },
       },
     });
     if (!registration) {
@@ -158,19 +162,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    // Reject if already paid. Admins should not stack manual payments —
-    // a duplicate row would inflate the Payment History panel and could
-    // mint a second Invoice number. To correct a mistake: refund first,
-    // then re-record.
-    if (registration.paymentStatus === "PAID") {
+    // Reject only when there's already a Payment row recorded — that's
+    // the duplicate case we actually need to prevent. PAID-but-no-Payment
+    // (admin hand-flipped the dropdown earlier) IS the case organizers
+    // want to recover via this endpoint, so let it through.
+    if (registration.paymentStatus === "PAID" && registration._count.payments > 0) {
       apiLogger.warn({
-        msg: "manual-payment:already-paid",
+        msg: "manual-payment:already-paid-with-payment-row",
         eventId,
         registrationId,
+        existingPaymentCount: registration._count.payments,
         userId: session.user.id,
       });
       return NextResponse.json(
-        { error: "Registration is already marked as paid. Refund first if you need to re-record." },
+        { error: "Registration is already marked as paid and has a payment record. Refund first if you need to re-record." },
         { status: 409 },
       );
     }
@@ -222,18 +227,34 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...(data.notes ? { notes: data.notes } : {}),
     };
 
-    // Atomic transaction: flip registration status + insert Payment row.
-    // We re-check the paymentStatus inside the tx to defend against a
-    // concurrent admin click flipping it via the Payment Status dropdown.
+    // Atomic transaction: flip registration status (if needed) + insert
+    // Payment row. Two cases:
+    //   - status !== PAID: claim with `paymentStatus != PAID` predicate
+    //     to defend against a concurrent dropdown flip; the claim is
+    //     authoritative for "we won the race".
+    //   - status === PAID (admin previously hand-flipped + we already
+    //     verified above that no Payment row exists): skip the update
+    //     entirely, just insert the recovery Payment row.
+    const wasAlreadyPaid = registration.paymentStatus === "PAID";
     const payment = await db.$transaction(async (tx) => {
-      const claim = await tx.registration.updateMany({
-        where: { id: registrationId, paymentStatus: { not: "PAID" } },
-        data: { paymentStatus: "PAID" },
-      });
-      if (claim.count === 0) {
-        // Lost the race — surface as a typed error caught by the outer
-        // catch below.
-        throw new ManualPaymentRaceError();
+      if (!wasAlreadyPaid) {
+        const claim = await tx.registration.updateMany({
+          where: { id: registrationId, paymentStatus: { not: "PAID" } },
+          data: { paymentStatus: "PAID" },
+        });
+        if (claim.count === 0) {
+          // Lost the race — surface as a typed error caught by the outer
+          // catch below.
+          throw new ManualPaymentRaceError();
+        }
+      } else {
+        // Recovery path: re-check that no Payment row landed between
+        // our findFirst and now. If one slipped in via a concurrent
+        // admin click, abort to avoid duplicating it.
+        const existing = await tx.payment.count({ where: { registrationId } });
+        if (existing > 0) {
+          throw new ManualPaymentRaceError();
+        }
       }
 
       return tx.payment.create({

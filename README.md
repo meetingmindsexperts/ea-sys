@@ -14,7 +14,7 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3113](http://localhost:3113) with your browser to see the result. (The dev server runs on `:3113` via the `dev` script in `package.json` — keeps the default `:3000` free for other side projects.)
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

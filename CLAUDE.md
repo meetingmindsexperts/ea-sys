@@ -271,7 +271,7 @@ export async function GET/POST/PUT/DELETE(
 DATABASE_URL="postgresql://..."       # Pooled connection
 DIRECT_URL="postgresql://..."         # Direct connection (migrations)
 NEXTAUTH_SECRET="..."                 # JWT secret
-NEXTAUTH_URL="http://localhost:3000"  # App URL
+NEXTAUTH_URL="http://localhost:3113"  # App URL (dev server runs on :3113 — see package.json "dev" script)
 NEXT_PUBLIC_APP_URL="..."             # Public app URL
 BREVO_API_KEY="..."                   # Email service (Brevo)
 SENDGRID_API_KEY="..."                # Email service (SendGrid, alternative to Brevo)

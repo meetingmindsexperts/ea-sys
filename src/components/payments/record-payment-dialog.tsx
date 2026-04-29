@@ -26,6 +26,11 @@ import { Loader2, Banknote, CreditCard, Wallet } from "lucide-react";
 
 type PaymentMethod = "bank_transfer" | "card_onsite" | "cash";
 
+// Add new ISO 4217 codes here as the org expands. Listing them
+// explicitly (rather than free-text) prevents typos that would mismatch
+// the ticket-type currency and produce confusing invoice totals.
+const SUPPORTED_CURRENCIES = ["USD", "AED"] as const;
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -63,6 +68,15 @@ export function RecordPaymentDialog({
     defaultAmount != null ? String(defaultAmount) : "",
   );
   const [currency, setCurrency] = useState<string>(defaultCurrency ?? "USD");
+
+  // If the registration's ticket-type currency isn't in our hardcoded list
+  // (e.g. legacy EUR / SAR / KWD ticket types), preserve it as a valid
+  // choice so the dropdown isn't blank — falling back to USD silently
+  // would be a pricing-mismatch footgun.
+  const currencyOptions = (defaultCurrency &&
+    !SUPPORTED_CURRENCIES.includes(defaultCurrency as (typeof SUPPORTED_CURRENCIES)[number])
+    ? ([defaultCurrency, ...SUPPORTED_CURRENCIES] as const)
+    : SUPPORTED_CURRENCIES);
   const [paidAt, setPaidAt] = useState<string>(today());
   const [bankReference, setBankReference] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -185,7 +199,13 @@ export function RecordPaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg">
+      {/*
+        Wider on desktop so the per-method conditional fields (especially
+        the bank-transfer + photo upload row) breathe.
+        Vertical bound + overflow so a phone-sized viewport gets ~2rem
+        of margin top/bottom and the body scrolls instead of clipping.
+      */}
+      <DialogContent className="sm:max-w-3xl max-h-[calc(100vh-4rem)] overflow-y-auto my-8">
         <DialogHeader>
           <DialogTitle>Record Manual Payment</DialogTitle>
           <DialogDescription>
@@ -236,12 +256,18 @@ export function RecordPaymentDialog({
             </div>
             <div className="space-y-2">
               <Label htmlFor="currency">Currency</Label>
-              <Input
-                id="currency"
-                maxLength={3}
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-              />
+              <Select value={currency} onValueChange={setCurrency}>
+                <SelectTrigger id="currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {currencyOptions.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

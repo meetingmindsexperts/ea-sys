@@ -7,10 +7,10 @@
     "npm": "11.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3113",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
-    "start": "next start",
+    "start": "next start -p 3113",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",

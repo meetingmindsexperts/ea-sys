@@ -1566,40 +1566,37 @@ export function RegistrationDetailSheet({
                           )}
                         </Button>
                       )}
-                      {/* Record an additional manual payment — visible to admins
-                          when the registration is still not PAID (e.g. partial
-                          Stripe attempt that never settled). For already-PAID
-                          registrations the API rejects with 409 so we hide the
-                          button to match. */}
-                      {!isReviewer && selectedRegistration.paymentStatus !== "PAID" && selectedRegistration.paymentStatus !== "COMPLIMENTARY" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRecordPaymentOpen(true)}
-                        >
-                          <CreditCard className="mr-2 h-3.5 w-3.5" /> Record Manual Payment
-                        </Button>
-                      )}
                     </>
                   ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground italic">
-                        No payments recorded yet.
-                      </p>
-                      {/* Cash, bank-transfer, and card-onsite payments don't
-                          flow through Stripe, so the registration sits at
-                          UNPAID until an admin records them here. */}
-                      {!isReviewer && selectedRegistration.paymentStatus !== "PAID" && selectedRegistration.paymentStatus !== "COMPLIMENTARY" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRecordPaymentOpen(true)}
-                        >
-                          <CreditCard className="mr-2 h-3.5 w-3.5" /> Record Manual Payment
-                        </Button>
-                      )}
-                    </div>
+                    <p className="text-sm text-muted-foreground italic">
+                      No payments recorded yet.
+                    </p>
                   )}
+                  {/* "Record Manual Payment" — visible whenever the
+                      registration could still take a payment record:
+                        - any non-PAID, non-COMPLIMENTARY status (UNPAID,
+                          PENDING, FAILED, UNASSIGNED, REFUNDED) — the
+                          standard path
+                        - PAID but with no Payment row yet — admin flipped
+                          the dropdown without capturing details, this is
+                          the recovery path
+                      Hidden when the registration is COMPLIMENTARY (no
+                      payment due) or when PAID with at least one Payment
+                      row already recorded. */}
+                  {!isReviewer &&
+                    selectedRegistration.paymentStatus !== "COMPLIMENTARY" &&
+                    !(
+                      selectedRegistration.paymentStatus === "PAID" &&
+                      (selectedRegistration.payments?.length ?? 0) > 0
+                    ) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRecordPaymentOpen(true)}
+                      >
+                        <CreditCard className="mr-2 h-3.5 w-3.5" /> Record Manual Payment
+                      </Button>
+                    )}
                 </section>
               )}
 

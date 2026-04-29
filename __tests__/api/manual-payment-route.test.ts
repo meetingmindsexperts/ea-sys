@@ -19,7 +19,7 @@ const {
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn(), updateMany: vi.fn() },
-    payment: { create: vi.fn() },
+    payment: { create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     $transaction: vi.fn(),
   },
@@ -91,6 +91,9 @@ const baseRegistration = {
   ticketType: { price: 250, currency: "USD" },
   pricingTier: null,
   attendee: { firstName: "Jane", lastName: "Smith", email: "j@x.com" },
+  // The route reads `_count.payments` to distinguish "PAID with no row
+  // yet" (recovery case, allow) from "PAID with row" (block 409).
+  _count: { payments: 0 },
 };
 
 beforeEach(() => {
@@ -107,6 +110,8 @@ beforeEach(() => {
     id: "pay-1",
     ...data,
   }));
+  // Default: recovery path's race-check sees no existing payments.
+  mockDb.payment.count.mockResolvedValue(0);
   // Default: invoice creation succeeds.
   mockCreatePaidInvoice.mockResolvedValue({ id: "inv-1", invoiceNumber: "TEST-INV-001" });
   mockSendInvoiceEmail.mockResolvedValue(undefined);
@@ -185,7 +190,7 @@ describe("POST manual-payment route — preconditions", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 409 when registration already PAID", async () => {
+  it("returns 409 when registration already PAID AND has a Payment row", async () => {
     mockDb.event.findFirst.mockResolvedValueOnce({
       id: "evt-1",
       organizationId: "org-1",
@@ -194,9 +199,53 @@ describe("POST manual-payment route — preconditions", () => {
     mockDb.registration.findFirst.mockResolvedValueOnce({
       ...baseRegistration,
       paymentStatus: "PAID",
+      _count: { payments: 1 },
     });
     const res = await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
     expect(res.status).toBe(409);
+  });
+
+  it("recovery path: PAID but NO Payment row → allow recording (no 409)", async () => {
+    // Admin previously flipped paymentStatus to PAID via the dropdown
+    // without recording a Payment row. The endpoint must let them
+    // capture the missing details now — we don't want to force a refund
+    // round-trip just to add reconciliation context.
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      id: "evt-1",
+      organizationId: "org-1",
+      name: "E",
+    });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      ...baseRegistration,
+      paymentStatus: "PAID",
+      _count: { payments: 0 },
+    });
+    const res = await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
+    expect(res.status).toBe(200);
+    // Recovery path — no status flip needed (already PAID).
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    // But the Payment row IS inserted.
+    expect(mockDb.payment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovery path: 409 if a Payment row slips in concurrently", async () => {
+    // Race: between our findFirst (saw no payments) and the in-tx
+    // insert, another admin click recorded one. The in-tx
+    // payment.count guard catches it.
+    mockDb.event.findFirst.mockResolvedValueOnce({
+      id: "evt-1",
+      organizationId: "org-1",
+      name: "E",
+    });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      ...baseRegistration,
+      paymentStatus: "PAID",
+      _count: { payments: 0 },
+    });
+    mockDb.payment.count.mockResolvedValueOnce(1); // race-loser
+    const res = await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
+    expect(res.status).toBe(409);
+    expect(mockDb.payment.create).not.toHaveBeenCalled();
   });
 
   it("returns 409 when claim race-loses (concurrent flip)", async () => {
