@@ -19,6 +19,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:seed": "DATABASE_URL=\"$DATABASE_URL_TEST\" DIRECT_URL=\"$DATABASE_URL_TEST\" tsx prisma/seed-e2e.ts",
+    "docs:screenshots": "playwright test -c playwright.docs.config.ts",
+    "docs:screenshots:ui": "playwright test -c playwright.docs.config.ts --ui",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy"
   },
