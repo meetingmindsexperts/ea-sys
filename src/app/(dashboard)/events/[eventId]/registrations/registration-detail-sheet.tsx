@@ -73,6 +73,7 @@ import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
+import { RecordPaymentDialog } from "@/components/payments/record-payment-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -242,6 +243,7 @@ export function RegistrationDetailSheet({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -1481,9 +1483,20 @@ export function RegistrationDetailSheet({
                           } else if (payment.paymentMethodType) {
                             instrument = payment.paymentMethodType.replace(/_/g, " ");
                           }
+                          // Manual-payment metadata — bank reference, cash recipient,
+                          // free-form notes captured by the organizer when recording
+                          // the payment offline.
+                          const meta = payment.metadata ?? null;
+                          const bankReference = meta?.bankReference;
+                          const cashReceivedBy = meta?.cashReceivedBy;
+                          const paymentNotes = meta?.notes;
+                          // For manual transfers `receiptUrl` carries the organizer-
+                          // uploaded proof (transfer copy / receipt photo). For Stripe
+                          // it's the hosted receipt URL.
+                          const proofUrl = payment.receiptUrl;
                           return (
-                            <div key={payment.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                              <div className="min-w-0">
+                            <div key={payment.id} className="flex items-start justify-between gap-3 p-3 bg-muted rounded-lg">
+                              <div className="min-w-0 flex-1">
                                 <div className="font-medium">{formatCurrency(Number(payment.amount), payment.currency)}</div>
                                 <div className="text-sm text-muted-foreground">{formatDateTime(settledAt)}</div>
                                 {instrument && (
@@ -1491,8 +1504,33 @@ export function RegistrationDetailSheet({
                                     via {instrument}
                                   </div>
                                 )}
+                                {bankReference && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    Ref: <span className="font-mono">{bankReference}</span>
+                                  </div>
+                                )}
+                                {cashReceivedBy && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    Received by: {cashReceivedBy}
+                                  </div>
+                                )}
+                                {paymentNotes && (
+                                  <div className="text-xs text-muted-foreground mt-0.5 italic">
+                                    {paymentNotes}
+                                  </div>
+                                )}
+                                {proofUrl && (
+                                  <a
+                                    href={proofUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                                  >
+                                    View receipt
+                                  </a>
+                                )}
                               </div>
-                              <Badge variant="outline">
+                              <Badge variant="outline" className="shrink-0">
                                 {payment.status}
                               </Badge>
                             </div>
@@ -1528,11 +1566,39 @@ export function RegistrationDetailSheet({
                           )}
                         </Button>
                       )}
+                      {/* Record an additional manual payment — visible to admins
+                          when the registration is still not PAID (e.g. partial
+                          Stripe attempt that never settled). For already-PAID
+                          registrations the API rejects with 409 so we hide the
+                          button to match. */}
+                      {!isReviewer && selectedRegistration.paymentStatus !== "PAID" && selectedRegistration.paymentStatus !== "COMPLIMENTARY" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRecordPaymentOpen(true)}
+                        >
+                          <CreditCard className="mr-2 h-3.5 w-3.5" /> Record Manual Payment
+                        </Button>
+                      )}
                     </>
                   ) : (
-                    <p className="text-sm text-muted-foreground italic">
-                      No payments recorded yet.
-                    </p>
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground italic">
+                        No payments recorded yet.
+                      </p>
+                      {/* Cash, bank-transfer, and card-onsite payments don't
+                          flow through Stripe, so the registration sits at
+                          UNPAID until an admin records them here. */}
+                      {!isReviewer && selectedRegistration.paymentStatus !== "PAID" && selectedRegistration.paymentStatus !== "COMPLIMENTARY" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRecordPaymentOpen(true)}
+                        >
+                          <CreditCard className="mr-2 h-3.5 w-3.5" /> Record Manual Payment
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </section>
               )}
@@ -1682,16 +1748,39 @@ export function RegistrationDetailSheet({
     )}
 
     {selectedRegistration && (
-      <ChangeEmailDialog
-        open={changeEmailOpen}
-        onOpenChange={setChangeEmailOpen}
-        currentEmail={selectedRegistration.attendee.email}
-        endpoint={`/api/events/${eventId}/registrations/${selectedRegistration.id}/email`}
-        entityLabel="registration"
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
-        }}
-      />
+      <>
+        <ChangeEmailDialog
+          open={changeEmailOpen}
+          onOpenChange={setChangeEmailOpen}
+          currentEmail={selectedRegistration.attendee.email}
+          endpoint={`/api/events/${eventId}/registrations/${selectedRegistration.id}/email`}
+          entityLabel="registration"
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+          }}
+        />
+        <RecordPaymentDialog
+          open={recordPaymentOpen}
+          onOpenChange={setRecordPaymentOpen}
+          eventId={eventId}
+          registrationId={selectedRegistration.id}
+          defaultAmount={Number(
+            selectedRegistration.pricingTier?.price ??
+              selectedRegistration.ticketType?.price ??
+              0,
+          )}
+          defaultCurrency={
+            selectedRegistration.pricingTier?.currency ??
+            selectedRegistration.ticketType?.currency ??
+            "USD"
+          }
+          onRecorded={() => {
+            // Refresh the list so the row reflects PAID and Payment
+            // History gets the new row + the Invoice download appears.
+            queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+          }}
+        />
+      </>
     )}
     </>
   );

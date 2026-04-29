@@ -52,6 +52,22 @@ export interface Payment {
   cardLast4?: string | null;
   paymentMethodType?: string | null;
   paidAt?: string | null;
+  // For manual payments (bank_transfer / card_onsite / cash) `receiptUrl`
+  // is the URL of the organizer-uploaded proof artifact. For Stripe
+  // payments it's Stripe's hosted receipt URL. Same column, two
+  // semantics — context comes from `paymentMethodType`.
+  receiptUrl?: string | null;
+  // Additional reconciliation fields surfaced from `Payment.metadata`
+  // when the payment was recorded manually (bank reference, cash
+  // recipient, free-form notes). Stripe-driven payments have these
+  // unset.
+  metadata?: {
+    method?: string;
+    recordedManually?: boolean;
+    bankReference?: string;
+    cashReceivedBy?: string;
+    notes?: string;
+  } | null;
 }
 
 export interface Accommodation {

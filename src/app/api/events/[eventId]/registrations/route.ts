@@ -162,6 +162,18 @@ export async function GET(req: Request, { params }: RouteParams) {
               currency: true,
               status: true,
               createdAt: true,
+              // Card + method-type details surface in the Billing tab
+              // for both Stripe and manual payments. Receipt URL points
+              // either at Stripe's hosted receipt OR an organizer-
+              // uploaded proof for manual transfers. Metadata carries
+              // the manual reconciliation fields (bankReference,
+              // cashReceivedBy, notes).
+              cardBrand: true,
+              cardLast4: true,
+              paymentMethodType: true,
+              paidAt: true,
+              receiptUrl: true,
+              metadata: true,
             },
             orderBy: { createdAt: "desc" },
             take: 1,
