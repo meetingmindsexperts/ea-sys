@@ -6,6 +6,198 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Manual payment capture for onsite/offline scenarios (April 29)
+
+Admin-driven payment recording flow that bypasses Stripe — for onsite
+events and bank transfers where the registrant pays via wire and the
+organizer reconciles after the fact.
+
+**New route:** `POST /api/events/[eventId]/registrations/[registrationId]/payments`
+accepts three methods, each with method-specific Zod-validated fields:
+
+- `bank_transfer` — bank reference + uploaded receipt URL
+- `card_onsite` — card last-4 digits + receipt number
+- `cash` — receiver name + receipt number
+
+**Inside one transaction:** re-reads registration with `_count.payments`
+(race-safe precondition — paid registrations with at least one Payment
+row return 409; recovery path allows manual capture for PAID-but-no-
+payments registrations that pre-date the migration), creates Payment row
+with method/reference/receiptUrl/metadata, flips
+`Registration.paymentStatus` to `PAID`. Fire-and-forget calls
+`createPaidInvoice` so the organizer gets the same INVOICE-status-PAID
+PDF + email Stripe registrants get.
+
+**UI:** new `RecordPaymentDialog` opens from the registration detail
+sheet's Billing & Payments tab — method selector with conditional fields
+revealing per-method requirements, amount + currency dropdown (12
+currencies, USD default), notes, optional metadata. Wider on desktop
+(`sm:max-w-3xl`) so bank-transfer fields don't wrap awkwardly.
+
+**Tests:** 18 new in `__tests__/api/manual-payment-route.test.ts`
+covering all three methods, auth (401/403), Zod validation, race
+conditions (concurrent flip 409, payment-row-slips-in 409), recovery
+path, invoice failure isolation. Suite 1126 → 1146.
+
+Commits: `0aab3cb` (feature), `a1d67cb` (UI tweaks + recovery path).
+
+### Added — User manual screenshot capture suite (April 28-29)
+
+Playwright-driven generator for the 26-figure user manual that boss
+agents are drafting. New `npm run docs:screenshots` boots a dedicated
+dev server on port 3100, syncs the test DB, runs an extended seed, and
+produces 51 PNGs at retina 2880×1800 across 12 chapters into
+`docs/screenshots/` (gitignored under `docs/*`).
+
+**Architecture:**
+
+- Shared `seedCore()` extracted to `prisma/seed-e2e-core.ts` —
+  regression e2e at `prisma/seed-e2e.ts` calls only the core
+- `prisma/seed-e2e-docs.ts` layers screenshot extras on top: track +
+  session with topics + 2-speaker assignment (IMG-006/008), hotel +
+  room types + booking (IMG-013/014), 3 review criteria + UNDER_REVIEW
+  abstract (IMG-015/016), 2 promo codes (IMG-010), and a COMPLETED
+  WEBINAR-typed event with ZoomMeeting + 8 attendance rows + poll
+  responses + 3 Q&A entries (IMG-023/024)
+- Regression e2e suite unaffected — `npm run test:e2e` still uses the
+  lean seed
+- `playwright.docs.config.ts` injects `NEXTAUTH_URL` +
+  `NEXT_PUBLIC_APP_URL` = `baseURL` so absolute redirects after login
+  don't bounce to port 3000
+
+**Specs:** chapter-organized — 01-getting-started, 02-speakers,
+03-registrations, 04-sessions-and-abstracts, 05-accommodation,
+06-communications, 07-settings-org + 07-settings-event (split because
+branding+email-branding tabs live on the EVENT settings, not the org),
+08-portals, 09-finance-and-promo, 10-checkin-sponsors-media,
+11-webinar.
+
+**Output naming** is stable (`{NN-name}.png`) so the manual references
+survive re-captures. Helper: `snap()` + `maskVolatile()` in
+`e2e/screenshots/_helpers.ts`. Authoring guide at
+`e2e/screenshots/README.md`.
+
+**Three captures the system can't produce yet** because the underlying
+UI doesn't exist: global search bar (IMG-003/025), live-session monitor
+(IMG-009), dedicated tracks management page (IMG-007 — tracks live
+inside agenda today).
+
+Commits: `be1e6fd`, `87e9c95`, `062e4b3`, `e6aed6a`.
+
+### Changed — Default dev port → 3113 (April 29)
+
+`package.json` `"dev": "next dev -p 3113"` and `"start": "next start
+-p 3113"`. Production deploys are unaffected because the Docker image
+runs `node server.js` directly with `ENV PORT=3000`; the `start`
+script change only matters for local `npm run start` invocations
+(none in CI/CD). Screenshot capture continues on its own dedicated
+port 3100 via `playwright.docs.config.ts`. Bundled with commit
+`a1d67cb`.
+
+### Added — MCP OAuth: per-client `rateLimitTier` for claude.ai web (April 28)
+
+Mirror of the API-key tier model on `McpOAuthClient`. claude.ai web
+(and any DCR client) registers a row when the user adds the
+integration; SUPER_ADMIN flips that row to INTERNAL afterwards, and
+every token minted from that DCR registration bypasses the MCP 100/hr
+cap.
+
+**Two-step by design** — can't tag a `client_id` that doesn't exist
+yet. Scope is per-DCR-registration so a leaked grant on someone else's
+claude.ai account stays NORMAL.
+
+- Reuses the `ApiKeyRateLimitTier` enum so OAuth + API-key tiers stay
+  aligned
+- New routes: `GET /api/organization/oauth-clients` (org-scoped,
+  ADMIN+, aggregated per-client with token count + lastUsedAt) and
+  `PATCH /api/organization/oauth-clients/[clientId]` (SUPER_ADMIN-only,
+  with org-ownership check so a SUPER_ADMIN in org A can't flip
+  clients registered for org B)
+- `validateOAuthAccessToken()` joins `client.rateLimitTier` in the
+  same query and returns it; the MCP route reads tier from the
+  validator (was hard-coded NORMAL before)
+- UI: `OAuthClientsCard` rendered below `ApiKeysCard` in Settings →
+  API Keys tab; SUPER_ADMIN sees a Switch toggle per row
+- 15 new tests (validator tier propagation + PATCH RBAC matrix)
+
+Migration `20260428100000_add_mcp_oauth_client_rate_limit_tier`.
+Commit `e27d64c`.
+
+### Fixed — MCP/agent: log validation-error tool returns at warn level (April 28)
+
+MCP tools follow the convention of returning `{ error, code? }` for
+validation failures rather than throwing — the caller gets a
+structured error in the tool result, not a transport-level failure.
+The `runTool()` / agent-execute wrappers used to log every call as
+info regardless, which silenced ~345 validation-failure paths across
+13 domain files.
+
+Both wrappers now inspect the result: if it has an `error` property,
+log warn with the message + code + duration; otherwise log info.
+Centralized fix — no per-tool changes needed.
+
+Per the "every failure path must log" rule. Commit `3a7b8ad`.
+
+### Added — MCP: per-key `rateLimitTier` — INTERNAL bypasses 100/hr cap (April 28)
+
+Wave-3 verification scenarios + trusted internal automation were
+hitting the global 100/hr MCP rate limit. Added a per-key tier
+(`NORMAL` / `INTERNAL`) on `ApiKey`, SUPER_ADMIN-only to issue
+INTERNAL, every internal-key request logs `mcp:internal-key-used`
+so a leaked key surfaces in `/logs`.
+
+- Migration `20260427120000_add_apikey_rate_limit_tier` adds the
+  `ApiKeyRateLimitTier` enum + column (additive, no backfill)
+- `validateApiKey()` now returns `{ organizationId, rateLimitTier }`
+- UI: SUPER_ADMIN-only Switch in the API key creation dialog inside
+  an amber-bordered warning panel + INTERNAL badge in the keys table
+- 13 new test cases / 21 individual checks (validator propagation +
+  POST RBAC matrix). Suite 1098 → 1111
+
+OAuth tokens were originally hard-coded as NORMAL — superseded by
+the per-client tier landed alongside in commit `e27d64c`. Commit
+`de6c702`.
+
+### Added — Responsive email header/footer images + Tiptap → Media Library picker (April 28)
+
+Three gaps closed in one round:
+
+**1. `Event.emailFooterImage` field** parallel to the existing
+`emailHeaderImage` — organizer can now set a logo image at the very
+bottom of every email next to the existing footer-text block.
+Rendered between body and footer-text in source order. Migration
+`20260428000000_add_event_email_footer_image` (additive). Settings
+UI gets a new field next to the header image.
+
+**2. Outlook-friendly attribute set** for header + footer +
+Tiptap-inserted body images:
+
+- `width="600"` HTML attribute (Outlook desktop reads this when CSS
+  is ignored)
+- `border="0"` (suppresses Outlook's blue link border)
+- CSS `width: 100%; max-width: 600px; height: auto` (responsive on
+  Apple Mail / Gmail / modern Outlook web)
+- `align="center"` on parent `<td>` so Outlook doesn't float images
+  left
+
+New helper `responsiveImageBlock(src, alt)` generates the canonical
+block; new `normalizeBodyImages(html)` regex pass rewrites every
+`<img>` in the Tiptap body to the same attribute set, idempotent —
+overwrites any organizer-set width that would overflow the 600px
+body.
+
+**3. Tiptap "Insert Image" → Media Library picker** — replaced
+`window.prompt("Enter image URL:")` with a proper picker dialog
+(`src/components/media/media-picker-dialog.tsx`, ~150 LOC) wrapping
+the existing org-scoped `/api/media` GET + POST — magic-byte
+validation, 2MB cap, auto-selects newly uploaded files. Dropped
+`allowBase64: true` from the Image extension config to eliminate the
+data-URI clip risk (Gmail clips above 102KB).
+
+13 new tests in `__tests__/lib/email-responsive.test.ts` covering the
+responsive attribute set, idempotency, footer-image source order,
+attribute preservation. Commit `0b0a36a`.
+
 ### Fixed — Quote/Invoice download UX + Sentry diagnostic context (April 27)
 
 Three bundled fixes for the registration → quote → payment → invoice
