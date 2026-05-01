@@ -33,3 +33,12 @@ export function userFor(role: SeedRole) {
   if (!found) throw new Error(`Unknown seed role: ${role}`);
   return found;
 }
+
+// ── Docs-only fixtures (used by the screenshot seed, not the regression e2e seed)
+export const DOCS_SESSION_ID = "e2e-session-keynote";
+export const DOCS_TRACK_ID = "e2e-track-clinical";
+export const DOCS_ABSTRACT_ID = "e2e-abstract-1";
+export const DOCS_HOTEL_ID = "e2e-hotel-marriott";
+export const DOCS_ROOM_TYPE_ID = "e2e-room-deluxe";
+export const DOCS_WEBINAR_EVENT_ID = "e2e-webinar-event";
+export const DOCS_WEBINAR_SLUG = "e2e-webinar";

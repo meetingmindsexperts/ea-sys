@@ -42,7 +42,7 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   retries: 0,
   reporter: [["list"]],
-  globalSetup: "./e2e/global-setup.ts",
+  globalSetup: "./e2e/global-setup-docs.ts",
   use: {
     baseURL,
     viewport: { width: 1440, height: 900 },
