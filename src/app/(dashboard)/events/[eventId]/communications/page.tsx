@@ -52,6 +52,9 @@ interface RegistrationItem {
 interface SpeakerItem {
   status: string;
   email?: string;
+  agreementAcceptedAt: string | null;
+  _count?: { sessions: number };
+  sessions?: Array<{ role: string }>;
 }
 
 interface AbstractItem {
@@ -97,6 +100,10 @@ export default function CommunicationsPage() {
   const [regPaymentFilter, setRegPaymentFilter] = useState("all");
   const [regTypeFilter, setRegTypeFilter] = useState("all");
   const [speakerStatusFilter, setSpeakerStatusFilter] = useState("all");
+  // Tier-1 speaker filters
+  const [speakerAgreementFilter, setSpeakerAgreementFilter] = useState("all");
+  const [speakerHasSessionFilter, setSpeakerHasSessionFilter] = useState("all");
+  const [speakerRoleFilter, setSpeakerRoleFilter] = useState("all");
 
   // Bulk email dialog state
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -104,6 +111,9 @@ export default function CommunicationsPage() {
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | undefined>();
   const [activePaymentStatusFilter, setActivePaymentStatusFilter] = useState<string | undefined>();
   const [activeTicketTypeFilter, setActiveTicketTypeFilter] = useState<string | undefined>();
+  const [activeAgreementSignedFilter, setActiveAgreementSignedFilter] = useState<string | undefined>();
+  const [activeHasSessionFilter, setActiveHasSessionFilter] = useState<string | undefined>();
+  const [activeSessionRoleFilter, setActiveSessionRoleFilter] = useState<string | undefined>();
 
   // Computed counts
   const paidRegistrations = registrations.filter(
@@ -122,6 +132,15 @@ export default function CommunicationsPage() {
 
   const filteredSpeakers = speakers.filter((s) => {
     if (speakerStatusFilter !== "all" && s.status !== speakerStatusFilter) return false;
+    if (speakerAgreementFilter === "signed" && !s.agreementAcceptedAt) return false;
+    if (speakerAgreementFilter === "unsigned" && s.agreementAcceptedAt) return false;
+    const sessionCount = s._count?.sessions ?? s.sessions?.length ?? 0;
+    if (speakerHasSessionFilter === "yes" && sessionCount === 0) return false;
+    if (speakerHasSessionFilter === "no" && sessionCount > 0) return false;
+    if (speakerRoleFilter !== "all") {
+      const roles = s.sessions?.map((sx) => sx.role) ?? [];
+      if (!roles.includes(speakerRoleFilter)) return false;
+    }
     return true;
   });
 
@@ -162,16 +181,31 @@ export default function CommunicationsPage() {
       setActiveTicketTypeFilter(
         regTypeFilter !== "all" ? regTypeFilter : undefined
       );
+      setActiveAgreementSignedFilter(undefined);
+      setActiveHasSessionFilter(undefined);
+      setActiveSessionRoleFilter(undefined);
     } else if (audience === "speakers") {
       setActiveStatusFilter(
         speakerStatusFilter !== "all" ? speakerStatusFilter : undefined
       );
       setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
+      setActiveAgreementSignedFilter(
+        speakerAgreementFilter !== "all" ? speakerAgreementFilter : undefined
+      );
+      setActiveHasSessionFilter(
+        speakerHasSessionFilter !== "all" ? speakerHasSessionFilter : undefined
+      );
+      setActiveSessionRoleFilter(
+        speakerRoleFilter !== "all" ? speakerRoleFilter : undefined
+      );
     } else {
       setActiveStatusFilter(undefined);
       setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
+      setActiveAgreementSignedFilter(undefined);
+      setActiveHasSessionFilter(undefined);
+      setActiveSessionRoleFilter(undefined);
     }
     setEmailDialogOpen(true);
   }
@@ -356,32 +390,91 @@ export default function CommunicationsPage() {
               Speakers
             </CardTitle>
             <CardDescription>
-              Send invitations, agreements, or custom emails to speakers.
+              Send invitations, agreements, or custom emails to speakers. Filter by status, agreement signed, session assignment, or session role.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Speaker Status</label>
-              <Select value={speakerStatusFilter} onValueChange={setSpeakerStatusFilter}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All ({speakers.length})</SelectItem>
-                  <SelectItem value="INVITED">
-                    Invited ({speakers.filter((s) => s.status === "INVITED").length})
-                  </SelectItem>
-                  <SelectItem value="CONFIRMED">
-                    Confirmed ({speakers.filter((s) => s.status === "CONFIRMED").length})
-                  </SelectItem>
-                  <SelectItem value="DECLINED">
-                    Declined ({speakers.filter((s) => s.status === "DECLINED").length})
-                  </SelectItem>
-                  <SelectItem value="CANCELLED">
-                    Cancelled ({speakers.filter((s) => s.status === "CANCELLED").length})
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Speaker Status</label>
+                <Select value={speakerStatusFilter} onValueChange={setSpeakerStatusFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All ({speakers.length})</SelectItem>
+                    <SelectItem value="INVITED">
+                      Invited ({speakers.filter((s) => s.status === "INVITED").length})
+                    </SelectItem>
+                    <SelectItem value="CONFIRMED">
+                      Confirmed ({speakers.filter((s) => s.status === "CONFIRMED").length})
+                    </SelectItem>
+                    <SelectItem value="DECLINED">
+                      Declined ({speakers.filter((s) => s.status === "DECLINED").length})
+                    </SelectItem>
+                    <SelectItem value="CANCELLED">
+                      Cancelled ({speakers.filter((s) => s.status === "CANCELLED").length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Agreement</label>
+                <Select value={speakerAgreementFilter} onValueChange={setSpeakerAgreementFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All ({speakers.length})</SelectItem>
+                    <SelectItem value="signed">
+                      Signed ({speakers.filter((s) => s.agreementAcceptedAt).length})
+                    </SelectItem>
+                    <SelectItem value="unsigned">
+                      Unsigned ({speakers.filter((s) => !s.agreementAcceptedAt).length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Has Session</label>
+                <Select value={speakerHasSessionFilter} onValueChange={setSpeakerHasSessionFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All ({speakers.length})</SelectItem>
+                    <SelectItem value="yes">
+                      Has Session ({speakers.filter((s) => (s._count?.sessions ?? s.sessions?.length ?? 0) > 0).length})
+                    </SelectItem>
+                    <SelectItem value="no">
+                      No Session ({speakers.filter((s) => (s._count?.sessions ?? s.sessions?.length ?? 0) === 0).length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Session Role</label>
+                <Select value={speakerRoleFilter} onValueChange={setSpeakerRoleFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Roles</SelectItem>
+                    <SelectItem value="SPEAKER">
+                      Speaker ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "SPEAKER")).length})
+                    </SelectItem>
+                    <SelectItem value="MODERATOR">
+                      Moderator ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "MODERATOR")).length})
+                    </SelectItem>
+                    <SelectItem value="CHAIRPERSON">
+                      Chairperson ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "CHAIRPERSON")).length})
+                    </SelectItem>
+                    <SelectItem value="PANELIST">
+                      Panelist ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "PANELIST")).length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-sm font-medium">
@@ -485,6 +578,9 @@ export default function CommunicationsPage() {
         statusFilter={activeStatusFilter}
         paymentStatusFilter={activePaymentStatusFilter}
         ticketTypeFilter={activeTicketTypeFilter}
+        agreementSignedFilter={activeAgreementSignedFilter}
+        hasSessionFilter={activeHasSessionFilter}
+        sessionRoleFilter={activeSessionRoleFilter}
       />
     </div>
   );

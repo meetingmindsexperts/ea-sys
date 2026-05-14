@@ -6,6 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Communications filters expansion (May 14)
+
+The Communications page filter surfaces were below parity with what
+the registrations list page and the bulk-email backend already
+supported. Two-part fix targeting the **Registrations** and
+**Speakers** audience cards.
+
+**Registrations card** — 2 filters → 3.
+
+- Added **Registration Status** dropdown (All / Pending /
+  Confirmed / Checked In / Cancelled, with live counts) alongside
+  the existing Payment Status + Registration Type. Backend already
+  accepted `filters.status` (used today only when the dialog was
+  launched from the Speakers card) — this is a pure UI wiring fix
+  bringing the Communications card to parity with the registrations
+  list page.
+
+**Speakers card** — 1 filter → 4.
+
+Three new dimensions, all three-state dropdowns with live counts:
+
+- **Agreement** — All / Signed / Unsigned. Drives the canonical
+  "send the agreement to everyone who hasn't signed yet" workflow.
+  Mirrors the existing MCP `list_speaker_agreements` filter.
+- **Has Session** — All / Has Session / No Session. Separates
+  active faculty (presentation guidelines, AV setup) from backup
+  invitees.
+- **Session Role** — All / Speaker / Moderator / Chairperson /
+  Panelist. Targets role-specific briefings in a single bulk send
+  instead of four manual ones. `sessionRole` implies "has session"
+  naturally (same SessionSpeaker join), so the filters combine
+  freely without conditional UI.
+
+Backend [src/lib/bulk-email.ts](src/lib/bulk-email.ts) gains three
+optional fields on `BulkEmailFilters` (`agreementSigned`,
+`hasSession`, `sessionRole`) + matching Zod schema entries. Speakers
+`where` extension uses `agreementAcceptedAt: null` / `{ not: null }`
+and `sessions: { some/none: ... }` clauses.
+[src/app/api/events/[eventId]/speakers/route.ts](src/app/api/events/%5BeventId%5D/speakers/route.ts)
+adds `sessions: { select: { role: true } }` to the existing include
+so the page filter counts stay accurate client-side (reuses the
+same SessionSpeaker join Prisma was already doing for `_count`).
+
+[src/components/bulk-email-dialog.tsx](src/components/bulk-email-dialog.tsx)
+gains three optional pass-through props
+(`agreementSignedFilter`/`hasSessionFilter`/`sessionRoleFilter`)
+threaded into the POST `filters` payload (speakers-recipient only),
+plus three recap lines in the dialog's "Filtered by …" summary so
+the organizer sees what's about to be sent before confirming.
+
+No in-dialog re-select dropdowns for the new filters — kept
+consistent with `statusFilter` pass-through (only `paymentStatus`
+has a dialog-level re-select today, added for a specific workflow).
+Organizer refines on the page. **Deferred to follow-up rounds**:
+MCP `list_speakers` parameter parity, Tier 2 dimensions
+(country / specialty / track), Tier 3 (has-accommodation /
+has-account), saved segments, recipient preview list.
+
+User-visible: on `/events/[eventId]/communications` the Registrations
+card now has a third dropdown, the Speakers card has a 2×2 grid of
+four. Organizers can target e.g. *"Checked In + Paid"*,
+*"Confirmed + Unsigned"* to chase missing agreements, or
+*"Has Session + Moderator"* to brief chairs only.
+
 ### Added — Pricing tier visibility (May 14)
 
 Reporting gap: `Registration.pricingTierId` was captured on public

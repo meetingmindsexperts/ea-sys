@@ -1,4 +1,4 @@
-import { PaymentStatus, RegistrationStatus, SpeakerStatus } from "@prisma/client";
+import { PaymentStatus, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
 import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
@@ -70,6 +70,25 @@ export interface BulkEmailFilters {
    */
   paymentStatus?: string;
   ticketTypeId?: string;
+  /**
+   * Speakers recipient only — filter on signed agreement state.
+   *   "signed"   → `Speaker.agreementAcceptedAt IS NOT NULL`
+   *   "unsigned" → `Speaker.agreementAcceptedAt IS NULL`
+   */
+  agreementSigned?: "signed" | "unsigned";
+  /**
+   * Speakers recipient only — filter on whether the speaker is assigned
+   * to at least one EventSession via SessionSpeaker.
+   *   "yes" → has at least one session
+   *   "no"  → has no sessions
+   */
+  hasSession?: "yes" | "no";
+  /**
+   * Speakers recipient only — SessionRole filter
+   * (SPEAKER/MODERATOR/CHAIRPERSON/PANELIST). Setting this implies the
+   * speaker has at least one session in that role.
+   */
+  sessionRole?: SessionRole;
 }
 
 export interface BulkEmailInput {
@@ -141,6 +160,9 @@ export const bulkEmailSchema = z.object({
       status: z.string().max(50).optional(),
       paymentStatus: z.string().max(50).optional(),
       ticketTypeId: z.string().max(100).optional(),
+      agreementSigned: z.enum(["signed", "unsigned"]).optional(),
+      hasSession: z.enum(["yes", "no"]).optional(),
+      sessionRole: z.nativeEnum(SessionRole).optional(),
     })
     .optional(),
 });
@@ -287,11 +309,30 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   } else if (recipientType === "speakers") {
     const parsedStatus = filters?.status ? speakerStatusSchema.safeParse(filters.status) : null;
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
+    // Tier-1 speaker filters: agreementSigned / hasSession / sessionRole.
+    // sessionRole implies hasSession=yes naturally (the SessionSpeaker
+    // join is required for either) so we let them combine without a
+    // dedicated conflict check — Prisma ANDs them.
+    const agreementWhere =
+      filters?.agreementSigned === "signed"
+        ? { agreementAcceptedAt: { not: null } }
+        : filters?.agreementSigned === "unsigned"
+          ? { agreementAcceptedAt: null }
+          : {};
+    const sessionWhere = filters?.sessionRole
+      ? { sessions: { some: { role: filters.sessionRole } } }
+      : filters?.hasSession === "yes"
+        ? { sessions: { some: {} } }
+        : filters?.hasSession === "no"
+          ? { sessions: { none: {} } }
+          : {};
     const speakers = await db.speaker.findMany({
       where: {
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
+        ...agreementWhere,
+        ...sessionWhere,
       },
       select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true },
     });

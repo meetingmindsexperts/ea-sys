@@ -100,6 +100,13 @@ export async function GET(req: Request, { params }: RouteParams) {
               abstracts: true,
             },
           },
+          // Selecting `role` enables the Communications page to filter
+          // speakers by SessionRole client-side, keeping the recipient
+          // count consistent with the server-side filter applied at
+          // bulk-email time.
+          sessions: {
+            select: { role: true },
+          },
           abstracts: {
             select: {
               id: true,

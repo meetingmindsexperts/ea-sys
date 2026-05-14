@@ -50,6 +50,15 @@ interface BulkEmailDialogProps {
    */
   paymentStatusFilter?: string;
   ticketTypeFilter?: string;
+  /**
+   * Tier-1 speaker filters (speakers recipient only). Passed through to
+   * the bulk-email `filters` payload — backend applies them to the
+   * Speaker `where`. No in-dialog re-select control for now (consistent
+   * with `statusFilter` pass-through pattern).
+   */
+  agreementSignedFilter?: string;
+  hasSessionFilter?: string;
+  sessionRoleFilter?: string;
 }
 
 const speakerEmailTypes: EmailTypeOption[] = [
@@ -155,6 +164,9 @@ export function BulkEmailDialog({
   statusFilter,
   paymentStatusFilter,
   ticketTypeFilter,
+  agreementSignedFilter,
+  hasSessionFilter,
+  sessionRoleFilter,
 }: BulkEmailDialogProps) {
   const [emailType, setEmailType] = useState<string>(getDefaultEmailType(recipientType));
   const [customSubject, setCustomSubject] = useState("");
@@ -283,6 +295,16 @@ export function BulkEmailDialog({
           ? { paymentStatus: localPaymentFilter }
           : {}),
         ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
+        // Tier-1 speaker filters (speakers recipient only).
+        ...(recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all"
+          ? { agreementSigned: agreementSignedFilter }
+          : {}),
+        ...(recipientType === "speakers" && hasSessionFilter && hasSessionFilter !== "all"
+          ? { hasSession: hasSessionFilter }
+          : {}),
+        ...(recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all"
+          ? { sessionRole: sessionRoleFilter }
+          : {}),
       },
     };
 
@@ -499,6 +521,17 @@ export function BulkEmailDialog({
             )}
             {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by payment: {localPaymentFilter}</p>
+            )}
+            {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
+              <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>
+            )}
+            {recipientType === "speakers" && hasSessionFilter && hasSessionFilter !== "all" && (
+              <p className="text-muted-foreground">
+                Filtered by sessions: {hasSessionFilter === "yes" ? "Has session" : "No session"}
+              </p>
+            )}
+            {recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all" && (
+              <p className="text-muted-foreground">Filtered by session role: {sessionRoleFilter}</p>
             )}
           </div>
 
