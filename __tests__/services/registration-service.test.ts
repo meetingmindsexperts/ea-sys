@@ -571,6 +571,28 @@ describe("createRegistration — domain errors", () => {
     if (!result.ok) expect(result.code).toBe("PRICING_TIER_NOT_FOUND");
   });
 
+  it("happy path: valid pricingTierId persists on the registration", async () => {
+    mockDb.pricingTier.findFirst.mockResolvedValue({ id: "pt-early" });
+    mockDb.registration.create.mockResolvedValueOnce({
+      ...CREATED_REGISTRATION_PAID,
+      pricingTierId: "pt-early",
+    });
+
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      pricingTierId: "pt-early",
+    });
+
+    expect(result.ok).toBe(true);
+    // Tier id flows into the Prisma create call so the dashboard
+    // "Registrations by Tier" aggregate can count it.
+    expect(mockDb.registration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pricingTierId: "pt-early" }),
+      }),
+    );
+  });
+
   it("ALREADY_REGISTERED when non-cancelled registration exists for this email", async () => {
     mockDb.registration.findFirst.mockResolvedValue({ id: "reg-existing" });
     const result = await createRegistration(BASE_INPUT);

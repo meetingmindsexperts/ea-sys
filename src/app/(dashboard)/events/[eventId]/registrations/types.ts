@@ -33,6 +33,17 @@ export interface PricingTier {
   currency: string;
 }
 
+export interface TicketTypePricingTier {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  isActive: boolean;
+  salesStart?: string | null;
+  salesEnd?: string | null;
+  sortOrder: number;
+}
+
 export interface TicketType {
   id: string;
   name: string;
@@ -40,6 +51,10 @@ export interface TicketType {
   currency: string;
   quantity: number;
   soldCount: number;
+  // /api/events/[eventId]/tickets returns the active pricing tiers nested
+  // under each ticket type so admin forms can render a tier picker without
+  // a second fetch. Tiers are ordered by sortOrder + createdAt.
+  pricingTiers?: TicketTypePricingTier[];
 }
 
 export interface Payment {

@@ -50,15 +50,26 @@ export default function NewRegistrationPage() {
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     ticketTypeId: string;
+    pricingTierId: string;
     paymentStatus: PaymentStatus;
     personData: PersonFormData;
     notes: string;
   }>({
     ticketTypeId: "",
+    pricingTierId: "",
     paymentStatus: PaymentStatus.UNASSIGNED,
     personData: initialPersonData,
     notes: "",
   });
+
+  // When the admin picks a ticket type, look up its active pricing tiers so
+  // the second Select can render. Tiers come pre-included on the
+  // /api/events/[id]/tickets response; no extra fetch needed.
+  const activeTiers = (() => {
+    if (!formData.ticketTypeId) return [];
+    const tt = (ticketTypes as TicketType[]).find((t) => t.id === formData.ticketTypeId);
+    return (tt?.pricingTiers ?? []).filter((t) => t.isActive);
+  })();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +82,13 @@ export default function NewRegistrationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ticketTypeId: formData.ticketTypeId || undefined,
+          // Only send pricingTierId when it matches the picked ticket type —
+          // a stale selection (admin changed ticket type after picking a
+          // tier) would otherwise fail server-side validation.
+          pricingTierId:
+            formData.pricingTierId && activeTiers.some((t) => t.id === formData.pricingTierId)
+              ? formData.pricingTierId
+              : undefined,
           paymentStatus: formData.paymentStatus,
           attendee: {
             email: formData.personData.email,
@@ -153,7 +171,13 @@ export default function NewRegistrationPage() {
                 <Label htmlFor="ticketType">Type</Label>
                 <Select
                   value={formData.ticketTypeId}
-                  onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value === "__none__" ? "" : value })}
+                  onValueChange={(value) => setFormData({
+                    ...formData,
+                    ticketTypeId: value === "__none__" ? "" : value,
+                    // Reset tier when ticket type changes — old tier likely
+                    // belongs to a different ticket type now.
+                    pricingTierId: "",
+                  })}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="No registration type (optional)" />
@@ -176,6 +200,36 @@ export default function NewRegistrationPage() {
                   Optional — leave empty to register without a type
                 </p>
               </div>
+              {/* Pricing tier — only rendered when the picked ticket type has
+                  active tiers (Early Bird / Standard / Onsite). Optional so
+                  legacy ticket types without tiers keep working. */}
+              {activeTiers.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="pricingTier">Pricing Tier</Label>
+                  <Select
+                    value={formData.pricingTierId}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      pricingTierId: value === "__none__" ? "" : value,
+                    })}
+                  >
+                    <SelectTrigger id="pricingTier" className="w-full">
+                      <SelectValue placeholder="Pick a tier (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {activeTiers.map((tier) => (
+                        <SelectItem key={tier.id} value={tier.id}>
+                          {tier.name} — {tier.currency} {tier.price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Tracks which pricing window this registration falls under (for finance reporting).
+                  </p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="paymentStatus">Payment Status</Label>
                 <Select

@@ -142,6 +142,7 @@ export default function RegistrationsPage() {
       "Specialty",
       "Tags",
       "Registration Type",
+      "Pricing Tier",
       "Status",
       "Payment Status",
       "DTCM Barcode",
@@ -169,6 +170,7 @@ export default function RegistrationsPage() {
       r.attendee.specialty || "",
       r.attendee.tags.join(", "),
       r.ticketType?.name ?? "",
+      r.pricingTier?.name ?? "",
       r.status,
       r.paymentStatus,
       r.dtcmBarcode || "",
@@ -542,6 +544,7 @@ export default function RegistrationsPage() {
                   <TableHead>Specialty</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Tier</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Registered</TableHead>
@@ -598,6 +601,15 @@ export default function RegistrationsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{registration.ticketType?.name ?? "—"}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {registration.pricingTier?.name ? (
+                        <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+                          {registration.pricingTier.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge className={REGISTRATION_STATUS_COLORS[registration.status]} variant="outline">

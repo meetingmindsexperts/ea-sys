@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Pricing tier visibility (May 14)
+
+Reporting gap: `Registration.pricingTierId` was captured on public
+Stripe-checkout registrations but the manual Add form never exposed
+a tier picker, so admin-added "Early Bird" registrations were
+tier-less. No dashboard, list, or CSV-export surface grouped by tier
+— finance had to correlate registration dates against tier sales
+windows by hand.
+
+**Triplet fix:**
+
+1. **REST POST Zod widened** to accept `pricingTierId`. Service
+   already returned `PRICING_TIER_NOT_FOUND` if the tier didn't
+   belong to the picked ticket type — only plumbing was missing.
+
+2. **Manual Add Registration form** renders a "Pricing Tier" Select
+   beneath the TicketType picker, only when the picked type has
+   active tiers (legacy types keep working). Tiers come from the
+   existing `/api/events/[id]/tickets` response — no extra fetch.
+   Tier resets when ticket type changes; client also guards the
+   POST body against stale selections.
+
+3. **Registrations list** gains a "Tier" column (amber badge, `—`
+   for tier-less rows). CSV export gains a "Pricing Tier" column.
+
+4. **Event dashboard tile "Registrations by Tier"**: groups by tier
+   *name* across all ticket types so "Early Bird = 87" reflects the
+   union of Physician + Student + Allied Health Early Bird rows.
+   Implemented as `groupBy({ by: ['pricingTierId'] })` + a follow-up
+   `pricingTier.findMany` to resolve names + sortOrder. Excludes
+   CANCELLED registrations + tier-less rows. Inline progress bars +
+   percentages. Try/catch isolates aggregate failures from the page.
+
+Follow-ups (deliberately deferred to keep scope tight):
+
+- Detail-sheet tier edit dropdown
+- MCP `create_registration` tool-definition exposing `pricingTierId`
+- CSV import `pricingTier` column (would mirror the sponsor
+  name-resolution pattern)
+
+1 new service test (happy-path tier persistence). Suite 1151 → 1152.
+
 ### Added — `PaymentStatus.INCLUSIVE` for sponsor-paid registrations (May 1)
 
 Organizer ask: when sponsors (Abbott, Pfizer, etc.) contract for N

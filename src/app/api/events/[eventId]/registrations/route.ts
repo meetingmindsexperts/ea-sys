@@ -47,6 +47,11 @@ const manualPaymentStatusSchema = z.enum([
 
 const createRegistrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100).optional(),
+  // Pricing tier within the chosen ticket type (e.g. Early Bird / Standard /
+  // Onsite). Service validates the tier belongs to the ticket type and
+  // returns PRICING_TIER_NOT_FOUND if not. Captures the data finance
+  // reports group by ("Early Bird across all categories").
+  pricingTierId: z.string().min(1).max(100).optional(),
   paymentStatus: manualPaymentStatusSchema.optional(),
   // Sponsor attribution — required when paymentStatus = INCLUSIVE,
   // optional otherwise. The service validates the id resolves against
@@ -250,13 +255,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId } = validated.data;
+    const { ticketTypeId, pricingTierId, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId } = validated.data;
 
     const result = await createRegistration({
       eventId,
       organizationId: session.user.organizationId!,
       userId: session.user.id,
       ticketTypeId,
+      pricingTierId,
       attendee,
       notes,
       paymentStatus: requestedPaymentStatus,

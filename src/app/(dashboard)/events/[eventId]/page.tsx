@@ -14,6 +14,7 @@ import {
   Building2,
   Settings,
   ArrowRight,
+  TrendingUp,
 } from "lucide-react";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
@@ -76,6 +77,59 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
+
+  // ── Registrations-by-Tier breakdown ─────────────────────────────────────────
+  // groupBy returns rows like { pricingTierId, _count: { _all: 42 } }. The
+  // second query resolves tier ids → names + sortOrder so the dashboard can
+  // group "Early Bird" across all ticket types (the Physician + Student
+  // tickets each have their own Early Bird row; admins want the union).
+  let tierBreakdown: Array<{ name: string; count: number; sortOrder: number }> = [];
+  if (!isRestricted && event._count.registrations > 0) {
+    try {
+      const grouped = await db.registration.groupBy({
+        by: ["pricingTierId"],
+        where: {
+          eventId,
+          status: { notIn: ["CANCELLED"] },
+          pricingTierId: { not: null },
+        },
+        _count: { _all: true },
+      });
+      const tierIds = grouped
+        .map((g) => g.pricingTierId)
+        .filter((x): x is string => !!x);
+      if (tierIds.length > 0) {
+        const tiers = await db.pricingTier.findMany({
+          where: { id: { in: tierIds } },
+          select: { id: true, name: true, sortOrder: true },
+        });
+        const tierMap = new Map(tiers.map((t) => [t.id, t]));
+        const byName = new Map<
+          string,
+          { name: string; count: number; sortOrder: number }
+        >();
+        for (const g of grouped) {
+          if (!g.pricingTierId) continue;
+          const t = tierMap.get(g.pricingTierId);
+          if (!t) continue;
+          const existing = byName.get(t.name);
+          if (existing) existing.count += g._count._all;
+          else byName.set(t.name, { name: t.name, count: g._count._all, sortOrder: t.sortOrder });
+        }
+        tierBreakdown = [...byName.values()].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+        );
+      }
+    } catch (err) {
+      // Reporting tile is non-essential — if the aggregate fails, log and
+      // render the dashboard without it rather than 500'ing the whole page.
+      apiLogger.error({
+        err,
+        msg: "Failed to compute tier breakdown for event dashboard",
+        eventId,
+      });
+    }
+  }
 
   const sc = statusConfig[event.status] ?? statusConfig.DRAFT;
   const location = [event.venue, event.city, event.country].filter(Boolean).join(", ");
@@ -223,7 +277,7 @@ export default async function EventPage({ params }: EventPageProps) {
       {/* ── Activity Feed + Registration Link ──────────────────────────────── */}
       {!isRestricted && (
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-          <div>
+          <div className="space-y-6">
             {event.slug && (
               <CopyLinkCard
                 label="Public Registration Link"
@@ -231,6 +285,59 @@ export default async function EventPage({ params }: EventPageProps) {
                 slug={event.slug}
                 path="register"
               />
+            )}
+            {/* Registrations by Pricing Tier — finance-reporting tile. Only
+                rendered when at least one tier-tagged registration exists,
+                so events without pricing tiers don't see a confusing empty
+                card. Groups by tier NAME across all ticket types so
+                "Early Bird = 87" reflects the union of Physician + Student
+                + Allied Health rows. */}
+            {tierBreakdown.length > 0 && (
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300 flex items-center justify-center">
+                        <TrendingUp className="h-4 w-4" />
+                      </div>
+                      <h3 className="font-medium text-sm">Registrations by Tier</h3>
+                    </div>
+                    <Link
+                      href={`/events/${eventId}/registrations`}
+                      className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline"
+                    >
+                      View all <ArrowRight className="h-3 w-3" />
+                    </Link>
+                  </div>
+                  <div className="space-y-2.5">
+                    {(() => {
+                      const total = tierBreakdown.reduce((s, t) => s + t.count, 0);
+                      return tierBreakdown.map((t) => {
+                        const pct = total > 0 ? Math.round((t.count / total) * 100) : 0;
+                        return (
+                          <div key={t.name} className="space-y-1">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium">{t.name}</span>
+                              <span className="tabular-nums text-muted-foreground">
+                                {t.count} <span className="text-xs">({pct}%)</span>
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-amber-100 overflow-hidden">
+                              <div
+                                className="h-full bg-amber-500"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+                    Excludes cancelled registrations and rows without a pricing tier.
+                  </p>
+                </CardContent>
+              </Card>
             )}
           </div>
           <Card>
