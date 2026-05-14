@@ -97,6 +97,15 @@ const PAID_EVENT = {
   bankDetails: "Bank A details",
   supportEmail: "support@example.com",
   organizationId: "org-1",
+  // Settings include a sponsor list so INCLUSIVE tests have a valid id to
+  // reference. `readSponsors()` filters by shape so the array entry must
+  // have id + name + sortOrder.
+  settings: {
+    sponsors: [
+      { id: "sp-abbott", name: "Abbott", sortOrder: 0 },
+      { id: "sp-pfizer", name: "Pfizer", sortOrder: 1 },
+    ],
+  },
   organization: {
     name: "Test Org",
     companyName: "Test Co Ltd",
@@ -635,5 +644,100 @@ describe("createRegistration — side-effect isolation", () => {
     mockSendConfirmation.mockRejectedValue(new Error("Brevo down"));
     const result = await createRegistration(BASE_INPUT);
     expect(result.ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PaymentStatus.INCLUSIVE — sponsor-paid registrations
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("createRegistration — INCLUSIVE sponsor attribution", () => {
+  it("rejects INCLUSIVE when sponsorId is missing", async () => {
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      paymentStatus: "INCLUSIVE",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INCLUSIVE_REQUIRES_SPONSOR");
+      expect(result.message).toContain("sponsorId");
+    }
+    // Service rejects before the tx — no attendee created.
+    expect(mockDb.attendee.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects sponsorId that doesn't match any entry in Event.settings.sponsors[]", async () => {
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      paymentStatus: "INCLUSIVE",
+      sponsorId: "sp-does-not-exist",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("SPONSOR_NOT_FOUND");
+      // The meta surfaces available sponsors so Claude can self-correct.
+      expect(result.meta?.availableSponsors).toEqual([
+        { id: "sp-abbott", name: "Abbott" },
+        { id: "sp-pfizer", name: "Pfizer" },
+      ]);
+    }
+    expect(mockDb.attendee.create).not.toHaveBeenCalled();
+  });
+
+  it("happy path: INCLUSIVE + valid sponsorId persists sponsorId + skips confirmation email", async () => {
+    mockDb.registration.create.mockResolvedValueOnce({
+      ...CREATED_REGISTRATION_PAID,
+      paymentStatus: "INCLUSIVE",
+      sponsorId: "sp-abbott",
+    });
+
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      paymentStatus: "INCLUSIVE",
+      sponsorId: "sp-abbott",
+    });
+
+    expect(result.ok).toBe(true);
+    // Registration created with sponsorId in the data payload.
+    expect(mockDb.registration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          paymentStatus: "INCLUSIVE",
+          sponsorId: "sp-abbott",
+        }),
+      }),
+    );
+    // INCLUSIVE is NOT in OUTSTANDING_PAYMENT_STATUSES — no email.
+    expect(mockSendConfirmation).not.toHaveBeenCalled();
+    // Audit log carries the sponsor attribution.
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          changes: expect.objectContaining({ sponsorId: "sp-abbott" }),
+        }),
+      }),
+    );
+  });
+
+  it("rejects a stray sponsorId against an unknown sponsor even for non-INCLUSIVE rows", async () => {
+    // Defensive: catch typos before they get persisted, regardless of
+    // payment status. Keeps the registration table's sponsorId column
+    // from accumulating orphan ids.
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      sponsorId: "sp-does-not-exist",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("SPONSOR_NOT_FOUND");
+  });
+
+  it("non-INCLUSIVE registrations may omit sponsorId (default path unaffected)", async () => {
+    const result = await createRegistration(BASE_INPUT);
+    expect(result.ok).toBe(true);
+    expect(mockDb.registration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ sponsorId: null }),
+      }),
+    );
   });
 });

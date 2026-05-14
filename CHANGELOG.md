@@ -6,6 +6,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — `PaymentStatus.INCLUSIVE` for sponsor-paid registrations (May 1)
+
+Organizer ask: when sponsors (Abbott, Pfizer, etc.) contract for N
+attendees and pay an offline lump sum, those registrations need a
+status that says "no money due from this attendee" while remaining
+distinguishable from regular COMPLIMENTARY (VIP / speaker / no-charge).
+
+**Schema** — pure-additive migration
+`20260501000000_add_inclusive_payment_status_and_sponsor_id`:
+- New `PaymentStatus.INCLUSIVE` enum value
+- New `Registration.sponsorId String?` referencing an entry in
+  `Event.settings.sponsors[]` (the existing JSON store — no new
+  Prisma table needed)
+- Indexed for sponsor-rollup queries
+
+**Service layer** owns the validation:
+- `INCLUSIVE_REQUIRES_SPONSOR` returned when `paymentStatus = INCLUSIVE`
+  and no `sponsorId` is supplied
+- `SPONSOR_NOT_FOUND` returned when the sponsorId doesn't resolve
+  against the event's sponsor list. `meta.availableSponsors` carries
+  the valid `(id, name)` pairs so callers can self-correct
+- INCLUSIVE added to `MANUAL_PAYMENT_STATUSES`
+- INCLUSIVE intentionally NOT added to `OUTSTANDING_PAYMENT_STATUSES`
+  — confirmation email + quote PDF are skipped naturally (attendee
+  owes nothing)
+- `sponsorId` preserved on status flips away from INCLUSIVE — the
+  historical attribution survives a revert; explicit
+  `sponsorId: null` is the only way to clear
+
+**REST PUT route** computes effective `(paymentStatus, sponsorId)`
+after applying the patch and rejects invalid combinations before the
+transaction so soldCount deltas don't roll back. Event lookup
+expanded to include `settings` for in-memory resolution.
+
+**MCP tools** — `create_registration` + `update_registration` both
+accept `sponsorId`; tool definitions list the field with a
+description pointing at `list_sponsors` so Claude knows where to
+find ids. Package bumped 0.3.4 → 0.3.5 as the MCP client
+cache-invalidation hint.
+
+**CSV import** gains three optional columns:
+- `registrationStatus` — whitelist: PENDING / CONFIRMED / WAITLISTED /
+  CANCELLED
+- `paymentStatus` — whitelist: UNASSIGNED / UNPAID / PAID /
+  COMPLIMENTARY / INCLUSIVE
+- `sponsor` — **resolved by name** (case-insensitive,
+  whitespace-trimmed). Ambiguous matches (two sponsors with the
+  same name) are rejected with a row-level error rather than
+  silently picking one. Required only when `paymentStatus = INCLUSIVE`
+
+All three columns default to today's behavior when absent — existing
+CSV templates keep working unchanged.
+
+**Detail sheet UI** — payment-status dropdown gains "Inclusive" (violet
+badge, distinct from cyan COMPLIMENTARY); selecting it without a
+sponsor first triggers a client-side toast (avoids a 400 round-trip).
+A sponsor-picker Select appears in the edit area when the row is
+INCLUSIVE, populated from `useSponsors(eventId)`. The Payment Summary
+card renders a violet "Sponsored by: Abbott" pill whenever sponsorId
+is set — even if status is no longer INCLUSIVE.
+
+**Workflow prerequisite**: organizer must add the sponsor on
+`/events/[id]/sponsors` *before* tagging registrations. Empty-state
+UI surfaces a hint with a deep link.
+
+5 new tests in `__tests__/services/registration-service.test.ts`:
+INCLUSIVE without sponsorId → 400, INCLUSIVE with bad sponsorId → 400
+with availableSponsors, happy path persists + skips email + audits,
+sponsorId orphan rejection on non-INCLUSIVE rows, default path
+unaffected. Suite 1146 → 1151.
+
 ### Added — Manual payment capture for onsite/offline scenarios (April 29)
 
 Admin-driven payment recording flow that bypasses Stripe — for onsite

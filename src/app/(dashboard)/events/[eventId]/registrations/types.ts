@@ -88,6 +88,10 @@ export interface Registration {
   serialId: number | null;
   status: RegistrationStatus;
   paymentStatus: PaymentStatus;
+  // Sponsor attribution — set when paymentStatus = INCLUSIVE. References
+  // an entry in Event.settings.sponsors[].id (JSON, not a foreign-key
+  // relation).
+  sponsorId: string | null;
   qrCode: string | null;
   dtcmBarcode: string | null;
   badgeType: string | null;

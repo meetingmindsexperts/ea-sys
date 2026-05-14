@@ -26,8 +26,10 @@ const ENTITY_CONFIG = {
   registrations: {
     label: "Registrations",
     required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId"],
-    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", ""],
+    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId", "registrationStatus", "paymentStatus", "sponsor"],
+    // Sample shows a sponsor-paid row: paymentStatus=INCLUSIVE + sponsor
+    // name (must already exist on the event's Sponsors page).
+    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", "", "CONFIRMED", "INCLUSIVE", "Abbott"],
   },
   speakers: {
     label: "Speakers",
@@ -140,7 +142,14 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
               <> Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00Z). Separate multiple speaker emails with semicolons.</>
             )}
             {entityType === "registrations" && (
-              <> Separate multiple tags with commas inside the tags field.</>
+              <>
+                {" "}Separate multiple tags with commas inside the tags field.
+                Optional <code>registrationStatus</code> + <code>paymentStatus</code>{" "}
+                + <code>sponsor</code> columns override the defaults; use{" "}
+                <code>paymentStatus=INCLUSIVE</code> with a sponsor name for
+                sponsor-paid attendees (the sponsor must already exist on the
+                event&#39;s Sponsors page).
+              </>
             )}
           </DialogDescription>
         </DialogHeader>

@@ -329,10 +329,12 @@ export function registerAllMcpTools(
       sessionId: z.string(), title: z.string(), duration: z.number().optional(), speakerIds: z.array(z.string()).optional(),
     }},
     { name: "create_ticket_type", description: "Create a registration type.", params: { name: z.string(), description: z.string().optional() }},
-    { name: "create_registration", description: "Register an attendee.", params: {
+    { name: "create_registration", description: "Register an attendee. For sponsor-paid attendees set paymentStatus='INCLUSIVE' and pass sponsorId (use list_sponsors to discover ids).", params: {
       email: z.string(), firstName: z.string(), lastName: z.string(), ticketTypeId: z.string(),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
+      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional(),
+      sponsorId: z.string().optional().describe("Sponsor id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE."),
     }},
     { name: "send_bulk_email", description: "Email speakers or registrations. Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
       recipientType: z.enum(["speakers", "registrations"]), emailType: z.string(),
@@ -429,6 +431,7 @@ export function registerAllMcpTools(
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.nativeEnum(RegistrationStatus).optional(),
       paymentStatus: z.nativeEnum(PaymentStatus).optional(),
+      sponsorId: z.string().nullable().optional().describe("Sponsor attribution id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE. Pass null to clear an existing attribution. Use list_sponsors to discover ids."),
       ticketTypeId: z.string().optional(),
       badgeType: z.string().nullable().optional(),
       dtcmBarcode: z.string().nullable().optional(),

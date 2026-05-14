@@ -13,6 +13,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
+import { readSponsors } from "@/lib/webinar";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -25,6 +26,11 @@ const updateRegistrationSchema = z.object({
   ...optimisticLockField,
   status: z.nativeEnum(RegistrationStatus).optional(),
   paymentStatus: z.nativeEnum(PaymentStatus).optional(),
+  // Sponsor attribution. When paymentStatus is being set to INCLUSIVE,
+  // sponsorId must accompany it (validated below). Setting to null clears
+  // the existing attribution. Leaving undefined leaves the existing value
+  // untouched.
+  sponsorId: z.string().min(1).max(100).optional().nullable(),
   badgeType: z.string().max(50).optional().nullable(),
   dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
@@ -143,11 +149,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    // Parallelize event access check + registration lookup
+    // Parallelize event access check + registration lookup. `settings` is
+    // included on the event so sponsorId can be validated against
+    // Event.settings.sponsors[] without a second round-trip.
     const [event, existingRegistration] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true },
+        select: { id: true, settings: true },
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
@@ -197,6 +205,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const {
       status,
       paymentStatus,
+      sponsorId,
       badgeType,
       dtcmBarcode,
       ticketTypeId,
@@ -213,6 +222,51 @@ export async function PUT(req: Request, { params }: RouteParams) {
       billingZipCode,
       billingCountry,
     } = validated.data;
+
+    // Sponsor validation. Compute effective values (request override falls
+    // back to existing). Per the "don't auto-clear" decision, sponsorId is
+    // only cleared when the caller explicitly passes null; flipping
+    // paymentStatus away from INCLUSIVE preserves the attribution so it
+    // survives a revert.
+    const effectivePaymentStatus = paymentStatus ?? existingRegistration.paymentStatus;
+    const effectiveSponsorId =
+      sponsorId === undefined ? existingRegistration.sponsorId : sponsorId;
+
+    if (effectivePaymentStatus === PaymentStatus.INCLUSIVE && !effectiveSponsorId) {
+      apiLogger.warn({
+        msg: "registration-update:inclusive-requires-sponsor",
+        registrationId,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "paymentStatus=INCLUSIVE requires a sponsorId. Add the sponsor to the event's Sponsors page first, then reference its id.",
+          code: "INCLUSIVE_REQUIRES_SPONSOR",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (effectiveSponsorId) {
+      const sponsors = readSponsors(event.settings);
+      const match = sponsors.find((s) => s.id === effectiveSponsorId);
+      if (!match) {
+        apiLogger.warn({
+          msg: "registration-update:sponsor-not-found",
+          registrationId,
+          sponsorId: effectiveSponsorId,
+        });
+        return NextResponse.json(
+          {
+            error: `Sponsor ${effectiveSponsorId} not found in event's sponsor list.`,
+            code: "SPONSOR_NOT_FOUND",
+            availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })),
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     // Validate studentIdExpiry date format if provided
     if (attendee?.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
@@ -340,6 +394,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const changeData = {
         ...(status && { status }),
         ...(paymentStatus && { paymentStatus }),
+        ...(sponsorId !== undefined && { sponsorId }),
         ...(badgeType !== undefined && { badgeType }),
         ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),

@@ -25,6 +25,8 @@ const HTTP_STATUS_FOR_REGISTRATION_ERROR: Record<CreateRegistrationErrorCode, nu
   PRICING_TIER_NOT_FOUND: 404,
   ALREADY_REGISTERED: 400,
   INVALID_PAYMENT_STATUS: 400,
+  INCLUSIVE_REQUIRES_SPONSOR: 400,
+  SPONSOR_NOT_FOUND: 400,
   UNKNOWN: 500,
 };
 
@@ -33,16 +35,23 @@ const paymentStatusSchema = z.nativeEnum(PaymentStatus);
 
 // Admin-facing payment statuses. Stripe-driven states (PENDING / REFUNDED /
 // FAILED) are excluded — they're set by the webhook, not by humans.
+// INCLUSIVE is admin-settable for sponsor-paid registrations; service-level
+// validation enforces that sponsorId is supplied + resolves.
 const manualPaymentStatusSchema = z.enum([
   "UNASSIGNED",
   "UNPAID",
   "PAID",
   "COMPLIMENTARY",
+  "INCLUSIVE",
 ]);
 
 const createRegistrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100).optional(),
   paymentStatus: manualPaymentStatusSchema.optional(),
+  // Sponsor attribution — required when paymentStatus = INCLUSIVE,
+  // optional otherwise. The service validates the id resolves against
+  // Event.settings.sponsors[].
+  sponsorId: z.string().min(1).max(100).optional(),
   attendee: z.object({
     title: titleEnum.optional(),
     // Demographic / professional classification — the public form collects
@@ -241,7 +250,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus } = validated.data;
+    const { ticketTypeId, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId } = validated.data;
 
     const result = await createRegistration({
       eventId,
@@ -251,6 +260,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       attendee,
       notes,
       paymentStatus: requestedPaymentStatus,
+      sponsorId,
       source: "rest",
       requestIp: getClientIp(req),
       actorFirstName: session.user.firstName ?? null,

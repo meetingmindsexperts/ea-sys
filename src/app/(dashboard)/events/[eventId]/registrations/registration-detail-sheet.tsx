@@ -69,7 +69,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { queryKeys, useTickets, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -120,6 +120,12 @@ export function RegistrationDetailSheet({
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
   const { data: regTypes = [] } = useTickets(eventId);
+  // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
+  // display in the Payment Summary. Cheap query, cached at the event level.
+  const { data: sponsorsRes } = useSponsors(eventId);
+  const sponsors = sponsorsRes?.sponsors ?? [];
+  const sponsorById = (id: string | null) =>
+    id ? sponsors.find((s) => s.id === id) ?? null : null;
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [printingBadge, setPrintingBadge] = useState(false);
@@ -1008,12 +1014,22 @@ export function RegistrationDetailSheet({
                     <Label>Payment Status</Label>
                     <Select
                       value={selectedRegistration.paymentStatus}
-                      onValueChange={(value) =>
+                      onValueChange={(value) => {
+                        // When flipping to INCLUSIVE, require a sponsor pick before
+                        // sending the mutation — the server validates it but a
+                        // client-side guard avoids a useless round-trip + a confusing
+                        // 400 toast. If no sponsor is currently set on the
+                        // registration, prompt the user to pick one via the sponsor
+                        // dropdown below; do NOT send the mutation yet.
+                        if (value === "INCLUSIVE" && !selectedRegistration.sponsorId) {
+                          toast.error("Pick a sponsor below before marking this Inclusive.");
+                          return;
+                        }
                         updateRegistration.mutate({
                           id: selectedRegistration.id,
                           data: { paymentStatus: value },
-                        })
-                      }
+                        });
+                      }}
                       disabled={updateRegistration.isPending}
                     >
                       <SelectTrigger>
@@ -1028,6 +1044,51 @@ export function RegistrationDetailSheet({
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+              )}
+
+              {/* Sponsor picker — only relevant when the registration is INCLUSIVE.
+                  Shown in the edit area (above the Payment Summary). Picking from
+                  here triggers an immediate update, same as the other inline
+                  selects in this section. */}
+              {isEditing && selectedRegistration.paymentStatus === "INCLUSIVE" && (
+                <div className="space-y-2">
+                  <Label>Sponsored by</Label>
+                  {sponsors.length === 0 ? (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                      No sponsors configured for this event.{" "}
+                      <a
+                        href={`/events/${eventId}/sponsors`}
+                        className="underline font-medium"
+                      >
+                        Add a sponsor first
+                      </a>
+                      , then pick from this dropdown.
+                    </p>
+                  ) : (
+                    <Select
+                      value={selectedRegistration.sponsorId ?? ""}
+                      onValueChange={(value) =>
+                        updateRegistration.mutate({
+                          id: selectedRegistration.id,
+                          data: { sponsorId: value },
+                        })
+                      }
+                      disabled={updateRegistration.isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pick the sponsor that paid" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sponsors.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                            {s.tier ? ` · ${s.tier}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
 
@@ -1089,8 +1150,28 @@ export function RegistrationDetailSheet({
                       <p className="text-sm text-muted-foreground">
                         {selectedRegistration.paymentStatus === "COMPLIMENTARY"
                           ? "Complimentary registration — no payment due."
+                          : selectedRegistration.paymentStatus === "INCLUSIVE"
+                          ? "Sponsor-paid registration — no payment due from attendee."
                           : "Free registration — no payment required."}
                       </p>
+                    )}
+                    {/* Show sponsor attribution whenever sponsorId is set (even if
+                        status is no longer INCLUSIVE — we don't auto-clear, so
+                        admins can see the historical attribution). */}
+                    {selectedRegistration.sponsorId && (
+                      <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm flex items-center justify-between">
+                        <div>
+                          <span className="text-violet-700 font-medium">Sponsored by:</span>{" "}
+                          <span className="text-violet-900">
+                            {sponsorById(selectedRegistration.sponsorId)?.name ?? "(sponsor removed)"}
+                          </span>
+                        </div>
+                        {selectedRegistration.paymentStatus !== "INCLUSIVE" && (
+                          <span className="text-xs text-violet-700/70">
+                            (status: {PAYMENT_STATUS_LABELS[selectedRegistration.paymentStatus]})
+                          </span>
+                        )}
+                      </div>
                     )}
                     {basePrice > 0 && (
                       <Button variant="outline" size="sm" asChild className="w-full">

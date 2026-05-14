@@ -31,6 +31,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { readSponsors } from "@/lib/webinar";
 
 // ── Constants (shared with callers) ──────────────────────────────────────────
 
@@ -48,13 +49,16 @@ const OUTSTANDING_PAYMENT_STATUSES: ReadonlySet<PaymentStatus> = new Set([
 
 /**
  * Admin-settable subset. Stripe-driven states (PENDING / REFUNDED /
- * FAILED) are excluded because the webhook owns those.
+ * FAILED) are excluded because the webhook owns those. INCLUSIVE is
+ * admin-settable — sponsor-paid registrations are tagged by the
+ * organizer, never by Stripe.
  */
 export const MANUAL_PAYMENT_STATUSES = [
   PaymentStatus.UNASSIGNED,
   PaymentStatus.UNPAID,
   PaymentStatus.PAID,
   PaymentStatus.COMPLIMENTARY,
+  PaymentStatus.INCLUSIVE,
 ] as const;
 export type ManualPaymentStatus = (typeof MANUAL_PAYMENT_STATUSES)[number];
 
@@ -175,6 +179,17 @@ export interface CreateRegistrationInput {
    */
   paymentStatus?: ManualPaymentStatus;
 
+  /**
+   * Sponsor attribution — references the id of an entry in the event's
+   * `settings.sponsors[]` JSON array. Required when paymentStatus is
+   * `INCLUSIVE` (returns `INCLUSIVE_REQUIRES_SPONSOR` otherwise). Validated
+   * against the event's sponsor list (returns `SPONSOR_NOT_FOUND` if the
+   * id doesn't match any entry). May be set with non-INCLUSIVE statuses
+   * too — UI just hides it when irrelevant; deliberately not auto-cleared
+   * so reverting to INCLUSIVE later preserves the original attribution.
+   */
+  sponsorId?: string | null;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
 
@@ -198,6 +213,8 @@ export type CreateRegistrationErrorCode =
   | "PRICING_TIER_NOT_FOUND"
   | "ALREADY_REGISTERED"
   | "INVALID_PAYMENT_STATUS"
+  | "INCLUSIVE_REQUIRES_SPONSOR"
+  | "SPONSOR_NOT_FOUND"
   | "UNKNOWN";
 
 type RegistrationWithRelations = Prisma.RegistrationGetPayload<{
@@ -292,6 +309,8 @@ export async function createRegistration(
 
   // Load event + ticket type in parallel. Event select carries everything
   // sendRegistrationConfirmation needs so we don't re-query post-transaction.
+  // `settings` is included so the sponsorId validation below can resolve
+  // against `Event.settings.sponsors[]` without a second query.
   const [event, ticketType] = await Promise.all([
     db.event.findFirst({
       where: { id: eventId, organizationId },
@@ -306,6 +325,7 @@ export async function createRegistration(
         taxLabel: true,
         bankDetails: true,
         supportEmail: true,
+        settings: true,
         organizationId: true,
         organization: {
           select: {
@@ -402,6 +422,33 @@ export async function createRegistration(
   const finalPaymentStatus: ManualPaymentStatus =
     input.paymentStatus ?? defaultPaymentStatus;
 
+  // Sponsor attribution validation. INCLUSIVE means "sponsor paid for
+  // this registration out-of-band" so sponsorId is required and must
+  // resolve to an entry in Event.settings.sponsors[]. For other payment
+  // statuses sponsorId is optional but still validated against the
+  // sponsor list when present (so a bad id can't get persisted silently).
+  const sponsorId = input.sponsorId ?? null;
+  if (finalPaymentStatus === PaymentStatus.INCLUSIVE && !sponsorId) {
+    return {
+      ok: false,
+      code: "INCLUSIVE_REQUIRES_SPONSOR",
+      message:
+        "paymentStatus=INCLUSIVE requires a sponsorId. Add the sponsor to the event's Sponsors page first, then reference its id.",
+    };
+  }
+  if (sponsorId) {
+    const sponsors = readSponsors(event.settings);
+    const match = sponsors.find((s) => s.id === sponsorId);
+    if (!match) {
+      return {
+        ok: false,
+        code: "SPONSOR_NOT_FOUND",
+        message: `Sponsor ${sponsorId} not found in event's sponsor list. Add it via the Sponsors page first.`,
+        meta: { availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })) },
+      };
+    }
+  }
+
   // Respect requiresApproval — if the ticket type needs approval, the
   // registration starts PENDING regardless of caller input.
   const rawStatus: ManualRegistrationStatus =
@@ -486,6 +533,7 @@ export async function createRegistration(
           serialId,
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
+          sponsorId,
           qrCode,
           notes: notes || null,
         },
@@ -568,6 +616,7 @@ export async function createRegistration(
           ticketTypeId: ticketType?.id ?? null,
           paymentStatus: finalPaymentStatus,
           status: finalStatus,
+          ...(sponsorId ? { sponsorId } : {}),
           ...(requestIp ? { ip: requestIp } : {}),
         },
       },

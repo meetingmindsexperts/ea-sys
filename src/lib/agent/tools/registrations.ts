@@ -7,6 +7,7 @@ import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { readSponsors } from "@/lib/webinar";
 import {
   createRegistration,
   type ManualPaymentStatus,
@@ -229,6 +230,10 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       },
       status: rawStatus as ManualRegistrationStatus,
       paymentStatus: input.paymentStatus as ManualPaymentStatus | undefined,
+      // Sponsor attribution — required when paymentStatus = INCLUSIVE. Service
+      // returns INCLUSIVE_REQUIRES_SPONSOR / SPONSOR_NOT_FOUND with the
+      // available-sponsors list in meta so Claude can self-correct.
+      sponsorId: input.sponsorId ? String(input.sponsorId) : null,
       source: "mcp",
     });
 
@@ -369,7 +374,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
     const registrationId = String(input.registrationId ?? "").trim();
     if (!registrationId) return { error: "registrationId is required" };
 
-    // Verify the registration belongs to the authenticated org's event
+    // Verify the registration belongs to the authenticated org's event.
+    // Loading `event.settings` so sponsor-id resolution can run in-memory
+    // without a second roundtrip.
     const existing = await db.registration.findFirst({
       where: { id: registrationId, event: { organizationId: ctx.organizationId } },
       select: {
@@ -377,9 +384,11 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         eventId: true,
         status: true,
         paymentStatus: true,
+        sponsorId: true,
         ticketTypeId: true,
         attendeeId: true,
         attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
+        event: { select: { settings: true } },
       },
     });
     if (!existing) return { error: `Registration ${registrationId} not found or access denied` };
@@ -391,6 +400,39 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
     const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
     if (paymentStatus && !ALL_PAYMENT_STATUSES.has(paymentStatus)) {
       return { error: `Invalid paymentStatus. Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
+    }
+
+    // Sponsor attribution. Same rules as the REST PUT route:
+    //   - paymentStatus = INCLUSIVE requires an effective sponsorId
+    //   - sponsorId (when present) must resolve to an entry in
+    //     Event.settings.sponsors[]
+    //   - sponsorId is preserved on status flips away from INCLUSIVE
+    //     unless the caller explicitly sets it to null
+    const sponsorIdInput =
+      input.sponsorId === undefined
+        ? undefined
+        : input.sponsorId === null
+        ? null
+        : String(input.sponsorId);
+    const effectivePaymentStatus = paymentStatus ?? existing.paymentStatus;
+    const effectiveSponsorId =
+      sponsorIdInput === undefined ? existing.sponsorId : sponsorIdInput;
+    if (effectivePaymentStatus === "INCLUSIVE" && !effectiveSponsorId) {
+      return {
+        error:
+          "paymentStatus=INCLUSIVE requires a sponsorId. Add the sponsor to the event's Sponsors page first, then pass its id.",
+        code: "INCLUSIVE_REQUIRES_SPONSOR",
+      };
+    }
+    if (effectiveSponsorId) {
+      const sponsors = readSponsors(existing.event.settings);
+      if (!sponsors.find((s) => s.id === effectiveSponsorId)) {
+        return {
+          error: `Sponsor ${effectiveSponsorId} not found in event's sponsor list.`,
+          code: "SPONSOR_NOT_FOUND",
+          availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })),
+        };
+      }
     }
 
     const newTicketTypeId = input.ticketTypeId ? String(input.ticketTypeId) : undefined;
@@ -475,6 +517,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       const regData: Prisma.RegistrationUncheckedUpdateInput = { updatedAt: new Date() };
       if (status) regData.status = status as never;
       if (paymentStatus) regData.paymentStatus = paymentStatus as never;
+      if (sponsorIdInput !== undefined) regData.sponsorId = sponsorIdInput;
       if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
       if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
       if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
@@ -890,8 +933,12 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
         },
         paymentStatus: {
           type: "string",
-          enum: ["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY"],
-          description: "Admin-settable payment status. Default: UNASSIGNED for paid tickets, COMPLIMENTARY for free. Stripe-driven states (PENDING/REFUNDED/FAILED) are webhook-owned and cannot be set here.",
+          enum: ["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"],
+          description: "Admin-settable payment status. Default: UNASSIGNED for paid tickets, COMPLIMENTARY for free. Stripe-driven states (PENDING/REFUNDED/FAILED) are webhook-owned and cannot be set here. INCLUSIVE means sponsor-paid — requires sponsorId.",
+        },
+        sponsorId: {
+          type: "string",
+          description: "Sponsor attribution id (from Event.settings.sponsors[]). Required when paymentStatus is INCLUSIVE. Use list_sponsors to see available ids.",
         },
         title: {
           type: "string",

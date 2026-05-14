@@ -9,9 +9,28 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { readSponsors } from "@/lib/webinar";
+import type { RegistrationStatus, PaymentStatus } from "@prisma/client";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Admin-settable subsets — Stripe-driven payment states (PENDING / REFUNDED /
+// FAILED) and LIVE-only registration states (CHECKED_IN) are excluded from
+// the CSV import because they're driven by webhooks / scanner flows.
+const ALLOWED_REGISTRATION_STATUSES = new Set<RegistrationStatus>([
+  "PENDING",
+  "CONFIRMED",
+  "WAITLISTED",
+  "CANCELLED",
+]);
+const ALLOWED_PAYMENT_STATUSES = new Set<PaymentStatus>([
+  "UNASSIGNED",
+  "UNPAID",
+  "PAID",
+  "COMPLIMENTARY",
+  "INCLUSIVE",
+]);
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -52,7 +71,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: parseError }, { status: 400 });
     }
 
-    // Build column index
+    // Build column index. The three trailing columns (registrationStatus,
+    // paymentStatus, sponsor) are optional — when absent the import retains
+    // its prior behavior (status defaults to CONFIRMED-or-PENDING based on
+    // requiresApproval, paymentStatus defaults to COMPLIMENTARY-for-free
+    // or UNASSIGNED-for-paid, sponsorId left null).
     const idx = {
       email: headers.indexOf("email"),
       firstName: headers.indexOf("firstname"),
@@ -74,6 +97,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       associationName: headers.indexOf("associationname"),
       memberId: headers.indexOf("memberid"),
       studentId: headers.indexOf("studentid"),
+      registrationStatus: headers.indexOf("registrationstatus"),
+      paymentStatus: headers.indexOf("paymentstatus"),
+      sponsor: headers.indexOf("sponsor"),
     };
 
     if (idx.email === -1 || idx.firstName === -1 || idx.lastName === -1) {
@@ -83,13 +109,27 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Verify event belongs to org
+    // Verify event belongs to org, and pull settings so sponsor names in the
+    // CSV can be resolved against Event.settings.sponsors[] without N+1.
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      select: { id: true, settings: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Build a case-insensitive sponsor-name → id map. Collect colliding
+    // names so we can reject ambiguous matches in the per-row loop
+    // (silently picking the "first match" would corrupt money attribution
+    // when two sponsors share a name prefix).
+    const sponsorList = readSponsors(event.settings);
+    const sponsorByName = new Map<string, { id: string; name: string }>();
+    const ambiguousNames = new Set<string>();
+    for (const s of sponsorList) {
+      const key = s.name.trim().toLowerCase();
+      if (sponsorByName.has(key)) ambiguousNames.add(key);
+      else sponsorByName.set(key, { id: s.id, name: s.name });
     }
 
     apiLogger.info({ msg: "Import started", importType: "registrations", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
@@ -142,6 +182,63 @@ export async function POST(req: Request, { params }: RouteParams) {
       const title = titleRaw && TITLE_VALUES.has(titleRaw) ? titleRaw : null;
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
+
+      // Per-row registrationStatus + paymentStatus + sponsor. Each cell is
+      // optional; defaults match the prior behavior so existing CSV
+      // templates keep working unchanged.
+      const rowRegistrationStatusRaw = getField(fields, idx.registrationStatus)?.toUpperCase();
+      let rowRegistrationStatus: RegistrationStatus | null = null;
+      if (rowRegistrationStatusRaw) {
+        if (!ALLOWED_REGISTRATION_STATUSES.has(rowRegistrationStatusRaw as RegistrationStatus)) {
+          errors.push(
+            `Row ${rowNum}: invalid registrationStatus "${rowRegistrationStatusRaw}" (allowed: ${[...ALLOWED_REGISTRATION_STATUSES].join(", ")})`,
+          );
+          continue;
+        }
+        rowRegistrationStatus = rowRegistrationStatusRaw as RegistrationStatus;
+      }
+
+      const rowPaymentStatusRaw = getField(fields, idx.paymentStatus)?.toUpperCase();
+      let rowPaymentStatus: PaymentStatus | null = null;
+      if (rowPaymentStatusRaw) {
+        if (!ALLOWED_PAYMENT_STATUSES.has(rowPaymentStatusRaw as PaymentStatus)) {
+          errors.push(
+            `Row ${rowNum}: invalid paymentStatus "${rowPaymentStatusRaw}" (allowed: ${[...ALLOWED_PAYMENT_STATUSES].join(", ")})`,
+          );
+          continue;
+        }
+        rowPaymentStatus = rowPaymentStatusRaw as PaymentStatus;
+      }
+
+      // Sponsor resolution. Case-insensitive name match against
+      // Event.settings.sponsors[]; ambiguous matches are rejected so a
+      // typo can't silently attribute money to the wrong sponsor.
+      const sponsorRaw = getField(fields, idx.sponsor)?.trim();
+      let rowSponsorId: string | null = null;
+      if (sponsorRaw) {
+        const key = sponsorRaw.toLowerCase();
+        if (ambiguousNames.has(key)) {
+          errors.push(
+            `Row ${rowNum}: ambiguous sponsor name "${sponsorRaw}" — multiple sponsors match. Use the exact full name.`,
+          );
+          continue;
+        }
+        const match = sponsorByName.get(key);
+        if (!match) {
+          const available = [...sponsorByName.values()].map((s) => s.name).join(", ") || "(none)";
+          errors.push(
+            `Row ${rowNum}: sponsor "${sponsorRaw}" not found. Available: ${available}. Add the sponsor on the event's Sponsors page first.`,
+          );
+          continue;
+        }
+        rowSponsorId = match.id;
+      }
+      if (rowPaymentStatus === "INCLUSIVE" && !rowSponsorId) {
+        errors.push(
+          `Row ${rowNum}: paymentStatus=INCLUSIVE requires a sponsor column with the sponsor's name.`,
+        );
+        continue;
+      }
 
       // Find matching ticket type
       let ticketType = defaultTicketType;
@@ -210,17 +307,23 @@ export async function POST(req: Request, { params }: RouteParams) {
 
           const generatedBarcode = generateBarcode();
           const serialId = await getNextSerialId(tx, eventId);
+          // Per-row registrationStatus / paymentStatus overrides fall back to
+          // the prior defaults when the CSV columns are absent. requiresApproval
+          // still beats CONFIRMED-by-default but a CSV explicit
+          // registrationStatus wins over it (admin's call to override is
+          // intentional).
+          const defaultStatus: RegistrationStatus = ticketType.requiresApproval ? "PENDING" : "CONFIRMED";
+          const defaultPaymentStatus: PaymentStatus =
+            Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED";
           const registration = await tx.registration.create({
             data: {
               eventId,
               ticketTypeId: ticketType.id,
               attendeeId: attendee.id,
               serialId,
-              status: ticketType.requiresApproval ? "PENDING" : "CONFIRMED",
-              // CSV imports are admin-created. Match the dashboard "Add" default:
-              // free tickets → COMPLIMENTARY, paid tickets → UNASSIGNED
-              // (admin decides the actual payment status later).
-              paymentStatus: Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED",
+              status: rowRegistrationStatus ?? defaultStatus,
+              paymentStatus: rowPaymentStatus ?? defaultPaymentStatus,
+              sponsorId: rowSponsorId,
               qrCode: generatedBarcode,
               notes: getField(fields, idx.notes) || null,
             },

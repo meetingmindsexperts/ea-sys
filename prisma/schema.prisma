@@ -373,6 +373,11 @@ model Registration {
   promoCodeId        String?
   discountAmount     Decimal?       @db.Decimal(10, 2)
   originalPrice      Decimal?       @db.Decimal(10, 2)
+  // Sponsor attribution — set when paymentStatus = INCLUSIVE so reports
+  // can group "all Abbott-sponsored attendees." References the entry's
+  // id inside Event.settings.sponsors[] JSON (no FK because sponsors
+  // are stored as a JSON array on the event, not a Prisma table).
+  sponsorId          String?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
@@ -389,6 +394,7 @@ model Registration {
   zoomAttendances ZoomAttendance[]
 
   @@unique([eventId, serialId])
+  @@index([sponsorId])
   @@index([eventId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])
@@ -416,6 +422,7 @@ enum PaymentStatus {
   REFUNDED
   FAILED
   UNASSIGNED
+  INCLUSIVE
 }
 
 model Payment {

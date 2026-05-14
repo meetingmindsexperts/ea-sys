@@ -25,6 +25,7 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   PENDING: "Pending",
   PAID: "Paid",
   COMPLIMENTARY: "Complimentary",
+  INCLUSIVE: "Inclusive",
   REFUNDED: "Refunded",
   FAILED: "Failed",
 };
@@ -35,6 +36,9 @@ export const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
   PENDING: "bg-yellow-100 text-yellow-800",
   PAID: "bg-green-100 text-green-800",
   COMPLIMENTARY: "bg-cyan-100 text-cyan-800",
+  // Violet — distinct from COMPLIMENTARY cyan so report scanners can tell
+  // sponsor-paid (INCLUSIVE) from no-charge-VIP (COMPLIMENTARY) at a glance.
+  INCLUSIVE: "bg-violet-100 text-violet-800",
   REFUNDED: "bg-blue-100 text-blue-800",
   FAILED: "bg-red-100 text-red-800",
 };
@@ -46,17 +50,30 @@ export const PAYMENT_STATUS_DISPLAY_ORDER: readonly PaymentStatus[] = [
   "PENDING",
   "PAID",
   "COMPLIMENTARY",
+  "INCLUSIVE",
   "REFUNDED",
   "FAILED",
 ];
 
 // Admin-settable subset — Stripe-driven states (PENDING/REFUNDED/FAILED) are
 // owned by the payment webhook and must not be set manually at creation time.
+// INCLUSIVE is admin-settable (sponsor-paid registrations are created or
+// flipped by an organizer, never by Stripe).
 export const MANUAL_PAYMENT_STATUSES: readonly PaymentStatus[] = [
   "UNASSIGNED",
   "UNPAID",
   "PAID",
   "COMPLIMENTARY",
+  "INCLUSIVE",
+];
+
+// Statuses that mean "no money chase needed" — used by bulk-email + reports
+// to exclude legitimately-no-balance-due registrations from payment reminders.
+export const NO_PAYMENT_DUE_STATUSES: readonly PaymentStatus[] = [
+  "PAID",
+  "COMPLIMENTARY",
+  "INCLUSIVE",
+  "REFUNDED",
 ];
 
 export const MANUAL_PAYMENT_STATUS_HELPER_TEXT =
