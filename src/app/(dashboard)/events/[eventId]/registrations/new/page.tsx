@@ -184,16 +184,29 @@ export default function NewRegistrationPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {(ticketTypes as TicketType[]).map((regType) => (
-                      <SelectItem
-                        key={regType.id}
-                        value={regType.id}
-                        disabled={regType.soldCount >= regType.quantity}
-                      >
-                        {regType.name} - ${regType.price}
-                        {regType.soldCount >= regType.quantity ? " (Unavailable)" : ""}
-                      </SelectItem>
-                    ))}
+                    {(ticketTypes as TicketType[]).map((regType) => {
+                      // Hide the "- $X" suffix when the type has active
+                      // pricing tiers (the Pricing Tier dropdown is the
+                      // source of truth) or when the base price is 0
+                      // (avoids misleading "$0" on free/tier-priced types).
+                      const hasActiveTiers = (regType.pricingTiers ?? []).some(
+                        (t) => t.isActive
+                      );
+                      const showPrice = !hasActiveTiers && regType.price > 0;
+                      const unavailable = regType.soldCount >= regType.quantity;
+                      return (
+                        <SelectItem
+                          key={regType.id}
+                          value={regType.id}
+                          disabled={unavailable}
+                        >
+                          {showPrice
+                            ? `${regType.name} - $${regType.price}`
+                            : regType.name}
+                          {unavailable ? " (Unavailable)" : ""}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
