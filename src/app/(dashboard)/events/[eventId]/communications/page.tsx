@@ -44,6 +44,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
 interface RegistrationItem {
+  status: string;
   paymentStatus: string;
   ticketType?: { id: string; name: string };
 }
@@ -92,6 +93,7 @@ export default function CommunicationsPage() {
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
 
   // Registration sub-filters
+  const [regStatusFilter, setRegStatusFilter] = useState("all");
   const [regPaymentFilter, setRegPaymentFilter] = useState("all");
   const [regTypeFilter, setRegTypeFilter] = useState("all");
   const [speakerStatusFilter, setSpeakerStatusFilter] = useState("all");
@@ -112,6 +114,7 @@ export default function CommunicationsPage() {
   );
 
   const filteredRegistrations = registrations.filter((r) => {
+    if (regStatusFilter !== "all" && r.status !== regStatusFilter) return false;
     if (regPaymentFilter !== "all" && r.paymentStatus !== regPaymentFilter) return false;
     if (regTypeFilter !== "all" && r.ticketType?.id !== regTypeFilter) return false;
     return true;
@@ -145,7 +148,11 @@ export default function CommunicationsPage() {
   function openEmailDialog(audience: RecipientType) {
     setActiveAudience(audience);
     if (audience === "registrations") {
-      setActiveStatusFilter(undefined);
+      // Pass the page-level filters through so the dialog pre-selects
+      // the same values the organizer just picked here.
+      setActiveStatusFilter(
+        regStatusFilter !== "all" ? regStatusFilter : undefined
+      );
       // W2-F4 — pass the page-level payment filter through so e.g.
       // "Unpaid" pre-selects in the dialog. Saves the organizer
       // re-selecting the same value twice.
@@ -264,11 +271,34 @@ export default function CommunicationsPage() {
               Registrations
             </CardTitle>
             <CardDescription>
-              Send emails to event registrants. Filter by payment status or registration type.
+              Send emails to event registrants. Filter by registration status, payment status, or registration type.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Registration Status</label>
+                <Select value={regStatusFilter} onValueChange={setRegStatusFilter}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All ({registrations.length})</SelectItem>
+                    <SelectItem value="PENDING">
+                      Pending ({registrations.filter((r) => r.status === "PENDING").length})
+                    </SelectItem>
+                    <SelectItem value="CONFIRMED">
+                      Confirmed ({registrations.filter((r) => r.status === "CONFIRMED").length})
+                    </SelectItem>
+                    <SelectItem value="CHECKED_IN">
+                      Checked In ({registrations.filter((r) => r.status === "CHECKED_IN").length})
+                    </SelectItem>
+                    <SelectItem value="CANCELLED">
+                      Cancelled ({registrations.filter((r) => r.status === "CANCELLED").length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Payment Status</label>
                 <Select value={regPaymentFilter} onValueChange={setRegPaymentFilter}>

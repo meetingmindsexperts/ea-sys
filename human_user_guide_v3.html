@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MMG New System — Human User Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0D2A4A;--navy-dark:#1F2933;--cyan:#00A7E1;--teal:#00B3A4;
+  --gold:#D6A968;--grey-light:#F5F7FA;--off-white:#F9FBFF;
+  --white:#FFFFFF;--text:#1F2933;--text-muted:#5A6472;
+  --sidebar-w:268px;--r:6px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:15px}
+body{font-family:'Barlow',sans-serif;background:var(--off-white);color:var(--text);display:flex;min-height:100vh;line-height:1.65}
+
+/* ── SIDEBAR ── */
+.sidebar{position:fixed;top:0;left:0;width:var(--sidebar-w);height:100vh;background:var(--navy);display:flex;flex-direction:column;overflow-y:auto;z-index:100}
+.sb-head{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.sb-logo{height:36px;object-fit:contain;filter:brightness(0) invert(1);display:block}
+.sb-doc{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.72rem;color:var(--gold);text-transform:uppercase;letter-spacing:0.12em;margin-top:10px}
+.sb-role{padding:12px 20px;background:rgba(0,167,225,0.07);border-bottom:1px solid rgba(255,255,255,0.06)}
+.sb-role-lbl{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.4);font-weight:600;margin-bottom:7px}
+.role-sel{width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:var(--r);color:var(--white);font-family:'Barlow',sans-serif;font-size:0.78rem;padding:7px 10px;cursor:pointer;outline:none}
+.role-sel option{background:var(--navy)}
+.nav{padding:10px 0 20px;flex:1}
+.nav-lbl{font-family:'Barlow Condensed',sans-serif;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--gold);font-weight:700;padding:10px 20px 4px}
+.nav-a{display:block;padding:6px 20px 6px 26px;font-size:0.77rem;color:rgba(255,255,255,0.6);text-decoration:none;border-left:2px solid transparent;transition:all .15s}
+.nav-a:hover{color:var(--white);background:rgba(255,255,255,0.04);border-left-color:var(--teal)}
+.nav-a.active{color:var(--white);background:rgba(0,179,164,0.1);border-left-color:var(--teal)}
+.nav-n{font-size:0.62rem;color:rgba(255,255,255,0.3);margin-right:5px}
+.sb-brands{padding:14px 20px;border-top:1px solid rgba(255,255,255,0.07)}
+.sb-brands-lbl{font-size:0.6rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.3);margin-bottom:10px}
+.brand-logos{display:flex;gap:10px;align-items:center}
+.brand-logos img{height:20px;object-fit:contain;filter:brightness(0) invert(1);opacity:0.5;transition:opacity .2s}
+.brand-logos img:hover{opacity:1}
+.sb-foot{padding:12px 20px;border-top:1px solid rgba(255,255,255,0.07);font-size:0.65rem;color:rgba(255,255,255,0.3)}
+
+/* ── MAIN ── */
+.main{margin-left:var(--sidebar-w);flex:1}
+.topbar{background:var(--white);border-bottom:1px solid rgba(13,42,74,0.08);padding:0 48px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.tb-bc{font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:6px}
+.tb-bc strong{color:var(--navy);font-weight:700}
+.tb-meta{display:flex;align-items:center;gap:12px;font-size:0.72rem;color:var(--text-muted)}
+.badge{background:var(--grey-light);padding:3px 10px;border-radius:20px;font-weight:600;color:var(--navy);font-size:0.68rem}
+.content{padding:44px 52px 80px;max-width:900px}
+
+/* ── HERO ── */
+.hero{background:var(--navy);border-radius:10px;padding:36px 44px;margin-bottom:40px;position:relative;overflow:hidden;display:flex;justify-content:space-between;align-items:flex-end;gap:32px}
+.hero::before{content:'';position:absolute;top:-60px;right:-60px;width:220px;height:220px;background:rgba(0,167,225,0.05);border-radius:50%}
+.hero-left{flex:1}
+.hero-tag{font-family:'Barlow Condensed',sans-serif;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.15em;color:var(--cyan);font-weight:700;margin-bottom:10px}
+.hero-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:2.4rem;color:var(--white);line-height:1.05;letter-spacing:-0.01em;margin-bottom:12px;text-transform:uppercase}
+.hero-title span{color:var(--gold)}
+.hero-sub{font-size:0.88rem;color:rgba(255,255,255,0.6);max-width:520px;line-height:1.6;margin-bottom:22px}
+.hero-stats{display:flex;gap:28px}
+.hs-num{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1.6rem;color:var(--gold);line-height:1}
+.hs-lbl{font-size:0.65rem;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.06em;margin-top:3px}
+.hero-logo{height:48px;object-fit:contain;filter:brightness(0) invert(1);opacity:0.25;flex-shrink:0}
+
+/* ── ROLE FINDER ── */
+.role-finder{background:var(--white);border:1px solid rgba(13,42,74,0.09);border-radius:10px;margin-bottom:40px;overflow:hidden}
+.rf-head{background:var(--grey-light);padding:16px 26px;border-bottom:1px solid rgba(13,42,74,0.06)}
+.rf-head h3{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:1rem;color:var(--navy);text-transform:uppercase;letter-spacing:0.04em}
+.rf-head p{font-size:0.77rem;color:var(--text-muted);margin-top:2px}
+.role-cards{display:grid;grid-template-columns:1fr 1fr}
+.rc{padding:18px 26px;border-right:1px solid rgba(13,42,74,0.06);border-bottom:1px solid rgba(13,42,74,0.06);transition:background .15s}
+.rc:nth-child(even){border-right:none}
+.rc:hover{background:var(--grey-light)}
+.rc-title{font-weight:700;font-size:0.82rem;color:var(--navy);margin-bottom:4px;display:flex;align-items:center;gap:7px}
+.rc-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);flex-shrink:0}
+.rc-role{font-size:0.71rem;color:var(--text-muted);margin-bottom:8px;font-weight:500}
+.rc-tags{display:flex;flex-wrap:wrap;gap:4px}
+.rtag{font-size:0.66rem;background:rgba(0,167,225,0.07);color:var(--navy);border:1px solid rgba(0,167,225,0.18);border-radius:4px;padding:2px 8px;text-decoration:none;font-weight:600;transition:all .15s}
+.rtag:hover{background:var(--cyan);color:var(--white);border-color:var(--cyan)}
+
+/* ── SECTIONS ── */
+.section{margin-bottom:52px;scroll-margin-top:68px}
+.sec-hd{display:flex;align-items:flex-start;gap:16px;margin-bottom:22px;padding-bottom:14px;border-bottom:2px solid rgba(13,42,74,0.06)}
+.sec-num{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:2.4rem;color:rgba(13,42,74,0.07);line-height:1;flex-shrink:0;min-width:38px}
+.sec-meta{flex:1}
+.sec-title{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1.3rem;color:var(--navy);text-transform:uppercase;letter-spacing:0.03em;line-height:1.15}
+.sec-desc{font-size:0.79rem;color:var(--text-muted);margin-top:3px}
+.sec-badge{display:inline-flex;align-items:center;gap:4px;font-family:'Barlow Condensed',sans-serif;font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;padding:3px 10px;border-radius:20px;margin-top:6px}
+.b-all{background:rgba(0,167,225,0.09);color:#005B80}
+.b-event{background:rgba(0,179,164,0.1);color:#006B5E}
+.b-finance{background:rgba(214,169,104,0.15);color:#8A6020}
+.b-medcom{background:rgba(0,131,143,0.1);color:#005560}
+.b-ops{background:rgba(48,73,173,0.08);color:#1E2E80}
+
+/* ── SUBSECTIONS ── */
+.sub{margin-bottom:30px;scroll-margin-top:68px}
+.sub-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:1rem;color:var(--navy);margin-bottom:11px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:0.04em}
+.sub-title::before{content:'';width:3px;height:16px;background:var(--cyan);border-radius:2px;flex-shrink:0}
+p{font-size:0.88rem;color:var(--text);margin-bottom:11px;line-height:1.7}
+p:last-child{margin-bottom:0}
+
+/* ── SCREENSHOT PLACEHOLDERS ── */
+.ss{background:linear-gradient(135deg,rgba(13,42,74,0.04) 0%,rgba(0,167,225,0.04) 100%);border:2px dashed rgba(0,167,225,0.25);border-radius:8px;padding:24px;margin:18px 0;display:flex;align-items:center;gap:18px}
+.ss-ref{background:var(--navy);color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:0.85rem;padding:6px 12px;border-radius:4px;letter-spacing:0.08em;white-space:nowrap;flex-shrink:0}
+.ss-info{flex:1}
+.ss-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--cyan);margin-bottom:3px}
+.ss-desc{font-size:0.78rem;color:var(--text-muted)}
+
+/* ── CALLOUTS ── */
+.callout{border-radius:7px;padding:14px 18px;margin:16px 0;display:flex;gap:12px;align-items:flex-start}
+.c-tip{background:rgba(0,179,164,0.07);border:1px solid rgba(0,179,164,0.2)}
+.c-warn{background:rgba(214,169,104,0.09);border:1px solid rgba(214,169,104,0.28)}
+.c-info{background:rgba(0,167,225,0.06);border:1px solid rgba(0,167,225,0.18)}
+.c-crit{background:rgba(220,38,38,0.05);border:1px solid rgba(220,38,38,0.18)}
+.c-icon{font-size:0.95rem;flex-shrink:0;margin-top:1px}
+.c-body{flex:1}
+.c-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.75rem;color:var(--navy);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.06em}
+.c-text{font-size:0.82rem;color:var(--text);line-height:1.55}
+.c-tip .c-title{color:#00726A}
+.c-warn .c-title{color:#8A6020}
+.c-info .c-title{color:#005B80}
+.c-crit .c-title{color:#B91C1C}
+
+/* ── STATUS TABLE ── */
+.st{width:100%;border-collapse:collapse;margin:14px 0;font-size:0.82rem}
+.st th{background:var(--navy);color:var(--white);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.07em;padding:9px 14px;text-align:left}
+.st td{padding:9px 14px;border-bottom:1px solid rgba(13,42,74,0.07);vertical-align:top;line-height:1.5}
+.st tr:last-child td{border-bottom:none}
+.st tr:nth-child(even) td{background:rgba(245,247,250,0.6)}
+.sb{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.69rem;font-weight:700;letter-spacing:0.04em;font-family:'Barlow Condensed',sans-serif}
+.s-conf{background:rgba(0,179,164,0.12);color:#006B5E}
+.s-pend{background:rgba(214,169,104,0.15);color:#8A6020}
+.s-canc{background:rgba(220,38,38,0.08);color:#991B1B}
+.s-paid{background:rgba(0,179,164,0.12);color:#006B5E}
+.s-ci{background:rgba(48,73,173,0.1);color:#1E2E80}
+.s-comp{background:rgba(0,167,225,0.1);color:#005B80}
+.s-inv{background:rgba(214,169,104,0.15);color:#8A6020}
+.s-acc{background:rgba(0,179,164,0.12);color:#006B5E}
+.s-rej{background:rgba(220,38,38,0.08);color:#991B1B}
+
+/* ── STEPS ── */
+.steps{counter-reset:step;margin:14px 0}
+.step{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start;counter-increment:step}
+.step-n{background:var(--navy);color:var(--white);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:0.72rem;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.step-n::after{content:counter(step)}
+.step-b{flex:1;font-size:0.85rem;line-height:1.6;padding-top:1px}
+.step-b strong{color:var(--navy);font-weight:700}
+
+/* ── INFO GRID ── */
+.ig{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.ic{background:var(--white);border:1px solid rgba(13,42,74,0.09);border-radius:7px;padding:14px 16px;border-top:3px solid var(--cyan)}
+.ic.gold{border-top-color:var(--gold)}
+.ic.teal{border-top-color:var(--teal)}
+.ic.navy{border-top-color:var(--navy)}
+.ic-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.82rem;color:var(--navy);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em}
+.ic-body{font-size:0.79rem;color:var(--text-muted);line-height:1.5}
+.ic-body ul{padding-left:14px;margin-top:5px}
+.ic-body li{margin-bottom:3px}
+
+/* ── TEMPLATE GRID ── */
+.tg{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:14px 0}
+.ti{background:var(--white);border:1px solid rgba(13,42,74,0.08);border-radius:6px;padding:11px 14px}
+.ti-num{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:0.68rem;color:var(--gold);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.06em}
+.ti-name{font-weight:700;font-size:0.79rem;color:var(--navy)}
+.ti-desc{font-size:0.71rem;color:var(--text-muted);margin-top:2px}
+
+/* ── LIMITS ── */
+.lim-list{margin:14px 0}
+.lim{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border:1px solid rgba(220,38,38,0.12);border-radius:6px;margin-bottom:7px;background:rgba(254,242,242,0.25)}
+.lim-icon{color:#DC2626;flex-shrink:0;margin-top:2px;font-size:0.85rem}
+.lim-body{font-size:0.82rem;line-height:1.5}
+.lim-body strong{color:var(--navy);font-weight:700;display:block;margin-bottom:1px}
+
+/* ── IMAGE REF LIST ── */
+.img-ref-table{width:100%;border-collapse:collapse;font-size:0.81rem;margin:14px 0}
+.img-ref-table th{background:var(--navy-dark);color:var(--white);font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.07em;padding:9px 14px;text-align:left}
+.img-ref-table td{padding:9px 14px;border-bottom:1px solid rgba(13,42,74,0.07);vertical-align:top}
+.img-ref-table tr:nth-child(even) td{background:rgba(245,247,250,0.5)}
+.img-ref-table tr:last-child td{border-bottom:none}
+.ref-code{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:0.78rem;color:var(--navy);background:var(--gold);padding:2px 7px;border-radius:3px;white-space:nowrap}
+
+/* ── MISC ── */
+.divider{height:1px;background:rgba(13,42,74,0.06);margin:40px 0}
+.back-top{position:fixed;bottom:24px;right:24px;background:var(--navy);color:var(--white);border:none;border-radius:7px;padding:9px 14px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:0.75rem;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase;box-shadow:0 4px 20px rgba(13,42,74,0.25);z-index:200;transition:all .2s}
+.back-top:hover{background:var(--cyan);transform:translateY(-2px)}
+code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:0.82rem;font-family:monospace;color:var(--navy)}
+@media(max-width:880px){.sidebar{transform:translateX(-100%)}.main{margin-left:0}.role-cards,.ig,.tg{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sb-head">
+    <img class="sb-logo" src="logo-mmg.png" alt="MMG">
+    <div class="sb-doc">Human User Guide &middot; v1.0</div>
+  </div>
+  <div class="sb-role">
+    <div class="sb-role-lbl">Jump to your responsibility</div>
+    <select class="role-sel" onchange="if(this.value){const el=document.getElementById(this.value);if(el)el.scrollIntoView({behavior:'smooth',block:'start'})}">
+      <option value="">Select your area...</option>
+      <option value="start-here">Overview — all roles</option>
+      <option value="s2">Event coordination &amp; programme</option>
+      <option value="s4">Delegate &amp; registration management</option>
+      <option value="s2">Speaker &amp; KOL management</option>
+      <option value="s7">Finance &amp; invoicing</option>
+      <option value="s10">Sponsorship &amp; BD</option>
+      <option value="s6">Medical content &amp; abstracts</option>
+      <option value="s8">Communications &amp; marketing</option>
+      <option value="s12">Virtual events &amp; webinars</option>
+    </select>
+  </div>
+  <nav class="nav">
+    <div class="nav-lbl">Overview</div>
+    <a class="nav-a" href="#start-here"><span class="nav-n">→</span>Start Here</a>
+    <a class="nav-a" href="#s1"><span class="nav-n">1</span>Getting Started</a>
+    <div class="nav-lbl">Event Operations</div>
+    <a class="nav-a" href="#s2"><span class="nav-n">2</span>Speakers &amp; KOLs</a>
+    <a class="nav-a" href="#s3"><span class="nav-n">3</span>Programme &amp; Sessions</a>
+    <a class="nav-a" href="#s4"><span class="nav-n">4</span>Registration &amp; Ticketing</a>
+    <a class="nav-a" href="#s5"><span class="nav-n">5</span>Accommodation &amp; Hotels</a>
+    <div class="nav-lbl">Medical &amp; Scientific</div>
+    <a class="nav-a" href="#s6"><span class="nav-n">6</span>Abstracts &amp; Call for Papers</a>
+    <div class="nav-lbl">Finance &amp; Commercial</div>
+    <a class="nav-a" href="#s7"><span class="nav-n">7</span>Finance &amp; Invoicing</a>
+    <a class="nav-a" href="#s10"><span class="nav-n">10</span>Sponsors</a>
+    <div class="nav-lbl">Communications</div>
+    <a class="nav-a" href="#s8"><span class="nav-n">8</span>Communications</a>
+    <a class="nav-a" href="#s9"><span class="nav-n">9</span>Contacts</a>
+    <a class="nav-a" href="#s11"><span class="nav-n">11</span>Media Library</a>
+    <div class="nav-lbl">Digital</div>
+    <a class="nav-a" href="#s12"><span class="nav-n">12</span>Webinar Features</a>
+    <a class="nav-a" href="#s13"><span class="nav-n">13</span>Search</a>
+    <div class="nav-lbl">Reference</div>
+    <a class="nav-a" href="#s14"><span class="nav-n">14</span>Known Limitations</a>
+    <a class="nav-a" href="#img-ref"><span class="nav-n">&#x1F5BC;</span>Screenshot Index</a>
+  </nav>
+  <div class="sb-brands">
+    <div class="sb-brands-lbl">MMG Brands</div>
+    <div class="brand-logos">
+      <img src="logo-mme.png" alt="Meeting Minds Experts">
+      <img src="logo-medcom.png" alt="MedCom">
+      <img src="logo-medulive.png" alt="MedULive">
+    </div>
+  </div>
+  <div class="sb-foot">v1.0 &middot; April 2026 &middot; meetingmindsgroup.com</div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div class="tb-bc"><strong>MMG New System</strong> <span>&rsaquo;</span> Human User Guide</div>
+    <div class="tb-meta"><span class="badge">Version 1.0</span><span>28 April 2026</span></div>
+  </div>
+
+  <div class="content">
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-left">
+        <div class="hero-tag">MMG New System &mdash; Internal Documentation</div>
+        <h1 class="hero-title">Human<br><span>User Guide</span></h1>
+        <p class="hero-sub">Your complete reference for the MMG event management system. Find your area of responsibility in the sidebar and go straight to what you need.</p>
+        <div class="hero-stats">
+          <div><div class="hs-num">14</div><div class="hs-lbl">Sections</div></div>
+          <div><div class="hs-num">26</div><div class="hs-lbl">Screenshots</div></div>
+          <div><div class="hs-num">3</div><div class="hs-lbl">MMG Brands</div></div>
+        </div>
+      </div>
+      <img class="hero-logo" src="logo-mmg.png" alt="MMG Group">
+    </div>
+
+    <!-- START HERE -->
+    <div class="section" id="start-here">
+      <div class="sec-hd">
+        <div class="sec-num">&rarr;</div>
+        <div class="sec-meta">
+          <div class="sec-title">Start Here</div>
+          <div class="sec-desc">Find your area of responsibility and go directly to your relevant sections.</div>
+        </div>
+      </div>
+      <div class="role-finder">
+        <div class="rf-head">
+          <h3>Who uses which sections?</h3>
+          <p>Click any section tag to jump to it. You only need to read sections relevant to your role.</p>
+        </div>
+        <div class="role-cards">
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Leadership &amp; Management</div>
+            <div class="rc-role">Strategic oversight &amp; executive decisions</div>
+            <div class="rc-tags"><a href="#s1" class="rtag">Dashboard</a><a href="#s7" class="rtag">Finance</a><a href="#s10" class="rtag">Sponsors</a><a href="#s9" class="rtag">Contacts</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Event Coordination</div>
+            <div class="rc-role">Project management &amp; on-site execution</div>
+            <div class="rc-tags"><a href="#s2" class="rtag">Speakers</a><a href="#s3" class="rtag">Sessions</a><a href="#s4" class="rtag">Registration</a><a href="#s5" class="rtag">Accommodation</a><a href="#s13" class="rtag">Search</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Delegate Support</div>
+            <div class="rc-role">Registration processing &amp; attendee logistics</div>
+            <div class="rc-tags"><a href="#s4" class="rtag">Registration</a><a href="#s5" class="rtag">Accommodation</a><a href="#s8" class="rtag">Communications</a><a href="#s13" class="rtag">Search</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Speaker &amp; KOL Management</div>
+            <div class="rc-role">Faculty coordination &amp; speaker logistics</div>
+            <div class="rc-tags"><a href="#s2" class="rtag">Speakers</a><a href="#s3" class="rtag">Sessions</a><a href="#s8" class="rtag">Communications</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Finance &amp; Operations</div>
+            <div class="rc-role">Accounts, invoicing &amp; payment tracking</div>
+            <div class="rc-tags"><a href="#s7" class="rtag">Finance</a><a href="#s8" class="rtag">Communications</a><a href="#s4" class="rtag">Registration</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Sponsorship &amp; Business Development</div>
+            <div class="rc-role">Sponsor management &amp; commercial relationships</div>
+            <div class="rc-tags"><a href="#s10" class="rtag">Sponsors</a><a href="#s7" class="rtag">Finance</a><a href="#s9" class="rtag">Contacts</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Medical Content &amp; Education</div>
+            <div class="rc-role">MedCom, CME/CPD &amp; abstract management</div>
+            <div class="rc-tags"><a href="#s6" class="rtag">Abstracts</a><a href="#s3" class="rtag">Sessions</a><a href="#s8" class="rtag">Communications</a></div>
+          </div>
+          <div class="rc">
+            <div class="rc-title"><span class="rc-dot"></span>Marketing, Creative &amp; Communications</div>
+            <div class="rc-role">Email campaigns, social, design &amp; media</div>
+            <div class="rc-tags"><a href="#s8" class="rtag">Communications</a><a href="#s11" class="rtag">Media Library</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S1: GETTING STARTED -->
+    <div class="section" id="s1">
+      <div class="sec-hd"><div class="sec-num">1</div><div class="sec-meta">
+        <div class="sec-title">Getting Started</div>
+        <div class="sec-desc">Understanding the system, finding your event, reading the dashboard.</div>
+        <span class="sec-badge b-all">All roles</span>
+      </div></div>
+
+      <div class="sub" id="s1-1">
+        <div class="sub-title">What the system does</div>
+        <p>The MMG New System is Meeting Minds Group&#8217;s central event management platform. It manages the complete lifecycle of every event &#8212; from the first speaker invitation to post-event invoicing. It handles registrations, accommodation, abstract submissions, speaker agreements, communications, and financial tracking in one place.</p>
+        <p>The system connects directly to your AI agents. When an agent is asked to register a speaker or send payment reminders, it uses the same platform you see in the dashboard. Everything stays in sync.</p>
+      </div>
+
+      <div class="sub" id="s1-2">
+        <div class="sub-title">Finding and opening your event</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-001</div>
+          <div class="ss-info"><div class="ss-label">Event List</div><div class="ss-desc">Screenshot of the event list view &#8212; showing event name, dates, event type (Conference / Webinar / Forum), status badge, and live counts for registrations and speakers.</div></div>
+        </div>
+        <p>The event list shows all active and upcoming events. Click any event to open its dashboard.</p>
+      </div>
+
+      <div class="sub" id="s1-3">
+        <div class="sub-title">Reading the event dashboard</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-002</div>
+          <div class="ss-info"><div class="ss-label">Event Dashboard Overview</div><div class="ss-desc">Full event dashboard showing: registration summary tiles, speaker status tiles, session countdown, check-in rate, signed/unsigned agreement count, and recent activity feed.</div></div>
+        </div>
+        <div class="ig">
+          <div class="ic"><div class="ic-title">Registration Summary</div><div class="ic-body">Counts by status: Confirmed, Pending, Cancelled, Waitlisted. Payment breakdown: Paid, Unpaid, Complimentary, Refunded.</div></div>
+          <div class="ic gold"><div class="ic-title">Speaker Summary</div><div class="ic-body">Invited vs. Confirmed count. Unsigned agreement count &#8212; flag for follow-up.</div></div>
+          <div class="ic teal"><div class="ic-title">Sessions</div><div class="ic-body">Upcoming, live now, and completed. Next session countdown. Day-of view for on-site team.</div></div>
+          <div class="ic navy"><div class="ic-title">Check-in Rate</div><div class="ic-body">Percentage of confirmed registrations who have checked in. Updates in real time on the day.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s1-4">
+        <div class="sub-title">Conference vs. Webinar &#8212; what&#8217;s different</div>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Event type affects available features</div><div class="c-text">Webinar events have additional tools: attendance tracking, engagement reports (polls, Q&amp;A), and Zoom/BigMarker integration. Conference events have fuller accommodation and day-of check-in features. See Section 12 for webinar-specific guidance.</div></div></div>
+      </div>
+
+      <div class="sub" id="s1-5">
+        <div class="sub-title">How to search across the whole event</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-003</div>
+          <div class="ss-info"><div class="ss-label">Global Search</div><div class="ss-desc">Search bar returning results grouped by type: Registrations, Speakers, Abstracts, Contacts &#8212; all from a single query.</div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Search first, browse second</div><div class="c-text">Before scrolling through a long registrations list, use the search bar. It searches name, email, and organisation simultaneously across all domains.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S2: SPEAKERS -->
+    <div class="section" id="s2">
+      <div class="sec-hd"><div class="sec-num">2</div><div class="sec-meta">
+        <div class="sec-title">Speakers &amp; KOLs</div>
+        <div class="sec-desc">Adding, managing, and briefing speakers. Speaker agreements and day-of swaps.</div>
+        <span class="sec-badge b-event">Speaker &amp; KOL Management &middot; Event Coordination</span>
+      </div></div>
+
+      <div class="sub" id="s2-1">
+        <div class="sub-title">Adding a speaker</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-004</div>
+          <div class="ss-info"><div class="ss-label">Add Speaker Form</div><div class="ss-desc">Add speaker form with fields: Title (DR/PROF/MR/MRS/MS), First name, Last name, Email, Organisation, Job Title, Specialty, Bio, and Status selector.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Navigate to your event &rarr; <strong>Speakers</strong> tab &rarr; <strong>Add Speaker</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Fill in: <strong>Title</strong>, <strong>First name</strong>, <strong>Last name</strong>, <strong>Email</strong> (required)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Add optional details: Organisation, Job Title, Specialty, Bio</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Set initial <strong>Status</strong> &#8212; default is INVITED</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save</strong></div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Bulk additions via your AI agent</div><div class="c-text">For multiple speakers, provide your agent with a list (name, email, organisation) and it will create all of them at once.</div></div></div>
+      </div>
+
+      <div class="sub" id="s2-2">
+        <div class="sub-title">Speaker statuses explained</div>
+        <table class="st">
+          <thead><tr><th>Status</th><th>Meaning</th><th>Next action</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sb s-inv">INVITED</span></td><td>Added; invitation sent or pending</td><td>Send invitation email; chase for confirmation</td></tr>
+            <tr><td><span class="sb s-conf">CONFIRMED</span></td><td>Speaker has accepted</td><td>Assign to session; send agreement</td></tr>
+            <tr><td><span class="sb s-canc">DECLINED</span></td><td>Speaker has declined</td><td>Find replacement; update programme</td></tr>
+            <tr><td><span class="sb s-canc">CANCELLED</span></td><td>Was confirmed but has cancelled</td><td>Day-of swap (see below)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sub" id="s2-3">
+        <div class="sub-title">Speaker agreements</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-005</div>
+          <div class="ss-info"><div class="ss-label">Speaker Agreements View</div><div class="ss-desc">Speakers list with agreement status column (Signed / Unsigned / Not sent), send agreement button, and upload template button.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Upload the agreement template</strong> &#8212; Settings &rarr; Speaker Agreements &rarr; Upload Template (.docx format, max 2MB). Do this once per event.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Send agreements</strong> &#8212; Speakers &rarr; Send Agreements. Each confirmed speaker receives a personalised .docx pre-filled with their details.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Track signatures</strong> &#8212; Speakers &rarr; Agreements tab shows who has signed and who hasn&#8217;t.</div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Check unsigned agreements before the event</div><div class="c-text">Review the unsigned agreement list 2 weeks before the event and chase any outstanding signatures. The dashboard shows this count prominently.</div></div></div>
+      </div>
+
+      <div class="sub" id="s2-4">
+        <div class="sub-title">Assigning speakers to sessions with roles</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-006</div>
+          <div class="ss-info"><div class="ss-label">Session Speaker Assignment</div><div class="ss-desc">Session detail page &#8212; speaker assignment panel with role selector (Speaker / Moderator / Chairperson / Panelist) and add speaker search field.</div></div>
+        </div>
+        <div class="ig">
+          <div class="ic"><div class="ic-title">Speaker</div><div class="ic-body">Delivering a presentation in the session</div></div>
+          <div class="ic gold"><div class="ic-title">Moderator</div><div class="ic-body">Facilitating the session &#8212; managing time and Q&amp;A</div></div>
+          <div class="ic teal"><div class="ic-title">Chairperson</div><div class="ic-body">Leading the session; academic chair</div></div>
+          <div class="ic navy"><div class="ic-title">Panelist</div><div class="ic-body">Panel discussion participant</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s2-5">
+        <div class="sub-title">Day-of speaker swap</div>
+        <p>When a speaker cancels on the day, you no longer need to delete and recreate sessions. The system supports atomic speaker swaps that preserve the session ID, topics, and delegate associations.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Go to the session &rarr; <strong>Speakers</strong> panel</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Remove</strong> next to the cancelling speaker</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Add Speaker</strong> &rarr; search for the replacement</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Assign the same role</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Session ID, topics, and programme order are all preserved automatically</div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Or use the atomic replace</div><div class="c-text">For a full swap of multiple speakers, use <strong>Replace All Speakers</strong> &#8212; define the entire new speaker list for a session in one step with no intermediate state.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S3: SESSIONS -->
+    <div class="section" id="s3">
+      <div class="sec-hd"><div class="sec-num">3</div><div class="sec-meta">
+        <div class="sec-title">Programme &amp; Sessions</div>
+        <div class="sec-desc">Creating tracks, building sessions, assigning topics, monitoring the live programme.</div>
+        <span class="sec-badge b-event">Event Coordination &middot; Speaker Management &middot; Medical Content</span>
+      </div></div>
+
+      <div class="sub" id="s3-1">
+        <div class="sub-title">Creating content tracks</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-007</div>
+          <div class="ss-info"><div class="ss-label">Tracks Management</div><div class="ss-desc">Tracks list showing colour swatches, track names, session counts, and Add Track button with colour picker.</div></div>
+        </div>
+        <p>Tracks are the top-level programme organiser &#8212; e.g. Clinical Track, Research Track, Industry Symposia. Sessions are assigned to tracks and delegates can filter by track. Create tracks before creating sessions.</p>
+      </div>
+
+      <div class="sub" id="s3-2">
+        <div class="sub-title">Creating a session</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-008</div>
+          <div class="ss-info"><div class="ss-label">Create Session Form</div><div class="ss-desc">New session form &#8212; fields: Name, Start time, End time, Track selector, Location/Room, Description, Speaker assignment panel, Topics panel.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Navigate to <strong>Programme</strong> &rarr; <strong>Add Session</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Enter <strong>Name</strong>, <strong>Start time</strong>, <strong>End time</strong> &#8212; must fall within the event date range</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Select a <strong>Track</strong> and set the <strong>Location / Room</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Assign speakers with roles (see Section 2.4)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Add topics within the session (optional)</div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Session times must be within event dates</div><div class="c-text">The system validates that start and end times fall within the parent event&#8217;s date range. Check event dates in Settings if you get a validation error.</div></div></div>
+      </div>
+
+      <div class="sub" id="s3-3">
+        <div class="sub-title">Monitoring live sessions (day-of)</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-009</div>
+          <div class="ss-info"><div class="ss-label">Day-of Session Monitor</div><div class="ss-desc">Day-of view &#8212; current session highlighted in teal with elapsed time, upcoming sessions queued with countdown, completed sessions greyed out.</div></div>
+        </div>
+        <p>The dashboard shows a <strong>Live Now</strong> indicator for sessions currently running. The Sessions tab shows upcoming, live, and completed sessions in real time &#8212; useful for on-site management.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S4: REGISTRATION -->
+    <div class="section" id="s4">
+      <div class="sec-hd"><div class="sec-num">4</div><div class="sec-meta">
+        <div class="sec-title">Registration &amp; Ticketing</div>
+        <div class="sec-desc">Ticket types, promo codes, registering attendees, statuses, check-in, and walk-ups.</div>
+        <span class="sec-badge b-event">Delegate Support &middot; Event Coordination &middot; Finance</span>
+      </div></div>
+
+      <div class="sub" id="s4-1">
+        <div class="sub-title">Ticket types explained</div>
+        <p>Ticket types define attendee categories for your event: Physician, Allied Health Professional, Student, Resident, Member, Complimentary.</p>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Ticket pricing is set in the dashboard only</div><div class="c-text">When a ticket type is created it starts at $0 with 3 inactive pricing tiers (Early Bird, Standard, Onsite). To set actual prices go to <strong>Settings &rarr; Registration Types</strong> and activate the relevant tier. AI agents cannot set pricing.</div></div></div>
+      </div>
+
+      <div class="sub" id="s4-2">
+        <div class="sub-title">Promo codes</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-010</div>
+          <div class="ss-info"><div class="ss-label">Promo Codes List</div><div class="ss-desc">Promo codes table showing: code, discount type (% or fixed), usage count, validity dates, linked ticket types, and active/inactive toggle.</div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Deleting a promo code is a soft delete</div><div class="c-text">Deleting sets the code to inactive &#8212; it stops working for new registrations but existing registrations that used it are not affected. You can reactivate at any time.</div></div></div>
+      </div>
+
+      <div class="sub" id="s4-3">
+        <div class="sub-title">Registering an attendee</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-011</div>
+          <div class="ss-info"><div class="ss-label">Registration Form</div><div class="ss-desc">Add registration form &#8212; fields: Title, First name, Last name, Email, Organisation, Ticket type selector, Status selector, and optional special requirements.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Navigate to <strong>Registrations</strong> &rarr; <strong>Add Registration</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Fill in: <strong>Title</strong>, <strong>First name</strong>, <strong>Last name</strong>, <strong>Email</strong>, <strong>Organisation</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Select a <strong>Ticket type</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Set <strong>Status</strong> &#8212; CONFIRMED for direct registrations, PENDING for those awaiting payment</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Register</strong> &#8212; a QR code and serial ID are generated automatically and a confirmation email is sent</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s4-4">
+        <div class="sub-title">Registration statuses explained</div>
+        <table class="st">
+          <thead><tr><th>Status</th><th>Meaning</th><th>Typical next action</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sb s-pend">PENDING</span></td><td>Awaiting confirmation or payment</td><td>Send payment reminder; confirm once paid</td></tr>
+            <tr><td><span class="sb s-conf">CONFIRMED</span></td><td>Confirmed and active</td><td>Ready for check-in on event day</td></tr>
+            <tr><td><span class="sb s-ci">CHECKED_IN</span></td><td>Attendee has arrived and been scanned in</td><td>No further action required</td></tr>
+            <tr><td><span class="sb s-pend">WAITLISTED</span></td><td>On the waiting list</td><td>Promote to CONFIRMED if space opens</td></tr>
+            <tr><td><span class="sb s-canc">CANCELLED</span></td><td>Registration cancelled</td><td>Process refund if applicable (Section 7)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sub" id="s4-5">
+        <div class="sub-title">Payment statuses explained</div>
+        <table class="st">
+          <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sb s-canc">UNPAID</span></td><td>Payment due but not yet received</td></tr>
+            <tr><td><span class="sb s-pend">PENDING</span></td><td>Payment initiated but not yet confirmed</td></tr>
+            <tr><td><span class="sb s-paid">PAID</span></td><td>Payment received and confirmed via Stripe</td></tr>
+            <tr><td><span class="sb s-comp">COMPLIMENTARY</span></td><td>No charge &#8212; speakers, sponsors, VIPs</td></tr>
+            <tr><td><span class="sb s-canc">REFUNDED</span></td><td>Payment refunded</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sub" id="s4-6">
+        <div class="sub-title">Day-of check-in</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-012</div>
+          <div class="ss-info"><div class="ss-label">Check-in Interface</div><div class="ss-desc">Day-of check-in screen &#8212; QR scanner view on left, manual name/email search on right, with check-in confirmation toast and running checked-in count.</div></div>
+        </div>
+        <p>Scan the QR code from the attendee&#8217;s confirmation email or badge, or search by name. The system marks them as CHECKED_IN with a timestamp.</p>
+      </div>
+
+      <div class="sub" id="s4-7">
+        <div class="sub-title">Handling cancelled registrations (walk-ups)</div>
+        <div class="ig">
+          <div class="ic"><div class="ic-title">Option A &#8212; Reinstate First</div><div class="ic-body">Update status from CANCELLED to CONFIRMED, then check in normally. Correct if the cancellation was an error.</div></div>
+          <div class="ic gold"><div class="ic-title">Option B &#8212; Walk-up Override</div><div class="ic-body">Use <strong>Allow Cancelled Check-in</strong> override. Logged in the audit trail. Use for genuine walk-ups where reinstating first is impractical.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S5: ACCOMMODATION -->
+    <div class="section" id="s5">
+      <div class="sec-hd"><div class="sec-num">5</div><div class="sec-meta">
+        <div class="sec-title">Accommodation &amp; Hotels</div>
+        <div class="sec-desc">Setting up hotels, room types, booking attendees, managing status.</div>
+        <span class="sec-badge b-event">Delegate Support &middot; Event Coordination</span>
+      </div></div>
+
+      <div class="sub" id="s5-1">
+        <div class="sub-title">Adding a hotel and room types</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-013</div>
+          <div class="ss-info"><div class="ss-label">Hotel Setup</div><div class="ss-desc">Hotel management page &#8212; hotel card with star rating, contact details, and room type list below showing name, price per night, total rooms, booked count, and availability.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Navigate to <strong>Accommodation</strong> &rarr; <strong>Hotels</strong> &rarr; <strong>Add Hotel</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Enter hotel name, address, star rating, contact email and phone &rarr; Save</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Open the hotel &rarr; <strong>Add Room Type</strong> &#8212; enter name, price per night, total rooms available, and capacity</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Repeat for each room type (Standard, Deluxe, Suite etc.)</div></div>
+        </div>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Availability tracked automatically</div><div class="c-text">The system tracks booked vs. available rooms in real time. It will not allow booking a room type that has no availability remaining.</div></div></div>
+      </div>
+
+      <div class="sub" id="s5-2">
+        <div class="sub-title">Booking a room for an attendee</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-014</div>
+          <div class="ss-info"><div class="ss-label">Accommodation Booking Form</div><div class="ss-desc">Add booking form &#8212; attendee/registration selector, hotel + room type dropdowns, check-in/check-out date pickers, guest count, special requests field, and calculated total price.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Go to <strong>Accommodation</strong> &rarr; <strong>Bookings</strong> &rarr; <strong>Add Booking</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Select the <strong>Registration</strong> (attendee) from the dropdown</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Select the <strong>Hotel</strong> and <strong>Room type</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Set check-in and check-out dates, guest count, and special requests</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Confirm &#8212; total price is calculated automatically and a confirmation number is generated</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s5-3">
+        <div class="sub-title">Accommodation statuses</div>
+        <table class="st">
+          <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sb s-pend">PENDING</span></td><td>Booking created; awaiting hotel confirmation</td></tr>
+            <tr><td><span class="sb s-conf">CONFIRMED</span></td><td>Hotel has confirmed the booking</td></tr>
+            <tr><td><span class="sb s-ci">CHECKED_IN</span></td><td>Guest has checked in to the hotel</td></tr>
+            <tr><td><span class="sb s-paid">CHECKED_OUT</span></td><td>Guest has checked out</td></tr>
+            <tr><td><span class="sb s-canc">CANCELLED</span></td><td>Booking cancelled; room returned to availability</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S6: ABSTRACTS -->
+    <div class="section" id="s6">
+      <div class="sec-hd"><div class="sec-num">6</div><div class="sec-meta">
+        <div class="sec-title">Abstracts &amp; Call for Papers</div>
+        <div class="sec-desc">Managing submissions, reviewing, accepting, and the chair override workflow.</div>
+        <span class="sec-badge b-medcom">Medical Content &amp; Education</span>
+      </div></div>
+
+      <div class="sub" id="s6-1">
+        <div class="sub-title">Submission statuses explained</div>
+        <table class="st">
+          <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sb s-pend">SUBMITTED</span></td><td>Received; awaiting reviewer assignment</td></tr>
+            <tr><td><span class="sb s-inv">UNDER_REVIEW</span></td><td>Assigned to reviewers; scoring in progress</td></tr>
+            <tr><td><span class="sb s-acc">ACCEPTED</span></td><td>Approved; author notified</td></tr>
+            <tr><td><span class="sb s-rej">REJECTED</span></td><td>Not accepted; author notified</td></tr>
+            <tr><td><span class="sb s-pend">REVISION_REQUESTED</span></td><td>Author asked to revise and resubmit</td></tr>
+            <tr><td><span class="sb s-canc">WITHDRAWN</span></td><td>Author has withdrawn their submission</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sub" id="s6-2">
+        <div class="sub-title">Setting up review criteria</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-015</div>
+          <div class="ss-info"><div class="ss-label">Review Criteria Setup</div><div class="ss-desc">Review criteria list &#8212; criteria with name, weight value (1&#8211;10), sort order handles, and add criterion button.</div></div>
+        </div>
+        <p>Before reviewing begins, set up scoring criteria. Each criterion has a name and a weight (1&#8211;10 scale). Examples: Scientific Novelty (weight 8), Clinical Relevance (weight 9), Presentation Quality (weight 7).</p>
+      </div>
+
+      <div class="sub" id="s6-3">
+        <div class="sub-title">Reviewing and deciding on abstracts</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-016</div>
+          <div class="ss-info"><div class="ss-label">Abstract Review Interface</div><div class="ss-desc">Abstract detail view &#8212; submission text, reviewer score cards showing per-criterion scores and overall recommendation, and status action buttons (Accept / Reject / Request Revision).</div></div>
+        </div>
+        <p>Once sufficient reviews are submitted, the status action buttons become active. Select <strong>Accept</strong>, <strong>Reject</strong>, or <strong>Request Revision</strong>. The author is notified automatically by email.</p>
+      </div>
+
+      <div class="sub" id="s6-4">
+        <div class="sub-title">Chair override</div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Override actions are logged</div><div class="c-text">Use <strong>Force Decision</strong> to bypass the reviewer count requirement when an urgent programme decision is needed. Every override is recorded with a timestamp and source in the audit trail. Use sparingly.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S7: FINANCE -->
+    <div class="section" id="s7">
+      <div class="sec-hd"><div class="sec-num">7</div><div class="sec-meta">
+        <div class="sec-title">Finance &amp; Invoicing</div>
+        <div class="sec-desc">Invoice numbering, types, tracking, chasing unpaid registrations, and refunds.</div>
+        <span class="sec-badge b-finance">Finance &amp; Operations &middot; Leadership</span>
+      </div></div>
+
+      <div class="sub" id="s7-1">
+        <div class="sub-title">How invoice numbers work</div>
+        <p>Invoice numbers are generated automatically using the event code. The format is: <strong>[EVENT_CODE]-INV-001</strong>, <strong>[EVENT_CODE]-INV-002</strong>, etc. The event code is derived from the event name &#8212; e.g. &#8220;Heart Failure Forum 2026&#8221; &rarr; HFF2026. Receipts use the same pattern: HFF2026-REC-001.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Legacy events without an event code</div><div class="c-text">If an event was created before the event code system, the code is automatically derived on the first invoice generation. No manual action needed.</div></div></div>
+      </div>
+
+      <div class="sub" id="s7-2">
+        <div class="sub-title">Invoice types</div>
+        <div class="ig">
+          <div class="ic"><div class="ic-title">Invoice</div><div class="ic-body">Issued before payment &#8212; the payment request sent to the attendee or their organisation.</div></div>
+          <div class="ic gold"><div class="ic-title">Receipt</div><div class="ic-body">Issued after payment is confirmed via Stripe. Generated automatically on payment.</div></div>
+          <div class="ic teal"><div class="ic-title">Credit Note</div><div class="ic-body">Issued for refunds or partial credits. Created alongside a refund transaction.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s7-3">
+        <div class="sub-title">Viewing and tracking invoices</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-017</div>
+          <div class="ss-info"><div class="ss-label">Invoice List</div><div class="ss-desc">Invoices table &#8212; columns: invoice number, type (Invoice/Receipt/Credit Note), attendee name, amount, status (Draft/Sent/Paid/Overdue), issue date, due date, and PDF download button.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s7-4">
+        <div class="sub-title">Chasing unpaid registrations</div>
+        <p>To send a payment reminder to all unpaid confirmed registrations, use the bulk email with payment filtering (Section 8.4). This targets only those who owe payment &#8212; paid and complimentary registrations are excluded automatically. One step, no manual filtering needed.</p>
+      </div>
+
+      <div class="sub" id="s7-5">
+        <div class="sub-title">Refunds</div>
+        <div class="callout c-crit"><div class="c-icon">&#x1F534;</div><div class="c-body"><div class="c-title">Refunds must be processed via the dashboard &#8212; not via agents</div><div class="c-text">Go to the registration &rarr; click <strong>Refund</strong>. This triggers the actual Stripe refund, updates payment status to REFUNDED, creates a credit note, and emails the registrant &#8212; all in one step. AI agents cannot initiate refunds. This is an intentional safety boundary.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S8: COMMUNICATIONS -->
+    <div class="section" id="s8">
+      <div class="sec-hd"><div class="sec-num">8</div><div class="sec-meta">
+        <div class="sec-title">Communications</div>
+        <div class="sec-desc">Email templates, bulk email, payment filtering, scheduled emails.</div>
+        <span class="sec-badge b-event">Communications &amp; Marketing &middot; Delegate Support &middot; Finance</span>
+      </div></div>
+
+      <div class="sub" id="s8-1">
+        <div class="sub-title">The 11 available email templates</div>
+        <div class="tg">
+          <div class="ti"><div class="ti-num">Template 01</div><div class="ti-name">Registration Confirmation</div><div class="ti-desc">Sent on confirmed registration</div></div>
+          <div class="ti"><div class="ti-num">Template 02</div><div class="ti-name">Payment Reminder</div><div class="ti-desc">Chase unpaid registrations</div></div>
+          <div class="ti"><div class="ti-num">Template 03</div><div class="ti-name">Payment Confirmation</div><div class="ti-desc">Sent when payment received</div></div>
+          <div class="ti"><div class="ti-num">Template 04</div><div class="ti-name">Speaker Invitation</div><div class="ti-desc">Initial outreach to speakers</div></div>
+          <div class="ti"><div class="ti-num">Template 05</div><div class="ti-name">Speaker Agreement</div><div class="ti-desc">Agreement with personalised .docx attachment</div></div>
+          <div class="ti"><div class="ti-num">Template 06</div><div class="ti-name">Abstract Submission Confirmation</div><div class="ti-desc">Sent on abstract receipt</div></div>
+          <div class="ti"><div class="ti-num">Template 07</div><div class="ti-name">Abstract Submission Reminder</div><div class="ti-desc">Chase pending submitters</div></div>
+          <div class="ti"><div class="ti-num">Template 08</div><div class="ti-name">Abstract Status Update</div><div class="ti-desc">Accepted / Rejected / Revision requested</div></div>
+          <div class="ti"><div class="ti-num">Template 09</div><div class="ti-name">Submitter Welcome</div><div class="ti-desc">Welcome to the call for papers</div></div>
+          <div class="ti"><div class="ti-num">Template 10</div><div class="ti-name">Event Reminder</div><div class="ti-desc">Pre-event reminder to registrants</div></div>
+          <div class="ti"><div class="ti-num">Template 11</div><div class="ti-name">Custom Notification</div><div class="ti-desc">General-purpose email</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s8-2">
+        <div class="sub-title">Customising a template for your event</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-018</div>
+          <div class="ss-info"><div class="ss-label">Template Editor</div><div class="ss-desc">Email template editor &#8212; subject line field, rich text body editor, template variable reference panel on right (e.g. {"{"}eventName{"}"}, {"{"}attendeeName{"}"}), and Reset to Default button.</div></div>
+        </div>
+        <p>Each template can be customised at the event level without affecting the default. Go to <strong>Communications &rarr; Templates</strong>, select a template, and edit the subject and body. Template variables like <code>&#123;&#123;eventName&#125;&#125;</code> are filled in automatically at send time.</p>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Reset to default at any time</div><div class="c-text">Use <strong>Reset to Default</strong> to restore the original template if you&#8217;ve made unwanted changes.</div></div></div>
+      </div>
+
+      <div class="sub" id="s8-3">
+        <div class="sub-title">Sending a bulk email</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-019</div>
+          <div class="ss-info"><div class="ss-label">Bulk Email Dialog</div><div class="ss-desc">Send email dialog &#8212; recipient type toggle (Registrations / Speakers), registration status filter dropdown, payment status filter dropdown (visible for Registrations only), template selector, subject field, and recipient count preview before send.</div></div>
+        </div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Go to <strong>Communications &rarr; Send Email</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Choose recipient type: <strong>Registrations</strong> or <strong>Speakers</strong></div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Set <strong>Status filter</strong> (e.g. CONFIRMED only)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">For registrations: optionally set <strong>Payment status filter</strong> (e.g. UNPAID only)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Select or compose the email &rarr; review recipient count &rarr; click <strong>Send</strong></div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Rate limit: 10 bulk sends per event per hour</div><div class="c-text">Plan accordingly if sending multiple campaigns. Avoid sending back-to-back in quick succession.</div></div></div>
+      </div>
+
+      <div class="sub" id="s8-4">
+        <div class="sub-title">Filtering recipients by status and payment</div>
+        <div class="ic" style="margin:14px 0">
+          <div class="ic-title">Example &#8212; Chase unpaid confirmed registrations</div>
+          <div class="ic-body">
+            Recipient type: <strong>Registrations</strong><br>
+            Status filter: <strong>CONFIRMED</strong><br>
+            Payment filter: <strong>UNPAID</strong><br><br>
+            &rarr; Email goes only to confirmed attendees who haven&#8217;t paid. Paid and complimentary registrants are excluded automatically.
+          </div>
+        </div>
+      </div>
+
+      <div class="sub" id="s8-5">
+        <div class="sub-title">Viewing and cancelling scheduled emails</div>
+        <p>Some emails are sent automatically by the system &#8212; webinar reminders, registration completion chasers. View the queue in <strong>Communications &rarr; Scheduled</strong> and cancel any you don&#8217;t want sent.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Manually scheduled campaigns are not available</div><div class="c-text">Scheduled emails are system-generated based on event settings. All manually triggered bulk emails send immediately. If you need a timed campaign, contact your event coordinator to set up a system sequence.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S9: CONTACTS -->
+    <div class="section" id="s9">
+      <div class="sec-hd"><div class="sec-num">9</div><div class="sec-meta">
+        <div class="sec-title">Contacts</div>
+        <div class="sec-desc">Organisation-wide contact database &#8212; searching, adding, and tagging.</div>
+        <span class="sec-badge b-ops">Sponsorship &amp; BD &middot; Leadership</span>
+      </div></div>
+
+      <div class="sub" id="s9-1">
+        <div class="sub-title">The organisation-wide contact database</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-020</div>
+          <div class="ss-info"><div class="ss-label">Contacts List</div><div class="ss-desc">Contacts table &#8212; columns: name, organisation, email, tags (shown as pills), and last event association. Search bar and tag filter at top.</div></div>
+        </div>
+        <p>Contacts is MM Group&#8217;s central contact database. Unlike registrations and speakers (event-specific), contacts are organisation-wide &#8212; a contact from one event remains searchable across all events. This is where your KOL database, association contacts, and institutional relationships live.</p>
+      </div>
+
+      <div class="sub" id="s9-2">
+        <div class="sub-title">Adding and tagging contacts</div>
+        <p>When adding a contact, use tags to categorise them: e.g. <code>cardiologist</code>, <code>kol</code>, <code>speaker</code>, <code>association-member</code>. Tags make future searching and filtering much faster across all events.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S10: SPONSORS -->
+    <div class="section" id="s10">
+      <div class="sec-hd"><div class="sec-num">10</div><div class="sec-meta">
+        <div class="sec-title">Sponsors</div>
+        <div class="sec-desc">Viewing sponsors by tier and updating the sponsor list.</div>
+        <span class="sec-badge b-finance">Sponsorship &amp; BD &middot; Leadership</span>
+      </div></div>
+
+      <div class="sub" id="s10-1">
+        <div class="sub-title">Viewing sponsors by tier</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-021</div>
+          <div class="ss-info"><div class="ss-label">Sponsors View</div><div class="ss-desc">Sponsors tiered layout &#8212; grouped by Platinum, Gold, Silver, Bronze, Partner, Exhibitor. Each sponsor shows logo, name, website link, and tier badge.</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s10-2">
+        <div class="sub-title">Updating the sponsor list</div>
+        <div class="callout c-crit"><div class="c-icon">&#x1F534;</div><div class="c-body"><div class="c-title">Updating replaces the entire sponsor list</div><div class="c-text">The <strong>Update Sponsors</strong> function replaces all existing sponsors in one operation &#8212; it does not append. Always note the current sponsor list before updating, and include all existing sponsors alongside any additions. Submitting only the new sponsor will remove all others.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S11: MEDIA -->
+    <div class="section" id="s11">
+      <div class="sec-hd"><div class="sec-num">11</div><div class="sec-meta">
+        <div class="sec-title">Media Library</div>
+        <div class="sec-desc">Event asset management &#8212; viewing and uploading files.</div>
+        <span class="sec-badge b-event">Communications &amp; Marketing &middot; Creative</span>
+      </div></div>
+
+      <div class="sub" id="s11-1">
+        <div class="sub-title">Viewing and uploading event assets</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-022</div>
+          <div class="ss-info"><div class="ss-label">Media Library</div><div class="ss-desc">Media library grid &#8212; file thumbnails showing filename, size, type (JPEG/PNG/PDF), and upload date. Upload button top-right. CDN URLs copyable on hover.</div></div>
+        </div>
+        <p>The Media Library stores all event files &#8212; email banners, speaker headshots, sponsor logos, presentation templates.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Uploads must be done via the dashboard</div><div class="c-text">AI agents can list and reference existing media files but cannot upload new ones. All uploads must be done through the Media Library in the dashboard.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S12: WEBINAR -->
+    <div class="section" id="s12">
+      <div class="sec-hd"><div class="sec-num">12</div><div class="sec-meta">
+        <div class="sec-title">Webinar Features</div>
+        <div class="sec-desc">Webinar-specific configuration, attendance, and engagement reports.</div>
+        <span class="sec-badge b-medcom">Virtual Events &amp; IT &middot; Medical Education</span>
+      </div></div>
+
+      <div class="sub" id="s12-1">
+        <div class="sub-title">Webinar vs. Conference &#8212; key differences</div>
+        <div class="ig">
+          <div class="ic"><div class="ic-title">Conference Features</div><div class="ic-body"><ul><li>Physical check-in &amp; badge scanning</li><li>Hotel accommodation management</li><li>Venue / room assignment</li><li>Multi-track parallel sessions</li></ul></div></div>
+          <div class="ic gold"><div class="ic-title">Webinar Extras</div><div class="ic-body"><ul><li>Zoom / BigMarker integration</li><li>Attendance tracking (registered vs. attended)</li><li>Average watch time</li><li>Poll results per question</li><li>Q&amp;A log with all questions</li></ul></div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s12-2">
+        <div class="sub-title">Attendance and engagement reports</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-023</div>
+          <div class="ss-info"><div class="ss-label">Webinar Attendance Report</div><div class="ss-desc">Attendance report &#8212; KPI tiles showing Registered, Attended, Attendance Rate %, Average Watch Time, and a registration-to-attendance funnel chart.</div></div>
+        </div>
+        <div class="ss">
+          <div class="ss-ref">IMG-024</div>
+          <div class="ss-info"><div class="ss-label">Webinar Engagement Report</div><div class="ss-desc">Engagement report &#8212; poll results with per-question breakdowns and response percentages, followed by full Q&amp;A log showing participant questions and presenter responses.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S13: SEARCH -->
+    <div class="section" id="s13">
+      <div class="sec-hd"><div class="sec-num">13</div><div class="sec-meta">
+        <div class="sec-title">Search</div>
+        <div class="sec-desc">Finding any person or abstract across all domains in one query.</div>
+        <span class="sec-badge b-all">All roles</span>
+      </div></div>
+
+      <div class="sub" id="s13-1">
+        <div class="sub-title">Using global event search</div>
+        <div class="ss">
+          <div class="ss-ref">IMG-025</div>
+          <div class="ss-info"><div class="ss-label">Global Search Results</div><div class="ss-desc">Search results panel &#8212; query returns results grouped by type (Registrations / Speakers / Abstracts / Contacts), each with quick-action buttons (View / Check In / Email).</div></div>
+        </div>
+        <p>Type a name, email address, or organisation &#8212; results are returned across all domains at once. Always use the search bar before browsing long lists.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- S14: LIMITATIONS -->
+    <div class="section" id="s14">
+      <div class="sec-hd"><div class="sec-num">14</div><div class="sec-meta">
+        <div class="sec-title">Known Limitations</div>
+        <div class="sec-desc">What must be done manually or via the dashboard &#8212; not via AI agents.</div>
+        <span class="sec-badge b-all">All roles</span>
+      </div></div>
+      <p>These are intentional design boundaries or features not yet built. Your AI agents are aware of all of these and will direct you to the right alternative when they apply.</p>
+      <div class="lim-list">
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Ticket pricing &#8212; dashboard only</strong>Ticket prices must be set and activated in Settings &rarr; Registration Types. AI agents cannot set pricing.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Refunds &#8212; dashboard + Stripe only</strong>Refunds must be initiated from the Registration Detail Sheet. AI agents cannot issue refunds. This is a deliberate safety boundary.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Media upload &#8212; dashboard only</strong>All file uploads must be done through the Media Library. Agents can view and reference existing files but cannot upload new ones.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Sponsor list &#8212; replace-all, not merge</strong>Updating sponsors replaces the entire list. Always include all existing sponsors when adding a new one. See Section 10.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Scheduled emails &#8212; system-generated only</strong>You cannot manually create a scheduled email campaign. All agent-triggered bulk emails send immediately.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26D4;</div><div class="lim-body"><strong>Email address changes &#8212; dedicated flow required</strong>Changing a speaker&#8217;s or registrant&#8217;s email via the normal edit form is blocked. Use the dedicated Change Email process to prevent data inconsistencies.</div></div>
+        <div class="lim"><div class="lim-icon">&#x26A0;&#xFE0F;</div><div class="lim-body"><strong>Remove speaker from session &#8212; under investigation</strong>This function is returning an unexpected response in some cases. Use <strong>Replace All Speakers</strong> as the alternative until resolved. Your agent will handle this automatically.</div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- SCREENSHOT INDEX -->
+    <div class="section" id="img-ref">
+      <div class="sec-hd"><div class="sec-num">&#x1F5BC;</div><div class="sec-meta">
+        <div class="sec-title">Screenshot Index</div>
+        <div class="sec-desc">Master reference list of all image placeholders in this document. Use the IMG-XXX reference number to match screenshots to their correct location.</div>
+      </div></div>
+      <table class="img-ref-table">
+        <thead><tr><th>Ref</th><th>Section</th><th>What the screenshot should show</th></tr></thead>
+        <tbody>
+          <tr><td><span class="ref-code">IMG-001</span></td><td>1.2 — Finding your event</td><td>Event list view: event name, dates, event type badge, status, registration + speaker counts</td></tr>
+          <tr><td><span class="ref-code">IMG-002</span></td><td>1.3 — Reading the dashboard</td><td>Full event dashboard: registration tiles, speaker status, session countdown, check-in rate, agreement count, activity feed</td></tr>
+          <tr><td><span class="ref-code">IMG-003</span></td><td>1.5 — Search</td><td>Global search bar with results grouped by Registrations / Speakers / Abstracts / Contacts</td></tr>
+          <tr><td><span class="ref-code">IMG-004</span></td><td>2.1 — Adding a speaker</td><td>Add Speaker form: Title, First name, Last name, Email, Organisation, Job Title, Bio, Status selector</td></tr>
+          <tr><td><span class="ref-code">IMG-005</span></td><td>2.3 — Speaker agreements</td><td>Speakers list with agreement status column (Signed / Unsigned / Not sent), send and upload template buttons</td></tr>
+          <tr><td><span class="ref-code">IMG-006</span></td><td>2.4 — Assigning speakers</td><td>Session detail: speaker assignment panel with role selector (Speaker / Moderator / Chairperson / Panelist)</td></tr>
+          <tr><td><span class="ref-code">IMG-007</span></td><td>3.1 — Creating tracks</td><td>Tracks management: track list with colour swatches, session counts, Add Track button</td></tr>
+          <tr><td><span class="ref-code">IMG-008</span></td><td>3.2 — Creating a session</td><td>New session form: Name, Start/End time, Track, Location, Speaker assignment, Topics panels</td></tr>
+          <tr><td><span class="ref-code">IMG-009</span></td><td>3.3 — Live session monitor</td><td>Day-of view: current session in teal, upcoming sessions queued, completed sessions greyed</td></tr>
+          <tr><td><span class="ref-code">IMG-010</span></td><td>4.2 — Promo codes</td><td>Promo codes table: code, discount %, usage count, validity dates, active/inactive toggle</td></tr>
+          <tr><td><span class="ref-code">IMG-011</span></td><td>4.3 — Registration form</td><td>Add registration form: Title, name, email, organisation, ticket type, status selector</td></tr>
+          <tr><td><span class="ref-code">IMG-012</span></td><td>4.6 — Check-in interface</td><td>Day-of check-in: QR scanner and manual name/email search with check-in confirmation</td></tr>
+          <tr><td><span class="ref-code">IMG-013</span></td><td>5.1 — Hotel setup</td><td>Hotel card with star rating, room type list: name, price/night, total rooms, booked count, availability</td></tr>
+          <tr><td><span class="ref-code">IMG-014</span></td><td>5.2 — Booking form</td><td>Accommodation booking: registration selector, hotel + room type dropdowns, dates, calculated total</td></tr>
+          <tr><td><span class="ref-code">IMG-015</span></td><td>6.2 — Review criteria</td><td>Review criteria list: name, weight value, sort order handles, Add Criterion button</td></tr>
+          <tr><td><span class="ref-code">IMG-016</span></td><td>6.3 — Abstract review</td><td>Abstract detail: submission text, reviewer score cards, status action buttons (Accept / Reject / Revision)</td></tr>
+          <tr><td><span class="ref-code">IMG-017</span></td><td>7.3 — Invoice list</td><td>Invoices table: invoice number, type, attendee, amount, status, issue/due date, PDF button</td></tr>
+          <tr><td><span class="ref-code">IMG-018</span></td><td>8.2 — Template editor</td><td>Email template editor: subject line, rich text body, variable reference panel, Reset to Default button</td></tr>
+          <tr><td><span class="ref-code">IMG-019</span></td><td>8.3 — Bulk email dialog</td><td>Send email: recipient type toggle, status filter, payment status filter, template selector, recipient count</td></tr>
+          <tr><td><span class="ref-code">IMG-020</span></td><td>9.1 — Contacts list</td><td>Contacts table: name, organisation, email, tags as pills, last event. Search + tag filter at top.</td></tr>
+          <tr><td><span class="ref-code">IMG-021</span></td><td>10.1 — Sponsors view</td><td>Sponsors tiered layout: grouped by Platinum/Gold/Silver/Bronze/Partner/Exhibitor, logo + name + tier badge</td></tr>
+          <tr><td><span class="ref-code">IMG-022</span></td><td>11.1 — Media library</td><td>Media grid: file thumbnails, filename, size, type, upload date. CDN URLs copyable on hover.</td></tr>
+          <tr><td><span class="ref-code">IMG-023</span></td><td>12.2 — Webinar attendance</td><td>Attendance KPIs: Registered, Attended, Rate %, Avg Watch Time, registration-to-attendance funnel</td></tr>
+          <tr><td><span class="ref-code">IMG-024</span></td><td>12.2 — Webinar engagement</td><td>Engagement: poll results with response % per question, full Q&amp;A log</td></tr>
+          <tr><td><span class="ref-code">IMG-025</span></td><td>13.1 — Global search results</td><td>Search results panel: results grouped by type with quick-action buttons (View / Check In / Email)</td></tr>
+          <tr><td><span class="ref-code">IMG-026</span></td><td>Cover / header</td><td>System login or home screen screenshot for cover use</td></tr>
+        </tbody>
+      </table>
+      <div class="callout c-tip" style="margin-top:20px"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">How to use this index</div><div class="c-text">Every screenshot placeholder in this document shows its reference number (e.g. IMG-001). When taking screenshots, use this table to know exactly what each one should capture and where it will be placed. Hand this table to your designer or photographer as a brief.</div></div></div>
+    </div>
+
+    <div class="divider"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 40px;flex-wrap:wrap;gap:16px">
+      <div>
+        <img src="logo-mmg.png" alt="MMG" style="height:28px;opacity:0.6;filter:grayscale(1)">
+      </div>
+      <div style="text-align:center;font-size:0.72rem;color:var(--text-muted)">
+        <strong style="color:var(--navy)">MMG New System &middot; Human User Guide</strong> &middot; Version 1.0 &middot; April 2026
+      </div>
+      <div style="text-align:right">
+        <img src="logo-mme.png" alt="MME" style="height:22px;opacity:0.4;filter:grayscale(1)">
+        <img src="logo-medcom.png" alt="MedCom" style="height:22px;opacity:0.4;filter:grayscale(1);margin-left:12px">
+        <img src="logo-medulive.png" alt="MedULive" style="height:22px;opacity:0.4;filter:grayscale(1);margin-left:12px">
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<button class="back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#x2191; TOP</button>
+
+<script>
+const links = document.querySelectorAll('.nav-a');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if(e.isIntersecting) {
+      const id = e.target.id;
+      links.forEach(l => {
+        l.classList.remove('active');
+        if(l.getAttribute('href') === '#' + id) l.classList.add('active');
+      });
+    }
+  });
+}, {rootMargin:'-15% 0px -75% 0px'});
+document.querySelectorAll('.section, .sub').forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
