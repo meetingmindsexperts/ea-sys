@@ -28,6 +28,14 @@ import {
   FileEdit,
   CreditCard,
   AlertCircle,
+  UserPlus,
+  FileSignature,
+  Megaphone,
+  Crown,
+  CheckCircle2,
+  RotateCcw,
+  Clock,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useRegistrations,
@@ -69,6 +77,151 @@ interface TicketTypeItem {
   id: string;
   name: string;
 }
+
+// ───────────────────────── Workflow tiles ─────────────────────────
+// Pre-built filter + email-type presets for common organizer workflows.
+// Tiles bypass the page-level filter dropdowns ("Advanced filters") —
+// clicking one opens the dialog with the tile's filters + email type
+// applied, leaving any in-progress advanced composition untouched.
+
+type SpeakerEmailType = "invitation" | "agreement" | "custom";
+type RegistrationEmailType = "confirmation" | "reminder" | "custom";
+
+interface SpeakerTile {
+  id: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  filters: {
+    status?: string;
+    agreementSigned?: string;
+    hasSession?: string;
+    sessionRole?: string;
+  };
+  defaultEmailType: SpeakerEmailType;
+  matches: (s: SpeakerItem) => boolean;
+}
+
+interface RegistrationTile {
+  id: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  filters: {
+    status?: string;
+    paymentStatus?: string;
+    ticketTypeId?: string;
+  };
+  defaultEmailType: RegistrationEmailType;
+  matches: (r: RegistrationItem) => boolean;
+}
+
+const SPEAKER_TILES: SpeakerTile[] = [
+  {
+    id: "send-invitations",
+    label: "Send Invitations",
+    description: "Invited speakers awaiting response",
+    icon: UserPlus,
+    filters: { status: "INVITED" },
+    defaultEmailType: "invitation",
+    matches: (s) => s.status === "INVITED",
+  },
+  {
+    id: "chase-agreements",
+    label: "Chase Agreements",
+    description: "Confirmed but agreement not signed",
+    icon: FileSignature,
+    filters: { status: "CONFIRMED", agreementSigned: "unsigned" },
+    defaultEmailType: "agreement",
+    matches: (s) => s.status === "CONFIRMED" && !s.agreementAcceptedAt,
+  },
+  {
+    id: "brief-moderators",
+    label: "Brief Moderators",
+    description: "Speakers in a moderator role",
+    icon: Megaphone,
+    filters: { sessionRole: "MODERATOR" },
+    defaultEmailType: "custom",
+    matches: (s) => !!s.sessions?.some((sx) => sx.role === "MODERATOR"),
+  },
+  {
+    id: "brief-chairpersons",
+    label: "Brief Chairpersons",
+    description: "Speakers in a chair role",
+    icon: Crown,
+    filters: { sessionRole: "CHAIRPERSON" },
+    defaultEmailType: "custom",
+    matches: (s) => !!s.sessions?.some((sx) => sx.role === "CHAIRPERSON"),
+  },
+  {
+    id: "active-faculty",
+    label: "Active Faculty",
+    description: "Confirmed, signed, with at least one session",
+    icon: CheckCircle2,
+    filters: { status: "CONFIRMED", agreementSigned: "signed", hasSession: "yes" },
+    defaultEmailType: "custom",
+    matches: (s) =>
+      s.status === "CONFIRMED" &&
+      !!s.agreementAcceptedAt &&
+      (s._count?.sessions ?? s.sessions?.length ?? 0) > 0,
+  },
+  {
+    id: "reinvite-declined",
+    label: "Reinvite Declined",
+    description: "Previously declined speakers",
+    icon: RotateCcw,
+    filters: { status: "DECLINED" },
+    defaultEmailType: "invitation",
+    matches: (s) => s.status === "DECLINED",
+  },
+];
+
+const REGISTRATION_TILES: RegistrationTile[] = [
+  {
+    id: "chase-unpaid",
+    label: "Chase Unpaid",
+    description: "Confirmed but payment outstanding",
+    icon: CreditCard,
+    filters: { status: "CONFIRMED", paymentStatus: "UNPAID" },
+    defaultEmailType: "custom",
+    matches: (r) => r.status === "CONFIRMED" && r.paymentStatus === "UNPAID",
+  },
+  {
+    id: "welcome-paid",
+    label: "Welcome Paid",
+    description: "Paid / complimentary / inclusive registrants",
+    icon: Mail,
+    // Multi-value filter not expressible in current schema — page filter is
+    // single-value. Tile keeps the predicate broad (PAID/COMPLIMENTARY/
+    // INCLUSIVE), but the dialog payload narrows to PAID; organizer can
+    // re-send for COMPLIMENTARY / INCLUSIVE via Advanced filters.
+    filters: { status: "CONFIRMED", paymentStatus: "PAID" },
+    defaultEmailType: "confirmation",
+    matches: (r) =>
+      r.status === "CONFIRMED" &&
+      (r.paymentStatus === "PAID" ||
+        r.paymentStatus === "COMPLIMENTARY" ||
+        r.paymentStatus === "INCLUSIVE"),
+  },
+  {
+    id: "pre-event-reminder",
+    label: "Pre-event Reminder",
+    description: "All confirmed registrants",
+    icon: Clock,
+    filters: { status: "CONFIRMED" },
+    defaultEmailType: "reminder",
+    matches: (r) => r.status === "CONFIRMED",
+  },
+  {
+    id: "cancelled-reengage",
+    label: "Cancelled Re-engagement",
+    description: "Cancelled registrations",
+    icon: RotateCcw,
+    filters: { status: "CANCELLED" },
+    defaultEmailType: "custom",
+    matches: (r) => r.status === "CANCELLED",
+  },
+];
 
 export default function CommunicationsPage() {
   const params = useParams();
@@ -114,6 +267,7 @@ export default function CommunicationsPage() {
   const [activeAgreementSignedFilter, setActiveAgreementSignedFilter] = useState<string | undefined>();
   const [activeHasSessionFilter, setActiveHasSessionFilter] = useState<string | undefined>();
   const [activeSessionRoleFilter, setActiveSessionRoleFilter] = useState<string | undefined>();
+  const [activeDefaultEmailType, setActiveDefaultEmailType] = useState<string | undefined>();
 
   // Computed counts
   const paidRegistrations = registrations.filter(
@@ -207,6 +361,37 @@ export default function CommunicationsPage() {
       setActiveHasSessionFilter(undefined);
       setActiveSessionRoleFilter(undefined);
     }
+    setActiveDefaultEmailType(undefined);
+    setEmailDialogOpen(true);
+  }
+
+  // Tile click — bypasses the page-level filter dropdowns entirely.
+  // Pushes the tile's filter combo + email type straight into the
+  // dialog. Leaves the Advanced filter inputs untouched so an
+  // in-progress composition isn't clobbered by an unrelated quick
+  // tile send.
+  function openTileDialog(
+    audience: "speakers" | "registrations",
+    tile: SpeakerTile | RegistrationTile
+  ) {
+    setActiveAudience(audience);
+    setActiveStatusFilter(tile.filters.status);
+    if (audience === "registrations") {
+      const f = tile.filters as RegistrationTile["filters"];
+      setActivePaymentStatusFilter(f.paymentStatus);
+      setActiveTicketTypeFilter(f.ticketTypeId);
+      setActiveAgreementSignedFilter(undefined);
+      setActiveHasSessionFilter(undefined);
+      setActiveSessionRoleFilter(undefined);
+    } else {
+      const f = tile.filters as SpeakerTile["filters"];
+      setActivePaymentStatusFilter(undefined);
+      setActiveTicketTypeFilter(undefined);
+      setActiveAgreementSignedFilter(f.agreementSigned);
+      setActiveHasSessionFilter(f.hasSession);
+      setActiveSessionRoleFilter(f.sessionRole);
+    }
+    setActiveDefaultEmailType(tile.defaultEmailType);
     setEmailDialogOpen(true);
   }
 
@@ -305,10 +490,45 @@ export default function CommunicationsPage() {
               Registrations
             </CardTitle>
             <CardDescription>
-              Send emails to event registrants. Filter by registration status, payment status, or registration type.
+              One-click sends for common workflows, or open Advanced filters to compose freely.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Workflow tiles — one-click presets for common sends */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {REGISTRATION_TILES.map((tile) => {
+                const count = registrations.filter(tile.matches).length;
+                const Icon = tile.icon;
+                return (
+                  <button
+                    key={tile.id}
+                    type="button"
+                    onClick={() => openTileDialog("registrations", tile)}
+                    disabled={count === 0}
+                    className="flex flex-col gap-1 rounded-lg border p-3 text-left transition hover:border-primary hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm font-medium">{tile.label}</span>
+                      </div>
+                      <span className="text-sm font-semibold tabular-nums">{count}</span>
+                    </div>
+                    <p className="line-clamp-1 text-xs text-muted-foreground">{tile.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Advanced filters — escape hatch for ad-hoc segments */}
+            <details className="group rounded-lg border [&[open]>summary>svg]:rotate-90">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <svg className="h-3 w-3 transition-transform" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                  <path d="M4.5 2.5l4 3.5-4 3.5z" />
+                </svg>
+                Advanced filters
+              </summary>
+              <div className="space-y-4 border-t p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Registration Status</label>
@@ -379,6 +599,8 @@ export default function CommunicationsPage() {
                 Send Email
               </Button>
             </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
@@ -390,10 +612,45 @@ export default function CommunicationsPage() {
               Speakers
             </CardTitle>
             <CardDescription>
-              Send invitations, agreements, or custom emails to speakers. Filter by status, agreement signed, session assignment, or session role.
+              One-click sends for common workflows, or open Advanced filters to compose freely.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Workflow tiles — one-click presets for common sends */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {SPEAKER_TILES.map((tile) => {
+                const count = speakers.filter(tile.matches).length;
+                const Icon = tile.icon;
+                return (
+                  <button
+                    key={tile.id}
+                    type="button"
+                    onClick={() => openTileDialog("speakers", tile)}
+                    disabled={count === 0}
+                    className="flex flex-col gap-1 rounded-lg border p-3 text-left transition hover:border-primary hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm font-medium">{tile.label}</span>
+                      </div>
+                      <span className="text-sm font-semibold tabular-nums">{count}</span>
+                    </div>
+                    <p className="line-clamp-1 text-xs text-muted-foreground">{tile.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Advanced filters — escape hatch for ad-hoc segments */}
+            <details className="group rounded-lg border [&[open]>summary>svg]:rotate-90">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <svg className="h-3 w-3 transition-transform" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                  <path d="M4.5 2.5l4 3.5-4 3.5z" />
+                </svg>
+                Advanced filters
+              </summary>
+              <div className="space-y-4 border-t p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Speaker Status</label>
@@ -489,6 +746,8 @@ export default function CommunicationsPage() {
                 Send Email
               </Button>
             </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
@@ -581,6 +840,7 @@ export default function CommunicationsPage() {
         agreementSignedFilter={activeAgreementSignedFilter}
         hasSessionFilter={activeHasSessionFilter}
         sessionRoleFilter={activeSessionRoleFilter}
+        defaultEmailType={activeDefaultEmailType}
       />
     </div>
   );

@@ -59,6 +59,14 @@ interface BulkEmailDialogProps {
   agreementSignedFilter?: string;
   hasSessionFilter?: string;
   sessionRoleFilter?: string;
+  /**
+   * Tile-driven launch: pre-select an email type (e.g. "agreement",
+   * "reminder") instead of falling back to the per-recipient default.
+   * Only honored on transition from closed → open so a user who picks
+   * a different type mid-dialog isn't clobbered. Must be a valid email
+   * type for the current recipient (callers ensure this).
+   */
+  defaultEmailType?: string;
 }
 
 const speakerEmailTypes: EmailTypeOption[] = [
@@ -167,8 +175,23 @@ export function BulkEmailDialog({
   agreementSignedFilter,
   hasSessionFilter,
   sessionRoleFilter,
+  defaultEmailType,
 }: BulkEmailDialogProps) {
-  const [emailType, setEmailType] = useState<string>(getDefaultEmailType(recipientType));
+  const [emailType, setEmailType] = useState<string>(
+    defaultEmailType ?? getDefaultEmailType(recipientType)
+  );
+  // Reset emailType on the closed → open transition only (so users
+  // who change the dropdown mid-dialog don't lose their selection on
+  // a re-render). Uses React's documented "store info from previous
+  // render" pattern instead of useEffect+setState (banned by
+  // react-hooks/set-state-in-effect under React 19).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setEmailType(defaultEmailType ?? getDefaultEmailType(recipientType));
+    }
+  }
   const [customSubject, setCustomSubject] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);

@@ -6,6 +6,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Workflow tiles on Communications page (May 14)
+
+The 4-filter intersection model on the Speakers card (and 3-filter on
+Registrations) was technically powerful but cognitively heavy —
+organizers had to *think* about which dropdown combination produces
+"chase missing agreements" or "brief moderators" before clicking
+Send. Most production email tools lead with named workflow tiles for
+exactly this reason.
+
+**Flavor C — tiles + escape hatch:**
+
+Each audience card (Registrations, Speakers) now opens with a grid of
+one-click workflow tiles at the top, and an `<Advanced filters>`
+`<details>` block below containing the existing 4-dropdown UI as the
+escape hatch for ad-hoc segments.
+
+**Speakers tiles** (6):
+
+- **Send Invitations** — `status=INVITED` → Speaker Invitation
+- **Chase Agreements** — `status=CONFIRMED + agreementSigned=unsigned` → Speaker Agreement
+- **Brief Moderators** — `sessionRole=MODERATOR` → Custom
+- **Brief Chairpersons** — `sessionRole=CHAIRPERSON` → Custom
+- **Active Faculty** — `status=CONFIRMED + signed + hasSession=yes` → Custom
+- **Reinvite Declined** — `status=DECLINED` → Speaker Invitation
+
+**Registrations tiles** (4):
+
+- **Chase Unpaid** — `status=CONFIRMED + paymentStatus=UNPAID` → Custom
+- **Welcome Paid** — `status=CONFIRMED + paymentStatus∈{PAID,COMPLIMENTARY,INCLUSIVE}` → Confirmation
+- **Pre-event Reminder** — `status=CONFIRMED` → Event Reminder
+- **Cancelled Re-engagement** — `status=CANCELLED` → Custom
+
+Each tile shows a live count of matching recipients (disabled when
+0). Click → opens the dialog with filters + email type pre-set, page
+filter state untouched (so an in-progress Advanced composition
+doesn't get clobbered by an unrelated tile click).
+
+**Backend untouched.** Tiles are pure frontend pre-set layer over
+the existing `executeBulkEmail` path. Same `filters` payload, same
+Zod schema, same audit trail.
+
+**New dialog prop**
+[src/components/bulk-email-dialog.tsx](src/components/bulk-email-dialog.tsx)
+gains `defaultEmailType?: string`. Honored on the closed → open
+transition only, via React's documented "store info from previous
+render" pattern (set-during-render guarded by previous-value state),
+not `useEffect + setState` which is banned by
+`react-hooks/set-state-in-effect` under React 19. Once the dialog is
+open the user can pick a different type freely.
+
+**Welcome Paid tile caveat** — the dialog payload supports only one
+`paymentStatus` filter value at a time, so the tile narrows to PAID
+on send. The matching predicate stays broad (PAID/COMPLIMENTARY/
+INCLUSIVE) so the count is accurate; sending to COMPLIMENTARY /
+INCLUSIVE separately needs the Advanced filter card.
+
+**Deferred to follow-up rounds**: organizer-saved tiles via
+`Event.settings.savedSegments[]`, tiles for Abstracts / Reviewers,
+multi-value `paymentStatus IN (...)` filter to fix the Welcome Paid
+caveat, audit `triggerLabel` field.
+
+User-visible: routine sends become one click. The 5–6 most common
+workflows have named tiles with live counts. Edge cases still
+reachable via Advanced filters in a collapsible.
+
 ### Added — Communications filters expansion (May 14)
 
 The Communications page filter surfaces were below parity with what
