@@ -234,6 +234,33 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 .rbac td:first-child{text-align:left;font-weight:600;color:var(--navy)}
 .rbac .y{color:#006B5E;font-weight:700}
 .rbac .n{color:#9CA3AF}
+
+/* ── CROWN SECTION (AI Agent — featured) ──────────────────────────────────── */
+.crown{position:relative;margin:60px 0 52px;border-radius:14px;overflow:hidden;background:linear-gradient(135deg,#0D2A4A 0%,#1a3d6b 50%,#0D2A4A 100%);box-shadow:0 4px 24px rgba(13,42,74,0.28),0 12px 48px rgba(13,42,74,0.12);scroll-margin-top:68px}
+.crown::before{content:'';position:absolute;top:-80px;right:-80px;width:280px;height:280px;background:radial-gradient(circle,rgba(214,169,104,0.18) 0%,transparent 70%);border-radius:50%;pointer-events:none}
+.crown::after{content:'';position:absolute;bottom:-100px;left:-60px;width:260px;height:260px;background:radial-gradient(circle,rgba(0,167,225,0.15) 0%,transparent 70%);border-radius:50%;pointer-events:none}
+.crown-inner{position:relative;padding:40px 44px}
+.crown-tag{display:inline-flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.16em;color:var(--gold);padding:5px 12px;background:rgba(214,169,104,0.12);border:1px solid rgba(214,169,104,0.3);border-radius:20px;margin-bottom:16px}
+.crown-tag-icon{font-size:0.85rem}
+.crown-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:2.2rem;color:var(--white);line-height:1.05;letter-spacing:-0.01em;margin-bottom:10px;text-transform:uppercase}
+.crown-title span{color:var(--gold)}
+.crown-sub{font-size:0.95rem;color:rgba(255,255,255,0.78);line-height:1.6;max-width:680px;margin-bottom:22px}
+.crown-body{background:var(--white);border-radius:10px;padding:26px 30px;margin-top:6px}
+.crown-body .sub-title{margin-top:18px}
+.crown-body .sub-title:first-child{margin-top:0}
+.crown-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.crown-can,.crown-cant{padding:14px 16px;border-radius:8px;border:1px solid}
+.crown-can{background:rgba(0,179,164,0.06);border-color:rgba(0,179,164,0.25)}
+.crown-cant{background:rgba(220,38,38,0.04);border-color:rgba(220,38,38,0.2)}
+.crown-can-title,.crown-cant-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.crown-can-title{color:#00726A}
+.crown-cant-title{color:#B91C1C}
+.crown-can ul,.crown-cant ul{margin:0;padding-left:18px;font-size:0.82rem;line-height:1.7;color:var(--text)}
+.crown-can li,.crown-cant li{margin-bottom:4px}
+.prompt-list{margin:14px 0;display:grid;gap:8px}
+.prompt-item{background:var(--off-white);border:1px solid rgba(13,42,74,0.08);border-left:3px solid var(--cyan);border-radius:6px;padding:10px 14px;font-size:0.85rem;color:var(--text);font-style:italic;line-height:1.5}
+.prompt-item::before{content:'\201C';color:var(--cyan);font-size:1.4rem;font-style:normal;font-weight:700;margin-right:4px;vertical-align:-0.15em}
+.prompt-item::after{content:'\201D';color:var(--cyan);font-size:1.4rem;font-style:normal;font-weight:700;margin-left:4px;vertical-align:-0.15em}
 @media(max-width:880px){.sidebar{transform:translateX(-100%)}.main{margin-left:0}.role-cards,.ig,.ig-3,.tg{grid-template-columns:1fr}.content{padding:24px 20px 60px}}
 </style>
 </head>
@@ -267,6 +294,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <div class="nav-lbl">Overview</div>
     <a class="nav-a" href="#start-here"><span class="nav-n">→</span>Start Here</a>
     <a class="nav-a" href="#s1"><span class="nav-n">1</span>Getting Started</a>
+    <a class="nav-a" href="#agent" style="color:var(--gold);font-weight:600"><span class="nav-n" style="color:var(--gold)">★</span>AI Agent</a>
     <div class="nav-lbl">Event Operations</div>
     <a class="nav-a" href="#s2"><span class="nav-n">2</span>Speakers &amp; KOLs</a>
     <a class="nav-a" href="#s3"><span class="nav-n">3</span>Programme &amp; Sessions</a>
@@ -447,6 +475,85 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       <div class="sub" id="s1-5">
         <div class="sub-title">Conference vs. Webinar &mdash; what&rsquo;s different</div>
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Event type affects available features</div><div class="c-text"><strong>Webinar</strong> events get extra tools: an auto-provisioned Zoom webinar, attendance tracking, engagement reports (polls + Q&amp;A), and a dedicated Webinar Console. <strong>Conference</strong> events get fuller accommodation management, day-of check-in, and badge printing. <strong>Hybrid</strong> gets both. See <a href="#s11">Section 11</a> for webinar-specific guidance.</div></div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ──────────────────────────────────────────────────────────────────────
+         CROWN PIECE — AI Agent
+         Featured between Getting Started and the rest of the sections so it
+         reads as the system's headline capability rather than a buried tool.
+         ────────────────────────────────────────────────────────────────────── -->
+    <div class="crown" id="agent">
+      <div class="crown-inner">
+        <span class="crown-tag"><span class="crown-tag-icon">&#x2728;</span> Crown jewel &middot; Available in every event</span>
+        <h2 class="crown-title">The MMG <span>AI Agent</span></h2>
+        <p class="crown-sub">Run your event in plain English. Type what you want done &mdash; add a speaker, send a payment reminder to everyone unpaid under the Standard ticket, summarise registrations for next week &mdash; and the agent does it, with every action logged. Open any event &rarr; <strong>AI Agent</strong> in the sidebar.</p>
+
+        <div class="crown-body">
+          <div class="sub-title">What you can ask the agent to do</div>
+          <p>The agent has access to most read + create operations across the system. You don&rsquo;t need to learn syntax &mdash; phrase requests the way you&rsquo;d ask a colleague.</p>
+          <div class="prompt-list">
+            <div class="prompt-item">Add a speaker: Dr. Khaled Al Qawasmeh, kawasmeh@tawamhospital.ae, organisation Tawam Hospital. Set status to CONFIRMED.</div>
+            <div class="prompt-item">Send a payment reminder to all unpaid CONFIRMED registrations under the Standard ticket type.</div>
+            <div class="prompt-item">Create a session called &ldquo;Opening Keynote&rdquo;, start 9 AM Dubai time, end 10 AM, track Clinical, location Main Hall.</div>
+            <div class="prompt-item">Show me a registration summary for the next 14 days &mdash; group by ticket type and payment status.</div>
+            <div class="prompt-item">List the abstracts that are UNDER_REVIEW and have fewer than two reviewer submissions.</div>
+            <div class="prompt-item">Import these 12 sponsor attendees as INCLUSIVE registrations tagged to Abbott. Here&rsquo;s the list&hellip;</div>
+            <div class="prompt-item">Mark Dr. Khaled&rsquo;s registration as checked-in.</div>
+            <div class="prompt-item">Cancel registration #042 and notify the attendee.</div>
+          </div>
+
+          <div class="sub-title">What the agent can and can&rsquo;t do</div>
+          <div class="crown-grid">
+            <div class="crown-can">
+              <div class="crown-can-title"><span>&#x2705;</span> The agent CAN</div>
+              <ul>
+                <li>Add speakers, sessions, registrations, accommodations, abstracts, contacts, promo codes</li>
+                <li>Update statuses, assign reviewers, change ticket types, swap session speakers</li>
+                <li>Send bulk emails with status + payment-status filters</li>
+                <li>Read every list and detail in the system</li>
+                <li>Tag INCLUSIVE registrations to sponsors (with the sponsor already in your sponsor list)</li>
+                <li>Run multiple operations in sequence (&ldquo;create the speaker, then send the agreement&rdquo;)</li>
+              </ul>
+            </div>
+            <div class="crown-cant">
+              <div class="crown-cant-title"><span>&#x26D4;</span> The agent CANNOT</div>
+              <ul>
+                <li>Issue Stripe refunds &mdash; dashboard-only with explicit consent</li>
+                <li>Delete records hard &mdash; only soft-delete equivalents (CANCELLED, isActive=false)</li>
+                <li>Change ticket pricing or pricing-tier prices</li>
+                <li>Upload media files (it can reference existing media in the library)</li>
+                <li>Modify event slug, dates, timezone, or event type</li>
+                <li>Change someone&rsquo;s email address (use the Change Email dialog &mdash; Section 16)</li>
+                <li>Issue INTERNAL-tier API keys</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="sub-title">Limits &amp; safety</div>
+          <div class="ig">
+            <div class="ic"><div class="ic-title">Rate limit</div><div class="ic-body">20 agent requests per hour per user. Heavy bulk work? Use CSV import &mdash; faster and better error reports.</div></div>
+            <div class="ic gold"><div class="ic-title">Per-request create cap</div><div class="ic-body">Up to 20 create operations per single prompt, so &ldquo;create 100 speakers&rdquo; won&rsquo;t go through &mdash; intentional brake. Use CSV import for big batches.</div></div>
+            <div class="ic teal"><div class="ic-title">Audit trail</div><div class="ic-body">Every action the agent performs is logged with <code>source: &ldquo;agent&rdquo;</code> &mdash; visible in <code>/logs</code> and on each record&rsquo;s audit history.</div></div>
+            <div class="ic navy"><div class="ic-title">Role-gated</div><div class="ic-body">Only ADMIN, ORGANIZER, and SUPER_ADMIN can use the agent. Reviewers, submitters, and registrants are redirected away.</div></div>
+          </div>
+
+          <div class="sub-title">How a conversation works</div>
+          <p>The agent streams its reasoning as it works &mdash; you can see what it&rsquo;s about to do before it acts. For larger or potentially-destructive operations, it asks for confirmation. Multi-step asks (&ldquo;create the speaker, then send the agreement&rdquo;) chain through automatically without you having to send each one separately.</p>
+          <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Be specific for best results</div><div class="c-text">&ldquo;Send a payment reminder to UNPAID, CONFIRMED registrations under the Standard ticket&rdquo; works better than &ldquo;send a reminder&rdquo;. The agent will ask for clarification if it&rsquo;s ambiguous, but specifying filters up front saves a round-trip.</div></div></div>
+
+          <div class="sub-title">Same tools, external access</div>
+          <p>The exact same tool set is also exposed externally for power users + integrations:</p>
+          <div class="ig">
+            <div class="ic"><div class="ic-title">claude.ai web</div><div class="ic-body">Add EA-SYS as a connector in claude.ai Settings &rarr; Integrations. Goes through OAuth &mdash; one click consent per organisation.</div></div>
+            <div class="ic gold"><div class="ic-title">Claude Desktop</div><div class="ic-body">Install the EA-SYS MCP via <code>mcp-remote</code> with your API key. See Settings &rarr; API Keys for setup.</div></div>
+            <div class="ic teal"><div class="ic-title">n8n &amp; automation</div><div class="ic-body">Use the MCP HTTP node pointed at <code>https://events.meetingmindsgroup.com/api/mcp</code> with an API key in the <code>x-api-key</code> header.</div></div>
+            <div class="ic navy"><div class="ic-title">Your own scripts</div><div class="ic-body">Plain HTTPS + Bearer auth. Standard MCP JSON-RPC over Streamable HTTP. No SDK required.</div></div>
+          </div>
+          <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">When to use which</div><div class="c-text"><strong>In-app agent</strong> is best for quick day-to-day work. <strong>External MCP</strong> (n8n, claude.ai web) is best for workflows that span MMG + other systems (e.g. &ldquo;when a new lead comes into HubSpot, create a registration&rdquo;). Same backend, same audit trail, same rate-limit tier model.</div></div></div>
+        </div>
       </div>
     </div>
 
