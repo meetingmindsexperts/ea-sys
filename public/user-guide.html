@@ -26,6 +26,20 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"H
 .sb-head{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.08)}
 .sb-logo{height:36px;object-fit:contain;filter:brightness(0) invert(1);display:block}
 .sb-doc{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.72rem;color:var(--gold);text-transform:uppercase;letter-spacing:0.12em;margin-top:10px}
+/* Inline brand wordmark — replaces external <img src="logo-*.png"> so the
+   page is self-contained and never shows broken-image icons. The font + colour
+   match the MMG brand palette: gold M's with cyan accent on the middle G. */
+.brand-mark{display:inline-flex;align-items:baseline;gap:1px;font-family:'Barlow Condensed',sans-serif;font-weight:900;letter-spacing:-0.02em;line-height:1}
+.brand-mark .m-a,.brand-mark .m-b,.brand-mark .m-c{font-size:1.4rem}
+.sb-head .brand-mark{font-size:1.5rem;color:var(--white)}
+.sb-head .brand-mark .m-b{color:var(--cyan)}
+.sb-head .brand-mark .m-c{color:var(--gold)}
+.hero .brand-mark{font-size:2.6rem;color:rgba(255,255,255,0.18)}
+.hero .brand-mark .m-b{color:rgba(0,167,225,0.32)}
+.hero .brand-mark .m-c{color:rgba(214,169,104,0.32)}
+.foot-mark{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1.1rem;color:rgba(13,42,74,0.5);letter-spacing:-0.01em}
+.brand-badge{display:inline-block;padding:3px 7px;border-radius:3px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:0.65rem;letter-spacing:0.08em;color:rgba(255,255,255,0.55);background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)}
+.brand-badge+.brand-badge{margin-left:6px}
 .sb-role{padding:12px 20px;background:rgba(0,167,225,0.07);border-bottom:1px solid rgba(255,255,255,0.06)}
 .sb-role-lbl{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.4);font-weight:600;margin-bottom:7px}
 .role-sel{width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:var(--r);color:var(--white);font:inherit;font-size:0.78rem;padding:7px 10px;cursor:pointer;outline:none}
@@ -228,7 +242,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 <!-- SIDEBAR -->
 <aside class="sidebar">
   <div class="sb-head">
-    <img class="sb-logo" src="logo-mmg.png" alt="MMG">
+    <img class="sb-logo" src="user-guide/logos/mmg.png" alt="MMG">
     <div class="sb-doc">Human User Guide &middot; v2</div>
   </div>
   <div class="sb-role">
@@ -283,9 +297,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
   <div class="sb-brands">
     <div class="sb-brands-lbl">MMG Brands</div>
     <div class="brand-logos">
-      <img src="logo-mme.png" alt="Meeting Minds Experts">
-      <img src="logo-medcom.png" alt="MedCom">
-      <img src="logo-medulive.png" alt="MedULive">
+      <img src="user-guide/logos/mme.png" alt="Meeting Minds Experts">
+      <img src="user-guide/logos/medcom.png" alt="MedCom">
+      <img src="user-guide/logos/medulive.png" alt="MedULive">
     </div>
   </div>
   <div class="sb-foot">v2 &middot; May 2026 &middot; meetingmindsgroup.com</div>
@@ -318,7 +332,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div><div class="hs-num">6</div><div class="hs-lbl">User Roles</div></div>
         </div>
       </div>
-      <img class="hero-logo" src="logo-mmg.png" alt="MMG Group">
+      <img class="hero-logo" src="user-guide/logos/mmg.png" alt="MMG Group">
     </div>
 
     <!-- START HERE -->
@@ -1487,15 +1501,15 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <div class="divider"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 40px;flex-wrap:wrap;gap:16px">
       <div>
-        <img src="logo-mmg.png" alt="MMG" style="height:28px;opacity:0.6;filter:grayscale(1)">
+        <img src="user-guide/logos/mmg.png" alt="MMG" style="height:28px;opacity:0.7">
       </div>
       <div style="text-align:center;font-size:0.72rem;color:var(--text-muted)">
         <strong style="color:var(--navy)">MMG New System &middot; Human User Guide</strong> &middot; Version 2.0 &middot; May 2026
       </div>
-      <div style="text-align:right">
-        <img src="logo-mme.png" alt="MME" style="height:22px;opacity:0.4;filter:grayscale(1)">
-        <img src="logo-medcom.png" alt="MedCom" style="height:22px;opacity:0.4;filter:grayscale(1);margin-left:12px">
-        <img src="logo-medulive.png" alt="MedULive" style="height:22px;opacity:0.4;filter:grayscale(1);margin-left:12px">
+      <div style="text-align:right;display:flex;gap:14px;align-items:center;justify-content:flex-end">
+        <img src="user-guide/logos/mme.png" alt="MME" style="height:22px;opacity:0.5;filter:grayscale(1)">
+        <img src="user-guide/logos/medcom.png" alt="MedCom" style="height:22px;opacity:0.5;filter:grayscale(1)">
+        <img src="user-guide/logos/medulive.png" alt="MedULive" style="height:22px;opacity:0.5;filter:grayscale(1)">
       </div>
     </div>
 
