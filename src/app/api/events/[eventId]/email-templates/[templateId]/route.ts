@@ -17,6 +17,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Tenant isolation: bind the event to the caller's org BEFORE touching
+    // the template — both eventId and templateId come from the URL, so
+    // without this any authenticated user could read another org's
+    // templates. 404 (not 403) to avoid existence enumeration.
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
     const template = await db.emailTemplate.findFirst({
       where: { id: templateId, eventId },
     });
@@ -45,6 +57,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const existing = await db.emailTemplate.findFirst({
       where: { id: templateId, eventId },
@@ -86,6 +106,14 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
     const existing = await db.emailTemplate.findFirst({
       where: { id: templateId, eventId },
     });
@@ -119,11 +147,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       db.emailTemplate.findFirst({
         where: { id: templateId, eventId },
       }),
+      // Org-scoped: a null event here means the event isn't in the caller's
+      // org (or doesn't exist) — POST renders + can email template content,
+      // so this must be tenant-isolated like the other handlers.
       db.event.findFirst({
-        where: { id: eventId },
+        where: { id: eventId, organizationId: session.user.organizationId! },
         select: { emailHeaderImage: true, emailFooterHtml: true, emailFromAddress: true, emailFromName: true, name: true },
       }),
     ]);
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     if (!template) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
@@ -196,6 +231,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const existing = await db.emailTemplate.findFirst({
       where: { id: templateId, eventId },

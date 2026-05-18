@@ -44,10 +44,12 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
     if (statusValue && !REGISTRATION_STATUSES.has(statusValue)) {
       return { error: `Invalid status "${statusValue}". Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
     }
-    const PAYMENT_STATUSES = new Set(["UNPAID", "PENDING", "PAID", "REFUNDED", "COMPLIMENTARY"]);
+    // Use the single Prisma-derived set (was a local hardcoded list missing
+    // UNASSIGNED + INCLUSIVE, so the agent couldn't filter the list by
+    // sponsor-paid / payment-pending registrations).
     const paymentStatusValue = input.paymentStatus ? String(input.paymentStatus) : undefined;
-    if (paymentStatusValue && !PAYMENT_STATUSES.has(paymentStatusValue)) {
-      return { error: `Invalid paymentStatus "${paymentStatusValue}". Must be one of: ${[...PAYMENT_STATUSES].join(", ")}` };
+    if (paymentStatusValue && !ALL_PAYMENT_STATUSES.has(paymentStatusValue)) {
+      return { error: `Invalid paymentStatus "${paymentStatusValue}". Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
     }
     const registrations = await db.registration.findMany({
       where: {
@@ -498,20 +500,72 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         notes: string | null;
         attendee: { id: string; firstName: string; lastName: string; email: string };
       };
-    } | { ok: false; reason: "STALE_WRITE" | "REGISTRATION_DISAPPEARED" };
+    } | { ok: false; reason: "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED" };
 
     const txResult: UpdateResult = await db.$transaction(async (tx) => {
-      if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
+      // soldCount accounting — MUST mirror the REST PUT route
+      // (src/app/api/events/[eventId]/registrations/[registrationId]/route.ts).
+      // Previously this branch only handled a ticket-type change, so
+      // cancelling/reactivating a registration via the agent silently left
+      // soldCount inflated → events falsely reported sold-out and rejected
+      // paying registrants. Same four mutually-exclusive cases as REST.
+      const effectiveStatus = status || existing.status;
+      const isBecomingCancelled =
+        effectiveStatus === "CANCELLED" && existing.status !== "CANCELLED";
+      const isReactivating =
+        effectiveStatus !== "CANCELLED" && existing.status === "CANCELLED";
+      const isChangingType =
+        !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
+
+      if (isBecomingCancelled && existing.ticketTypeId) {
+        // Release the seat.
+        await tx.ticketType.update({
+          where: { id: existing.ticketTypeId },
+          data: { soldCount: { decrement: 1 } },
+        });
+      } else if (isReactivating) {
+        // Re-acquire a seat on the target type, capacity-guarded.
+        const targetTypeId = newTicketTypeId || existing.ticketTypeId;
+        if (targetTypeId) {
+          const ticket = await tx.ticketType.findUnique({
+            where: { id: targetTypeId },
+            select: { quantity: true, soldCount: true },
+          });
+          if (ticket && ticket.soldCount >= ticket.quantity) {
+            throw new Error("CAPACITY_EXCEEDED");
+          }
+          await tx.ticketType.update({
+            where: { id: targetTypeId },
+            data: { soldCount: { increment: 1 } },
+          });
+        }
+      } else if (isChangingType && effectiveStatus !== "CANCELLED") {
+        // Moving between types on an active registration: decrement old,
+        // increment new (capacity-guarded), and keep attendee.registrationType
+        // in sync with the new type name — exactly as REST does.
         if (existing.ticketTypeId) {
           await tx.ticketType.update({
             where: { id: existing.ticketTypeId },
             data: { soldCount: { decrement: 1 } },
           });
         }
+        const newTicket = await tx.ticketType.findUnique({
+          where: { id: newTicketTypeId },
+          select: { quantity: true, soldCount: true, name: true },
+        });
+        if (newTicket && newTicket.soldCount >= newTicket.quantity) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
         await tx.ticketType.update({
           where: { id: newTicketTypeId },
           data: { soldCount: { increment: 1 } },
         });
+        if (newTicket) {
+          await tx.attendee.update({
+            where: { id: existing.attendeeId },
+            data: { registrationType: newTicket.name },
+          });
+        }
       }
 
       const regData: Prisma.RegistrationUncheckedUpdateInput = { updatedAt: new Date() };
@@ -564,6 +618,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (err instanceof Error && err.message === "REGISTRATION_DISAPPEARED") {
         return { ok: false as const, reason: "REGISTRATION_DISAPPEARED" as const };
       }
+      if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
+        return { ok: false as const, reason: "CAPACITY_EXCEEDED" as const };
+      }
       throw err;
     });
 
@@ -576,6 +633,18 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
     }
     if (!txResult.ok && txResult.reason === "REGISTRATION_DISAPPEARED") {
       return { error: `Registration ${registrationId} not found or access denied` };
+    }
+    if (!txResult.ok && txResult.reason === "CAPACITY_EXCEEDED") {
+      apiLogger.warn({
+        msg: "registration:reactivate-capacity-exceeded",
+        registrationId,
+        source: "mcp",
+      });
+      return {
+        error:
+          "Cannot reactivate/move this registration — the target registration type is sold out. Increase its quantity or pick another type.",
+        code: "CAPACITY_EXCEEDED",
+      };
     }
     if (!txResult.ok) {
       // Exhaustive guard — both `ok: false` reasons handled above. Keeps
@@ -648,13 +717,82 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
     if (status) data.status = status as never;
     if (paymentStatus) data.paymentStatus = paymentStatus as never;
 
-    const result = await db.registration.updateMany({
-      where: {
-        id: { in: registrationIds },
-        event: { organizationId: ctx.organizationId },
-      },
-      data,
-    });
+    // A bulk STATUS change moves seats: cancelling must release soldCount
+    // and reactivating must re-acquire it, per ticket type — mirroring the
+    // single REST PUT / MCP update_registration paths. Without this, "cancel
+    // all unpaid registrations" silently left soldCount inflated and the
+    // event falsely reported sold-out. paymentStatus-only bulk updates have
+    // no soldCount impact and take the plain path.
+    let updatedCount: number;
+    if (status) {
+      const affected = await db.registration.findMany({
+        where: {
+          id: { in: registrationIds },
+          event: { organizationId: ctx.organizationId },
+        },
+        select: { id: true, status: true, ticketTypeId: true },
+      });
+      const toDecrement = new Map<string, number>(); // ticketTypeId → seats released
+      const toIncrement = new Map<string, number>(); // ticketTypeId → seats re-acquired
+      for (const r of affected) {
+        if (!r.ticketTypeId) continue;
+        if (status === "CANCELLED" && r.status !== "CANCELLED") {
+          toDecrement.set(r.ticketTypeId, (toDecrement.get(r.ticketTypeId) ?? 0) + 1);
+        } else if (status !== "CANCELLED" && r.status === "CANCELLED") {
+          toIncrement.set(r.ticketTypeId, (toIncrement.get(r.ticketTypeId) ?? 0) + 1);
+        }
+      }
+      updatedCount = await db.$transaction(async (tx) => {
+        for (const [ttId, n] of toDecrement) {
+          await tx.ticketType.update({
+            where: { id: ttId },
+            data: { soldCount: { decrement: n } },
+          });
+        }
+        for (const [ttId, n] of toIncrement) {
+          const tt = await tx.ticketType.findUnique({
+            where: { id: ttId },
+            select: { quantity: true, soldCount: true, name: true },
+          });
+          await tx.ticketType.update({
+            where: { id: ttId },
+            data: { soldCount: { increment: n } },
+          });
+          // Bulk reactivation can't cleanly partial-fail 200 rows on a
+          // capacity guard, so admin reactivation is allowed to oversell —
+          // but it's logged so the oversell is never silent (matches the
+          // "every anomaly leaves a trail" rule; single-row paths still
+          // hard-block via CAPACITY_EXCEEDED).
+          if (tt && tt.soldCount + n > tt.quantity) {
+            apiLogger.warn({
+              msg: "registration:bulk-reactivate-oversold",
+              ticketTypeId: ttId,
+              ticketName: tt.name,
+              newSoldCount: tt.soldCount + n,
+              quantity: tt.quantity,
+              source: "mcp",
+            });
+          }
+        }
+        const res = await tx.registration.updateMany({
+          where: {
+            id: { in: registrationIds },
+            event: { organizationId: ctx.organizationId },
+          },
+          data,
+        });
+        return res.count;
+      });
+    } else {
+      const res = await db.registration.updateMany({
+        where: {
+          id: { in: registrationIds },
+          event: { organizationId: ctx.organizationId },
+        },
+        data,
+      });
+      updatedCount = res.count;
+    }
 
     await db.auditLog.create({
       data: {
@@ -662,12 +800,12 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         userId: ctx.userId,
         action: "BULK_UPDATE",
         entityType: "Registration",
-        entityId: `bulk-${result.count}`,
+        entityId: `bulk-${updatedCount}`,
         changes: {
           source: "mcp",
           registrationIds,
           updates: { status, paymentStatus },
-          updatedCount: result.count,
+          updatedCount,
         },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:bulk_update_registration_status audit-log-failed"));
@@ -677,8 +815,8 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
 
     return {
       success: true,
-      updated: result.count,
-      notFound: registrationIds.length - result.count,
+      updated: updatedCount,
+      notFound: registrationIds.length - updatedCount,
       requestedCount: registrationIds.length,
     };
   } catch (err) {

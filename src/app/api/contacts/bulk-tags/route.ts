@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { denyReviewer } from "@/lib/auth-guards";
 import { normalizeTag } from "@/lib/utils";
 
 const bulkTagsSchema = z.object({
@@ -22,9 +23,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
+    // API-key auth (role null) passes through as admin-equivalent.
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    if (denied) return denied;
 
     const validated = bulkTagsSchema.safeParse(body);
     if (!validated.success) {

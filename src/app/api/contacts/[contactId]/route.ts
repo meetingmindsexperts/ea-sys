@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum } from "@/lib/schemas";
@@ -119,9 +120,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
+    // API-key auth (role null) passes through as admin-equivalent.
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    if (denied) return denied;
 
     const updateLimit = checkRateLimit({
       key: `contact-update:org:${ctx.organizationId}`,
@@ -199,9 +201,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth);
+    // API-key auth (role null) passes through as admin-equivalent.
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    if (denied) return denied;
 
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },

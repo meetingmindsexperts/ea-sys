@@ -217,6 +217,7 @@ model Event {
   mediaFiles     MediaFile[]
   invoices        Invoice[]
   invoiceCounters InvoiceCounter[]
+  registrationSerialCounter RegistrationSerialCounter?
   zoomMeetings    ZoomMeeting[]
   zoomAttendances ZoomAttendance[]
   promoCodes      PromoCode[]
@@ -1081,6 +1082,16 @@ model InvoiceCounter {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, type])
+}
+
+// One row per event holding the last-assigned registration serialId.
+// Mutated via an atomic upsert+increment (see src/lib/registration-serial.ts)
+// so concurrent registrations can't collide on @@unique([eventId, serialId]).
+model RegistrationSerialCounter {
+  eventId    String @id
+  lastSerial Int    @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
 enum InvoiceType {

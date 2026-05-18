@@ -28,6 +28,28 @@ describe("denyReviewer", () => {
     expect(body).toEqual({ error: "Forbidden" });
   });
 
+  it("returns 403 for MEMBER role (read-only viewer — no writes)", async () => {
+    const result = denyReviewer({ user: { role: "MEMBER" } });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+    expect(await result!.json()).toEqual({ error: "Forbidden" });
+  });
+
+  it("returns 403 for REGISTRANT role", async () => {
+    const result = denyReviewer({ user: { role: "REGISTRANT" } });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+    expect(await result!.json()).toEqual({ error: "Forbidden" });
+  });
+
+  // Contacts write routes (POST/PUT/DELETE/bulk-tags/import/email) route
+  // their guard through denyReviewer via { user: { role: ctx.role ?? undefined } }.
+  // API-key auth has ctx.role === null → undefined → must pass through
+  // (keys are org admin-equivalent; MEMBER cannot mint them).
+  it("returns null when role is undefined (API-key auth, admin-equivalent)", () => {
+    expect(denyReviewer({ user: { role: undefined } })).toBeNull();
+  });
+
   it("returns null for ADMIN role", () => {
     expect(denyReviewer({ user: { role: "ADMIN" } })).toBeNull();
   });

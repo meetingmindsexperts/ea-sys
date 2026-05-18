@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum } from "@/lib/schemas";
@@ -107,9 +108,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (ctx.role === "REVIEWER" || ctx.role === "SUBMITTER") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER (single source of truth).
+    // The old inline REVIEWER||SUBMITTER check let read-only MEMBER and
+    // REGISTRANT write/delete org contacts. API-key auth (role null →
+    // undefined) is admin-equivalent and passes, as before.
+    const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
+    if (denied) return denied;
 
     const contactLimit = checkRateLimit({
       key: `contact-create:org:${ctx.organizationId}`,

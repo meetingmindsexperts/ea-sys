@@ -7,6 +7,7 @@ import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
@@ -217,7 +218,20 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const response = NextResponse.json(registrations);
+    // Finance boundary: this is the highest-traffic registrations surface
+    // and the include pulls full `payments` (amount, cardLast4, receiptUrl,
+    // bank reference) + ticketType/pricingTier prices. The detail / tickets
+    // / event GETs already redact for MEMBER; this list route was missed.
+    // Redact only when there's an explicit non-finance role — API-key auth
+    // (role null) is org admin-equivalent and MEMBER cannot mint keys, so
+    // it keeps full data (consistent with every other API-key path; the
+    // MCP-transport finance story is tracked separately).
+    const shouldRedact = orgCtx.role !== null && !canViewFinance(orgCtx.role);
+    const payload = shouldRedact
+      ? redactFinancialFields(registrations)
+      : registrations;
+
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {
