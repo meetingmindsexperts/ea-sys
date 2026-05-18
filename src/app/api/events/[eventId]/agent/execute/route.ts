@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ToolUnion, WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages";
 import { auth } from "@/lib/auth";
-import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
+import { isReadOnlyTool } from "@/lib/agent/tools/_shared";
 import type { AgentContext } from "@/lib/agent/event-tools";
 
 export const runtime = "nodejs";
@@ -58,11 +58,13 @@ async function runAgentLoop(
   userMessage: string,
   history: MessageParam[],
   context: AgentContext,
-  send: (event: SSEEvent) => void
+  send: (event: SSEEvent) => void,
+  readOnly = false
 ): Promise<void> {
   const systemPrompt = await buildSystemPrompt(
     context.eventId,
-    context.organizationId
+    context.organizationId,
+    readOnly
   );
 
   const messages: MessageParam[] = [
@@ -126,8 +128,18 @@ async function runAgentLoop(
       let result: unknown;
       const toolStart = Date.now();
 
+      // Read-only gate for the MEMBER role. `isReadOnlyTool()` fails
+      // closed (only list_/get_/search_ pass) — see tools/_shared.ts.
+      // The agent sees a refusal as a normal tool error and relays it.
       if (!executor) {
         result = { error: `Unknown tool: ${toolName}` };
+      } else if (readOnly && !isReadOnlyTool(toolName)) {
+        result = {
+          error:
+            `Read-only access — the Member role cannot perform write operations. ` +
+            `"${toolName}" modifies data and was refused. Ask an Organizer or Admin to make this change.`,
+          code: "READ_ONLY_ROLE",
+        };
       } else if (MUTATING_TOOLS.has(toolName) && context.counters.creates >= MAX_CREATES_PER_REQUEST) {
         result = { error: `Resource modification limit reached for this request (max ${MAX_CREATES_PER_REQUEST}). Please send a new message to continue.` };
       } else {
@@ -199,14 +211,19 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const denied = denyReviewer(session);
-  if (denied) return denied;
-
-  // Only ADMIN/ORGANIZER roles can use the agent
+  // Role gate. NOTE: we deliberately do NOT call denyReviewer() here —
+  // that guard 403s MEMBER, but MEMBER is allowed to use the agent in
+  // READ-ONLY mode (write tools are blocked per-tool below). The explicit
+  // allow-list is the single source of truth for who reaches the agent.
+  // REVIEWER / SUBMITTER / REGISTRANT are excluded by omission.
   const role = session.user.role;
   if (!["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"].includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  // MEMBER is the org-bound read-only viewer. It can drive the agent for
+  // reporting / lookups but every mutating tool call is refused (fail
+  // closed: only list_/get_/search_ prefixed tools are permitted).
+  const isReadOnlyMember = role === "MEMBER";
 
   // Rate limit: 20 agent requests per user per hour
   const rl = checkRateLimit({
@@ -289,7 +306,7 @@ export async function POST(
       }
 
       try {
-        await runAgentLoop(message, history, context, send);
+        await runAgentLoop(message, history, context, send, isReadOnlyMember);
         send({ type: "done" });
       } catch (err) {
         apiLogger.error({ err, eventId }, "agent:execute failed");

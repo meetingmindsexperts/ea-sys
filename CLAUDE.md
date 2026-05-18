@@ -326,12 +326,13 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 ### Roles
 - **SUPER_ADMIN / ADMIN** - Full access to all features (org-bound)
 - **ORGANIZER** - Full access to assigned events (org-bound)
+- **MEMBER** - Org-bound **read-only viewer**. Same event scope as ORGANIZER (sees all org events) but **every** write is blocked: `denyReviewer()` includes MEMBER so all non-abstract POST/PUT/DELETE return 403. Navigates the dashboard freely (middleware does NOT redirect MEMBER). **Can use the AI Agent in read-only mode** — the agent route allows MEMBER but the per-tool gate refuses anything not matching `isReadOnlyTool()` (only `list_`/`get_`/`search_` prefixed tools; fails closed). Intended for leadership / finance observers / auditors / sponsor-side stakeholders who need visibility without edit rights. Invited via Settings → Users like ADMIN/ORGANIZER. Amber badge in the UI.
 - **REVIEWER** - Abstracts-only access to assigned events (org-independent, scoped by `event.settings.reviewerUserIds`)
 - **SUBMITTER** - Abstracts-only access to own submissions (org-independent, scoped by `Speaker.userId`)
 - **REGISTRANT** - Self-service access to own registrations only (org-independent, scoped by `Registration.userId`); can edit personal details, view payment status, make payments via Stripe; no dashboard/events access
 
 ### Architecture: Org-bound vs. Org-independent Users
-- **Team members** (ADMIN, ORGANIZER) have a required `organizationId` and are scoped to their organization
+- **Team members** (ADMIN, ORGANIZER, MEMBER) have a required `organizationId` and are scoped to their organization. MEMBER is the read-only variant — same scope as ORGANIZER, no write access.
 - **Reviewers**, **Submitters**, and **Registrants** have `organizationId: null` — they are independent entities scoped only by event assignment
 - This allows one reviewer to review events across multiple organizations; submitters self-register per event; registrants create accounts during public registration
 - `User.organizationId` is nullable in the schema; non-null assertion (`!`) is used in admin-only code paths

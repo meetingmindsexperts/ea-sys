@@ -537,7 +537,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
             <div class="ic"><div class="ic-title">Rate limit</div><div class="ic-body">20 agent requests per hour per user. Heavy bulk work? Use CSV import &mdash; faster and better error reports.</div></div>
             <div class="ic gold"><div class="ic-title">Per-request create cap</div><div class="ic-body">Up to 20 create operations per single prompt, so &ldquo;create 100 speakers&rdquo; won&rsquo;t go through &mdash; intentional brake. Use CSV import for big batches.</div></div>
             <div class="ic teal"><div class="ic-title">Audit trail</div><div class="ic-body">Every action the agent performs is logged with <code>source: &ldquo;agent&rdquo;</code> &mdash; visible in <code>/logs</code> and on each record&rsquo;s audit history.</div></div>
-            <div class="ic navy"><div class="ic-title">Role-gated</div><div class="ic-body">Only ADMIN, ORGANIZER, and SUPER_ADMIN can use the agent. Reviewers, submitters, and registrants are redirected away.</div></div>
+            <div class="ic navy"><div class="ic-title">Role-gated</div><div class="ic-body">ADMIN, ORGANIZER, and SUPER_ADMIN get full agent access. MEMBER gets <strong>read-only</strong> agent access (lookups + reporting; write tools refused). Reviewers, submitters, and registrants can&rsquo;t use it.</div></div>
           </div>
 
           <div class="sub-title">How a conversation works</div>
@@ -1465,22 +1465,24 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <span class="sec-badge b-all">Reference</span>
       </div></div>
 
-      <p>Six roles. The first two are bound to an organisation; the remaining four are org-independent &mdash; the same person can be a reviewer for multiple organisations using one account.</p>
+      <p><strong>Seven roles.</strong> SUPER_ADMIN, ADMIN, ORGANIZER, and <strong>MEMBER</strong> are bound to an organisation; REVIEWER, SUBMITTER, and REGISTRANT are org-independent &mdash; the same person can be a reviewer for multiple organisations using one account.</p>
+      <div class="callout c-info"><div class="c-icon">&#x1F441;&#xFE0F;</div><div class="c-body"><div class="c-title">MEMBER &mdash; the read-only viewer</div><div class="c-text"><strong>MEMBER</strong> sees everything an Organizer sees (all events in the org, every list and detail) but <strong>cannot change anything</strong> &mdash; every create / edit / delete returns 403. They can drive the AI Agent in <strong>read-only mode</strong> for reporting and lookups (write tools are refused). Use it for leadership, finance observers, auditors, and sponsor-side stakeholders who need full visibility without edit rights.</div></div></div>
 
       <table class="rbac">
         <thead>
-          <tr><th>Capability</th><th>SUPER_ADMIN</th><th>ADMIN</th><th>ORGANIZER</th><th>REVIEWER</th><th>SUBMITTER</th><th>REGISTRANT</th></tr>
+          <tr><th>Capability</th><th>SUPER_ADMIN</th><th>ADMIN</th><th>ORGANIZER</th><th>MEMBER</th><th>REVIEWER</th><th>SUBMITTER</th><th>REGISTRANT</th></tr>
         </thead>
         <tbody>
-          <tr><td>Manage all events in org</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>Manage assigned events</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>Review abstracts (assigned events)</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>Submit abstracts</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="y">✓</td><td class="n">—</td></tr>
-          <tr><td>View own registration</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="y">✓</td></tr>
-          <tr><td>Issue refunds</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>View system logs</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>Issue INTERNAL API keys</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
-          <tr><td>Manage org settings</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>View all events in org</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Create / edit / delete records</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">— (read-only)</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Use the AI Agent</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">read-only</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Review abstracts (assigned events)</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Submit abstracts</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="y">✓</td><td class="n">—</td></tr>
+          <tr><td>View own registration</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="y">✓</td></tr>
+          <tr><td>Issue refunds</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>View system logs</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Issue INTERNAL API keys</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><td>Manage org settings</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
         </tbody>
       </table>
     </div>
