@@ -62,13 +62,18 @@ export default function NewRegistrationPage() {
     notes: "",
   });
 
-  // When the admin picks a ticket type, look up its active pricing tiers so
-  // the second Select can render. Tiers come pre-included on the
+  // When the admin picks a ticket type, expose ALL its pricing tiers —
+  // active AND inactive. Admin manual-add gets full control over which
+  // tier to assign (e.g. record a late registrant at the closed Early
+  // Bird rate as a courtesy). The public self-register path stays
+  // active-only; the backend service validates tier→ticket-type
+  // membership but does NOT require isActive, so inactive tiers are
+  // accepted here by design. Tiers come pre-included on the
   // /api/events/[id]/tickets response; no extra fetch needed.
-  const activeTiers = (() => {
+  const availableTiers = (() => {
     if (!formData.ticketTypeId) return [];
     const tt = (ticketTypes as TicketType[]).find((t) => t.id === formData.ticketTypeId);
-    return (tt?.pricingTiers ?? []).filter((t) => t.isActive);
+    return tt?.pricingTiers ?? [];
   })();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,7 +91,7 @@ export default function NewRegistrationPage() {
           // a stale selection (admin changed ticket type after picking a
           // tier) would otherwise fail server-side validation.
           pricingTierId:
-            formData.pricingTierId && activeTiers.some((t) => t.id === formData.pricingTierId)
+            formData.pricingTierId && availableTiers.some((t) => t.id === formData.pricingTierId)
               ? formData.pricingTierId
               : undefined,
           paymentStatus: formData.paymentStatus,
@@ -185,14 +190,14 @@ export default function NewRegistrationPage() {
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
                     {(ticketTypes as TicketType[]).map((regType) => {
-                      // Hide the "- $X" suffix when the type has active
-                      // pricing tiers (the Pricing Tier dropdown is the
-                      // source of truth) or when the base price is 0
-                      // (avoids misleading "$0" on free/tier-priced types).
-                      const hasActiveTiers = (regType.pricingTiers ?? []).some(
-                        (t) => t.isActive
-                      );
-                      const showPrice = !hasActiveTiers && regType.price > 0;
+                      // Hide the "- $X" suffix when the type has ANY pricing
+                      // tiers (active or inactive) — the Pricing Tier dropdown
+                      // is the source of truth on the admin manual-add path,
+                      // which can assign inactive tiers too. Also hide when the
+                      // base price is 0 (avoids misleading "$0" on free/
+                      // tier-priced types).
+                      const hasTiers = (regType.pricingTiers ?? []).length > 0;
+                      const showPrice = !hasTiers && regType.price > 0;
                       const unavailable = regType.soldCount >= regType.quantity;
                       return (
                         <SelectItem
@@ -213,10 +218,12 @@ export default function NewRegistrationPage() {
                   Optional — leave empty to register without a type
                 </p>
               </div>
-              {/* Pricing tier — only rendered when the picked ticket type has
-                  active tiers (Early Bird / Standard / Onsite). Optional so
-                  legacy ticket types without tiers keep working. */}
-              {activeTiers.length > 0 && (
+              {/* Pricing tier — rendered when the picked ticket type has ANY
+                  tiers (active OR inactive). Admin manual-add gets full control
+                  over which tier to assign (e.g. record a late registrant at
+                  the closed Early Bird rate as a courtesy). Optional so legacy
+                  ticket types without tiers keep working. */}
+              {availableTiers.length > 0 && (
                 <div className="space-y-2">
                   <Label htmlFor="pricingTier">Pricing Tier</Label>
                   <Select
@@ -231,15 +238,19 @@ export default function NewRegistrationPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">None</SelectItem>
-                      {activeTiers.map((tier) => (
+                      {availableTiers.map((tier) => (
                         <SelectItem key={tier.id} value={tier.id}>
-                          {tier.name} — {tier.currency} {tier.price}
+                          {tier.name}
+                          {tier.isActive ? "" : " (inactive)"} — {tier.currency}{" "}
+                          {tier.price}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Tracks which pricing window this registration falls under (for finance reporting).
+                    Tracks which pricing window this registration falls under
+                    (for finance reporting). Closed tiers are still selectable —
+                    you have full control over which rate to apply.
                   </p>
                 </div>
               )}
