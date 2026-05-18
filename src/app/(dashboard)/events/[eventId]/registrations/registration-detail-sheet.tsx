@@ -996,6 +996,28 @@ export function RegistrationDetailSheet({
                 </div>
               )}
 
+              {/* Pricing Tier — which sales window this registration fell
+                  under (Early Bird / Standard / Onsite). Read-only: captured
+                  at registration time (public form picks it via the category
+                  URL; admin add-form has the picker). Shown on the Details
+                  tab for ALL roles incl. MEMBER — the tier NAME is
+                  operational, only the tier PRICE is financial, so it must
+                  not be buried in the finance-gated Payment Summary. */}
+              <div className="space-y-2">
+                <Label>Pricing Tier</Label>
+                <div className="bg-muted p-3 rounded-lg">
+                  {selectedRegistration.pricingTier?.name ? (
+                    <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-sm font-medium text-amber-800">
+                      {selectedRegistration.pricingTier.name}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      — no pricing tier (legacy or non-tiered registration)
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* Registration Status + Payment Status (side by side) */}
               {!isReviewer && (
                 <div className="grid grid-cols-2 gap-3">

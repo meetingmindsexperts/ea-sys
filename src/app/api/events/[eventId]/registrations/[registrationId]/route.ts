@@ -100,6 +100,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         include: {
           attendee: true,
           ticketType: true,
+          // Pricing tier (Early Bird / Standard / Onsite) — surfaced as a
+          // read-only field on the Details tab. Only the PUT re-fetch
+          // included this before, so a freshly-opened detail sheet always
+          // showed "no tier" even when one was set.
+          pricingTier: true,
           payments: {
             orderBy: { createdAt: "desc" },
           },
