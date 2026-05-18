@@ -397,6 +397,28 @@ export async function createRegistration(
   }
 
   // Validate pricingTierId (if provided) belongs to the ticket type.
+  //
+  // Deliberately NO `isActive` filter and NO `pricingTier.soldCount`
+  // increment/cap here — the admin manual-add path gives organizers full
+  // control over which tier to assign, including a CLOSED one (e.g. record
+  // a late registrant at the courtesy Early Bird rate). Consequences,
+  // accepted by design (organizer decision, May 2026):
+  //   • The public self-register path (.../public/events/[slug]/register)
+  //     still gates `isActive: true` and atomically bumps + caps
+  //     `PricingTier.soldCount`. This service does NOT — it only bumps
+  //     `ticketType.soldCount` below. So a manually-assigned tier does not
+  //     consume that tier's inventory and is never blocked by its
+  //     quantity/closed cap. This is intentional: a courtesy/comp seat must
+  //     not burn a real paid Early Bird seat.
+  //   • Therefore `PricingTier.soldCount` under-counts vs the actual
+  //     registration rows. The "Registrations by Tier" dashboard tile counts
+  //     rows (not soldCount) so it stays correct; anything reporting off
+  //     `PricingTier.soldCount` directly will diverge — read tier usage from
+  //     Registration rows, not the tier counter.
+  //   • Tier is now an explicit assignment, not a proxy for "registered
+  //     during that sales window" — an Early Bird row may have a createdAt
+  //     after Early Bird closed. Finance reconciliation must treat tier as
+  //     stated, not derived from registration date / salesEnd.
   let validPricingTierId: string | null = null;
   if (pricingTierId && ticketType) {
     const tier = await db.pricingTier.findFirst({
