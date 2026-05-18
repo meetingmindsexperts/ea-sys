@@ -76,6 +76,25 @@ describe("redactFinancialFields", () => {
     expect((out.pricingTier as Record<string, unknown>).price).toBeUndefined();
   });
 
+  it("strips the whole computed `financials` block (MEMBER sees no money math)", () => {
+    const reg = {
+      id: "reg-1",
+      status: "CONFIRMED",
+      paymentStatus: "UNPAID",
+      financials: {
+        subtotal: 1000,
+        taxAmount: 50,
+        total: 1050,
+        balanceDue: 1050,
+        isPaidInFull: false,
+      },
+    };
+    const out = redactFinancialFields(reg) as Record<string, unknown>;
+    expect(out.id).toBe("reg-1");
+    expect(out.paymentStatus).toBe("UNPAID"); // status label kept
+    expect(out.financials).toBeUndefined(); // whole block gone
+  });
+
   it("recurses through arrays of objects", () => {
     const list = [
       { id: 1, paymentStatus: "UNPAID", amount: 100 },

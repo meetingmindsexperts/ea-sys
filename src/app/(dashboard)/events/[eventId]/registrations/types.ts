@@ -135,6 +135,22 @@ export interface Registration {
   pricingTier?: PricingTier | null;
   payments?: Payment[];
   accommodation?: Accommodation | null;
+  // Computed money breakdown from the detail GET. Absent for the MEMBER
+  // role (redacted server-side) — UI must treat it as optional.
+  financials?: {
+    currency: string;
+    subtotal: number;
+    discount: number;
+    taxableBase: number;
+    taxRate: number;
+    taxLabel: string;
+    taxAmount: number;
+    total: number;
+    totalPaid: number;
+    balanceDue: number;
+    isPaidInFull: boolean;
+    hasOutstandingBalance: boolean;
+  } | null;
 }
 
 /**

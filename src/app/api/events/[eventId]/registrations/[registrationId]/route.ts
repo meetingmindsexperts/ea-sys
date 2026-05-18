@@ -15,6 +15,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { readSponsors } from "@/lib/webinar";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { computeRegistrationFinancials } from "@/lib/registration-financials";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -90,7 +91,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
+        // taxRate/taxLabel feed the `financials` block so the Payment
+        // block + Payment Summary match the quote/invoice VAT math.
+        select: { id: true, taxRate: true, taxLabel: true },
       }),
       db.registration.findFirst({
         where: {
@@ -131,12 +134,37 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    // Money breakdown — single source of truth shared with the quote/
+    // invoice VAT math. Surfaced as `financials` for the detail-sheet
+    // Payment block + Payment Summary. `totalPaid` mirrors the existing
+    // detail-sheet rule (succeeded/PAID payments only) so a partial
+    // bank-transfer capture correctly leaves a balance.
+    const subtotal = Number(
+      registration.pricingTier?.price ?? registration.ticketType?.price ?? 0,
+    );
+    const currency =
+      registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD";
+    const totalPaid = (registration.payments ?? [])
+      .filter((p) => p.status?.toLowerCase() === "succeeded" || p.status === "PAID")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const financials = computeRegistrationFinancials({
+      subtotal,
+      discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      taxRate: event.taxRate ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel,
+      currency,
+      totalPaid,
+    });
+
+    const withFinancials = { ...registration, financials };
+
     // MEMBER (read-only viewer) keeps the payment STATUS label but never
-    // the amounts — strip payments / invoices / billing block. Defense in
-    // depth: even a crafted request can't pull money out of this endpoint.
+    // the amounts — `redactFinancialFields` strips the whole `financials`
+    // block plus payments / invoices / billing. Defense in depth: even a
+    // crafted request can't pull money out of this endpoint.
     const payload = canViewFinance(session.user.role)
-      ? registration
-      : redactFinancialFields(registration);
+      ? withFinancials
+      : redactFinancialFields(withFinancials);
 
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");

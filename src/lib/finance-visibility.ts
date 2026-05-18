@@ -40,6 +40,9 @@ export const FINANCE_ONLY_AGENT_TOOLS = new Set<string>([
  * deliberately ABSENT — the status label is operational and kept.
  */
 const FINANCIAL_KEYS = new Set<string>([
+  // The whole computed money breakdown (subtotal/VAT/total/balance) —
+  // strip it wholesale for MEMBER rather than relying on its inner keys.
+  "financials",
   "amount",
   "amountPaid",
   "totalPaid",

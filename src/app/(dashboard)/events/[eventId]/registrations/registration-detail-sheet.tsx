@@ -1018,6 +1018,99 @@ export function RegistrationDetailSheet({
                 </div>
               </div>
 
+              {/* Payment block — finance-gated (showFinance hides it for
+                  MEMBER; `financials` is also absent in MEMBER payloads).
+                  Always shown to finance roles: heading flips between
+                  "Payment Pending" (balance owed) and "Paid in Full".
+                  Surfaces amount + VAT on the Details tab so it's visible
+                  at a glance, not buried in the Billing-tab summary. The
+                  bank-transfer partial case shows naturally as a non-zero
+                  Balance Due. */}
+              {showFinance && selectedRegistration.financials && selectedRegistration.financials.total > 0 && (() => {
+                const f = selectedRegistration.financials!;
+                const pending = f.hasOutstandingBalance;
+                return (
+                  <div className={cn(
+                    "rounded-xl border px-5 py-4 space-y-2",
+                    pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <h3 className={cn(
+                        "flex items-center gap-2 text-sm font-semibold uppercase tracking-wide",
+                        pending ? "text-amber-800" : "text-emerald-700",
+                      )}>
+                        <CreditCard className="h-4 w-4" />
+                        {pending ? "Payment Pending" : "Paid in Full"}
+                      </h3>
+                      <Badge
+                        className={cn(
+                          "border-white/40",
+                          PAYMENT_STATUS_COLORS[selectedRegistration.paymentStatus],
+                        )}
+                        variant="outline"
+                      >
+                        {PAYMENT_STATUS_LABELS[selectedRegistration.paymentStatus]}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Subtotal</span>
+                        <span className="font-medium">{formatCurrency(f.subtotal, f.currency)}</span>
+                      </div>
+                      {f.discount > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Discount</span>
+                          <span className="font-medium text-emerald-600">
+                            −{formatCurrency(f.discount, f.currency)}
+                          </span>
+                        </div>
+                      )}
+                      {f.taxRate > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            {f.taxLabel} ({f.taxRate}%)
+                          </span>
+                          <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between border-t pt-1.5">
+                        <span className="text-muted-foreground">Total</span>
+                        <span className="font-semibold">{formatCurrency(f.total, f.currency)}</span>
+                      </div>
+                      {f.totalPaid > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Paid</span>
+                          <span className="font-medium text-emerald-600">
+                            {formatCurrency(f.totalPaid, f.currency)}
+                          </span>
+                        </div>
+                      )}
+                      {pending && (
+                        <div className="flex justify-between border-t pt-1.5">
+                          <span className="font-semibold text-amber-800">Balance Due</span>
+                          <span className="font-bold text-amber-800">
+                            {formatCurrency(f.balanceDue, f.currency)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {pending && !isReviewer && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full mt-1"
+                        disabled={sendEmail.isPending}
+                        onClick={() =>
+                          sendEmail.mutate({ id: selectedRegistration.id, type: "payment-reminder" })
+                        }
+                      >
+                        {sendEmail.isPending ? "Sending…" : "Send Payment Link"}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Registration Status + Payment Status (side by side) */}
               {!isReviewer && (
                 <div className="grid grid-cols-2 gap-3">
@@ -1131,16 +1224,11 @@ export function RegistrationDetailSheet({
                   financial snapshot at a glance (status badge + ticket price
                   + discount + total paid) plus a Download Quote action. */}
               {!isEditing && (() => {
-                const basePrice = Number(
-                  selectedRegistration.pricingTier?.price ?? selectedRegistration.ticketType?.price ?? 0,
-                );
-                const currency = selectedRegistration.pricingTier?.currency
-                  ?? selectedRegistration.ticketType?.currency
-                  ?? "USD";
-                const totalPaid = (selectedRegistration.payments ?? [])
-                  .filter((p) => p.status.toLowerCase() === "succeeded" || p.status === "PAID")
-                  .reduce((sum, p) => sum + Number(p.amount), 0);
-                const showFinancials = basePrice > 0 || totalPaid > 0;
+                // Single source of truth — same `financials` block the
+                // Details-tab Payment block uses, so the two surfaces
+                // (and the quote/invoice PDF) can never disagree on VAT.
+                const f = selectedRegistration.financials;
+                const showFinancials = !!f && (f.total > 0 || f.totalPaid > 0);
                 return (
                   <section className={cn(
                     "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
@@ -1155,7 +1243,7 @@ export function RegistrationDetailSheet({
                         {PAYMENT_STATUS_LABELS[selectedRegistration.paymentStatus]}
                       </Badge>
                     </div>
-                    {showFinancials ? (
+                    {showFinancials && f ? (
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Ticket</span>
@@ -1165,19 +1253,35 @@ export function RegistrationDetailSheet({
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Base Price</span>
-                          <span className="font-medium">{formatCurrency(basePrice, currency)}</span>
+                          <span className="text-muted-foreground">Subtotal</span>
+                          <span className="font-medium">{formatCurrency(f.subtotal, f.currency)}</span>
                         </div>
-                        {totalPaid > 0 && (
+                        {f.discount > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Paid</span>
-                            <span className="font-medium text-emerald-600">{formatCurrency(totalPaid, currency)}</span>
+                            <span className="text-muted-foreground">Discount</span>
+                            <span className="font-medium text-emerald-600">−{formatCurrency(f.discount, f.currency)}</span>
                           </div>
                         )}
-                        {basePrice > 0 && basePrice - totalPaid > 0.01 && (
+                        {f.taxRate > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">{f.taxLabel} ({f.taxRate}%)</span>
+                            <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between border-t pt-2">
+                          <span className="text-muted-foreground">Total</span>
+                          <span className="font-semibold">{formatCurrency(f.total, f.currency)}</span>
+                        </div>
+                        {f.totalPaid > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Paid</span>
+                            <span className="font-medium text-emerald-600">{formatCurrency(f.totalPaid, f.currency)}</span>
+                          </div>
+                        )}
+                        {f.hasOutstandingBalance && (
                           <div className="flex justify-between border-t pt-2">
-                            <span className="text-muted-foreground">Balance Due</span>
-                            <span className="font-semibold">{formatCurrency(basePrice - totalPaid, currency)}</span>
+                            <span className="font-semibold text-amber-800">Balance Due</span>
+                            <span className="font-bold text-amber-800">{formatCurrency(f.balanceDue, f.currency)}</span>
                           </div>
                         )}
                       </div>
@@ -1208,7 +1312,7 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     )}
-                    {basePrice > 0 && (
+                    {!!f && f.subtotal > 0 && (
                       <Button variant="outline" size="sm" asChild className="w-full">
                         <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
                           <Download className="mr-2 h-4 w-4" /> Download Quote
