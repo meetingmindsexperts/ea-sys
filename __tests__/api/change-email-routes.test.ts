@@ -57,7 +57,11 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/auth-guards", () => ({
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
-    if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {
+    // Mirror the real guard exactly — MEMBER must be blocked too (the
+    // contact-email PATCH route now routes through denyReviewer; a mock
+    // that omits MEMBER would let a MEMBER-write regression slip past
+    // this suite).
+    if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT" || role === "MEMBER") {
       return { status: 403, json: async () => ({ error: "Forbidden" }), headers: new Map() };
     }
     return null;

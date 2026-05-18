@@ -16,9 +16,15 @@
 -- (still serving traffic while `prisma migrate deploy` runs) keeps using the
 -- old MAX+1 path against an untouched Registration table. We seed lastSerial
 -- to the CURRENT max (not max+1), so the first new-code increment yields
--- max+1 — identical to what the old code would have produced, eliminating
--- collision risk across the brief cutover window; the @@unique constraint
--- remains the final safety net.
+-- max+1 — identical to what the old code would have produced. This makes
+-- the steady state collision-free. There is still a bounded one-shot window
+-- during the old→new container overlap: if a registration completes on the
+-- OLD container after the counter is seeded, old code writes MAX+1 to
+-- Registration without touching the counter, and the new code's first
+-- upsert then also yields MAX+1. That single race is caught by the
+-- @@unique([eventId, serialId]) constraint (P2002, tx rollback, no
+-- corruption) and self-heals on the next increment — strictly better than
+-- the pre-fix behavior where the race existed in steady state.
 
 CREATE TABLE "RegistrationSerialCounter" (
     "eventId" TEXT NOT NULL,
