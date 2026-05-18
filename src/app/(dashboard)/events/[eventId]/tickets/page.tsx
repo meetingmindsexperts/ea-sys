@@ -455,9 +455,13 @@ export default function TicketsPage() {
                             <p className="text-sm font-medium text-slate-800 truncate">{tier.name}</p>
                           </div>
 
-                          {/* Price */}
+                          {/* Price — the tickets API redacts price for the
+                              MEMBER read-only role, so render an em-dash
+                              rather than "$NaN" when it's absent. */}
                           <span className="text-sm font-semibold text-slate-700 shrink-0">
-                            {formatCurrency(Number(tier.price), tier.currency)}
+                            {tier.price == null || Number.isNaN(Number(tier.price))
+                              ? "—"
+                              : formatCurrency(Number(tier.price), tier.currency)}
                           </span>
 
                           {/* Copy form link */}

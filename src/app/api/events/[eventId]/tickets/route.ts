@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 
@@ -79,7 +80,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const response = NextResponse.json(ticketTypes);
+    // MEMBER sees ticket-type names + capacity but not prices (price,
+    // pricingTiers[].price are all financial). redactFinancialFields
+    // strips them; the UI renders "—" for the missing price.
+    const payload = canViewFinance(session.user.role)
+      ? ticketTypes
+      : redactFinancialFields(ticketTypes);
+
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {

@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
 import { isReadOnlyTool } from "@/lib/agent/tools/_shared";
+import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS, redactFinancialFields } from "@/lib/finance-visibility";
 import type { AgentContext } from "@/lib/agent/event-tools";
 
 export const runtime = "nodejs";
@@ -59,7 +60,12 @@ async function runAgentLoop(
   history: MessageParam[],
   context: AgentContext,
   send: (event: SSEEvent) => void,
-  readOnly = false
+  readOnly = false,
+  // Separate from readOnly on purpose: read-only ≠ no-finance in general.
+  // Today the only agent-eligible role lacking finance is MEMBER (which is
+  // also the only read-only one), but keeping these orthogonal means a
+  // future role can't accidentally inherit the wrong boundary.
+  blockFinance = false
 ): Promise<void> {
   const systemPrompt = await buildSystemPrompt(
     context.eventId,
@@ -140,11 +146,26 @@ async function runAgentLoop(
             `"${toolName}" modifies data and was refused. Ask an Organizer or Admin to make this change.`,
           code: "READ_ONLY_ROLE",
         };
+      } else if (blockFinance && FINANCE_ONLY_AGENT_TOOLS.has(toolName)) {
+        // Wholly-financial tools (list_invoices, list_unpaid_registrations)
+        // have nothing non-finance to salvage — refuse outright rather
+        // than redact to an empty husk.
+        result = {
+          error:
+            `Financial data is not available to your role. "${toolName}" returns ` +
+            `invoice / payment data, which the Member (read-only viewer) role cannot access.`,
+          code: "FINANCE_FORBIDDEN",
+        };
       } else if (MUTATING_TOOLS.has(toolName) && context.counters.creates >= MAX_CREATES_PER_REQUEST) {
         result = { error: `Resource modification limit reached for this request (max ${MAX_CREATES_PER_REQUEST}). Please send a new message to continue.` };
       } else {
         if (MUTATING_TOOLS.has(toolName)) context.counters.creates++;
         result = await executor(toolInput, context);
+        // Mixed tools (list_registrations, list_ticket_types,
+        // get_event_stats…) carry money fields alongside operational
+        // data — strip the financial keys for non-finance roles but keep
+        // the rest (e.g. paymentStatus label survives).
+        if (blockFinance) result = redactFinancialFields(result);
       }
 
       // Mirror the MCP transport's logging convention so the in-app agent path
@@ -224,6 +245,10 @@ export async function POST(
   // reporting / lookups but every mutating tool call is refused (fail
   // closed: only list_/get_/search_ prefixed tools are permitted).
   const isReadOnlyMember = role === "MEMBER";
+  // Non-finance roles get finance-only tools refused + financial fields
+  // redacted from mixed tool results. Derived from the role, not from
+  // isReadOnlyMember, so the two boundaries stay independent.
+  const blockFinance = !canViewFinance(role);
 
   // Rate limit: 20 agent requests per user per hour
   const rl = checkRateLimit({
@@ -306,7 +331,7 @@ export async function POST(
       }
 
       try {
-        await runAgentLoop(message, history, context, send, isReadOnlyMember);
+        await runAgentLoop(message, history, context, send, isReadOnlyMember, blockFinance);
         send({ type: "done" });
       } catch (err) {
         apiLogger.error({ err, eventId }, "agent:execute failed");

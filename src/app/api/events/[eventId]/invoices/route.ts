@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createInvoice } from "@/lib/invoice-service";
@@ -20,6 +20,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Invoices are financial — MEMBER (read-only viewer) is barred.
+    const noFinance = denyFinance(session);
+    if (noFinance) return noFinance;
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },

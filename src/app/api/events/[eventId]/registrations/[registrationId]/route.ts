@@ -14,6 +14,7 @@ import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { readSponsors } from "@/lib/webinar";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -125,7 +126,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const response = NextResponse.json(registration);
+    // MEMBER (read-only viewer) keeps the payment STATUS label but never
+    // the amounts — strip payments / invoices / billing block. Defense in
+    // depth: even a crafted request can't pull money out of this endpoint.
+    const payload = canViewFinance(session.user.role)
+      ? registration
+      : redactFinancialFields(registration);
+
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {

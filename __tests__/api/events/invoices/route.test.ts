@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDenyReviewer, mockDb, mockCreateInvoice } = vi.hoisted(() => ({
+const { mockAuth, mockDenyReviewer, mockDenyFinance, mockDb, mockCreateInvoice } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDenyReviewer: vi.fn(),
+  mockDenyFinance: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
     invoice: { findMany: vi.fn() },
@@ -17,7 +18,10 @@ vi.mock("next/server", async (importOriginal) => {
   return { ...actual };
 });
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
-vi.mock("@/lib/auth-guards", () => ({ denyReviewer: mockDenyReviewer }));
+vi.mock("@/lib/auth-guards", () => ({
+  denyReviewer: mockDenyReviewer,
+  denyFinance: mockDenyFinance,
+}));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },

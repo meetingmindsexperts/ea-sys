@@ -69,6 +69,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
+import { canViewFinance } from "@/lib/finance-visibility";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
@@ -119,6 +120,10 @@ export function RegistrationDetailSheet({
   const queryClient = useQueryClient();
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  // MEMBER (read-only viewer) sees no money — the Billing & Payments tab
+  // and the Payment Summary are hidden. Payment STATUS badge stays
+  // (operational, not financial).
+  const showFinance = canViewFinance(userSession?.user?.role);
   const { data: regTypes = [] } = useTickets(eventId);
   // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
   // display in the Payment Summary. Cheap query, cached at the event level.
@@ -543,11 +548,19 @@ export function RegistrationDetailSheet({
                   role="tablist"
                   className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground"
                 >
-                  {([
-                    { value: "details", label: "Details" },
-                    { value: "billing", label: "Billing & Payments" },
-                    { value: "activity", label: "Activity" },
-                  ] as const).map((t) => (
+                  {(
+                    [
+                      { value: "details", label: "Details" },
+                      // Billing & Payments is finance data — hidden entirely
+                      // for MEMBER (read-only viewer). The detail API already
+                      // strips payments/invoices/billing for MEMBER, so
+                      // showing the tab would just render an empty shell.
+                      ...(showFinance
+                        ? ([{ value: "billing", label: "Billing & Payments" }] as const)
+                        : []),
+                      { value: "activity", label: "Activity" },
+                    ] as { value: "details" | "billing" | "activity"; label: string }[]
+                  ).map((t) => (
                     <button
                       key={t.value}
                       type="button"

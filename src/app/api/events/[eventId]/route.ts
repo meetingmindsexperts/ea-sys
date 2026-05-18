@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -84,8 +85,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // MEMBER sees event config (general, branding) but not the financial
+    // fields — taxRate / taxLabel / bankDetails are stripped. UI renders
+    // "—" for the masked fields on the Settings → Registration tab.
+    const payload = canViewFinance(session.user.role)
+      ? event
+      : redactFinancialFields(event);
+
     // Add cache headers for better performance
-    const response = NextResponse.json(event);
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {
