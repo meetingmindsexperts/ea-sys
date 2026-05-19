@@ -65,6 +65,8 @@ export const queryKeys = {
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
   contacts: ["contacts"] as const,
   contact: (contactId: string) => ["contacts", contactId] as const,
+  billingAccounts: ["billing-accounts"] as const,
+  billingAccount: (id: string) => ["billing-accounts", id] as const,
   apiKeys: ["api-keys"] as const,
   eventsAirConfig: ["eventsair", "config"] as const,
   eventsAirEvents: ["eventsair", "events"] as const,
@@ -397,6 +399,53 @@ export function useContacts(filters?: Record<string, string>) {
   return useQuery({
     queryKey: filters ? [...queryKeys.contacts, filters] : queryKeys.contacts,
     queryFn: () => fetchApi<any>(`/api/contacts${queryString}`),
+  });
+}
+
+// ── Billing accounts ("charge to another account" payers) ──────────────────
+export function useBillingAccounts(params?: Record<string, string>) {
+  const queryString = buildQueryString(params);
+  return useQuery({
+    queryKey: params ? [...queryKeys.billingAccounts, params] : queryKeys.billingAccounts,
+    queryFn: () => fetchApi<any[]>(`/api/billing-accounts${queryString}`),
+  });
+}
+
+export function useBillingAccount(id: string) {
+  return useQuery({
+    queryKey: queryKeys.billingAccount(id),
+    queryFn: () => fetchApi<any>(`/api/billing-accounts/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateBillingAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetchApi("/api/billing-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts }),
+  });
+}
+
+export function useUpdateBillingAccount(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetchApi(`/api/billing-accounts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccount(id) });
+    },
   });
 }
 

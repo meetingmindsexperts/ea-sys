@@ -33,6 +33,13 @@ const updateRegistrationSchema = z.object({
   // the existing attribution. Leaving undefined leaves the existing value
   // untouched.
   sponsorId: z.string().min(1).max(100).optional().nullable(),
+  // "Charge to another account" — reassign the payer post-hoc (finance
+  // flips a self-pay reg to institution-billed, or null to revert to
+  // self-pay; the latter is the fallback when the third party won't pay).
+  // Validated org-scoped + active below. Orthogonal to paymentStatus.
+  billingAccountId: z.string().min(1).max(100).optional().nullable(),
+  payerReference: z.string().max(120).optional().nullable(),
+  attendeeIsGuarantor: z.boolean().optional(),
   badgeType: z.string().max(50).optional().nullable(),
   dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
@@ -108,6 +115,11 @@ export async function GET(req: Request, { params }: RouteParams) {
           // included this before, so a freshly-opened detail sheet always
           // showed "no tier" even when one was set.
           pricingTier: true,
+          // "Charge to another account" — payer for the Billed-to display
+          // + reassignment control. Redacted for MEMBER (financial).
+          billingAccount: {
+            select: { id: true, name: true, type: true, email: true, taxNumber: true },
+          },
           payments: {
             orderBy: { createdAt: "desc" },
           },
@@ -247,6 +259,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       status,
       paymentStatus,
       sponsorId,
+      billingAccountId,
+      payerReference,
+      attendeeIsGuarantor,
       badgeType,
       dtcmBarcode,
       ticketTypeId,
@@ -304,6 +319,34 @@ export async function PUT(req: Request, { params }: RouteParams) {
             code: "SPONSOR_NOT_FOUND",
             availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })),
           },
+          { status: 400 },
+        );
+      }
+    }
+
+    // "Charge to another account" reassignment. `billingAccountId === null`
+    // reverts to self-pay (the fallback path) — allowed without a lookup.
+    // A non-null id must resolve to an active BillingAccount in this org
+    // (org-scoped — never trust the id alone). Orthogonal to paymentStatus.
+    if (typeof billingAccountId === "string") {
+      const ba = await db.billingAccount.findFirst({
+        where: { id: billingAccountId, organizationId: session.user.organizationId! },
+        select: { id: true, isActive: true },
+      });
+      if (!ba) {
+        apiLogger.warn({
+          msg: "registration-update:billing-account-not-found",
+          registrationId,
+          billingAccountId,
+        });
+        return NextResponse.json(
+          { error: `Billing account ${billingAccountId} not found in this organization.`, code: "BILLING_ACCOUNT_NOT_FOUND" },
+          { status: 404 },
+        );
+      }
+      if (!ba.isActive) {
+        return NextResponse.json(
+          { error: `Billing account ${billingAccountId} is inactive.`, code: "BILLING_ACCOUNT_INACTIVE" },
           { status: 400 },
         );
       }
@@ -436,6 +479,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(status && { status }),
         ...(paymentStatus && { paymentStatus }),
         ...(sponsorId !== undefined && { sponsorId }),
+        ...(billingAccountId !== undefined && { billingAccountId }),
+        ...(payerReference !== undefined && { payerReference: payerReference || null }),
+        ...(attendeeIsGuarantor !== undefined && { attendeeIsGuarantor }),
         ...(badgeType !== undefined && { badgeType }),
         ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),

@@ -39,6 +39,7 @@ model Organization {
   invoices        Invoice[]
   scheduledEmails ScheduledEmail[]
   emailLogs       EmailLog[]
+  billingAccounts BillingAccount[]
 }
 
 model User {
@@ -379,6 +380,19 @@ model Registration {
   // id inside Event.settings.sponsors[] JSON (no FK because sponsors
   // are stored as a JSON array on the event, not a Prisma table).
   sponsorId          String?
+  // Third-party billing ("charge to another account") — when set, the
+  // invoice is addressed to this BillingAccount (the attendee's hospital,
+  // or a pharma/grant covering this specific doctor) instead of the
+  // attendee. ORTHOGONAL to paymentStatus: money is still owed and the
+  // registration stays UNPAID/PENDING until the payer settles — this only
+  // redirects the bill-to party. null = self-pay (unchanged behavior).
+  billingAccountId    String?
+  // Optional PO / grant / authorization reference printed on the invoice.
+  payerReference      String?
+  // Per-registration fallback: when true, an unpaid third-party invoice
+  // may be reassigned back to the attendee (finance action); also keeps
+  // the attendee's Pay-Now path available as a guarantor.
+  attendeeIsGuarantor Boolean        @default(false)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
@@ -388,6 +402,7 @@ model Registration {
   attendee        Attendee            @relation(fields: [attendeeId], references: [id])
   user            User?               @relation(fields: [userId], references: [id])
   promoCode       PromoCode?          @relation(fields: [promoCodeId], references: [id])
+  billingAccount  BillingAccount?     @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
   payments        Payment[]
   accommodation   Accommodation?
   invoices        Invoice[]
@@ -396,6 +411,7 @@ model Registration {
 
   @@unique([eventId, serialId])
   @@index([sponsorId])
+  @@index([billingAccountId])
   @@index([eventId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])
@@ -1092,6 +1108,48 @@ model RegistrationSerialCounter {
   lastSerial Int    @default(0)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+// Reusable org-scoped payer for "charge to another account" — a doctor's
+// hospital, or a pharma/grant covering specific HCPs. Distinct from
+// Event.settings.sponsors[] (bulk pre-paid INCLUSIVE deals) and from the
+// Registration.billing* block (same payer, different address). Soft-delete
+// via isActive; the Registration FK is Restrict so a payer with linked
+// registrations can't be hard-deleted out from under them.
+model BillingAccount {
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String
+  type           BillingAccountType @default(INSTITUTION)
+  email          String?
+  phone          String?
+  contactName    String?
+  address        String?
+  city           String?
+  state          String?
+  zipCode        String?
+  country        String?
+  taxNumber      String?
+  notes          String?            @db.Text
+  isActive       Boolean            @default(true)
+  // True until finance reviews a payer created from the public
+  // registration flow (prevents "Cleveland Clinic" vs "cleveland clinic
+  // inc" duplicates from going straight into the canonical list).
+  needsReview    Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum BillingAccountType {
+  INSTITUTION
+  COMPANY
+  OTHER
 }
 
 enum InvoiceType {

@@ -70,6 +70,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
         attendee: true,
         ticketType: { select: { name: true, price: true, currency: true } },
         pricingTier: { select: { name: true, price: true, currency: true } },
+        // "Charge to another account" — bill-to becomes this payer.
+        billingAccount: {
+          select: {
+            name: true, contactName: true, email: true, phone: true,
+            address: true, city: true, state: true, zipCode: true,
+            country: true, taxNumber: true,
+          },
+        },
         event: {
           select: {
             name: true,

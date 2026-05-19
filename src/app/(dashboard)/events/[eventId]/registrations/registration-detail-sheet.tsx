@@ -70,7 +70,7 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -128,6 +128,9 @@ export function RegistrationDetailSheet({
   // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
   // display in the Payment Summary. Cheap query, cached at the event level.
   const { data: sponsorsRes } = useSponsors(eventId);
+  // Payers for the "charge to another account" reassignment control. Only
+  // fetched for finance-permitted roles (this whole tab is finance-gated).
+  const { data: billingAccounts = [] } = useBillingAccounts();
   const sponsors = sponsorsRes?.sponsors ?? [];
   const sponsorById = (id: string | null) =>
     id ? sponsors.find((s) => s.id === id) ?? null : null;
@@ -184,6 +187,10 @@ export function RegistrationDetailSheet({
     billingState: "",
     billingZipCode: "",
     billingCountry: "",
+    // "Charge to another account" — "" = self-pay.
+    billingAccountId: "",
+    payerReference: "",
+    attendeeIsGuarantor: false,
   });
 
   // Keep local state in sync with prop
@@ -363,6 +370,9 @@ export function RegistrationDetailSheet({
         billingState: selectedRegistration.billingState || "",
         billingZipCode: selectedRegistration.billingZipCode || "",
         billingCountry: selectedRegistration.billingCountry || "",
+        billingAccountId: selectedRegistration.billingAccountId || "",
+        payerReference: selectedRegistration.payerReference || "",
+        attendeeIsGuarantor: selectedRegistration.attendeeIsGuarantor ?? false,
       });
       setIsEditing(true);
     }
@@ -389,6 +399,15 @@ export function RegistrationDetailSheet({
           billingState: editData.billingState.trim() || null,
           billingZipCode: editData.billingZipCode.trim() || null,
           billingCountry: editData.billingCountry.trim() || null,
+          // "Charge to another account": "" → null reverts to self-pay
+          // (the fallback path). Sent only when changed away from current.
+          billingAccountId: editData.billingAccountId || null,
+          payerReference: editData.billingAccountId
+            ? editData.payerReference.trim() || null
+            : null,
+          attendeeIsGuarantor: editData.billingAccountId
+            ? editData.attendeeIsGuarantor
+            : false,
           attendee: {
             title: editData.title || undefined,
             firstName: editData.firstName,
@@ -1220,6 +1239,73 @@ export function RegistrationDetailSheet({
                 </div>
               )}
 
+              {/* "Charge to another account" — reassign the payer post-hoc.
+                  This is also the fallback control: setting it back to
+                  self-pay reverts an unpaid third-party invoice to the
+                  attendee. Orthogonal to paymentStatus. Immediate-update on
+                  change, like the other inline selects in this section. */}
+              {isEditing && (
+                <div className="space-y-2">
+                  <Label>Charge to (billing account)</Label>
+                  <Select
+                    value={selectedRegistration.billingAccountId ?? "__self__"}
+                    onValueChange={(value) =>
+                      updateRegistration.mutate({
+                        id: selectedRegistration.id,
+                        data: { billingAccountId: value === "__self__" ? null : value },
+                      })
+                    }
+                    disabled={updateRegistration.isPending}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
+                      {(billingAccounts as { id: string; name: string; type: string }[]).map(
+                        (ba) => (
+                          <SelectItem key={ba.id} value={ba.id}>
+                            {ba.name} ({ba.type})
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {selectedRegistration.billingAccountId && (
+                    <>
+                      <Input
+                        value={editData.payerReference}
+                        onChange={(e) =>
+                          setEditData((p) => ({ ...p, payerReference: e.target.value }))
+                        }
+                        onBlur={() =>
+                          updateRegistration.mutate({
+                            id: selectedRegistration.id,
+                            data: { payerReference: editData.payerReference.trim() || null },
+                          })
+                        }
+                        placeholder="PO / grant reference (printed on invoice)"
+                      />
+                      <label className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedRegistration.attendeeIsGuarantor}
+                          onChange={(e) =>
+                            updateRegistration.mutate({
+                              id: selectedRegistration.id,
+                              data: { attendeeIsGuarantor: e.target.checked },
+                            })
+                          }
+                        />
+                        Attendee is guarantor — if the payer doesn&apos;t settle,
+                        the balance can revert to the attendee.
+                      </label>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Payment Summary — always rendered in Billing tab. Shows the
                   financial snapshot at a glance (status badge + ticket price
                   + discount + total paid) plus a Download Quote action. */}
@@ -1309,6 +1395,32 @@ export function RegistrationDetailSheet({
                           <span className="text-xs text-violet-700/70">
                             (status: {PAYMENT_STATUS_LABELS[selectedRegistration.paymentStatus]})
                           </span>
+                        )}
+                      </div>
+                    )}
+                    {/* "Charge to another account" — bill-to attribution.
+                        Shown whenever a payer is set; the invoice/quote is
+                        addressed to them, not the attendee. */}
+                    {selectedRegistration.billingAccountId && (
+                      <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span>
+                            <span className="text-sky-700 font-medium">Billed to:</span>{" "}
+                            <span className="text-sky-900">
+                              {selectedRegistration.billingAccount?.name ??
+                                "(payer removed)"}
+                            </span>
+                          </span>
+                          {selectedRegistration.attendeeIsGuarantor && (
+                            <span className="text-xs text-sky-700/70">
+                              attendee is guarantor
+                            </span>
+                          )}
+                        </div>
+                        {selectedRegistration.payerReference && (
+                          <div className="text-xs text-sky-700/80 mt-0.5">
+                            Ref: {selectedRegistration.payerReference}
+                          </div>
                         )}
                       </div>
                     )}

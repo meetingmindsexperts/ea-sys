@@ -52,6 +52,13 @@ describe("redactFinancialFields", () => {
       invoices: [{ id: "inv1", invoiceNumber: "HFF-INV-001" }],
       ticketType: { name: "Standard", price: 500 },
       pricingTier: { name: "Early Bird", price: 400 },
+      // "Charge to another account" — the payer (with taxNumber), the
+      // PO/grant ref, and the guarantor flag are Mecomed-sensitive
+      // billing context. MEMBER must not see them.
+      billingAccountId: "ba-1",
+      billingAccount: { name: "Pfizer MENA", taxNumber: "TRN-9" },
+      payerReference: "PO-12345",
+      attendeeIsGuarantor: true,
     };
     const out = redactFinancialFields(reg) as Record<string, unknown>;
 
@@ -74,6 +81,10 @@ describe("redactFinancialFields", () => {
     expect(out.invoices).toBeUndefined();
     expect((out.ticketType as Record<string, unknown>).price).toBeUndefined();
     expect((out.pricingTier as Record<string, unknown>).price).toBeUndefined();
+    expect(out.billingAccountId).toBeUndefined();
+    expect(out.billingAccount).toBeUndefined();
+    expect(out.payerReference).toBeUndefined();
+    expect(out.attendeeIsGuarantor).toBeUndefined();
   });
 
   it("strips the whole computed `financials` block (MEMBER sees no money math)", () => {

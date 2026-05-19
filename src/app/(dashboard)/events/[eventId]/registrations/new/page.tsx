@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/select";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
-import { useTickets } from "@/hooks/use-api";
+import { useTickets, useBillingAccounts } from "@/hooks/use-api";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
 import {
@@ -46,18 +47,27 @@ export default function NewRegistrationPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { data: ticketTypes = [] } = useTickets(eventId);
+  // Active payers only on the create path (mirrors public-active-only
+  // intent; finance can still pick inactive via the detail-sheet reassign).
+  const { data: billingAccounts = [] } = useBillingAccounts();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     ticketTypeId: string;
     pricingTierId: string;
     paymentStatus: PaymentStatus;
+    billingAccountId: string;
+    payerReference: string;
+    attendeeIsGuarantor: boolean;
     personData: PersonFormData;
     notes: string;
   }>({
     ticketTypeId: "",
     pricingTierId: "",
     paymentStatus: PaymentStatus.UNASSIGNED,
+    billingAccountId: "",
+    payerReference: "",
+    attendeeIsGuarantor: false,
     personData: initialPersonData,
     notes: "",
   });
@@ -95,6 +105,15 @@ export default function NewRegistrationPage() {
               ? formData.pricingTierId
               : undefined,
           paymentStatus: formData.paymentStatus,
+          // "Charge to another account" — orthogonal to paymentStatus.
+          billingAccountId: formData.billingAccountId || undefined,
+          payerReference:
+            formData.billingAccountId && formData.payerReference
+              ? formData.payerReference
+              : undefined,
+          attendeeIsGuarantor: formData.billingAccountId
+            ? formData.attendeeIsGuarantor
+            : undefined,
           attendee: {
             email: formData.personData.email,
             firstName: formData.personData.firstName,
@@ -275,6 +294,84 @@ export default function NewRegistrationPage() {
                   {MANUAL_PAYMENT_STATUS_HELPER_TEXT}
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 1b: Billing — charge to another account */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Billing</CardTitle>
+            <CardDescription>
+              By default the attendee is billed. To charge a hospital,
+              company, or grant instead, pick a payer — the invoice is
+              addressed to them. This does not change the payment status;
+              money is still owed until the payer settles.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="payer">Charge to</Label>
+                <Select
+                  value={formData.billingAccountId || "__self__"}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      billingAccountId: value === "__self__" ? "" : value,
+                      payerReference: value === "__self__" ? "" : formData.payerReference,
+                      attendeeIsGuarantor:
+                        value === "__self__" ? false : formData.attendeeIsGuarantor,
+                    })
+                  }
+                >
+                  <SelectTrigger id="payer" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
+                    {(billingAccounts as { id: string; name: string; type: string }[]).map(
+                      (ba) => (
+                        <SelectItem key={ba.id} value={ba.id}>
+                          {ba.name} ({ba.type})
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Manage payers in Settings → Billing → Billing Accounts.
+                </p>
+              </div>
+              {formData.billingAccountId && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="payerRef">PO / Grant reference (optional)</Label>
+                    <Input
+                      id="payerRef"
+                      value={formData.payerReference}
+                      onChange={(e) =>
+                        setFormData({ ...formData, payerReference: e.target.value })
+                      }
+                      placeholder="PO-12345 / grant code — printed on the invoice"
+                    />
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="guarantor"
+                      checked={formData.attendeeIsGuarantor}
+                      onCheckedChange={(c) =>
+                        setFormData({ ...formData, attendeeIsGuarantor: c === true })
+                      }
+                    />
+                    <Label htmlFor="guarantor" className="text-sm font-normal leading-snug">
+                      Attendee is guarantor — if the payer doesn&apos;t settle,
+                      the balance can be reverted to the attendee (keeps their
+                      Pay-Now path available).
+                    </Label>
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

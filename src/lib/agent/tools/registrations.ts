@@ -236,6 +236,13 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       // returns INCLUSIVE_REQUIRES_SPONSOR / SPONSOR_NOT_FOUND with the
       // available-sponsors list in meta so Claude can self-correct.
       sponsorId: input.sponsorId ? String(input.sponsorId) : null,
+      // "Charge to another account" — service validates the id is an active
+      // BillingAccount in the event's org (BILLING_ACCOUNT_NOT_FOUND /
+      // BILLING_ACCOUNT_INACTIVE). Orthogonal to paymentStatus.
+      billingAccountId: input.billingAccountId ? String(input.billingAccountId) : null,
+      payerReference: input.payerReference ? String(input.payerReference) : null,
+      attendeeIsGuarantor:
+        typeof input.attendeeIsGuarantor === "boolean" ? input.attendeeIsGuarantor : undefined,
       source: "mcp",
     });
 
@@ -437,6 +444,40 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       }
     }
 
+    // "Charge to another account" — `null` reverts to self-pay (fallback);
+    // a string must resolve to an active BillingAccount in this org
+    // (org-scoped — never trust the id alone). Orthogonal to paymentStatus.
+    const billingAccountIdInput =
+      input.billingAccountId === undefined
+        ? undefined
+        : input.billingAccountId === null
+        ? null
+        : String(input.billingAccountId);
+    if (typeof billingAccountIdInput === "string") {
+      const ba = await db.billingAccount.findFirst({
+        where: { id: billingAccountIdInput, organizationId: ctx.organizationId },
+        select: { id: true, isActive: true },
+      });
+      if (!ba) {
+        return {
+          error: `Billing account ${billingAccountIdInput} not found in this organization.`,
+          code: "BILLING_ACCOUNT_NOT_FOUND",
+        };
+      }
+      if (!ba.isActive) {
+        return {
+          error: `Billing account ${billingAccountIdInput} is inactive. Reactivate it or pick another payer.`,
+          code: "BILLING_ACCOUNT_INACTIVE",
+        };
+      }
+    }
+    const payerReferenceInput =
+      input.payerReference === undefined
+        ? undefined
+        : String(input.payerReference ?? "").trim() || null;
+    const attendeeIsGuarantorInput =
+      typeof input.attendeeIsGuarantor === "boolean" ? input.attendeeIsGuarantor : undefined;
+
     const newTicketTypeId = input.ticketTypeId ? String(input.ticketTypeId) : undefined;
     if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
       const ticket = await db.ticketType.findFirst({
@@ -572,6 +613,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (status) regData.status = status as never;
       if (paymentStatus) regData.paymentStatus = paymentStatus as never;
       if (sponsorIdInput !== undefined) regData.sponsorId = sponsorIdInput;
+      if (billingAccountIdInput !== undefined) regData.billingAccountId = billingAccountIdInput;
+      if (payerReferenceInput !== undefined) regData.payerReference = payerReferenceInput;
+      if (attendeeIsGuarantorInput !== undefined) regData.attendeeIsGuarantor = attendeeIsGuarantorInput;
       if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
       if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
       if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
@@ -1077,6 +1121,18 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
         sponsorId: {
           type: "string",
           description: "Sponsor attribution id (from Event.settings.sponsors[]). Required when paymentStatus is INCLUSIVE. Use list_sponsors to see available ids.",
+        },
+        billingAccountId: {
+          type: "string",
+          description: "\"Charge to another account\" — id of a reusable org BillingAccount (the attendee's hospital, or a pharma/grant covering this HCP). When set, the invoice is addressed to that payer instead of the attendee. ORTHOGONAL to paymentStatus: money is still owed and the registration stays UNPAID/PENDING until the payer settles. Billing accounts are managed in Settings → Billing; there is no agent tool to create them.",
+        },
+        payerReference: {
+          type: "string",
+          description: "Optional PO / grant / authorization reference printed on the invoice. Only meaningful with billingAccountId.",
+        },
+        attendeeIsGuarantor: {
+          type: "boolean",
+          description: "If true and a billingAccountId is set, the attendee remains guarantor for an unpaid third-party invoice (keeps their Pay-Now path; lets finance revert the payer). Default false.",
         },
         title: {
           type: "string",

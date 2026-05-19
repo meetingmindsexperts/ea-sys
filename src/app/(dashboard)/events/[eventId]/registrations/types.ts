@@ -128,6 +128,18 @@ export interface Registration {
   billingState: string | null;
   billingZipCode: string | null;
   billingCountry: string | null;
+  // "Charge to another account" — third-party payer. null = self-pay.
+  // Orthogonal to paymentStatus (money still owed until the payer settles).
+  billingAccountId: string | null;
+  payerReference: string | null;
+  attendeeIsGuarantor: boolean;
+  billingAccount?: {
+    id: string;
+    name: string;
+    type: string;
+    email: string | null;
+    taxNumber: string | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
   attendee: Attendee;

@@ -48,6 +48,25 @@ interface QuoteData {
   billingCountry: string | null;
   taxNumber?: string | null;
 
+  // "Charge to another account" — when set, the bill-to block renders this
+  // third-party payer (the attendee's hospital / a pharma grant) INSTEAD of
+  // the registrant/billing* block, and an "Attendee" reference line is added
+  // so the payer's AP knows which doctor the invoice is for. Orthogonal to
+  // payment status.
+  payer?: {
+    name: string;
+    contactName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zipCode?: string | null;
+    country?: string | null;
+    taxNumber?: string | null;
+    reference?: string | null;
+  } | null;
+
   // Line item
   registrationType: string;
   pricingTier: string | null;
@@ -129,26 +148,59 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       // Bill-to person: prefer explicit billing first/last name over the
       // registrant's personal name (when "billing same as personal" is
       // unchecked, these diverge). Falls back to personal name otherwise.
-      const billFirst = data.billingFirstName || data.firstName;
-      const billLast = data.billingLastName || data.lastName;
-      const namePart = [data.title, billFirst].filter(Boolean).join(" ");
-      const nameLine = namePart ? `${billLast}, ${namePart}` : billLast;
-
-      const secondLine = data.jobTitle || data.organization;
-      const addressLine = data.billingAddress || null;
-      const locationLine = [
-        data.billingCity,
-        [data.billingState, data.billingZipCode].filter(Boolean).join(" "),
-        data.billingCountry,
-      ].filter(Boolean).join(", ") || null;
+      let nameLine: string;
+      let secondLine: string | null;
+      let addressLine: string | null;
+      let locationLine: string | null;
 
       const meta = [
         { label: "Date", value: formatDateShort(data.date) },
         { label: "Quote Reference", value: data.quoteNumber },
       ];
-      if (data.taxNumber) meta.push({ label: "Tax Number", value: data.taxNumber });
-      if (data.billingEmail) meta.push({ label: "Billing Email", value: data.billingEmail });
-      if (data.billingPhone) meta.push({ label: "Billing Phone", value: data.billingPhone });
+
+      if (data.payer) {
+        // Third-party billing: bill-to = the payer. The attendee moves to a
+        // reference line so AP knows which registration this covers.
+        nameLine = data.payer.name;
+        secondLine = data.payer.contactName || null;
+        addressLine = data.payer.address || null;
+        locationLine = [
+          data.payer.city,
+          [data.payer.state, data.payer.zipCode].filter(Boolean).join(" "),
+          data.payer.country,
+        ].filter(Boolean).join(", ") || null;
+
+        const attendeeName = [data.title, data.firstName, data.lastName]
+          .filter(Boolean)
+          .join(" ");
+        meta.push({ label: "Attendee", value: attendeeName });
+        if (data.payer.reference)
+          meta.push({ label: "PO / Reference", value: data.payer.reference });
+        if (data.payer.taxNumber)
+          meta.push({ label: "Tax Number", value: data.payer.taxNumber });
+        if (data.payer.email)
+          meta.push({ label: "Billing Email", value: data.payer.email });
+        if (data.payer.phone)
+          meta.push({ label: "Billing Phone", value: data.payer.phone });
+      } else {
+        // Self-pay (unchanged): prefer explicit billing name over personal.
+        const billFirst = data.billingFirstName || data.firstName;
+        const billLast = data.billingLastName || data.lastName;
+        const namePart = [data.title, billFirst].filter(Boolean).join(" ");
+        nameLine = namePart ? `${billLast}, ${namePart}` : billLast;
+
+        secondLine = data.jobTitle || data.organization;
+        addressLine = data.billingAddress || null;
+        locationLine = [
+          data.billingCity,
+          [data.billingState, data.billingZipCode].filter(Boolean).join(" "),
+          data.billingCountry,
+        ].filter(Boolean).join(", ") || null;
+
+        if (data.taxNumber) meta.push({ label: "Tax Number", value: data.taxNumber });
+        if (data.billingEmail) meta.push({ label: "Billing Email", value: data.billingEmail });
+        if (data.billingPhone) meta.push({ label: "Billing Phone", value: data.billingPhone });
+      }
 
       y = ensureSpace(doc, y, 80);
       y = drawInfoBoxes(doc, y, {
@@ -238,6 +290,21 @@ export interface RegistrationForQuotePDF {
   billingZipCode: string | null;
   billingCountry: string | null;
   taxNumber: string | null;
+  // "Charge to another account" — when present, the bill-to becomes this
+  // payer and the attendee drops to a reference line. null = self-pay.
+  payerReference: string | null;
+  billingAccount: {
+    name: string;
+    contactName: string | null;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+    country: string | null;
+    taxNumber: string | null;
+  } | null;
   attendee: {
     firstName: string;
     lastName: string;
@@ -348,6 +415,21 @@ export async function buildQuotePDFFromRegistration(
     billingZipCode: registration.billingZipCode,
     billingCountry: registration.billingCountry || registration.attendee.country,
     taxNumber: registration.taxNumber,
+    payer: registration.billingAccount
+      ? {
+          name: registration.billingAccount.name,
+          contactName: registration.billingAccount.contactName,
+          email: registration.billingAccount.email,
+          phone: registration.billingAccount.phone,
+          address: registration.billingAccount.address,
+          city: registration.billingAccount.city,
+          state: registration.billingAccount.state,
+          zipCode: registration.billingAccount.zipCode,
+          country: registration.billingAccount.country,
+          taxNumber: registration.billingAccount.taxNumber,
+          reference: registration.payerReference,
+        }
+      : null,
     registrationType: registration.ticketType?.name ?? "General",
     pricingTier: registration.pricingTier?.name || null,
     price,

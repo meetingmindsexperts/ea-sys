@@ -21,6 +21,15 @@ const registrationInclude = {
   ticketType: { select: { name: true, price: true, currency: true } },
   pricingTier: { select: { name: true, price: true, currency: true } },
   promoCode: { select: { code: true } },
+  // "Charge to another account" — when set, the invoice is addressed to
+  // this payer instead of the attendee.
+  billingAccount: {
+    select: {
+      name: true, contactName: true, email: true, phone: true,
+      address: true, city: true, state: true, zipCode: true,
+      country: true, taxNumber: true,
+    },
+  },
   event: {
     select: {
       name: true, code: true, startDate: true, venue: true, city: true,
@@ -482,6 +491,21 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     billingZipCode: reg.billingZipCode,
     billingCountry: reg.billingCountry,
     taxNumber: reg.taxNumber,
+    payer: reg.billingAccount
+      ? {
+          name: reg.billingAccount.name,
+          contactName: reg.billingAccount.contactName,
+          email: reg.billingAccount.email,
+          phone: reg.billingAccount.phone,
+          address: reg.billingAccount.address,
+          city: reg.billingAccount.city,
+          state: reg.billingAccount.state,
+          zipCode: reg.billingAccount.zipCode,
+          country: reg.billingAccount.country,
+          taxNumber: reg.billingAccount.taxNumber,
+          reference: reg.payerReference,
+        }
+      : null,
     eventName: reg.event.name,
     eventDate: reg.event.startDate,
     eventVenue: reg.event.venue,

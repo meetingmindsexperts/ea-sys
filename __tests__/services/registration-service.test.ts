@@ -22,6 +22,7 @@ const {
       event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn(), updateMany: vi.fn() },
       pricingTier: { findFirst: vi.fn() },
+      billingAccount: { findFirst: vi.fn() },
       registration: { findFirst: vi.fn(), create: vi.fn() },
       attendee: { create: vi.fn() },
       auditLog: { create: vi.fn() },
@@ -591,6 +592,59 @@ describe("createRegistration — domain errors", () => {
         data: expect.objectContaining({ pricingTierId: "pt-early" }),
       }),
     );
+  });
+
+  // ── "Charge to another account" (third-party payer) ──────────────────────
+  it("BILLING_ACCOUNT_NOT_FOUND when billingAccountId isn't in the org", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue(null);
+    const result = await createRegistration({ ...BASE_INPUT, billingAccountId: "ba-x" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BILLING_ACCOUNT_NOT_FOUND");
+  });
+
+  it("BILLING_ACCOUNT_INACTIVE when the payer is soft-deleted", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue({ id: "ba-1", isActive: false });
+    const result = await createRegistration({ ...BASE_INPUT, billingAccountId: "ba-1" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("BILLING_ACCOUNT_INACTIVE");
+  });
+
+  it("happy path: active payer + reference + guarantor persist; paymentStatus untouched (orthogonal)", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue({ id: "ba-1", isActive: true });
+    mockDb.registration.create.mockResolvedValueOnce({
+      ...CREATED_REGISTRATION_PAID,
+      billingAccountId: "ba-1",
+    });
+
+    const result = await createRegistration({
+      ...BASE_INPUT,
+      billingAccountId: "ba-1",
+      payerReference: "  PO-12345 ",
+      attendeeIsGuarantor: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mockDb.registration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          billingAccountId: "ba-1",
+          payerReference: "PO-12345", // trimmed
+          attendeeIsGuarantor: true,
+          // Orthogonal: a paid ticket with a third-party payer still
+          // defaults to UNASSIGNED (money owed), NOT a comp/inclusive flip.
+          paymentStatus: "UNASSIGNED",
+        }),
+      }),
+    );
+  });
+
+  it("self-pay default: no billingAccount lookup, fields null/false", async () => {
+    await createRegistration(BASE_INPUT);
+    expect(mockDb.billingAccount.findFirst).not.toHaveBeenCalled();
+    const regCreate = mockDb.registration.create.mock.calls[0][0];
+    expect(regCreate.data.billingAccountId).toBeNull();
+    expect(regCreate.data.payerReference).toBeNull();
+    expect(regCreate.data.attendeeIsGuarantor).toBe(false);
   });
 
   it("ALREADY_REGISTERED when non-cancelled registration exists for this email", async () => {

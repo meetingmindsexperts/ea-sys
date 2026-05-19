@@ -28,6 +28,8 @@ const HTTP_STATUS_FOR_REGISTRATION_ERROR: Record<CreateRegistrationErrorCode, nu
   INVALID_PAYMENT_STATUS: 400,
   INCLUSIVE_REQUIRES_SPONSOR: 400,
   SPONSOR_NOT_FOUND: 400,
+  BILLING_ACCOUNT_NOT_FOUND: 404,
+  BILLING_ACCOUNT_INACTIVE: 400,
   UNKNOWN: 500,
 };
 
@@ -58,6 +60,13 @@ const createRegistrationSchema = z.object({
   // optional otherwise. The service validates the id resolves against
   // Event.settings.sponsors[].
   sponsorId: z.string().min(1).max(100).optional(),
+  // "Charge to another account" — id of a reusable org BillingAccount.
+  // Service validates it belongs to the event's org + is active
+  // (BILLING_ACCOUNT_NOT_FOUND / BILLING_ACCOUNT_INACTIVE). Orthogonal to
+  // paymentStatus — only redirects the invoice bill-to party.
+  billingAccountId: z.string().min(1).max(100).optional(),
+  payerReference: z.string().max(120).optional(),
+  attendeeIsGuarantor: z.boolean().optional(),
   attendee: z.object({
     title: titleEnum.optional(),
     // Demographic / professional classification — the public form collects
@@ -269,7 +278,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId } = validated.data;
+    const { ticketTypeId, pricingTierId, attendee, notes, paymentStatus: requestedPaymentStatus, sponsorId, billingAccountId, payerReference, attendeeIsGuarantor } = validated.data;
 
     const result = await createRegistration({
       eventId,
@@ -281,6 +290,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       notes,
       paymentStatus: requestedPaymentStatus,
       sponsorId,
+      billingAccountId,
+      payerReference,
+      attendeeIsGuarantor,
       source: "rest",
       requestIp: getClientIp(req),
       actorFirstName: session.user.firstName ?? null,

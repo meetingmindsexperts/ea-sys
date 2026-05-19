@@ -190,6 +190,27 @@ export interface CreateRegistrationInput {
    */
   sponsorId?: string | null;
 
+  /**
+   * "Charge to another account" — id of a reusable org `BillingAccount`
+   * (the attendee's hospital, or a pharma/grant covering this HCP). When
+   * set, the invoice is addressed to that payer instead of the attendee.
+   * ORTHOGONAL to paymentStatus: money is still owed and the registration
+   * stays UNPAID/PENDING until the payer settles. Validated to belong to
+   * the event's org and be active (`BILLING_ACCOUNT_NOT_FOUND` /
+   * `BILLING_ACCOUNT_INACTIVE`). null/omitted = self-pay (unchanged).
+   */
+  billingAccountId?: string | null;
+
+  /** Optional PO / grant / authorization reference printed on the invoice. */
+  payerReference?: string | null;
+
+  /**
+   * Per-registration fallback: when true the attendee remains a guarantor
+   * for an unpaid third-party invoice (keeps their Pay-Now path and lets
+   * finance revert the payer). Defaults false.
+   */
+  attendeeIsGuarantor?: boolean;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
 
@@ -215,6 +236,8 @@ export type CreateRegistrationErrorCode =
   | "INVALID_PAYMENT_STATUS"
   | "INCLUSIVE_REQUIRES_SPONSOR"
   | "SPONSOR_NOT_FOUND"
+  | "BILLING_ACCOUNT_NOT_FOUND"
+  | "BILLING_ACCOUNT_INACTIVE"
   | "UNKNOWN";
 
 type RegistrationWithRelations = Prisma.RegistrationGetPayload<{
@@ -249,6 +272,10 @@ export async function createRegistration(
     requestIp,
     actorFirstName,
   } = input;
+
+  const billingAccountIdInput = input.billingAccountId ?? null;
+  const payerReference = input.payerReference?.trim() || null;
+  const attendeeIsGuarantor = input.attendeeIsGuarantor ?? false;
 
   // Normalize attendee inputs. Empty-string-to-null so direct-to-service
   // callers match REST + MCP behavior without having to pre-clean.
@@ -471,6 +498,33 @@ export async function createRegistration(
     }
   }
 
+  // "Charge to another account" — the payer must be a BillingAccount in
+  // the same org as the event and must be active. Org-scoped lookup (never
+  // trust the id alone — IDOR). Distinct from sponsorId/INCLUSIVE: this
+  // does NOT change paymentStatus, only the invoice bill-to party.
+  let billingAccountId: string | null = null;
+  if (billingAccountIdInput) {
+    const ba = await db.billingAccount.findFirst({
+      where: { id: billingAccountIdInput, organizationId },
+      select: { id: true, isActive: true },
+    });
+    if (!ba) {
+      return {
+        ok: false,
+        code: "BILLING_ACCOUNT_NOT_FOUND",
+        message: `Billing account ${billingAccountIdInput} not found in this organization.`,
+      };
+    }
+    if (!ba.isActive) {
+      return {
+        ok: false,
+        code: "BILLING_ACCOUNT_INACTIVE",
+        message: `Billing account ${billingAccountIdInput} is inactive. Reactivate it or pick another payer.`,
+      };
+    }
+    billingAccountId = ba.id;
+  }
+
   // Respect requiresApproval — if the ticket type needs approval, the
   // registration starts PENDING regardless of caller input.
   const rawStatus: ManualRegistrationStatus =
@@ -556,6 +610,9 @@ export async function createRegistration(
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
           sponsorId,
+          billingAccountId,
+          payerReference,
+          attendeeIsGuarantor,
           qrCode,
           notes: notes || null,
         },

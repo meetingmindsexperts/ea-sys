@@ -52,6 +52,22 @@ export interface InvoicePDFData {
   billingCountry: string | null;
   taxNumber: string | null;
 
+  // "Charge to another account" — when set, bill-to renders this payer and
+  // the attendee drops to a reference line. null = self-pay (unchanged).
+  payer?: {
+    name: string;
+    contactName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zipCode?: string | null;
+    country?: string | null;
+    taxNumber?: string | null;
+    reference?: string | null;
+  } | null;
+
   // Event
   eventName: string;
   eventDate: Date;
@@ -136,20 +152,9 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       });
 
       // ── 2. Bill-to + meta boxes (4 meta rows for invoice) ──
-      const namePart = [data.title, data.firstName].filter(Boolean).join(" ");
-      const nameLine = namePart ? `${data.lastName}, ${namePart}` : data.lastName;
-
-      // Build a multi-line location: address + city/state/zip + country
-      const cityLine = [data.billingCity, data.billingState, data.billingZipCode]
-        .filter(Boolean)
-        .join(", ");
-      const locationLine =
-        [cityLine, data.billingCountry].filter(Boolean).join(" ") || null;
-
-      // Tax No (registrant TRN) lives inside the right-hand info box rather
-      // than as a free-floating line below — guarantees it can never overlap
-      // the box border and means it shows up next to the other registrant
-      // metadata where the eye expects it.
+      let nameLine: string;
+      let secondLine: string | null;
+      let locationLine: string | null;
       const meta = [
         { label: "Invoice Number", value: data.invoiceNumber },
         { label: "Issue Date", value: formatDateShort(data.issueDate) },
@@ -158,14 +163,43 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
           value: data.dueDate ? formatDateShort(data.dueDate) : "Upon receipt",
         },
         { label: "Status", value: data.status },
-        ...(data.taxNumber ? [{ label: "Tax No", value: data.taxNumber }] : []),
       ];
+
+      if (data.payer) {
+        // Third-party billing: bill-to = payer; attendee → reference line.
+        nameLine = data.payer.name;
+        secondLine = data.payer.contactName || null;
+        const cityLine = [data.payer.city, data.payer.state, data.payer.zipCode]
+          .filter(Boolean)
+          .join(", ");
+        locationLine =
+          [data.payer.address, cityLine, data.payer.country].filter(Boolean).join(" ") || null;
+        const attendeeName = [data.title, data.firstName, data.lastName]
+          .filter(Boolean)
+          .join(" ");
+        meta.push({ label: "Attendee", value: attendeeName });
+        if (data.payer.reference)
+          meta.push({ label: "PO / Reference", value: data.payer.reference });
+        if (data.payer.taxNumber)
+          meta.push({ label: "Tax No", value: data.payer.taxNumber });
+      } else {
+        const namePart = [data.title, data.firstName].filter(Boolean).join(" ");
+        nameLine = namePart ? `${data.lastName}, ${namePart}` : data.lastName;
+        secondLine = data.jobTitle || data.organization;
+        const cityLine = [data.billingCity, data.billingState, data.billingZipCode]
+          .filter(Boolean)
+          .join(", ");
+        locationLine =
+          [cityLine, data.billingCountry].filter(Boolean).join(" ") || null;
+        // Tax No (registrant TRN) lives inside the right-hand info box.
+        if (data.taxNumber) meta.push({ label: "Tax No", value: data.taxNumber });
+      }
 
       y = ensureSpace(doc, y, 90);
       y = drawInfoBoxes(doc, y, {
         billTo: {
           nameLine,
-          secondLine: data.jobTitle || data.organization,
+          secondLine,
           locationLine,
         },
         meta,

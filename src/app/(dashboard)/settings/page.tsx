@@ -68,6 +68,7 @@ import {
   queryKeys,
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
+import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -917,8 +918,9 @@ export default function SettingsPage() {
 
         {/* Billing & Invoicing */}
         {isAdmin && (
-          <TabsContent value="billing">
+          <TabsContent value="billing" className="space-y-6">
             <BillingSettingsCard />
+            <BillingAccountsCard />
           </TabsContent>
         )}
 

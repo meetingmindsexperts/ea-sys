@@ -81,6 +81,15 @@ const FINANCIAL_KEYS = new Set<string>([
   "billingPhone",
   "billingFirstName",
   "billingLastName",
+  // "Charge to another account" — the third-party payer (with its
+  // taxNumber + address), the PO/grant reference, and the guarantor flag
+  // are billing/finance context. A MEMBER inferring "Dr. X is funded by
+  // pharma Y" is exactly the Mecomed-sensitive disclosure MEMBER must not
+  // see.
+  "billingAccount",
+  "billingAccountId",
+  "payerReference",
+  "attendeeIsGuarantor",
 ]);
 
 /**
