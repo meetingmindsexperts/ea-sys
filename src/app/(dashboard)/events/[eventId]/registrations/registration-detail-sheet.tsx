@@ -176,10 +176,27 @@ export function RegistrationDetailSheet({
   // unit-tested in isolation.
   const [editData, setEditData] = useState(EMPTY_REGISTRATION_EDIT_DATA);
 
-  // Keep local state in sync with prop
-  if (registration !== selectedRegistration && registration !== null) {
-    setSelectedRegistration(registration);
-    setIsEditing(false);
+  // Sync local state when the parent passes a different registration.
+  // React 19's "Storing information from previous renders" pattern: the
+  // guard compares the incoming prop to a previous-PROP snapshot kept
+  // in state (not to derived state), so we only sync when the prop
+  // actually changes. The prior `registration !== selectedRegistration`
+  // guard had two problems: (1) it tripped React 19's StrictMode
+  // setState-during-render warning because the comparison wasn't
+  // against a prev-state snapshot, and (2) after a mutation's
+  // onSuccess updated selectedRegistration to the fresh server row,
+  // selectedRegistration diverged from the stale prop and this branch
+  // would silently revert the just-saved data on the next render.
+  //
+  // The `!== null` guard is kept so closing the sheet (parent passes
+  // null) doesn't blank the visible content mid-close animation.
+  const [prevRegistration, setPrevRegistration] = useState<Registration | null>(registration);
+  if (registration !== prevRegistration) {
+    setPrevRegistration(registration);
+    if (registration !== null) {
+      setSelectedRegistration(registration);
+      setIsEditing(false);
+    }
   }
 
   const updateRegistration = useMutation({
