@@ -256,6 +256,73 @@ export function RegistrationDetailSheet({
     }
   };
 
+  // Open the email-confirmation dialog with a specific email type.
+  // Four dropdown items used to inline this 2-line state-set pair;
+  // collapsing it here also gives the call sites a single name.
+  const openEmailDialog = (type: string) => {
+    setSelectedEmailType(type);
+    setEmailConfirmOpen(true);
+  };
+
+  // Submit handler for the email-confirmation dialog. Pulled out so the
+  // Send button's onClick is a one-liner.
+  const handleConfirmSendEmail = () => {
+    if (selectedRegistration) {
+      sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
+      setEmailConfirmOpen(false);
+    }
+  };
+
+  // Destructive-action confirmations. Kept simple `window.confirm`
+  // (the codebase's house style for one-shot destructive actions);
+  // the handler form just lets us name the intent at the call site.
+  const handleDeleteClick = () => {
+    if (!selectedRegistration) return;
+    if (confirm("Are you sure you want to delete this registration?")) {
+      deleteRegistration.mutate(selectedRegistration.id);
+    }
+  };
+
+  const handleRefundClick = () => {
+    if (!selectedRegistration) return;
+    if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
+      issueRefund.mutate(selectedRegistration.id);
+    }
+  };
+
+  // Badge print fetches a binary PDF, opens it in a new tab, and triggers
+  // print there. Uses raw fetch because the response is a PDF blob — the
+  // apiFetch helper expects JSON. Stays inline-style here so the URL
+  // revocation timer + window.open lifecycle is obvious in one place.
+  const handlePrintBadge = async () => {
+    if (!selectedRegistration) return;
+    setPrintingBadge(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrationIds: [selectedRegistration.id] }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Badge generation failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url);
+      if (printWindow) {
+        printWindow.addEventListener("load", () => printWindow.print());
+      }
+      // Allow time for the print dialog to read the blob before we revoke.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error("Badge generation failed");
+    } finally {
+      setPrintingBadge(false);
+    }
+  };
+
   const sendEmail = useMutation({
     mutationFn: ({ id, type }: { id: string; type: string }) =>
       apiPostJson(`/api/events/${eventId}/registrations/${id}/email`, { type }),
@@ -402,11 +469,7 @@ export function RegistrationDetailSheet({
                         size="sm"
                         variant="secondary"
                         className="text-red-600 hover:text-red-700"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to delete this registration?")) {
-                            deleteRegistration.mutate(selectedRegistration.id);
-                          }
-                        }}
+                        onClick={handleDeleteClick}
                         disabled={deleteRegistration.isPending}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
@@ -1637,35 +1700,7 @@ export function RegistrationDetailSheet({
                     variant="outline"
                     size="sm"
                     disabled={printingBadge}
-                    onClick={async () => {
-                      setPrintingBadge(true);
-                      try {
-                        const res = await fetch(`/api/events/${eventId}/registrations/badges`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ registrationIds: [selectedRegistration.id] }),
-                        });
-                        if (!res.ok) {
-                          const data = await res.json();
-                          toast.error(data.error || "Badge generation failed");
-                          return;
-                        }
-                        const blob = await res.blob();
-                        const url = URL.createObjectURL(blob);
-                        const printWindow = window.open(url);
-                        if (printWindow) {
-                          printWindow.addEventListener("load", () => {
-                            printWindow.print();
-                          });
-                        }
-                        // Clean up after a delay to allow print dialog
-                        setTimeout(() => URL.revokeObjectURL(url), 60000);
-                      } catch {
-                        toast.error("Badge generation failed");
-                      } finally {
-                        setPrintingBadge(false);
-                      }
-                    }}
+                    onClick={handlePrintBadge}
                   >
                     {printingBadge ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IdCard className="mr-2 h-4 w-4" />}
                     Print Badge
@@ -1684,16 +1719,16 @@ export function RegistrationDetailSheet({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => { setSelectedEmailType("confirmation"); setEmailConfirmOpen(true); }}>
+                      <DropdownMenuItem onClick={() => openEmailDialog("confirmation")}>
                         Registration Confirmation
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setSelectedEmailType("reminder"); setEmailConfirmOpen(true); }}>
+                      <DropdownMenuItem onClick={() => openEmailDialog("reminder")}>
                         Event Reminder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setSelectedEmailType("payment-reminder"); setEmailConfirmOpen(true); }}>
+                      <DropdownMenuItem onClick={() => openEmailDialog("payment-reminder")}>
                         Payment Reminder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setSelectedEmailType("custom"); setEmailConfirmOpen(true); }}>
+                      <DropdownMenuItem onClick={() => openEmailDialog("custom")}>
                         Custom Notification
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1821,11 +1856,7 @@ export function RegistrationDetailSheet({
                           size="sm"
                           className="text-red-600 hover:bg-red-50 hover:text-red-700"
                           disabled={issueRefund.isPending}
-                          onClick={() => {
-                            if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
-                              issueRefund.mutate(selectedRegistration.id);
-                            }
-                          }}
+                          onClick={handleRefundClick}
                         >
                           {issueRefund.isPending ? (
                             <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
@@ -1988,12 +2019,7 @@ export function RegistrationDetailSheet({
             Preview
           </Button>
           <Button
-            onClick={() => {
-              if (selectedRegistration) {
-                sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
-                setEmailConfirmOpen(false);
-              }
-            }}
+            onClick={handleConfirmSendEmail}
             disabled={sendEmail.isPending}
           >
             <Send className="mr-2 h-4 w-4" />
