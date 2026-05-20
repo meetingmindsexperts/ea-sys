@@ -55,7 +55,7 @@ This document covers the current architecture, its strengths, known gaps, and fu
 | **Presentation** | React Server/Client Components, TailwindCSS, Shadcn/ui | Renders UI; server components for static content, client components for interactivity |
 | **Client State** | React Query (TanStack Query) | Caches API responses, handles mutations, provides optimistic updates |
 | **API** | Next.js Route Handlers (`route.ts`) | REST endpoints — auth, validation (Zod), HTTP response shaping. Business logic lives in `src/services/` for extracted domains, inline in the handler for everything else (migrating progressively; see "Services Layer" below) |
-| **Services** | `src/services/*-service.ts` | Domain logic shared by REST routes, MCP agent tools, and cron workers. Pure functions returning errors-as-values; no HTTP awareness. Currently populated for accommodation; registration/speaker/abstract scheduled for Phase 2 |
+| **Services** | `src/services/*-service.ts` | Domain logic shared by REST routes, MCP agent tools, and cron workers. Pure functions returning errors-as-values; no HTTP awareness. Four services currently extracted: accommodation, abstract (`changeAbstractStatus`), speaker (`createSpeaker`), registration (`createRegistration`), billing-account (`createBillingAccount` / `updateBillingAccount`). See `src/services/README.md` for the convention. |
 | **Auth** | NextAuth.js v5 (JWT strategy) | Session management, 7-role RBAC, 3-layer enforcement (API guards, middleware, UI) |
 | **Data Access** | Prisma ORM | Direct queries in services + route handlers + server components — no repository abstraction |
 | **Validation** | Zod | Request validation in route handlers; shared schemas (e.g., `titleEnum`) in `src/lib/schemas.ts` |
@@ -152,11 +152,18 @@ The 3-layer RBAC (API + middleware + UI) with org-independent reviewers/submitte
 ### 1. Tests — Resolved
 **Status: Done**
 
-17 Vitest test files covering: auth guards (`denyReviewer`), event access (`buildEventAccessWhere`), RBAC enforcement, registration flow, abstract lifecycle, speaker flow, reviewer access, submitter registration, CSV parsing, API key validation, security/rate limiting, Zod schema validation, sanitization, and EventsAir credential encryption.
+**Unit (Vitest, 60+ files, 1237+ tests).** Auth guards (`denyReviewer`, `denyFinance`), event access scoping, RBAC enforcement across 7 roles, registration / abstract / speaker / accommodation service contracts (every error code pinned), CSV parsing, API key + OAuth validation, security / rate limiting, Zod schemas, EventsAir credential encryption, finance-visibility redaction (MEMBER boundary), payer-triplet atomicity in the registration edit mapper, `ApiError` status+code preservation, junction-table attach/detach RBAC + IDOR. Run: `npm run test` / `npm run test:coverage`.
 
-Run: `npm run test` / `npm run test:coverage`
-
-**Remaining gap:** No E2E tests (Playwright/Cypress). Unit tests mock Prisma — no integration tests against a real database.
+**E2E (Playwright, 62-spec suite — added April 28, 2026).** Specs:
+`manual-registration`, `concurrent-write` (optimistic-lock STALE_WRITE
+on Registration + Speaker), `admin-smoke`, `bulk-email-payment-filter`,
+`abstract-submitter`, `public-registration`, `rbac-redirects`, plus the
+12-chapter `screenshots/*.spec.ts` set that drives `npm run docs:screenshots`
+into [docs/screenshots/](screenshots/). The suite runs serial against a
+seeded test DB (`prisma/seed-e2e-core.ts` shared between regression and
+docs paths). Run: `PORT=3113 npm run test:e2e` (port override is required
+because `npm run dev` binds 3113 while `playwright.config.ts` defaults
+baseURL to 3000).
 
 ### 2. Services Layer — Opportunistic Refactor (Phase 2 complete)
 **Status: Phase 0 + 1 + 2a + 2b + 2c shipped. Phase 3 pending external API spec.**
@@ -196,20 +203,122 @@ In-memory rate limiting (`src/lib/security.ts`) is applied to: `/api/public/even
 
 ## Recommendations (Prioritized)
 
-### Priority 1: E2E Tests (Playwright)
-Unit tests exist but only mock Prisma. Adding Playwright E2E tests for the three critical user flows would give the most confidence:
-- Public registration → payment → confirmation
-- Abstract submission → review → status notification
-- Admin: CSV import → send completion emails → registrant completes form
+### Priority 1: Redis for Persistent Rate Limiting
+In-memory rate limiting (`src/lib/security.ts`) resets on serverless cold starts. For Vercel production, add Upstash Redis for cross-instance rate limit state. The `checkRateLimit` interface is store-agnostic — only the backing store changes.
 
-### Priority 2: Redis for Persistent Rate Limiting
-In-memory rate limiting resets on serverless cold starts. For Vercel production, add Upstash Redis for cross-instance rate limit state.
+### Priority 2: Error Monitoring Coverage
+Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs. The "every failure path must log" rule (per CLAUDE.md) handles the Pino side; Sentry needs the same coverage for production triage.
 
-### Priority 3: Error Monitoring Coverage
-Sentry is connected. Ensure all API route `catch` blocks send errors to Sentry, not just to Pino logs.
+### Priority 3: Services Layer — Driven by External API
+Phases 0 / 1 / 2a / 2b / 2c / billing-account shipped five services. Phase 3 expands the pattern when the external public REST API spec lands — each new endpoint backs onto an existing or new service. Until then, the opportunistic policy applies — extract only when touching a route for a feature reason.
 
-### Priority 4: Services Layer — Driven by External API
-Phases 0 / 1 / 2a / 2b / 2c shipped four services (accommodation, abstract, speaker, registration). Phase 3 expands the pattern when the external public REST API spec lands — each new endpoint backs onto an existing or new service. Until then, the opportunistic policy applies — extract only when touching a route for a feature reason.
+### Priority 4: Resilience helper (`src/lib/resilience.ts`)
+Stripe / Zoom / Anthropic SDK calls lean on default timeouts, no bounded retry, no circuit breaker. Per the May 2026 audit + design discussion: ship `withTimeout` + `withRetry` (jittered backoff, opt-in, idempotent-writes only) + `CircuitBreaker` as a shared helper, then wrap call sites in Phase 2. Full design in `docs/ROADMAP.md`.
+
+---
+
+## Architectural Patterns (formalized)
+
+A small set of cross-cutting patterns recur across the codebase. They're
+documented here so future contributors recognize them and stay
+consistent.
+
+### Client-side primitives
+
+- **`ApiError` + method helpers** ([src/lib/api-fetch.ts](../src/lib/api-fetch.ts)).
+  `apiFetch<T>(url, init)` throws a typed `ApiError` carrying
+  `status`, `code`, and the raw error `data`. Mutations that need to
+  branch on the server error (STALE_WRITE refetch, BILLING_ACCOUNT_INACTIVE,
+  CAPACITY_EXCEEDED, …) use `error instanceof ApiError` in `onError`
+  instead of string-matching messages or hand-attaching `code`/`status`
+  to a plain `Error`. Convenience wrappers: `apiPostJson`, `apiPutJson`,
+  `apiDelete`. `apiPostJson` omits Content-Type when body is undefined
+  so empty-body action routes (`/check-in`, `/refund`) don't send a
+  meaningless header.
+
+  The older `fetchApi` in `src/hooks/use-api.ts` (throws plain
+  `Error(message)`) stays in place for read queries that don't need
+  the `code`/`status`.
+
+- **Pure mapping helpers for edit forms**
+  ([src/app/(dashboard)/events/[eventId]/registrations/registration-edit-mapping.ts](../src/app/%28dashboard%29/events/%5BeventId%5D/registrations/registration-edit-mapping.ts)).
+  The pattern: `toEditData(reg)` populates form state from a DB row;
+  `toServerPayload(editData, expectedUpdatedAt)` assembles the PUT
+  body. Both are pure functions in a separate module, unit-tested in
+  isolation. Replaces the "same field list inlined three times in the
+  component" anti-pattern (initial defaults / startEditing populate /
+  saveEdits assembly). Critically, the mapper is where the
+  null-vs-undefined-vs-trim normalization decisions live — encoded
+  once and pinned by unit tests so a future refactor can't silently
+  change the wire format.
+
+- **React 19 prop sync — "Storing information from previous renders".**
+  When a component holds local state derived from a prop and needs to
+  re-sync when the prop changes, compare the prop to a **previous-prop
+  snapshot in state** — NOT to the derived state. Both
+  `setPrevProp(prop)` and the derived-state updates fire in the same
+  render pass (React 19's supported setState-during-render shape).
+  Comparing against derived state is the banned anti-pattern that
+  trips StrictMode warnings AND can silently revert local state when
+  a mutation updates it. Example in
+  [registration-detail-sheet.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/registrations/registration-detail-sheet.tsx)
+  around the `prevRegistration` block.
+
+- **`useEffect + setState` for prop-derived state is banned**
+  (`react-hooks/set-state-in-effect`). Use the previous-render
+  pattern above, or a `key=` prop to force a remount.
+
+### Data model patterns
+
+- **Many-to-many via junction table with shared identity.**
+  When the same logical row needs to appear under multiple parents
+  without being duplicated — e.g. one `BillingAccount` ("Cleveland
+  Clinic") attached to many `Event`s — model it as an explicit
+  associative table (`EventBillingAccount` with
+  `@@unique([eventId, billingAccountId])`), not as a copy per parent.
+  FKs Cascade from both ends (deleting either entity unlinks but
+  doesn't delete the other). The picker UI filters by junction
+  membership (`?eventId=…` query param).
+
+- **Org-scoped reusable entity vs event-scoped per-event entity.**
+  `BillingAccount`, `Contact`, `MediaFile` are org-scoped (one
+  catalog org-wide, reused per event via junction or selector).
+  `EventSession`, `TicketType`, `Abstract` are event-scoped (created
+  fresh per event). Choosing the right side depends on whether the
+  entity has identity that crosses event boundaries.
+
+- **Soft-delete via `isActive` for entities that registrations
+  reference.** Hard-deleting a `BillingAccount` with linked
+  registrations would either fail (FK `Restrict`) or silently orphan
+  the registrations. The convention: soft-delete via `isActive=false`
+  + hide from pickers; FK is `Restrict` so hard-delete is impossible
+  by construction. The settings UI exposes a "Deactivate"
+  toggle, not a "Delete" button.
+
+- **Optimistic-lock token (`expectedUpdatedAt` / W2-F8).** Edit
+  forms read a row's `updatedAt` when opened, send it back as
+  `expectedUpdatedAt` on save; the route does an `updateMany` with
+  the timestamp in the where-clause, returns 409 `STALE_WRITE` if
+  zero rows match. Prevents lost-update on concurrent admin edits.
+  Pattern implemented for Registration + Speaker so far; future
+  edit-heavy entities should adopt it. Server-side rejection flows
+  through `ApiError(status=409, code="STALE_WRITE")` so the client
+  can branch on `instanceof ApiError` to refetch + re-prompt.
+
+- **Per-entity audit log writes are fire-and-forget.** Every service
+  that mutates writes to `AuditLog` via `db.auditLog.create(...).catch(...)`
+  outside the main transaction. Audit failure must never roll back
+  the domain write. Convention: `changes.source: "rest" | "mcp" | "api"`
+  identifies the caller; REST adds `ip`.
+
+- **Atomic counter via dedicated table** (`InvoiceCounter`,
+  `RegistrationSerialCounter`). For per-event monotonically-increasing
+  ids, `aggregate(_max) + 1` is race-prone under Read Committed even
+  inside a transaction. Use a counter row with `upsert` +
+  `{ increment: 1 }` — Postgres compiles this to
+  `INSERT ... ON CONFLICT DO UPDATE SET col = col + 1`, taking a row
+  lock that serializes concurrent callers. Backfill from
+  `MAX(existing)` on migration deploy so blue-green stays safe.
 
 ---
 

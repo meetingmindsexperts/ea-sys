@@ -284,6 +284,77 @@ This document outlines the current development status of the Event Administratio
 
 ---
 
+## Recent Updates (May 2026)
+
+### registration-detail-sheet.tsx staged refactor — A → E (May 20, 2026)
+
+Five careful commits (`8ad760b` → `64dc640`), each independently
+revertable, gated by tsc + lint + 1237 vitest + build + 62-spec
+Playwright suite (58/62 passing, 0 regressions; the 4 failures
+pre-date the refactor and are in the unrelated bulk-email flow).
+
+- **A** typed `useBillingAccounts` / `useBillingAccount` returns, dropped 3 `any[]` casts at picker call sites.
+- **B** extracted pure mappers `toEditData(reg)` / `toServerPayload(editData, expectedUpdatedAt)` into `src/app/(dashboard)/events/[eventId]/registrations/registration-edit-mapping.ts`. The same ~30-field shape used to live inline three times in the sheet. **14 unit tests** pin the null-vs-undefined-vs-trim contract, the studentIdExpiry ISO parse, the `attendeeIsGuarantor ?? false` legacy-null path, and a round-trip identity. Sheet **−99 lines**.
+- **C** introduced `src/lib/api-fetch.ts` — `ApiError` (Error subclass with `status` + `code` + raw `data`) + `apiFetch` / `apiPostJson` / `apiPutJson` / `apiDelete`. All 5 mutationFn bodies in the sheet collapse to one-liners; `updateRegistration.onError` uses `error instanceof ApiError` to branch on STALE_WRITE. **8 unit tests** pin the helper. Sheet **−38 lines**.
+- **D** fixed the prop-sync — replaced `if (registration !== selectedRegistration && registration !== null)` (compares prop to derived state — React 19 banned, latent prop-revert race) with the canonical "Storing information from previous renders" pattern (compares prop to a previous-prop snapshot in state).
+- **E** extracted 5 inline handlers (incl. a 30-line badge-print async block) to named functions.
+
+Sheet: 2,174 → ~2,063 lines (−110 net). +22 unit tests. F + G + H tracked in `docs/ROADMAP.md` with explicit trigger conditions.
+
+### Per-event payer scoping — EventBillingAccount junction (May 20, 2026)
+
+Many-to-many association via junction table with **shared identity**.
+v1 (May 19) made `BillingAccount` org-scoped and caused picker overflow.
+v2 introduces `EventBillingAccount(eventId, billingAccountId, addedAt, addedByUserId)`
+with `@@unique` + Cascade FKs from both ends. Pickers filter by junction
+membership via `?eventId=…`. Settings → Billing card gains an "Events"
+count column + an `EventsAttachmentDialog` (checkbox per org event).
+Defensive migration backfill from existing `Registration.billingAccountId`
+pairs (no-op for fresh installs; preserves picker access if v1 had data).
++10 attach/detach RBAC/IDOR/idempotency tests.
+
+### "Charge to another account" v1 — third-party payer / BillingAccount (May 19, 2026)
+
+Doctors funded by their hospital or a pharma grant covering specific
+HCPs. New org-scoped `BillingAccount` model + `Registration.billingAccountId`
+/ `payerReference` / `attendeeIsGuarantor`.
+
+**Orthogonal to `paymentStatus` by design** (the deliberate
+anti-INCLUSIVE decision): money is still owed and the registration
+stays UNPAID/PENDING — this only redirects the invoice bill-to party
+and suppresses the attendee Pay-Now path. Distinct from `INCLUSIVE`
+(bulk pre-paid sponsor) and the `Registration.billing*` block (same
+payer, different address).
+
+- **Service**: `src/services/billing-account-service.ts` (create / update / soft-delete via `isActive`, `@@unique([organizationId,name])` dedupe).
+- **Registration wiring**: `registration-service.createRegistration` + REST POST + REST PUT + MCP `create_registration` / `update_registration` accept the three fields with org-scoped + active validation (new codes `BILLING_ACCOUNT_NOT_FOUND` / `BILLING_ACCOUNT_INACTIVE`). Setting `billingAccountId: null` reverts to self-pay (the fallback path).
+- **Invoice / Quote PDF**: bill-to renders the payer (name / address / VAT) with the attendee dropped to a reference line + PO/grant ref.
+- **Finance boundary**: payer keys in `FINANCIAL_KEYS` (MEMBER never sees who funds a doctor — Mecomed-sensitive). `/api/billing-accounts` is `denyFinance` + `denyReviewer` gated.
+- **UI**: `BillingAccountsCard` in Settings → Billing (CRUD + soft-delete + needs-review badge); payer picker + PO + guarantor on the full-page Add Registration form; reassign/guarantor/revert + "Billed to" pill on the registration detail sheet's Billing tab.
+- Package 0.3.6 → 0.3.7. +13 tests pinning the orthogonality + service contracts + finance redaction.
+
+Deferred to v1.1 (`docs/ROADMAP.md`): public "who pays" step, quick-Add
+dialog picker, standalone MCP billing-account tools, list "Payer"
+column / CSV, AR aging, VAT reverse-charge, consolidated invoicing,
+quote-email recipient redirect.
+
+### Multi-agent audit remediation — 2 BLOCKERs + 4 HIGHs (May 18, 2026)
+
+Supervisor + 4 specialist review agents (React, Prisma, backend/RBAC,
+architecture) swept the codebase; six findings verified against source
+were remediated in one batch:
+
+- **B1** cross-tenant IDOR on event email templates (GET / PUT / DELETE / POST / PATCH all resolved by `{ id, eventId }` from the URL with zero `organizationId` binding).
+- **B2** `soldCount` never released on cancel via MCP `update_registration` / `bulk_update_registration_status` — silent sold-out inflation when "cancel all unpaid registrations" via agent / n8n.
+- **H3** registrations LIST returned full payments / card / bank to MEMBER (other registration GETs already redacted).
+- **H4** contacts write-guard bypass — inline `REVIEWER||SUBMITTER` check let MEMBER + REGISTRANT write/delete org contacts.
+- **H5** `PaymentStatus` enum drift — `ALL_PAYMENT_STATUSES` missing INCLUSIVE; now derived from `Object.values(PaymentStatus)` so it can't drift.
+- **H6** `getNextSerialId` race — `aggregate(_max) + 1` replaced with `RegistrationSerialCounter` atomic upsert (mirrors `InvoiceCounter`). Backfill seeds `lastSerial = MAX(existing)` per event for blue-green safety.
+
++20 tests, suite 1175 → 1195. Independent verification: SHIP.
+
+---
+
 ## Recent Updates (April 15–16, 2026)
 
 ### MCP Tool Expansion — Sprint A Complete (April 16, 2026)
