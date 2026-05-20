@@ -403,13 +403,67 @@ export function useContacts(filters?: Record<string, string>) {
 }
 
 // ── Billing accounts ("charge to another account" payers) ──────────────────
+
+/**
+ * Shape returned by `GET /api/billing-accounts` (list endpoint). Mirrors the
+ * Prisma `BillingAccount` columns + the `_count` aggregate the route includes.
+ * Surfaced so pickers (Add Registration form, detail-sheet reassign) can drop
+ * the `as { id; name; type }[]` casts and consume the hook directly.
+ */
+export interface BillingAccountRow {
+  id: string;
+  organizationId: string;
+  name: string;
+  type: "INSTITUTION" | "COMPANY" | "OTHER";
+  email: string | null;
+  phone: string | null;
+  contactName: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+  country: string | null;
+  taxNumber: string | null;
+  notes: string | null;
+  isActive: boolean;
+  needsReview: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { registrations: number; events?: number };
+}
+
+/**
+ * Shape returned by `GET /api/billing-accounts/[id]` (detail endpoint).
+ * Extends the row with the AR view + the per-event junction memberships
+ * (powers the Settings → Billing "Events" attach/detach dialog).
+ */
+export interface BillingAccountDetail extends BillingAccountRow {
+  registrations: Array<{
+    id: string;
+    status: string;
+    paymentStatus: string;
+    payerReference: string | null;
+    attendeeIsGuarantor: boolean;
+    createdAt: string;
+    attendee: { firstName: string; lastName: string; email: string };
+    event: { id: string; name: string };
+    ticketType: { name: string } | null;
+  }>;
+  registrationCount: number;
+  attachedEvents: Array<{
+    eventId: string;
+    addedAt: string;
+    event: { id: string; name: string; startDate: string; status: string };
+  }>;
+}
+
 // Pass `{ eventId }` to filter by per-event scoping (junction membership).
 // Omit `eventId` for the org-wide Settings view.
 export function useBillingAccounts(params?: Record<string, string>) {
   const queryString = buildQueryString(params);
   return useQuery({
     queryKey: params ? [...queryKeys.billingAccounts, params] : queryKeys.billingAccounts,
-    queryFn: () => fetchApi<any[]>(`/api/billing-accounts${queryString}`),
+    queryFn: () => fetchApi<BillingAccountRow[]>(`/api/billing-accounts${queryString}`),
   });
 }
 
@@ -443,7 +497,7 @@ export function useDetachBillingAccountFromEvent(eventId: string) {
 export function useBillingAccount(id: string) {
   return useQuery({
     queryKey: queryKeys.billingAccount(id),
-    queryFn: () => fetchApi<any>(`/api/billing-accounts/${id}`),
+    queryFn: () => fetchApi<BillingAccountDetail>(`/api/billing-accounts/${id}`),
     enabled: !!id,
   });
 }

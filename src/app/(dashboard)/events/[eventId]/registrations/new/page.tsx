@@ -331,13 +331,11 @@ export default function NewRegistrationPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
-                    {(billingAccounts as { id: string; name: string; type: string }[]).map(
-                      (ba) => (
-                        <SelectItem key={ba.id} value={ba.id}>
-                          {ba.name} ({ba.type})
-                        </SelectItem>
-                      ),
-                    )}
+                    {billingAccounts.map((ba) => (
+                      <SelectItem key={ba.id} value={ba.id}>
+                        {ba.name} ({ba.type})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

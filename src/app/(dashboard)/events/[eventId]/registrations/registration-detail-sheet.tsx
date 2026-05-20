@@ -1271,20 +1271,18 @@ export function RegistrationDetailSheet({
                           consciously keep or change it. */}
                       {selectedRegistration.billingAccountId &&
                         selectedRegistration.billingAccount &&
-                        !(billingAccounts as { id: string }[]).some(
+                        !billingAccounts.some(
                           (ba) => ba.id === selectedRegistration.billingAccountId,
                         ) && (
                           <SelectItem value={selectedRegistration.billingAccountId}>
                             {selectedRegistration.billingAccount.name} (no longer attached to this event)
                           </SelectItem>
                         )}
-                      {(billingAccounts as { id: string; name: string; type: string }[]).map(
-                        (ba) => (
-                          <SelectItem key={ba.id} value={ba.id}>
-                            {ba.name} ({ba.type})
-                          </SelectItem>
-                        ),
-                      )}
+                      {billingAccounts.map((ba) => (
+                        <SelectItem key={ba.id} value={ba.id}>
+                          {ba.name} ({ba.type})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   {selectedRegistration.billingAccountId && (
