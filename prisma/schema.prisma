@@ -75,6 +75,7 @@ model User {
   assignedAbstractReviewers AbstractReviewer[]         @relation("AssignedAbstractReviewers")
   abstractSubmissions       AbstractReviewSubmission[] @relation("UserAbstractSubmissions")
   triggeredEmailLogs        EmailLog[]
+  attachedBillingAccounts   EventBillingAccount[]
 
   @@index([organizationId])
   @@index([email])
@@ -219,6 +220,7 @@ model Event {
   invoices        Invoice[]
   invoiceCounters InvoiceCounter[]
   registrationSerialCounter RegistrationSerialCounter?
+  billingAccounts EventBillingAccount[]
   zoomMeetings    ZoomMeeting[]
   zoomAttendances ZoomAttendance[]
   promoCodes      PromoCode[]
@@ -1139,8 +1141,9 @@ model BillingAccount {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   registrations Registration[]
+  events        EventBillingAccount[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -1150,6 +1153,28 @@ enum BillingAccountType {
   INSTITUTION
   COMPANY
   OTHER
+}
+
+// Per-event availability of a BillingAccount. Junction (a.k.a. associative)
+// table giving a many-to-many between Event and BillingAccount with SHARED
+// IDENTITY — one logical "Cleveland Clinic" payer can be attached to many
+// events, but the BillingAccount row is never duplicated. The picker on
+// each event filters to the payers attached via this table, so events
+// don't see an overflow of every payer in the org.
+model EventBillingAccount {
+  id               String   @id @default(cuid())
+  eventId          String
+  billingAccountId String
+  addedAt          DateTime @default(now())
+  addedByUserId    String?
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+  addedBy        User?          @relation(fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, billingAccountId])
+  @@index([eventId])
+  @@index([billingAccountId])
 }
 
 enum InvoiceType {

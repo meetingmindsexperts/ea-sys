@@ -41,15 +41,36 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const includeInactive = searchParams.get("includeInactive") === "1";
     const needsReviewOnly = searchParams.get("needsReview") === "1";
+    const eventId = searchParams.get("eventId") || undefined;
 
+    // Per-event scoping: when `eventId` is supplied, return ONLY payers
+    // attached to that event via the EventBillingAccount junction. This is
+    // the filtered list the Add Registration form + detail-sheet pickers
+    // consume so each event sees only its own curated set, not every
+    // active payer in the org. Without `eventId` (Settings → Billing
+    // card), the full org list is returned. The event itself is still
+    // org-scoped via the junction filter — a foreign eventId returns []
+    // rather than leaking another org's attachments.
     const accounts = await db.billingAccount.findMany({
       where: {
         organizationId: session.user.organizationId!,
         ...(includeInactive ? {} : { isActive: true }),
         ...(needsReviewOnly ? { needsReview: true } : {}),
+        ...(eventId
+          ? {
+              events: {
+                some: {
+                  eventId,
+                  event: { organizationId: session.user.organizationId! },
+                },
+              },
+            }
+          : {}),
       },
       orderBy: [{ needsReview: "desc" }, { name: "asc" }],
-      include: { _count: { select: { registrations: true } } },
+      include: {
+        _count: { select: { registrations: true, events: true } },
+      },
     });
 
     return NextResponse.json(accounts);

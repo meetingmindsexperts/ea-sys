@@ -403,11 +403,40 @@ export function useContacts(filters?: Record<string, string>) {
 }
 
 // ── Billing accounts ("charge to another account" payers) ──────────────────
+// Pass `{ eventId }` to filter by per-event scoping (junction membership).
+// Omit `eventId` for the org-wide Settings view.
 export function useBillingAccounts(params?: Record<string, string>) {
   const queryString = buildQueryString(params);
   return useQuery({
     queryKey: params ? [...queryKeys.billingAccounts, params] : queryKeys.billingAccounts,
     queryFn: () => fetchApi<any[]>(`/api/billing-accounts${queryString}`),
+  });
+}
+
+// Attach/detach a BillingAccount to an Event via the junction. Idempotent
+// on both sides. Invalidates both the org-wide and per-event picker
+// queries so the UI reflects the change immediately.
+export function useAttachBillingAccountToEvent(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (billingAccountId: string) =>
+      fetchApi(`/api/events/${eventId}/billing-accounts/${billingAccountId}`, {
+        method: "POST",
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts }),
+  });
+}
+
+export function useDetachBillingAccountFromEvent(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (billingAccountId: string) =>
+      fetchApi(`/api/events/${eventId}/billing-accounts/${billingAccountId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts }),
   });
 }
 

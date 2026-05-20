@@ -47,9 +47,10 @@ export default function NewRegistrationPage() {
   const router = useRouter();
   const eventId = params.eventId as string;
   const { data: ticketTypes = [] } = useTickets(eventId);
-  // Active payers only on the create path (mirrors public-active-only
-  // intent; finance can still pick inactive via the detail-sheet reassign).
-  const { data: billingAccounts = [] } = useBillingAccounts();
+  // Per-event scoped: only payers attached to THIS event via the
+  // EventBillingAccount junction appear here. Manage attachments from
+  // Settings → Billing → Used in N events.
+  const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{

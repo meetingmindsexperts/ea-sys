@@ -128,9 +128,11 @@ export function RegistrationDetailSheet({
   // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
   // display in the Payment Summary. Cheap query, cached at the event level.
   const { data: sponsorsRes } = useSponsors(eventId);
-  // Payers for the "charge to another account" reassignment control. Only
-  // fetched for finance-permitted roles (this whole tab is finance-gated).
-  const { data: billingAccounts = [] } = useBillingAccounts();
+  // Per-event scoped payer list — only payers attached to THIS event via
+  // the EventBillingAccount junction. Mirrors the picker on the Add
+  // Registration form so reassignment can't pick a payer that wasn't
+  // authorized for this event. Manage attachments in Settings → Billing.
+  const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
   const sponsors = sponsorsRes?.sponsors ?? [];
   const sponsorById = (id: string | null) =>
     id ? sponsors.find((s) => s.id === id) ?? null : null;
@@ -1262,6 +1264,20 @@ export function RegistrationDetailSheet({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__self__">The attendee (self-pay)</SelectItem>
+                      {/* Safety net: if the current payer was detached from
+                          this event since assignment, the filtered list won't
+                          include it. Render it as a synthetic option so the
+                          dropdown reflects the actual state and the user can
+                          consciously keep or change it. */}
+                      {selectedRegistration.billingAccountId &&
+                        selectedRegistration.billingAccount &&
+                        !(billingAccounts as { id: string }[]).some(
+                          (ba) => ba.id === selectedRegistration.billingAccountId,
+                        ) && (
+                          <SelectItem value={selectedRegistration.billingAccountId}>
+                            {selectedRegistration.billingAccount.name} (no longer attached to this event)
+                          </SelectItem>
+                        )}
                       {(billingAccounts as { id: string; name: string; type: string }[]).map(
                         (ba) => (
                           <SelectItem key={ba.id} value={ba.id}>

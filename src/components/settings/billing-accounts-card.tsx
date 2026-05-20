@@ -16,12 +16,13 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Building2, Plus, Pencil } from "lucide-react";
+import { Building2, Plus, Pencil, CalendarDays } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useBillingAccounts, useCreateBillingAccount, useUpdateBillingAccount,
-  queryKeys,
+  useBillingAccounts, useBillingAccount, useCreateBillingAccount,
+  useUpdateBillingAccount, useEvents, queryKeys,
 } from "@/hooks/use-api";
 
 type Payer = {
@@ -40,7 +41,13 @@ type Payer = {
   notes: string | null;
   isActive: boolean;
   needsReview: boolean;
-  _count?: { registrations: number };
+  _count?: { registrations: number; events?: number };
+};
+
+type EventRow = { id: string; name: string; startDate: string };
+type PayerDetail = {
+  id: string;
+  attachedEvents?: { eventId: string; event: { id: string; name: string } }[];
 };
 
 const EMPTY = {
@@ -59,6 +66,8 @@ export function BillingAccountsCard() {
   const update = useUpdateBillingAccount(editing?.id ?? "");
   const queryClient = useQueryClient();
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  // Manage which events a payer is attached to (per-event scoping).
+  const [eventsDialogFor, setEventsDialogFor] = useState<Payer | null>(null);
 
   const openCreate = () => {
     setEditing(null);
@@ -153,8 +162,10 @@ export function BillingAccountsCard() {
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>VAT / Tax No.</TableHead>
+                <TableHead className="text-center">Events</TableHead>
                 <TableHead className="text-center">Registrations</TableHead>
                 <TableHead className="text-center">Status</TableHead>
+                <TableHead className="w-10" />
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -169,6 +180,15 @@ export function BillingAccountsCard() {
                   </TableCell>
                   <TableCell>{p.type}</TableCell>
                   <TableCell>{p.taxNumber || "—"}</TableCell>
+                  <TableCell className="text-center">
+                    <button
+                      onClick={() => setEventsDialogFor(p)}
+                      className="text-xs underline text-muted-foreground hover:text-foreground"
+                      title="Manage which events this payer is available in"
+                    >
+                      {p._count?.events ?? 0}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-center">{p._count?.registrations ?? 0}</TableCell>
                   <TableCell className="text-center">
                     <button
@@ -178,6 +198,11 @@ export function BillingAccountsCard() {
                     >
                       {p.isActive ? "Active" : "Inactive"}
                     </button>
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" onClick={() => setEventsDialogFor(p)} title="Manage events">
+                      <CalendarDays className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
@@ -190,6 +215,11 @@ export function BillingAccountsCard() {
           </Table>
         )}
       </CardContent>
+
+      <EventsAttachmentDialog
+        payer={eventsDialogFor}
+        onClose={() => setEventsDialogFor(null)}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
@@ -275,5 +305,125 @@ export function BillingAccountsCard() {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+/**
+ * Attach a BillingAccount to one or more events via the per-event
+ * junction. The payer is only selectable on an event's Add Registration
+ * picker once it's been attached here. Idempotent on both POST and
+ * DELETE so a rapid toggle won't 4xx; we invalidate the org-wide
+ * billingAccounts query so the row's "Events" count refreshes
+ * immediately.
+ */
+function EventsAttachmentDialog({
+  payer,
+  onClose,
+}: {
+  payer: Payer | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { data: detail, isLoading: loadingDetail } = useBillingAccount(payer?.id ?? "") as {
+    data: PayerDetail | undefined;
+    isLoading: boolean;
+  };
+  const { data: events = [], isLoading: loadingEvents } = useEvents() as {
+    data: EventRow[];
+    isLoading: boolean;
+  };
+  const [pendingEventId, setPendingEventId] = useState<string | null>(null);
+
+  const attachedIds = new Set(
+    (detail?.attachedEvents ?? []).map((a) => a.eventId),
+  );
+
+  const toggle = async (eventId: string, isAttached: boolean) => {
+    if (!payer) return;
+    setPendingEventId(eventId);
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/billing-accounts/${payer.id}`,
+        { method: isAttached ? "DELETE" : "POST" },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Request failed");
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.billingAccount(payer.id) }),
+      ]);
+      toast.success(
+        isAttached
+          ? `Removed from "${events.find((e) => e.id === eventId)?.name ?? "event"}"`
+          : `Attached to "${events.find((e) => e.id === eventId)?.name ?? "event"}"`,
+      );
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Failed to update event attachment",
+      );
+    } finally {
+      setPendingEventId(null);
+    }
+  };
+
+  return (
+    <Dialog open={!!payer} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Events using {payer?.name ?? "this payer"}
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Check the events where this payer should be selectable on Add
+          Registration. A payer can be attached to many events — it&apos;s
+          the same logical row, just made available per event.
+        </p>
+        {loadingDetail || loadingEvents ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
+        ) : events.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            No events in this organization yet.
+          </p>
+        ) : (
+          <div className="max-h-80 overflow-y-auto divide-y border rounded-md">
+            {events.map((ev) => {
+              const isAttached = attachedIds.has(ev.id);
+              const busy = pendingEventId === ev.id;
+              return (
+                <label
+                  key={ev.id}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2 hover:bg-accent/40 cursor-pointer",
+                    busy && "opacity-50 pointer-events-none",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isAttached}
+                    disabled={busy}
+                    onChange={() => toggle(ev.id, isAttached)}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{ev.name}</div>
+                    {ev.startDate && (
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(ev.startDate).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                  {isAttached && <Badge variant="secondary">Attached</Badge>}
+                </label>
+              );
+            })}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

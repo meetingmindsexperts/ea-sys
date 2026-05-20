@@ -45,24 +45,45 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Billing account not found" }, { status: 404 });
     }
 
-    // "Registrations by payer" — the v1 AR view (full aging is a v2 item).
-    const registrations = await db.registration.findMany({
-      where: { billingAccountId, event: { organizationId: session.user.organizationId! } },
-      select: {
-        id: true,
-        status: true,
-        paymentStatus: true,
-        payerReference: true,
-        attendeeIsGuarantor: true,
-        createdAt: true,
-        attendee: { select: { firstName: true, lastName: true, email: true } },
-        event: { select: { id: true, name: true } },
-        ticketType: { select: { name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    // Parallel: "registrations by payer" (AR view) + the events this
+    // payer is attached to via the EventBillingAccount junction (powers
+    // the Settings → Billing "Events" attach/detach dialog).
+    const [registrations, attachedEvents] = await Promise.all([
+      db.registration.findMany({
+        where: { billingAccountId, event: { organizationId: session.user.organizationId! } },
+        select: {
+          id: true,
+          status: true,
+          paymentStatus: true,
+          payerReference: true,
+          attendeeIsGuarantor: true,
+          createdAt: true,
+          attendee: { select: { firstName: true, lastName: true, email: true } },
+          event: { select: { id: true, name: true } },
+          ticketType: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      db.eventBillingAccount.findMany({
+        where: {
+          billingAccountId,
+          event: { organizationId: session.user.organizationId! },
+        },
+        select: {
+          eventId: true,
+          addedAt: true,
+          event: { select: { id: true, name: true, startDate: true, status: true } },
+        },
+        orderBy: { addedAt: "desc" },
+      }),
+    ]);
 
-    return NextResponse.json({ ...account, registrations, registrationCount: registrations.length });
+    return NextResponse.json({
+      ...account,
+      registrations,
+      registrationCount: registrations.length,
+      attachedEvents,
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching billing account" });
     return NextResponse.json({ error: "Failed to fetch billing account" }, { status: 500 });
