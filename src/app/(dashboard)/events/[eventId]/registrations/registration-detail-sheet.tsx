@@ -82,6 +82,11 @@ import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { hasCustomBilling } from "./types";
 import {
+  EMPTY_REGISTRATION_EDIT_DATA,
+  toEditData,
+  toServerPayload,
+} from "./registration-edit-mapping";
+import {
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -158,42 +163,12 @@ export function RegistrationDetailSheet({
     } catch { toast.error("Upload failed"); }
     if (headerPhotoRef.current) headerPhotoRef.current.value = "";
   };
-  const [editData, setEditData] = useState({
-    title: "" as string,
-    firstName: "",
-    lastName: "",
-    phone: "",
-    organization: "",
-    jobTitle: "",
-    photo: null as string | null,
-    city: "",
-    country: "",
-    bio: "",
-    specialty: "",
-    tags: [] as string[],
-    dietaryReqs: "",
-    notes: "",
-    associationName: "",
-    memberId: "",
-    studentId: "",
-    studentIdExpiry: "",
-    dtcmBarcode: "",
-    // Billing block
-    taxNumber: "",
-    billingFirstName: "",
-    billingLastName: "",
-    billingEmail: "",
-    billingPhone: "",
-    billingAddress: "",
-    billingCity: "",
-    billingState: "",
-    billingZipCode: "",
-    billingCountry: "",
-    // "Charge to another account" — "" = self-pay.
-    billingAccountId: "",
-    payerReference: "",
-    attendeeIsGuarantor: false,
-  });
+  // editData shape + the populate/payload mappers live in
+  // ./registration-edit-mapping.ts — extracted so the same field list
+  // doesn't appear three times in this file (defaults / populate /
+  // server payload) and so the field-by-field normalization can be
+  // unit-tested in isolation.
+  const [editData, setEditData] = useState(EMPTY_REGISTRATION_EDIT_DATA);
 
   // Keep local state in sync with prop
   if (registration !== selectedRegistration && registration !== null) {
@@ -342,40 +317,7 @@ export function RegistrationDetailSheet({
 
   const startEditing = () => {
     if (selectedRegistration) {
-      setEditData({
-        title: selectedRegistration.attendee.title || "",
-        firstName: selectedRegistration.attendee.firstName,
-        lastName: selectedRegistration.attendee.lastName,
-        phone: selectedRegistration.attendee.phone || "",
-        organization: selectedRegistration.attendee.organization || "",
-        jobTitle: selectedRegistration.attendee.jobTitle || "",
-        photo: selectedRegistration.attendee.photo || null,
-        city: selectedRegistration.attendee.city || "",
-        country: selectedRegistration.attendee.country || "",
-        bio: selectedRegistration.attendee.bio || "",
-        specialty: selectedRegistration.attendee.specialty || "",
-        tags: selectedRegistration.attendee.tags || [],
-        dietaryReqs: selectedRegistration.attendee.dietaryReqs || "",
-        notes: selectedRegistration.notes || "",
-        associationName: selectedRegistration.attendee.associationName || "",
-        memberId: selectedRegistration.attendee.memberId || "",
-        studentId: selectedRegistration.attendee.studentId || "",
-        studentIdExpiry: selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toISOString().split("T")[0] : "",
-        dtcmBarcode: selectedRegistration.dtcmBarcode || "",
-        taxNumber: selectedRegistration.taxNumber || "",
-        billingFirstName: selectedRegistration.billingFirstName || "",
-        billingLastName: selectedRegistration.billingLastName || "",
-        billingEmail: selectedRegistration.billingEmail || "",
-        billingPhone: selectedRegistration.billingPhone || "",
-        billingAddress: selectedRegistration.billingAddress || "",
-        billingCity: selectedRegistration.billingCity || "",
-        billingState: selectedRegistration.billingState || "",
-        billingZipCode: selectedRegistration.billingZipCode || "",
-        billingCountry: selectedRegistration.billingCountry || "",
-        billingAccountId: selectedRegistration.billingAccountId || "",
-        payerReference: selectedRegistration.payerReference || "",
-        attendeeIsGuarantor: selectedRegistration.attendeeIsGuarantor ?? false,
-      });
+      setEditData(toEditData(selectedRegistration));
       setIsEditing(true);
     }
   };
@@ -385,51 +327,10 @@ export function RegistrationDetailSheet({
     updateRegistration.mutate(
       {
         id: selectedRegistration.id,
-        data: {
-          // Optimistic-lock token (W2-F8): server returns 409 STALE_WRITE
-          // if another admin / agent wrote since this sheet was opened.
-          expectedUpdatedAt: selectedRegistration.updatedAt,
-          notes: editData.notes || undefined,
-          dtcmBarcode: editData.dtcmBarcode.trim() || null,
-          taxNumber: editData.taxNumber.trim() || null,
-          billingFirstName: editData.billingFirstName.trim() || null,
-          billingLastName: editData.billingLastName.trim() || null,
-          billingEmail: editData.billingEmail.trim() || null,
-          billingPhone: editData.billingPhone.trim() || null,
-          billingAddress: editData.billingAddress.trim() || null,
-          billingCity: editData.billingCity.trim() || null,
-          billingState: editData.billingState.trim() || null,
-          billingZipCode: editData.billingZipCode.trim() || null,
-          billingCountry: editData.billingCountry.trim() || null,
-          // "Charge to another account": "" → null reverts to self-pay
-          // (the fallback path). Sent only when changed away from current.
-          billingAccountId: editData.billingAccountId || null,
-          payerReference: editData.billingAccountId
-            ? editData.payerReference.trim() || null
-            : null,
-          attendeeIsGuarantor: editData.billingAccountId
-            ? editData.attendeeIsGuarantor
-            : false,
-          attendee: {
-            title: editData.title || undefined,
-            firstName: editData.firstName,
-            lastName: editData.lastName,
-            phone: editData.phone || undefined,
-            organization: editData.organization || undefined,
-            jobTitle: editData.jobTitle || undefined,
-            photo: editData.photo ?? null,
-            city: editData.city || undefined,
-            country: editData.country || undefined,
-            bio: editData.bio || undefined,
-            specialty: editData.specialty || undefined,
-            tags: editData.tags,
-            dietaryReqs: editData.dietaryReqs || undefined,
-            associationName: editData.associationName || null,
-            memberId: editData.memberId || null,
-            studentId: editData.studentId || null,
-            studentIdExpiry: editData.studentIdExpiry || null,
-          },
-        },
+        // Optimistic-lock token + per-field normalization (null vs
+        // undefined, payer-triplet atomicity) all live in
+        // toServerPayload — see registration-edit-mapping.ts.
+        data: toServerPayload(editData, selectedRegistration.updatedAt),
       },
       {
         // Only exit edit mode on success — keep user input on error so they can retry
