@@ -1451,6 +1451,48 @@ export function RegistrationDetailSheet({
                       <Receipt className="h-4 w-4 text-slate-400" />
                       Billing Details
                     </h3>
+                    {/* "Charge to" status — visible at the top in view mode so
+                        organizers don't have to enter Edit to see the current
+                        payer/self-pay state. Pre-this-fix the only signal in
+                        view mode was the "Billed to" pill in Payment Summary,
+                        which only appeared when a payer was set. */}
+                    {!isEditing && (
+                      <div className={cn(
+                        "rounded-md border px-3 py-2 text-sm",
+                        selectedRegistration.billingAccountId
+                          ? "border-sky-200 bg-sky-50"
+                          : "border-slate-200 bg-slate-50",
+                      )}>
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div>
+                            <span className={cn(
+                              "font-medium",
+                              selectedRegistration.billingAccountId ? "text-sky-700" : "text-slate-600",
+                            )}>
+                              Charge to:
+                            </span>{" "}
+                            <span className={cn(
+                              selectedRegistration.billingAccountId ? "text-sky-900" : "text-slate-900",
+                            )}>
+                              {selectedRegistration.billingAccount?.name
+                                ?? (selectedRegistration.billingAccountId
+                                  ? "(payer removed)"
+                                  : "Attendee — self-pay")}
+                            </span>
+                            {selectedRegistration.attendeeIsGuarantor && selectedRegistration.billingAccountId && (
+                              <span className="ml-2 text-xs text-sky-700/70">
+                                · attendee is guarantor
+                              </span>
+                            )}
+                          </div>
+                          {selectedRegistration.billingAccountId && selectedRegistration.payerReference && (
+                            <div className="text-xs text-sky-700/80">
+                              Ref: {selectedRegistration.payerReference}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {isEditing ? (
                       <div className="space-y-4">
                         <div className="space-y-2">
