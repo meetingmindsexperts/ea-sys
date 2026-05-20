@@ -87,6 +87,12 @@ import {
   toServerPayload,
 } from "./registration-edit-mapping";
 import {
+  ApiError,
+  apiDelete,
+  apiPostJson,
+  apiPutJson,
+} from "@/lib/api-fetch";
+import {
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -177,30 +183,18 @@ export function RegistrationDetailSheet({
   }
 
   const updateRegistration = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
-      const res = await fetch(`/api/events/${eventId}/registrations/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        // Surface the error code so onError can branch on STALE_WRITE
-        // and refetch instead of just toasting a generic message.
-        const e = new Error(error.error || "Failed to update registration") as Error & { code?: string; status?: number };
-        e.code = error.code;
-        e.status = res.status;
-        throw e;
-      }
-      return res.json();
-    },
+    // STALE_WRITE branching lives in onError below — the ApiError thrown
+    // by apiPutJson carries the status + code so the conditional refetch
+    // path still works without the per-mutation try/catch boilerplate.
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      apiPutJson<Registration>(`/api/events/${eventId}/registrations/${id}`, data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       setSelectedRegistration(data);
       toast.success("Registration updated");
     },
-    onError: (error: Error & { code?: string; status?: number }) => {
-      if (error.status === 409 && error.code === "STALE_WRITE") {
+    onError: (error: Error) => {
+      if (error instanceof ApiError && error.status === 409 && error.code === "STALE_WRITE") {
         toast.error(
           "This registration was modified by someone else after you opened it. Reloading the latest version — please review and re-save your changes.",
         );
@@ -213,16 +207,8 @@ export function RegistrationDetailSheet({
   });
 
   const checkInRegistration = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/events/${eventId}/registrations/${id}/check-in`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to check in");
-      }
-      return res.json();
-    },
+    mutationFn: (id: string) =>
+      apiPostJson<Registration>(`/api/events/${eventId}/registrations/${id}/check-in`),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       setSelectedRegistration(data);
@@ -254,18 +240,8 @@ export function RegistrationDetailSheet({
   };
 
   const sendEmail = useMutation({
-    mutationFn: async ({ id, type }: { id: string; type: string }) => {
-      const res = await fetch(`/api/events/${eventId}/registrations/${id}/email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type }),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to send email");
-      }
-      return res.json();
-    },
+    mutationFn: ({ id, type }: { id: string; type: string }) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${id}/email`, { type }),
     onSuccess: () => {
       toast.success("Email sent");
     },
@@ -275,16 +251,8 @@ export function RegistrationDetailSheet({
   });
 
   const deleteRegistration = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/events/${eventId}/registrations/${id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to delete registration");
-      }
-      return res.json();
-    },
+    mutationFn: (id: string) =>
+      apiDelete(`/api/events/${eventId}/registrations/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       onOpenChange(false);
@@ -297,14 +265,8 @@ export function RegistrationDetailSheet({
   });
 
   const issueRefund = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/events/${eventId}/registrations/${id}/refund`, { method: "POST" });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to issue refund");
-      }
-      return res.json();
-    },
+    mutationFn: (id: string) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${id}/refund`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       setSelectedRegistration((prev) => prev ? { ...prev, paymentStatus: "REFUNDED" } : prev);
