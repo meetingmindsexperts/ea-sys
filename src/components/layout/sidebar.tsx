@@ -33,10 +33,12 @@ import {
   Video,
   Award,
   ClipboardCheck,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
+import { useHelpChatLauncher } from "@/components/help-chat/help-chat-provider";
 import {
   Tooltip,
   TooltipContent,
@@ -120,6 +122,7 @@ const eventNavigation = eventNavigationSections.flatMap((s) => s.items);
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const helpChat = useHelpChatLauncher();
   const { data: session } = useSession();
   const { data: branding } = useOrgBranding();
   const qc = useQueryClient();
@@ -418,8 +421,42 @@ export function Sidebar() {
           )}
         </nav>
 
-        {/* ── Collapse Toggle ───────────────────────────────────────────────── */}
-        <div className="border-t p-2 shrink-0">
+        {/* ── Footer: Help + Collapse ─────────────────────────────────────── */}
+        <div className="border-t p-2 shrink-0 space-y-1">
+          {/* Help — opens the help-chat drawer (NOT a route).
+              Available to every authenticated role; reviewers /
+              submitters / registrants need help too. Visually a peer
+              of Collapse so it's always reachable regardless of which
+              nav mode (top-level vs event) is active. */}
+          {isCollapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={helpChat.open}
+                  className="w-full justify-center text-muted-foreground hover:text-foreground"
+                  aria-label="Help"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="font-medium">
+                Help
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={helpChat.open}
+              className="w-full justify-start text-muted-foreground hover:text-foreground"
+            >
+              <HelpCircle className="h-4 w-4 mr-2" />
+              Help
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="sm"
