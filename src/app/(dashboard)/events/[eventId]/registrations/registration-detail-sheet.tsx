@@ -1319,6 +1319,7 @@ export function RegistrationDetailSheet({
                   )}
                 </div>
               )}
+              </section>
 
               {/* Payment Summary — always rendered in Billing tab. Shows the
                   financial snapshot at a glance (status badge + ticket price
@@ -1744,38 +1745,51 @@ export function RegistrationDetailSheet({
                 );
               })()}
 
-              {/* Event Barcode + DTCM Barcode (always both shown) */}
+              {/* Event Barcode + DTCM Barcode (Details tab only)
+                  Previously nested inside the Registration Details section
+                  which (along with Payment Summary + Billing Details) was
+                  swallowed by a stale Registration-Details closing tag at
+                  this position. Now its own section so the Details-tab gate
+                  is local to this block and doesn't trap sibling content. */}
               {!isEditing && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <div className="font-semibold text-sm flex items-center gap-2">
-                      <Barcode className="h-4 w-4" />
-                      Event Barcode
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
+                  activeTab !== "details" && "hidden",
+                )}>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <Barcode className="h-4 w-4 text-slate-400" />
+                    Barcodes
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <div className="font-semibold text-sm flex items-center gap-2">
+                        <Barcode className="h-4 w-4" />
+                        Event Barcode
+                      </div>
+                      <div className="bg-muted p-3 rounded-lg text-center">
+                        {selectedRegistration.qrCode ? (
+                          <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">Not set</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="bg-muted p-3 rounded-lg text-center">
-                      {selectedRegistration.qrCode ? (
-                        <p className="font-mono text-sm break-all">{selectedRegistration.qrCode}</p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground italic">Not set</p>
-                      )}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-sm flex items-center gap-2">
+                        <Barcode className="h-4 w-4" />
+                        DTCM Barcode
+                      </div>
+                      <div className="bg-muted p-3 rounded-lg text-center">
+                        {selectedRegistration.dtcmBarcode ? (
+                          <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">Not set — click Edit to add</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <div className="font-semibold text-sm flex items-center gap-2">
-                      <Barcode className="h-4 w-4" />
-                      DTCM Barcode
-                    </div>
-                    <div className="bg-muted p-3 rounded-lg text-center">
-                      {selectedRegistration.dtcmBarcode ? (
-                        <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground italic">Not set — click Edit to add</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                </section>
               )}
-              </section>
 
               {/* Print Badge + Download Quote + Send Email (3 buttons in a row) */}
               {!isReviewer && !isEditing && (
