@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { HelpCircle, Send, Trash2 } from "lucide-react";
+import { BookOpen, ExternalLink, HelpCircle, Send, Trash2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { useHelpChat, type ChatMessage } from "./use-help-chat";
@@ -47,6 +47,13 @@ interface HelpChatSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Hard-coded — the guide is bundled into the Docker image at
+// public/user-guide.html and the path is stable for the lifetime of
+// the chatbot. Env-overriding a cosmetic UI URL is over-engineering
+// (different shape from the model id, which CAN move between
+// Anthropic releases). If the guide ever moves, change here.
+const USER_GUIDE_URL = "/user-guide.html";
 
 // Per the plan — role-tailored. Falls back to ADMIN/ORGANIZER's set
 // when the role is anything unrecognized so we always show something.
@@ -153,18 +160,40 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
               <HelpCircle className="h-5 w-5 text-primary" />
               Help Assistant
             </SheetTitle>
-            {messages.length > 0 && (
+            <div className="flex items-center gap-1">
+              {/* Always-visible link to the full user guide.
+                  target="_blank" so the chat session + scroll position
+                  survive — opening in-place would unmount the drawer
+                  and clear localStorage-cached messages from the
+                  user's perspective. */}
               <Button
-                type="button"
+                asChild
                 variant="ghost"
                 size="sm"
-                onClick={clear}
                 className="h-7 text-xs text-muted-foreground"
               >
-                <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Clear chat
+                <a
+                  href={USER_GUIDE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <BookOpen className="h-3.5 w-3.5 mr-1" />
+                  Open guide
+                </a>
               </Button>
-            )}
+              {messages.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={clear}
+                  className="h-7 text-xs text-muted-foreground"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Clear chat
+                </Button>
+              )}
+            </div>
           </div>
           <SheetDescription asChild>
             <span className="text-xs text-muted-foreground block">
@@ -204,6 +233,23 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
                     {q}
                   </button>
                 ))}
+              </div>
+              {/* Discoverability CTA — first-time openers see "oh
+                  there's a real guide" before they even type. Only
+                  visible in the empty state; once a conversation
+                  starts, the header link in the top-right is the way
+                  in (same destination). */}
+              <div className="pt-4 mt-4 border-t border-border w-full">
+                <a
+                  href={USER_GUIDE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Or browse the full guide
+                  <ExternalLink className="h-3 w-3" />
+                </a>
               </div>
             </div>
           ) : (
