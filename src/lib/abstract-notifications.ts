@@ -9,6 +9,7 @@ import {
   brandingCc,
 } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { getTitleLabel } from "@/lib/utils";
 
 const REVIEW_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
@@ -37,6 +38,12 @@ export interface NotifyAbstractStatusChangeParams {
     additionalEmail?: string | null;
     firstName: string;
     lastName: string;
+    /**
+     * Raw Title enum ("DR"/"PROF"/...) or null. Optional so existing
+     * callers that haven't been updated keep working (title renders as
+     * empty string then). Formatted via getTitleLabel at render time.
+     */
+    title?: string | null;
   };
   /** When true, treats this as feedback-only (notes/score changed without a status transition). */
   feedbackOnly?: boolean;
@@ -81,6 +88,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       : "";
 
     const vars: Record<string, string | number | undefined> = {
+      title: getTitleLabel(speaker.title),
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       eventName,

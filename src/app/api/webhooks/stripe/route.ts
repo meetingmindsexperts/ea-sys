@@ -7,6 +7,7 @@ import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createPaidInvoice, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
+import { getTitleLabel } from "@/lib/utils";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
       const registration = await db.registration.findUnique({
         where: { id: registrationId },
         include: {
-          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true } },
+          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true, title: true } },
           ticketType: { select: { name: true, price: true, currency: true } },
           pricingTier: { select: { price: true, currency: true } },
           event: { select: { id: true, organizationId: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
@@ -296,7 +297,7 @@ async function sendPaymentConfirmationEmail(
   registration: {
     id: string;
     serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null };
+    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
     ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
     event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
@@ -353,6 +354,7 @@ async function sendPaymentConfirmationEmail(
   const paymentReference = paymentIntentId ?? "—";
 
   const vars: Record<string, string | number | undefined> = {
+    title: getTitleLabel(registration.attendee.title),
     firstName: registration.attendee.firstName,
     lastName: registration.attendee.lastName,
     eventName: registration.event.name,

@@ -123,7 +123,7 @@ export async function changeAbstractStatus(
       title: true,
       status: true,
       event: { select: { id: true, name: true, slug: true, settings: true } },
-      speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true } },
+      speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
     },
   });
   if (!abstract) {
@@ -256,6 +256,7 @@ export async function changeAbstractStatus(
           additionalEmail: abstract.speaker?.additionalEmail ?? null,
           firstName: abstract.speaker?.firstName ?? "",
           lastName: abstract.speaker?.lastName ?? "",
+          title: abstract.speaker?.title ?? null,
         },
       });
       notificationStatus = "sent";

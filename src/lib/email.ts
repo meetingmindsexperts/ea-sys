@@ -7,6 +7,7 @@ import sgMail from "@sendgrid/mail";
 import juice from "juice";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
+import { getTitleLabel } from "./utils";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -482,6 +483,7 @@ export function stripDocumentWrapper(html: string): string {
 
 export const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
   "registration-confirmation": [
+    { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
     { key: "eventName", description: "Event name" },
@@ -521,6 +523,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
   ],
   "event-reminder": [
+    { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Recipient first name" },
     { key: "lastName", description: "Recipient last name" },
     { key: "eventName", description: "Event name" },
@@ -530,6 +533,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "daysUntilEvent", description: "Number of days until event" },
   ],
   "abstract-submission-confirmation": [
+    { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
     { key: "eventName", description: "Event name" },
@@ -537,6 +541,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "managementLink", description: "Abstract management link" },
   ],
   "abstract-status-update": [
+    { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
     { key: "eventName", description: "Event name" },
@@ -549,12 +554,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "managementLink", description: "Abstract management link" },
   ],
   "submitter-welcome": [
+    { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Submitter first name" },
     { key: "lastName", description: "Submitter last name" },
     { key: "eventName", description: "Event name" },
     { key: "loginLink", description: "Login page link" },
   ],
   "custom-notification": [
+    { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Recipient first name" },
     { key: "lastName", description: "Recipient last name" },
     { key: "eventName", description: "Event name" },
@@ -564,6 +571,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],
   "payment-confirmation": [
+    { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
     { key: "eventName", description: "Event name" },
@@ -577,6 +585,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "receiptUrl", description: "Stripe receipt URL (auto-generated)" },
   ],
   "refund-confirmation": [
+    { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
     { key: "eventName", description: "Event name" },
@@ -587,6 +596,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "refundDate", description: "Refund date (formatted)" },
   ],
   "payment-reminder": [
+    { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
     { key: "eventName", description: "Event name" },
@@ -614,7 +624,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     name: "Registration Confirmation",
     subject: "Registration Confirmed - {{eventName}}",
     htmlContent: `<div style="padding: 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Your registration for <strong>{{eventName}}</strong> has been confirmed. We look forward to seeing you!</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Registration Details</h3>
@@ -632,7 +642,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
   </div>`,
     textContent: `Registration Confirmed - {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Your registration for {{eventName}} has been confirmed.
 
@@ -776,7 +786,7 @@ Best regards,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{daysUntilEvent}} Days to Go!</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>This is a friendly reminder that <strong>{{eventName}}</strong> is coming up in {{daysUntilEvent}} days!</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Event Details</h3>
@@ -790,7 +800,7 @@ Best regards,
   </div>`,
     textContent: `Reminder: {{eventName}} is coming up!
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 This is a friendly reminder that {{eventName}} is coming up in {{daysUntilEvent}} days!
 
@@ -809,7 +819,7 @@ We look forward to seeing you!`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Submitted!</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Your abstract has been successfully submitted for <strong>{{eventName}}</strong>.</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Submission Details</h3>
@@ -826,7 +836,7 @@ We look forward to seeing you!`,
   </div>`,
     textContent: `Abstract Submitted - {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Your abstract has been successfully submitted for {{eventName}}.
 
@@ -847,7 +857,7 @@ Important: Save this email! The link above is your personal access link to manag
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{statusHeading}}</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>{{statusMessage}}</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Abstract Details</h3>
@@ -863,7 +873,7 @@ Important: Save this email! The link above is your personal access link to manag
   </div>`,
     textContent: `{{statusHeading}} - {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 {{statusMessage}}
 
@@ -884,7 +894,7 @@ View Your Abstract: {{managementLink}}`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Welcome!</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Your account has been created successfully for <strong>{{eventName}}</strong>. You can now log in to submit your abstracts.</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{loginLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
@@ -893,7 +903,7 @@ View Your Abstract: {{managementLink}}`,
   </div>`,
     textContent: `Welcome to {{eventName}} - Account Created
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Your account has been created successfully for {{eventName}}. You can now log in to submit your abstracts.
 
@@ -908,7 +918,7 @@ Log In: {{loginLink}}`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Submission Reminder</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>This is a friendly reminder to submit your abstract for <strong>{{eventName}}</strong>.</p>
     <p>If you have already submitted, please check your dashboard for any updates or revision requests from the review committee.</p>
     <div style="text-align: center; margin: 30px 0;">
@@ -918,7 +928,7 @@ Log In: {{loginLink}}`,
   </div>`,
     textContent: `Abstract Submission Reminder - {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 This is a friendly reminder to submit your abstract for {{eventName}}.
 
@@ -935,12 +945,12 @@ View Your Abstracts: {{managementLink}}`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">{{subject}}</h1>
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <div style="white-space: pre-wrap;">{{message}}</div>
   </div>`,
     textContent: `{{subject}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 {{message}}`,
   },
@@ -955,7 +965,7 @@ Dear {{firstName}},
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Payment Received</h1>
     <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Thank you for your payment. Here are your invoice details:</p>
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
       <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration #</td><td style="padding: 10px 16px; font-weight: 600; text-align: right; font-family: monospace;">{{registrationId}}</td></tr>
@@ -971,7 +981,7 @@ Dear {{firstName}},
   </div>`,
     textContent: `Payment Received — {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Thank you for your payment. Here are your invoice details:
 
@@ -998,7 +1008,7 @@ Please save this email for your records.`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Refund Processed</h1>
     <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.</p>
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
       <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Registration #</td><td style="padding: 10px 16px; font-weight: 600; text-align: right; font-family: monospace;">{{registrationId}}</td></tr>
@@ -1012,7 +1022,7 @@ Please save this email for your records.`,
   </div>`,
     textContent: `Refund Processed — {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Your payment has been refunded. Please allow 5–10 business days for the amount to appear on your statement.
 
@@ -1036,7 +1046,7 @@ If you have any questions, please contact the event organizer.`,
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827; text-align: center;">Payment Reminder</h1>
     <p style="color: #6b7280; margin: 0 0 24px 0; font-size: 14px; text-align: center;">{{eventName}}</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 24px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>This is a friendly reminder that your registration payment is still pending. Please complete your payment to secure your spot.</p>
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f9fafb; border-radius: 8px;">
       <tr><td style="padding: 10px 16px; color: #6b7280; font-size: 13px;">Event</td><td style="padding: 10px 16px; font-weight: 600; text-align: right;">{{eventName}}</td></tr>
@@ -1049,7 +1059,7 @@ If you have any questions, please contact the event organizer.`,
   </div>`,
     textContent: `Payment Reminder — {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 This is a friendly reminder that your registration payment is still pending. Please complete your payment to secure your spot.
 
@@ -1069,7 +1079,7 @@ If you have already made the payment, please disregard this email.`,
     name: "Webinar Registration Confirmation",
     subject: "You're registered for {{eventName}}",
     htmlContent: `<div style="padding: 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>You're confirmed for <strong>{{eventName}}</strong>. Save this email — it contains your join link.</p>
     <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #bae6fd;">
       <h3 style="margin-top: 0; color: #075985;">Webinar Details</h3>
@@ -1087,7 +1097,7 @@ If you have already made the payment, please disregard this email.`,
   </div>`,
     textContent: `You're registered for {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 You're confirmed for {{eventName}}.
 
@@ -1184,7 +1194,7 @@ Join now: {{joinUrl}}
     name: "Webinar Thank You",
     subject: "Thank you for joining {{eventName}}",
     htmlContent: `<div style="padding: 20px 0;">
-    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Thank you for joining <strong>{{eventName}}</strong>. We hope you found it valuable.</p>
     {{recordingBlock}}
     <p>If you have any feedback, we'd love to hear from you.</p>
@@ -1192,7 +1202,7 @@ Join now: {{joinUrl}}
   </div>`,
     textContent: `Thank you for joining {{eventName}}
 
-Dear {{firstName}},
+Dear {{title}} {{lastName}},
 
 Thank you for joining {{eventName}}. We hope you found it valuable.
 
@@ -1415,6 +1425,9 @@ export function getSamplePreviewVariables(
   overrides?: Partial<Record<string, string | number>>
 ): Record<string, string | number> {
   return {
+    // Formatted title prefix (e.g. "Dr."). Matches the {{title}} convention
+    // used by every send-site — getTitleLabel(enum) returns this exact shape.
+    title: "Dr.",
     firstName: "John",
     lastName: "Doe",
     eventName: "Sample Conference 2026",
@@ -1706,8 +1719,14 @@ export async function sendRegistrationConfirmation(params: {
   }
 
   const vars: Record<string, string | number | undefined> = {
+    // Title rendered as the formatted prefix ("Dr.", "Prof.", "Mr.", etc.) —
+    // empty string when null/unknown so the {{title}} placeholder collapses
+    // cleanly. Callers pass the raw Title enum ("DR", "PROF") and we
+    // normalize here via getTitleLabel — single source of truth for the
+    // enum→display mapping across every send-site.
+    title: getTitleLabel(params.title),
     firstName: params.firstName,
-    lastName: "",
+    lastName: params.lastName ?? "",
     eventName: params.eventName,
     eventDate,
     eventVenue: [params.eventVenue, params.eventCity].filter(Boolean).join(", "),

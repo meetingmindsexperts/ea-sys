@@ -19,6 +19,7 @@ import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
+import { getTitleLabel } from "./utils";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -182,6 +183,15 @@ interface ResolvedRecipient {
   additionalEmail?: string | null;
   firstName: string;
   lastName: string;
+  /**
+   * Raw Title enum value from the DB ("DR" / "PROF" / "MR" / "MRS" / "MS") or
+   * null. Formatted to "Dr." / "Prof." / "Mr." etc. via getTitleLabel() at
+   * render time — keeps the recipient row faithful to the DB while letting
+   * one helper own the enum→display mapping (same as sendRegistrationConfirmation).
+   * Reviewers come from the User table which has no title column, so always null
+   * there.
+   */
+  title?: string | null;
   ticketType?: string;
   serialId?: number | null;
 }
@@ -334,7 +344,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ...agreementWhere,
         ...sessionWhere,
       },
-      select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true },
+      select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true },
     });
     recipients = speakers.map((s) => ({
       id: s.id,
@@ -342,6 +352,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       additionalEmail: s.additionalEmail,
       firstName: s.firstName,
       lastName: s.lastName,
+      title: s.title,
     }));
   } else if (recipientType === "abstracts") {
     const abstracts = await db.abstract.findMany({
@@ -352,7 +363,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       },
       select: {
         id: true,
-        speaker: { select: { email: true, additionalEmail: true, firstName: true, lastName: true } },
+        speaker: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
       },
     });
     const seen = new Set<string>();
@@ -365,6 +376,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           additionalEmail: a.speaker.additionalEmail,
           firstName: a.speaker.firstName,
           lastName: a.speaker.lastName,
+          title: a.speaker.title,
         });
       }
     }
@@ -385,7 +397,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         id: true,
         serialId: true,
         ticketType: { select: { name: true } },
-        attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true } },
+        attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
       },
     });
     recipients = registrations.map((r) => ({
@@ -394,6 +406,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       additionalEmail: r.attendee.additionalEmail,
       firstName: r.attendee.firstName,
       lastName: r.attendee.lastName,
+      title: r.attendee.title,
       ticketType: r.ticketType?.name,
       serialId: r.serialId,
     }));
@@ -574,7 +587,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           ? String(recipient.serialId).padStart(3, "0")
           : recipient.id.slice(-8).toUpperCase(),
       daysUntilEvent: daysUntil,
-      title: "",
+      // Title formatted via the same getTitleLabel helper used by every
+      // other send-site (sendRegistrationConfirmation, buildSpeakerEmailContext).
+      // For speaker-context branches (invitation/agreement), the override
+      // below replaces this with ctx.title — same formatted shape, just
+      // sourced from the Speaker row's enriched context.
+      title: getTitleLabel(recipient.title),
       speakerName: `${recipient.firstName} ${recipient.lastName}`,
       presentationDetails: "",
       presentationDetailsText: "",

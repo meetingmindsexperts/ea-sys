@@ -6,6 +6,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -38,7 +39,7 @@ export async function POST(
           serialId: true,
           eventId: true,
           paymentStatus: true,
-          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true } },
+          attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true, title: true } },
           ticketType: { select: { name: true, currency: true } },
           pricingTier: { select: { currency: true } },
           event: { select: { id: true, name: true, startDate: true } },
@@ -157,7 +158,7 @@ async function sendRefundConfirmationEmail(
   registration: {
     id: string;
     serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null };
+    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
     ticketType: { name: string } | null;
     event: { id: string; name: string; startDate: Date };
   },
@@ -177,6 +178,7 @@ async function sendRefundConfirmationEmail(
       : registration.id;
 
   const vars: Record<string, string> = {
+    title: getTitleLabel(registration.attendee.title),
     firstName: registration.attendee.firstName,
     lastName: registration.attendee.lastName,
     eventName: registration.event.name,

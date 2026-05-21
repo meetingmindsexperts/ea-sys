@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
@@ -88,6 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       : "TBA";
 
     const vars: Record<string, string | number> = {
+      title: getTitleLabel(registration.attendee.title),
       firstName: registration.attendee.firstName,
       lastName: registration.attendee.lastName,
       eventName: event.name,

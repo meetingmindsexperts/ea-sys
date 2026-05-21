@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 
@@ -215,6 +216,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
       const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
       const vars = {
+        title: getTitleLabel(abstract.speaker.title),
         firstName: abstract.speaker.firstName,
         lastName: abstract.speaker.lastName,
         eventName: "",

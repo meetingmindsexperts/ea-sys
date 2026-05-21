@@ -8,6 +8,7 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 
 const registerSchema = z.object({
   title: titleEnum,
@@ -302,6 +303,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Send welcome email (non-blocking)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const vars = {
+      title: getTitleLabel(data.title),
       firstName: data.firstName,
       lastName: data.lastName,
       eventName: event.name,

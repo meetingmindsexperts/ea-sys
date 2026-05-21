@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
@@ -143,7 +144,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       personalMessage: customMessage || "",
       sessionDetails,
       agreementLink,
-      title: context?.title ?? "",
+      // Title prefix ("Dr.", "Prof.", ...) — for invitation/agreement we use
+      // the context's pre-formatted value; for custom emails (no context)
+      // fall back to formatting the raw enum on the speaker row so the
+      // {{title}} placeholder still renders correctly.
+      title: context?.title ?? getTitleLabel(speaker.title),
       speakerName: context?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
       presentationDetails: context?.presentationDetails ?? "",
       presentationDetailsText: context?.presentationDetailsText ?? "",
