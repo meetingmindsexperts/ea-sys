@@ -104,6 +104,7 @@ interface Event {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
   };
+  agendaPublished?: boolean;
 }
 
 /** A registration type option within the matched tier */
@@ -798,7 +799,16 @@ function CategoryRegistrationContent() {
                     </div>
                   </div>
 
-                  {/* Section: Billing Details */}
+                  {/* Section: Billing Details
+                      Suppressed entirely when every purchasable option for
+                      this category is free. There's nothing to bill so the
+                      "Billing address same as personal details" checkbox and
+                      its expandable form are noise. The default billingSame
+                      state is true, so on form submit the auto-copy from
+                      personal details still runs and the DB columns aren't
+                      left null (preserves contact-sync + invoice fallback if
+                      the event ever flips to paid later). */}
+                  {!allOptionsFree && (
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Billing Details</h3>
 
@@ -907,11 +917,17 @@ function CategoryRegistrationContent() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   {/* Section: Select Your Category */}
                   <div className="space-y-5">
                     <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Select Your Category</h3>
-                    <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
+                    {/* Pay-now-or-later copy only applies when at least one
+                        purchasable option costs money. For wholly-free events
+                        it would be misleading. */}
+                    {!allOptionsFree && (
+                      <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
+                    )}
 
                     <FormField control={form.control} name="ticketTypeId"
                       render={({ field }) => (
@@ -1178,20 +1194,22 @@ function CategoryRegistrationContent() {
 
         {/* Sidebar links */}
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
-          <Link href={`/e/${slug}/agenda`} className="block group">
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
-              <div className="flex items-center gap-4">
-                <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
-                  <Calendar className="h-4 w-4 text-amber-500" />
+          {event.agendaPublished && (
+            <Link href={`/e/${slug}/agenda`} className="block group">
+              <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
+                <div className="flex items-center gap-4">
+                  <div className="h-9 w-9 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                    <Calendar className="h-4 w-4 text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-800 text-sm">View Agenda</p>
+                    <p className="text-xs text-slate-400">Full agenda</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-slate-800 text-sm">View Agenda</p>
-                  <p className="text-xs text-slate-400">Full agenda</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-primary shrink-0" />
               </div>
-            </div>
-          </Link>
+            </Link>
+          )}
           {event.abstractSettings?.allowAbstractSubmissions && (
             <Link href={`/e/${slug}/abstract/register`} className="block group">
               <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 hover:border-primary/40 hover:shadow-md transition-all">
