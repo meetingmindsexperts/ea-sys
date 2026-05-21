@@ -847,6 +847,34 @@ export function RegistrationDetailSheet({
                 )}
               </section>
 
+              {/* Notes — shown on the Details tab in view mode so the field
+                  surfaces on the same tab where it's edited (the textarea
+                  lives inside the Attendee Information edit form above).
+                  Always rendered with a "Not set" placeholder so admins know
+                  the field exists even when empty — previously notes were
+                  only visible on the Activity tab AND only when non-empty,
+                  which made the edit experience feel write-only. */}
+              {!isEditing && (
+                <section className={cn(
+                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
+                  activeTab !== "details" && "hidden",
+                )}>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    <StickyNote className="h-4 w-4 text-slate-400" />
+                    Notes
+                  </h3>
+                  {selectedRegistration.notes ? (
+                    <p className="text-sm whitespace-pre-wrap text-slate-700">
+                      {selectedRegistration.notes}
+                    </p>
+                  ) : (
+                    <p className="text-sm italic text-muted-foreground">
+                      Not set — click Edit to add internal notes about this registration.
+                    </p>
+                  )}
+                </section>
+              )}
+
               <section className={cn(
                 "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
                 !isEditing && activeTab !== "details" && "hidden",
@@ -1928,21 +1956,9 @@ export function RegistrationDetailSheet({
                 </div>
               </section>
 
-              {/* Notes */}
-              {!isEditing && selectedRegistration.notes && (
-                <section className={cn(
-                  "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
-                  activeTab !== "activity" && "hidden",
-                )}>
-                  <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
-                    <StickyNote className="h-4 w-4 text-slate-400" />
-                    Notes
-                  </h3>
-                  <p className="text-sm whitespace-pre-wrap text-slate-700">
-                    {selectedRegistration.notes}
-                  </p>
-                </section>
-              )}
+              {/* Notes — moved to the Details tab so the field lives next
+                  to its edit textarea. The Activity tab no longer carries
+                  a duplicate copy. */}
 
               {/* Source / Tracking */}
               {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
