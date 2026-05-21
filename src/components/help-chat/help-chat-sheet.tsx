@@ -27,6 +27,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Sheet,
   SheetContent,
@@ -142,7 +144,10 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-[480px] p-0 flex flex-col gap-0">
-        <SheetHeader className="px-4 py-3 border-b shrink-0 space-y-1">
+        {/* pr-12 leaves room for the Sheet primitive's built-in close X,
+            which is absolutely positioned at top-4 right-4. Without
+            this, "Clear chat" overlaps the close button. */}
+        <SheetHeader className="px-4 pr-12 py-3 border-b shrink-0 space-y-1">
           <div className="flex items-center justify-between gap-2">
             <SheetTitle className="flex items-center gap-2 text-base">
               <HelpCircle className="h-5 w-5 text-primary" />
@@ -279,13 +284,34 @@ function MessageBubble({
     >
       <div
         className={cn(
-          "rounded-lg px-3 py-2 max-w-[85%] text-sm whitespace-pre-wrap break-words",
+          "rounded-lg px-3 py-2 max-w-[85%] text-sm break-words",
           isUser
-            ? "bg-primary text-primary-foreground"
+            ? "bg-primary text-primary-foreground whitespace-pre-wrap"
             : "bg-muted text-foreground",
         )}
       >
-        {isStreamingPlaceholder ? <TypingDots /> : message.content}
+        {isStreamingPlaceholder ? (
+          <TypingDots />
+        ) : isUser ? (
+          // User turns are plain text — they typed it; render verbatim
+          // so paste-formatting (line breaks etc.) survives.
+          message.content
+        ) : (
+          // Assistant turns: render markdown. The bot's prompt format
+          // uses **bold**, numbered lists, and bullet lists — readers
+          // shouldn't see those characters literally.
+          // Same `prose` styling as the AI Agent for visual consistency.
+          // remark-gfm enables GitHub-style task lists, tables, etc.
+          // (used rarely by the bot but free to support).
+          // Partial markdown during streaming (e.g. an unclosed `**`)
+          // renders as the literal characters until the closing token
+          // arrives — graceful degradation, no flicker.
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-code:bg-background prose-code:px-1 prose-code:rounded prose-code:text-xs prose-pre:bg-background prose-pre:p-2 prose-pre:rounded prose-pre:text-xs prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:text-muted-foreground prose-hr:my-2 prose-table:text-xs">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );
