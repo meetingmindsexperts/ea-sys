@@ -176,6 +176,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         allowAbstractSubmissions: settings.allowAbstractSubmissions === true,
         abstractDeadline: settings.abstractDeadline || null,
       },
+      agendaPublished: settings.agendaPublished === true || settings.programmePublished === true,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });
