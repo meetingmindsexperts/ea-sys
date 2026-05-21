@@ -1507,6 +1507,37 @@ export function RegistrationDetailSheet({
                         </div>
                       </div>
                     )}
+                    {/* Billing address status — always visible in view mode
+                        so the "same as personal" vs "custom" state is obvious
+                        at a glance, regardless of whether hasCustomBilling()
+                        decides to render the custom-address grid or the
+                        same-as-personal fallback below. Sibling of the
+                        "Charge to" pill. */}
+                    {!isEditing && (() => {
+                      const isCustom = hasCustomBilling(selectedRegistration);
+                      return (
+                        <div className={cn(
+                          "rounded-md border px-3 py-2 text-sm",
+                          isCustom
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-slate-200 bg-slate-50",
+                        )}>
+                          <span className={cn(
+                            "font-medium",
+                            isCustom ? "text-amber-700" : "text-slate-600",
+                          )}>
+                            Billing address:
+                          </span>{" "}
+                          <span className={cn(
+                            isCustom ? "text-amber-900" : "text-slate-900",
+                          )}>
+                            {isCustom
+                              ? "Custom billing address (overrides personal)"
+                              : "Same as personal details"}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     {isEditing ? (
                       <div className="space-y-4">
                         <div className="space-y-2">
