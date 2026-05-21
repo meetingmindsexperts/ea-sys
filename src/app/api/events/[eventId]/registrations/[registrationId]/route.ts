@@ -60,6 +60,11 @@ const updateRegistrationSchema = z.object({
     title: titleEnum.optional().nullable(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
+    // Secondary inbox auto-CC'd on outgoing registration emails. Empty
+    // string clears it; undefined leaves it untouched. Email format is
+    // validated unless the value is the literal empty string (the UI
+    // sends "" when the admin deletes the input contents to clear).
+    additionalEmail: z.string().email().max(255).optional().nullable().or(z.literal("")),
     organization: z.string().max(255).optional(),
     jobTitle: z.string().max(255).optional(),
     phone: z.string().max(50).optional(),
@@ -366,6 +371,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.title !== undefined && { title: attendee.title || null }),
           ...(attendee.firstName && { firstName: attendee.firstName }),
           ...(attendee.lastName && { lastName: attendee.lastName }),
+          // Empty-string clears the optional secondary email (rare but
+          // valid — registrant may have typo'd it during signup). Trim
+          // first so trailing whitespace doesn't slip a phantom value
+          // past the "is it empty?" check below.
+          ...(attendee.additionalEmail !== undefined && {
+            additionalEmail: attendee.additionalEmail?.trim() || null,
+          }),
           ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
           ...(attendee.photo !== undefined && { photo: attendee.photo || null }),
           ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
@@ -390,6 +402,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
         organizationId: session.user.organizationId!,
         eventId,
         email: a.email,
+        // Mirror the secondary inbox so the org Contact row stays in
+        // step with the Attendee row. Trim+empty-to-null matches the
+        // attendee update above; `undefined` (field absent from payload)
+        // preserves whatever the Contact already had.
+        additionalEmail: attendee.additionalEmail !== undefined
+          ? (attendee.additionalEmail?.trim() || null)
+          : a.additionalEmail,
         firstName: attendee.firstName || a.firstName,
         lastName: attendee.lastName || a.lastName,
         title: attendee.title !== undefined ? (attendee.title || null) : a.title,

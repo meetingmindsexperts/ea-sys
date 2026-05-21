@@ -149,6 +149,10 @@ export async function GET(req: Request, { params }: RouteParams) {
               firstName: true,
               lastName: true,
               email: true,
+              // Secondary inbox typed during public signup. Surfaced so
+              // the detail sheet can show + edit it, and so bulk-email
+              // recipient resolution carries it into brandingCc().
+              additionalEmail: true,
               title: true,
               phone: true,
               organization: true,

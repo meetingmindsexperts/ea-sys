@@ -38,6 +38,14 @@ export interface RegistrationEditData {
   title: string;
   firstName: string;
   lastName: string;
+  /**
+   * Secondary inbox typed by the registrant during public signup,
+   * editable from the detail sheet so admins can correct typos. Empty
+   * string clears the column to null on save (matches the ID/member
+   * fields' explicit-clear convention, not the "leave untouched"
+   * undefined convention used for plain attendee text fields).
+   */
+  additionalEmail: string;
   phone: string;
   organization: string;
   jobTitle: string;
@@ -79,6 +87,7 @@ export const EMPTY_REGISTRATION_EDIT_DATA: RegistrationEditData = {
   title: "",
   firstName: "",
   lastName: "",
+  additionalEmail: "",
   phone: "",
   organization: "",
   jobTitle: "",
@@ -121,6 +130,7 @@ export function toEditData(reg: Registration): RegistrationEditData {
     title: att.title || "",
     firstName: att.firstName,
     lastName: att.lastName,
+    additionalEmail: att.additionalEmail || "",
     phone: att.phone || "",
     organization: att.organization || "",
     jobTitle: att.jobTitle || "",
@@ -187,6 +197,12 @@ export function toServerPayload(
       title: d.title || undefined,
       firstName: d.firstName,
       lastName: d.lastName,
+      // additionalEmail uses the explicit-clear convention (null on
+      // empty, like associationName / memberId / studentId), not the
+      // "leave untouched" undefined convention used for plain text
+      // fields. Admins legitimately need to remove a typo'd secondary
+      // inbox, which the undefined path would silently no-op.
+      additionalEmail: d.additionalEmail.trim() || null,
       phone: d.phone || undefined,
       organization: d.organization || undefined,
       jobTitle: d.jobTitle || undefined,

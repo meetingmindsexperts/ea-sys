@@ -4,6 +4,13 @@ export interface Attendee {
   id: string;
   title: string | null;
   email: string;
+  /**
+   * Optional secondary inbox the registrant typed during public signup.
+   * Auto-CC'd on every outgoing email about this registration via
+   * `brandingCc()` in src/lib/email.ts. Admins can view + edit it from
+   * the detail sheet.
+   */
+  additionalEmail: string | null;
   firstName: string;
   lastName: string;
   organization: string | null;

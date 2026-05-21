@@ -600,6 +600,20 @@ export function RegistrationDetailSheet({
                       </p>
                     </div>
                     <div className="space-y-2">
+                      <Label htmlFor="edit-additionalEmail">Additional Email</Label>
+                      <Input
+                        id="edit-additionalEmail"
+                        type="email"
+                        value={editData.additionalEmail}
+                        onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
+                        placeholder="alternate@example.com"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Optional secondary inbox. Auto-CC&apos;d on every email about this registration.
+                        Leave blank to clear.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
                       <Label htmlFor="edit-phone">Phone</Label>
                       <Input
                         id="edit-phone"
@@ -755,6 +769,15 @@ export function RegistrationDetailSheet({
                       <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="truncate">{selectedRegistration.attendee.email}</span>
                     </div>
+                    {selectedRegistration.attendee.additionalEmail ? (
+                      <div className="flex items-center gap-3">
+                        <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">Additional email (CC&apos;d)</div>
+                          <div className="truncate">{selectedRegistration.attendee.additionalEmail}</div>
+                        </div>
+                      </div>
+                    ) : <div />}
                     {selectedRegistration.attendee.phone ? (
                       <div className="flex items-center gap-3">
                         <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
