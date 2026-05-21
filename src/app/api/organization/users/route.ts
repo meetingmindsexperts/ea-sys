@@ -145,6 +145,8 @@ export async function POST(req: Request) {
       subject: emailTemplate.subject,
       htmlContent: emailTemplate.htmlContent,
       textContent: emailTemplate.textContent,
+      emailType: "user_invitation",
+      stream: "transactional",
       logContext: {
         organizationId: session.user.organizationId,
         entityType: "USER",

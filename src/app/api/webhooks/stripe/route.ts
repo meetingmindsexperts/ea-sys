@@ -401,6 +401,8 @@ async function sendPaymentConfirmationEmail(
     ),
     ...rendered,
     from: brandingFrom(branding),
+    emailType: "payment_confirmation",
+    stream: "transactional",
     logContext: {
       eventId: registration.event.id,
       entityType: "REGISTRATION",

@@ -241,6 +241,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             ),
             ...rendered,
             from: brandingFrom(branding),
+            emailType: "abstract_submission_confirmation",
+            stream: "transactional",
             logContext: {
               eventId,
               entityType: "SPEAKER",

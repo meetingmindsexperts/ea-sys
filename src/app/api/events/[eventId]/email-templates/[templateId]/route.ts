@@ -201,6 +201,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         subject: `[TEST] ${renderedSubject}`,
         htmlContent: wrappedHtml,
         from: brandingFrom(branding),
+        emailType: "template_test",
+        stream: "transactional",
       });
 
       return NextResponse.json({

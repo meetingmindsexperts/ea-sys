@@ -145,6 +145,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           htmlContent: template.htmlContent,
           textContent: template.textContent,
           from: eventFrom,
+          emailType: "registration_completion",
+          // Triggered per-row in an admin-driven loop; logically a campaign send.
+          stream: "bulk",
           logContext: {
             organizationId: session.user.organizationId ?? null,
             eventId,

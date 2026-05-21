@@ -769,15 +769,21 @@ export function RegistrationDetailSheet({
                       <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="truncate">{selectedRegistration.attendee.email}</span>
                     </div>
-                    {selectedRegistration.attendee.additionalEmail ? (
-                      <div className="flex items-center gap-3">
-                        <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-xs text-muted-foreground">Additional email (CC&apos;d)</div>
+                    {/* Additional email — always render so admins can see
+                        whether a secondary CC inbox is set without having
+                        to enter edit mode. Empty value shows "Not set —
+                        click Edit to add" for clarity. */}
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs text-muted-foreground">Additional email (CC&apos;d)</div>
+                        {selectedRegistration.attendee.additionalEmail ? (
                           <div className="truncate">{selectedRegistration.attendee.additionalEmail}</div>
-                        </div>
+                        ) : (
+                          <div className="text-sm italic text-muted-foreground">Not set — click Edit to add</div>
+                        )}
                       </div>
-                    ) : <div />}
+                    </div>
                     {selectedRegistration.attendee.phone ? (
                       <div className="flex items-center gap-3">
                         <Phone className="h-4 w-4 text-muted-foreground shrink-0" />

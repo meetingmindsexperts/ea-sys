@@ -157,6 +157,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       ),
       ...rendered,
       from: brandingFrom(branding),
+      emailType: `registration_${type.replace(/-/g, "_")}`,
+      stream: "transactional",
       logContext: {
         organizationId: session.user.organizationId ?? null,
         eventId,

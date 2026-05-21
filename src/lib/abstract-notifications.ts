@@ -120,6 +120,8 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
           ),
           ...rendered,
           from: brandingFrom(branding),
+          emailType: "abstract_status_update",
+          stream: "transactional",
           logContext: {
             eventId,
             entityType: speaker.id ? "SPEAKER" : "OTHER",

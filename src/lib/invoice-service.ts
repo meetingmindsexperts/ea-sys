@@ -611,6 +611,8 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
       content: pdfBuffer.toString("base64"),
       contentType: "application/pdf",
     }],
+    emailType: `invoice_${invoice.type.toLowerCase()}`,
+    stream: "transactional",
     logContext: {
       organizationId: invoice.organizationId,
       eventId: invoice.eventId,

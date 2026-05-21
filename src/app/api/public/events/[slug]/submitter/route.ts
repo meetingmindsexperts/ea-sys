@@ -319,6 +319,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         cc: brandingCc(branding, [{ email: emailLower }], [data.additionalEmail || null]),
         ...rendered,
         from: brandingFrom(branding),
+        emailType: "submitter_welcome",
+        stream: "transactional",
         logContext: {
           organizationId: event.organizationId,
           eventId: event.id,

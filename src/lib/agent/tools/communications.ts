@@ -139,6 +139,8 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
           subject,
           htmlContent: htmlMessage,
           from: eventFrom,
+          emailType: "agent_bulk_email",
+          stream: "bulk",
           logContext: {
             organizationId: ctx.organizationId,
             eventId: ctx.eventId,

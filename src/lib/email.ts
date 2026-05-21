@@ -1,9 +1,13 @@
-import {
-  TransactionalEmailsApi,
-  TransactionalEmailsApiApiKeys,
-  SendSmtpEmail,
-} from "@getbrevo/brevo";
-import sgMail from "@sendgrid/mail";
+// Brevo + SendGrid + Postmark disabled — kept commented for one release cycle in
+// case we need to revert. AWS SES is the only active provider.
+// import {
+//   TransactionalEmailsApi,
+//   TransactionalEmailsApiApiKeys,
+//   SendSmtpEmail,
+// } from "@getbrevo/brevo";
+// import sgMail from "@sendgrid/mail";
+// import { ServerClient as PostmarkServerClient } from "postmark";
+import { SESv2Client, SendEmailCommand, type SendEmailCommandInput } from "@aws-sdk/client-sesv2";
 import juice from "juice";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
@@ -55,6 +59,31 @@ export interface SendEmailParams {
    * in that person's detail-sheet Email History card.
    */
   logContext?: EmailLogContext;
+  /**
+   * Short slug identifying the kind of email — e.g. "registration_confirmation",
+   * "payment_confirmation", "speaker_invitation", "speaker_agreement",
+   * "abstract_status", "refund_confirmation", "password_reset",
+   * "webinar_confirmation". Forwarded to SES as the `EmailType` MessageTag so
+   * CloudWatch metrics can be sliced by template kind. Defaults to "unknown".
+   */
+  emailType?: string;
+  /**
+   * Whether this is a transactional send (triggered by a single user action,
+   * one recipient) or a bulk send (Communications page, scheduled blast).
+   * Forwarded to SES as the `Stream` MessageTag so bulk-campaign bounces
+   * don't pollute transactional reputation alerts. Defaults to "transactional".
+   */
+  stream?: "transactional" | "bulk";
+}
+
+/**
+ * SES MessageTag keys must match `[A-Za-z0-9_-]{1,256}` and values must match
+ * `[A-Za-z0-9_-]{0,256}`. We coerce any caller-supplied slug to this shape
+ * (lower-case, non-conforming chars → underscore) so a slip in a caller never
+ * fails the SES send with a `MessageTagValidationFailed` 400.
+ */
+function sanitizeTagValue(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 256) || "unknown";
 }
 
 export type SendEmailResult = {
@@ -70,8 +99,8 @@ interface EmailProvider {
   send(params: SendEmailParams): Promise<SendEmailResult>;
 }
 
-// ── Brevo provider (current) ───────────────────────────────────────────────────
-
+// ── Brevo provider (disabled) ─────────────────────────────────────────────────
+/*
 let brevoInstance: TransactionalEmailsApi | null = null;
 
 function getBrevoInstance(): TransactionalEmailsApi {
@@ -115,9 +144,10 @@ const brevoProvider: EmailProvider = {
     return { success: true, messageId: result.body.messageId };
   },
 };
+*/
 
-// ── SendGrid provider ─────────────────────────────────────────────────────────
-
+// ── SendGrid provider (disabled) ──────────────────────────────────────────────
+/*
 let sgInitialized = false;
 
 function initSendGrid() {
@@ -164,24 +194,202 @@ const sendGridProvider: EmailProvider = {
     };
   },
 };
+*/
+
+// ── Postmark provider (disabled) ──────────────────────────────────────────────
+/*
+let postmarkClient: PostmarkServerClient | null = null;
+
+function getPostmarkClient(): PostmarkServerClient {
+  if (!postmarkClient) {
+    postmarkClient = new PostmarkServerClient(process.env.POSTMARK_API_KEY || "");
+  }
+  return postmarkClient;
+}
+
+const postmarkProvider: EmailProvider = {
+  async send(params) {
+    const fromEmail = params.from?.email || DEFAULT_FROM_EMAIL;
+    const fromName = params.from?.name || DEFAULT_FROM_NAME;
+
+    const result = await getPostmarkClient().sendEmail({
+      From: fromName ? `${fromName} <${fromEmail}>` : fromEmail,
+      To: params.to.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(", "),
+      ...(params.cc?.length && {
+        Cc: params.cc.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(", "),
+      }),
+      ...(params.bcc?.length && {
+        Bcc: params.bcc.map((r) => (r.name ? `${r.name} <${r.email}>` : r.email)).join(", "),
+      }),
+      Subject: params.subject,
+      HtmlBody: params.htmlContent,
+      ...(params.textContent && { TextBody: params.textContent }),
+      ...(params.replyTo && {
+        ReplyTo: params.replyTo.name
+          ? `${params.replyTo.name} <${params.replyTo.email}>`
+          : params.replyTo.email,
+      }),
+      ...(params.attachments?.length && {
+        Attachments: params.attachments.map((att) => ({
+          Name: att.name,
+          Content: att.content,
+          ContentType: att.contentType || "application/octet-stream",
+          ContentID: null,
+        })),
+      }),
+      MessageStream: process.env.POSTMARK_MESSAGE_STREAM || "outbound",
+    });
+
+    return { success: true, messageId: result.MessageID };
+  },
+};
+*/
+
+// ── AWS SES v2 provider ───────────────────────────────────────────────────────
+
+let sesClient: SESv2Client | null = null;
+
+function getSesClient(): SESv2Client {
+  if (!sesClient) {
+    sesClient = new SESv2Client({
+      region: process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1",
+      // Credentials are picked up automatically from the standard AWS chain:
+      // env vars (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) → shared credentials
+      // file (~/.aws/credentials) → EC2 instance profile (preferred in prod —
+      // attach an IAM role to the instance with ses:SendEmail permission).
+    });
+  }
+  return sesClient;
+}
+
+function formatAddress(r: { email: string; name?: string }): string {
+  return r.name ? `${r.name} <${r.email}>` : r.email;
+}
+
+const sesProvider: EmailProvider = {
+  async send(params) {
+    const fromEmail = params.from?.email || DEFAULT_FROM_EMAIL;
+    const fromName = params.from?.name || DEFAULT_FROM_NAME;
+    const fromAddress = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+
+    // SES v2 has no first-class attachment field; we have to build a raw MIME
+    // message when attachments are present. Without attachments, use the
+    // simpler Simple content path (lets SES handle MIME assembly + signing).
+    const hasAttachments = !!params.attachments?.length;
+    const configurationSet = process.env.AWS_SES_CONFIGURATION_SET;
+
+    const input: SendEmailCommandInput = {
+      FromEmailAddress: fromAddress,
+      Destination: {
+        ToAddresses: params.to.map(formatAddress),
+        ...(params.cc?.length && { CcAddresses: params.cc.map(formatAddress) }),
+        ...(params.bcc?.length && { BccAddresses: params.bcc.map(formatAddress) }),
+      },
+      ...(params.replyTo && { ReplyToAddresses: [formatAddress(params.replyTo)] }),
+      ...(configurationSet && { ConfigurationSetName: configurationSet }),
+      // MessageTags drive the CloudWatch dimensions on the configuration
+      // set (EmailType + Stream). Defaults match the SES dimension "Default
+      // value" fields so any forgotten caller still produces a tagged metric
+      // — we'd rather see "unknown" climb in dashboards than have metrics
+      // silently drop. sanitizeTagValue guards against caller typos that
+      // would otherwise 400 the SES API.
+      EmailTags: [
+        { Name: "EmailType", Value: sanitizeTagValue(params.emailType ?? "unknown") },
+        { Name: "Stream", Value: sanitizeTagValue(params.stream ?? "transactional") },
+      ],
+      Content: hasAttachments
+        ? { Raw: { Data: buildRawMime(params, fromAddress) } }
+        : {
+            Simple: {
+              Subject: { Data: params.subject, Charset: "UTF-8" },
+              Body: {
+                Html: { Data: params.htmlContent, Charset: "UTF-8" },
+                ...(params.textContent && {
+                  Text: { Data: params.textContent, Charset: "UTF-8" },
+                }),
+              },
+            },
+          },
+    };
+
+    const result = await getSesClient().send(new SendEmailCommand(input));
+    return { success: true, messageId: result.MessageId };
+  },
+};
+
+/**
+ * Build a raw RFC 5322 multipart/mixed MIME envelope for SES SendEmail.
+ * Only used when the caller passes attachments (Quote PDF, agreement .docx,
+ * etc.) — the Simple content path doesn't support attachments. Each
+ * attachment is already base64-encoded by the caller; we just frame it.
+ */
+function buildRawMime(params: SendEmailParams, fromAddress: string): Uint8Array {
+  const boundary = `=_ea_sys_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const altBoundary = `=_ea_sys_alt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  const headers: string[] = [
+    `From: ${fromAddress}`,
+    `To: ${params.to.map(formatAddress).join(", ")}`,
+    ...(params.cc?.length ? [`Cc: ${params.cc.map(formatAddress).join(", ")}`] : []),
+    ...(params.replyTo ? [`Reply-To: ${formatAddress(params.replyTo)}`] : []),
+    `Subject: ${encodeRfc2047(params.subject)}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+
+  const body: string[] = [`--${boundary}`];
+
+  if (params.textContent) {
+    body.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`, "");
+    body.push(`--${altBoundary}`, 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.textContent);
+    body.push(`--${altBoundary}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent);
+    body.push(`--${altBoundary}--`);
+  } else {
+    body.push('Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent);
+  }
+
+  for (const att of params.attachments ?? []) {
+    body.push(
+      `--${boundary}`,
+      `Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${att.name}"`,
+      "",
+      att.content.replace(/(.{76})/g, "$1\r\n"),
+    );
+  }
+  body.push(`--${boundary}--`);
+
+  return new TextEncoder().encode(headers.join("\r\n") + "\r\n\r\n" + body.join("\r\n"));
+}
+
+/** RFC 2047 encode non-ASCII characters in headers (subject lines). */
+function encodeRfc2047(s: string): string {
+  // Plain ASCII subject — no encoding needed.
+  if (/^[\x20-\x7e]*$/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, "utf-8").toString("base64")}?=`;
+}
 
 // ── Provider selection ─────────────────────────────────────────────────────────
 
+function resolveProviderName(): "ses" {
+  // Brevo + SendGrid + Postmark are disabled (see commented blocks above).
+  // AWS SES is the only active provider.
+  return "ses";
+}
+
 function getProvider(): EmailProvider {
-  const provider = process.env.EMAIL_PROVIDER || (process.env.SENDGRID_API_KEY ? "sendgrid" : "brevo");
-  if (provider === "sendgrid") return sendGridProvider;
-  return brevoProvider;
+  return sesProvider;
 }
 
 // ── Main send function ─────────────────────────────────────────────────────────
 
 export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
-  if (!process.env.BREVO_API_KEY && !process.env.SENDGRID_API_KEY) {
-    apiLogger.warn({ msg: "No email provider configured (BREVO_API_KEY or SENDGRID_API_KEY), skipping email send" });
-    return { success: false, error: "Email service not configured" };
-  }
+  // Don't gate on env-var existence — SES SDK picks up credentials from the
+  // full AWS chain (instance profile on EC2 has no env vars at all). Let the
+  // SendEmailCommand surface a credential error in the catch block instead.
 
-  const providerName = process.env.EMAIL_PROVIDER || (process.env.SENDGRID_API_KEY ? "sendgrid" : "brevo");
+  const providerName = resolveProviderName();
   const toEmails = params.to.map((r) => r.email);
   const primaryTo = toEmails[0] ?? "";
 
@@ -221,11 +429,24 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to send email";
+    // Postmark errors carry .code (Postmark numeric, e.g. 412 = pending-approval
+    // sandbox), .statusCode (HTTP), and .body. SendGrid errors carry .response.
+    // Pluck them as top-level context so the file logs + Sentry payload have
+    // them without us having to JSON-stringify the whole error.
+    const err = error as { code?: number | string; statusCode?: number; body?: unknown; response?: unknown };
     apiLogger.error({
+      // Pass the raw Error so withSentryForwarding routes it via captureException
+      // (full stack trace) instead of captureMessage (string only).
+      err: error,
       msg: "Failed to send email",
       error: message,
+      providerCode: err.code,
+      providerStatus: err.statusCode,
+      providerBody: err.body,
+      providerResponse: err.response,
       to: toEmails,
       subject: params.subject,
+      provider: providerName,
     });
     void logEmail({
       to: primaryTo,
@@ -1824,6 +2045,8 @@ export async function sendRegistrationConfirmation(params: {
     textContent,
     from: brandingFrom(branding),
     attachments,
+    emailType: "registration_confirmation",
+    stream: "transactional",
     logContext: {
       eventId: params.eventId ?? null,
       entityType: "REGISTRATION",

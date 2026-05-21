@@ -254,6 +254,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
       attachments,
+      emailType: `speaker_${type.replace(/-/g, "_")}`,
+      stream: "transactional",
       logContext: {
         organizationId: session.user.organizationId ?? null,
         eventId,

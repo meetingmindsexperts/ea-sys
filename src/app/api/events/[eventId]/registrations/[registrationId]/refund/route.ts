@@ -208,6 +208,8 @@ async function sendRefundConfirmationEmail(
     ),
     ...rendered,
     from: brandingFrom(branding),
+    emailType: "refund_confirmation",
+    stream: "transactional",
     logContext: {
       eventId: registration.event.id,
       entityType: "REGISTRATION",

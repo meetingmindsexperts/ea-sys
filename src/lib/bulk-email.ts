@@ -715,6 +715,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
                 ? { email: organizerEmail, name: organizerName }
                 : undefined,
+            // CloudWatch metric keys: emailType picks up whatever the
+            // Communications-page send chose (registration_confirmation /
+            // payment_reminder / speaker_invitation / abstract_reminder /
+            // agreement / custom etc.) — sanitized server-side. Stream is
+            // ALWAYS "bulk" here so bounce/complaint reputation alerts on
+            // the Communications page don't pollute transactional metrics.
+            emailType: emailType.replace(/-/g, "_"),
+            stream: "bulk",
             logContext: {
               organizationId: organizationId ?? null,
               eventId,

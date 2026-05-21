@@ -131,6 +131,8 @@ export async function POST(req: Request) {
         subject: emailTemplate.subject,
         htmlContent: emailTemplate.htmlContent,
         textContent: emailTemplate.textContent,
+        emailType: "password_reset",
+        stream: "transactional",
         logContext: {
           entityType: "USER",
           entityId: user.id,

@@ -383,6 +383,8 @@ async function findOrCreateReviewerUser(
     htmlContent: emailTemplate.htmlContent,
     textContent: emailTemplate.textContent,
     from: emailFrom,
+    emailType: "reviewer_invitation",
+    stream: "transactional",
     logContext: {
       organizationId: session.user.organizationId,
       eventId,

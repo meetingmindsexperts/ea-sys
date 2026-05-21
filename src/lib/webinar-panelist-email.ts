@@ -121,6 +121,8 @@ export async function sendPanelistInvite(
       cc: brandingCc(branding, [{ email: panelistEmail }]),
       ...rendered,
       from: brandingFrom(branding),
+      emailType: "webinar_panelist_invitation",
+      stream: "transactional",
       logContext: {
         organizationId: event.organizationId,
         eventId,
