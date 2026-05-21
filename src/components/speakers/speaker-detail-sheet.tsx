@@ -76,6 +76,13 @@ interface Speaker {
   id: string;
   title: string | null;
   email: string;
+  /**
+   * Optional secondary inbox the speaker provided (e.g. during submitter
+   * signup or admin-side add). Auto-CC'd on every outgoing speaker email
+   * via `brandingCc()` in src/lib/email.ts and on bulk-email sends via
+   * the speaker recipient resolution in src/lib/bulk-email.ts.
+   */
+  additionalEmail: string | null;
   firstName: string;
   lastName: string;
   bio: string | null;
@@ -139,6 +146,7 @@ export function SpeakerDetailSheet({
     firstName: "",
     lastName: "",
     email: "",
+    additionalEmail: "",
     phone: "",
     organization: "",
     jobTitle: "",
@@ -230,6 +238,7 @@ export function SpeakerDetailSheet({
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       email: speaker.email,
+      additionalEmail: speaker.additionalEmail || "",
       phone: speaker.phone || "",
       organization: speaker.organization || "",
       jobTitle: speaker.jobTitle || "",
@@ -510,6 +519,20 @@ export function SpeakerDetailSheet({
                           <Input value={editData.phone} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} />
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-additional-email">Additional Email</Label>
+                        <Input
+                          id="edit-additional-email"
+                          type="email"
+                          value={editData.additionalEmail}
+                          onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
+                          placeholder="alternate@example.com"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Optional secondary inbox. Auto-CC&apos;d on every email sent to this speaker.
+                          Leave blank to clear.
+                        </p>
+                      </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Organization</Label>
@@ -573,6 +596,15 @@ export function SpeakerDetailSheet({
                         <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="text-sm truncate">{speaker.email}</span>
                       </div>
+                      {speaker.additionalEmail ? (
+                        <div className="flex items-center gap-3">
+                          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground">Additional email (CC&apos;d)</div>
+                            <div className="text-sm truncate">{speaker.additionalEmail}</div>
+                          </div>
+                        </div>
+                      ) : <div />}
                       {speaker.phone ? (
                         <div className="flex items-center gap-3">
                           <Phone className="h-4 w-4 text-muted-foreground shrink-0" />

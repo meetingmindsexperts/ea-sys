@@ -25,6 +25,10 @@ const updateSpeakerSchema = z.object({
   title: titleEnum.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
+  // Secondary inbox auto-CC'd on every outgoing speaker email. Empty
+  // string clears the column (admins legitimately need to remove a
+  // typo'd value); same convention as the registration sheet.
+  additionalEmail: z.string().email().max(255).optional().nullable().or(z.literal("")),
   bio: z.string().max(10000).optional(),
   organization: z.string().max(255).optional(),
   jobTitle: z.string().max(255).optional(),
@@ -189,6 +193,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ...(data.title !== undefined && { title: data.title || null }),
       ...(data.firstName && { firstName: data.firstName }),
       ...(data.lastName && { lastName: data.lastName }),
+      // Trim before the empty-to-null collapse so trailing whitespace
+      // doesn't slip a phantom value past the clear path.
+      ...(data.additionalEmail !== undefined && {
+        additionalEmail: data.additionalEmail?.trim() || null,
+      }),
       ...(data.bio !== undefined && { bio: data.bio || null }),
       ...(data.organization !== undefined && { organization: data.organization || null }),
       ...(data.jobTitle !== undefined && { jobTitle: data.jobTitle || null }),
@@ -246,6 +255,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       organizationId: session.user.organizationId!,
       eventId,
       email: speaker.email,
+      // Mirror the secondary inbox so the org Contact row stays in step
+      // with the Speaker row. Read straight off the freshly-updated row,
+      // which already reflects the empty-to-null collapse from the update
+      // body above.
+      additionalEmail: speaker.additionalEmail,
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       title: speaker.title,
