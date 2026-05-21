@@ -150,7 +150,7 @@ export function HelpChatSheet({ open, onOpenChange }: HelpChatSheetProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[480px] p-0 flex flex-col gap-0">
+      <SheetContent className="w-full sm:max-w-[580px] p-0 flex flex-col gap-0 sm:rounded-l-lg overflow-hidden">
         {/* pr-12 leaves room for the Sheet primitive's built-in close X,
             which is absolutely positioned at top-4 right-4. Without
             this, "Clear chat" overlaps the close button. */}
