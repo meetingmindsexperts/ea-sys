@@ -34,6 +34,7 @@ import {
   Award,
   ClipboardCheck,
   HelpCircle,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
       { name: "Registrations",     href: "/registrations", icon: Users },
       { name: "Registration Types", href: "/tickets",       icon: Ticket },
       { name: "Check-In",          href: "/check-in",      icon: ScanBarcode },
+      { name: "Analytics",         href: "/analytics",     icon: BarChart3 },
       { name: "Speakers",          href: "/speakers",      icon: Mic },
       { name: "Agenda",            href: "/agenda",        icon: Clock },
       { name: "Accommodation",     href: "/accommodation", icon: Building2 },
