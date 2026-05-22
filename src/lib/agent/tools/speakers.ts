@@ -56,6 +56,11 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
         jobTitle: true,
         specialty: true,
         status: true,
+        // Publishing fields for the Webflow speaker directory (via n8n):
+        // bio + photo are the speaker card content; country for filtering.
+        bio: true,
+        photo: true,
+        country: true,
       },
       take: limit,
       orderBy: { createdAt: "desc" },
