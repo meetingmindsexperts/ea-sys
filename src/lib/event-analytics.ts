@@ -36,6 +36,19 @@ export interface CurrencyAmount {
   amount: number;
 }
 
+export interface CheckInLogEntry {
+  registrationId: string;
+  serialId: number | null;
+  name: string;
+  email: string;
+  /** ISO timestamp of the check-in. */
+  checkedInAt: string;
+  /** Staff member who performed the check-in ("System" if no user). */
+  checkedInBy: string;
+  /** "Scanned" (barcode) or "Manual" (typed/admin). */
+  method: "Scanned" | "Manual";
+}
+
 export interface EventAnalytics {
   event: { id: string; name: string; startDate: string; timezone: string };
   generatedAt: string;
@@ -56,6 +69,7 @@ export interface EventAnalytics {
     byHour: HourBucket[]; // check-ins by hour-of-day (the rush curve)
     peakHour: { hour: number; count: number } | null;
     byStaff: CountBucket[]; // who checked in how many (from AuditLog)
+    log: CheckInLogEntry[]; // per-attendee check-in records, newest first
   };
   badges: {
     printed: number; // distinct registrations with ≥1 print
@@ -101,6 +115,8 @@ export async function computeEventAnalytics(
   const regs = await db.registration.findMany({
     where: { eventId },
     select: {
+      id: true,
+      serialId: true,
       status: true,
       paymentStatus: true,
       createdAt: true,
@@ -108,6 +124,7 @@ export async function computeEventAnalytics(
       badgePrintCount: true,
       ticketType: { select: { name: true } },
       pricingTier: { select: { name: true } },
+      attendee: { select: { firstName: true, lastName: true, email: true } },
     },
   });
 
@@ -165,23 +182,51 @@ export async function computeEventAnalytics(
     ? byHour.reduce((max, b) => (b.count > max.count ? b : max), byHour[0])
     : null;
 
-  // ── Who checked people in (from AuditLog CHECK_IN rows) ──
-  const checkInActions = await db.auditLog.groupBy({
-    by: ["userId"],
+  // ── Per-attendee check-in log + who-checked-in-whom ──
+  // The log SPINE is Registration.checkedInAt — every check-in sets it, so
+  // the log is complete even for check-ins that predate audit logging or
+  // were set directly (e.g. seeded data). We then ENRICH each row with the
+  // CHECK_IN AuditLog (staff + method), which carries who/how but may be
+  // absent for non-route check-ins. byStaff is derived from the audit rows
+  // (the only source that knows which staff member acted).
+  const checkInRows = await db.auditLog.findMany({
     where: { eventId, action: "CHECK_IN" },
-    _count: { _all: true },
+    select: { userId: true, entityId: true, changes: true },
   });
-  const staffIds = checkInActions.map((a) => a.userId).filter((id): id is string => !!id);
+  const staffIds = [...new Set(checkInRows.map((r) => r.userId).filter((id): id is string => !!id))];
   const staff = staffIds.length
     ? await db.user.findMany({ where: { id: { in: staffIds } }, select: { id: true, firstName: true, lastName: true } })
     : [];
   const staffName = new Map(staff.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
-  const byStaff: CountBucket[] = checkInActions
-    .map((a) => ({
-      label: a.userId ? (staffName.get(a.userId) ?? "Unknown") : "System",
-      count: a._count._all,
-    }))
+
+  // registrationId → enrichment from the audit row (last one wins if multiple).
+  const auditByReg = new Map<string, { by: string; method: "Scanned" | "Manual" }>();
+  const staffCounts = new Map<string, number>();
+  for (const row of checkInRows) {
+    const changes = (row.changes ?? {}) as Record<string, unknown>;
+    const who = row.userId ? (staffName.get(row.userId) ?? "Unknown") : "System";
+    staffCounts.set(who, (staffCounts.get(who) ?? 0) + 1);
+    auditByReg.set(row.entityId, { by: who, method: changes.qrCode ? "Scanned" : "Manual" });
+  }
+  const byStaff: CountBucket[] = [...staffCounts.entries()]
+    .map(([label, count]) => ({ label, count }))
     .sort(sortByCountDesc);
+
+  const log: CheckInLogEntry[] = regs
+    .filter((r) => r.checkedInAt)
+    .sort((a, b) => (b.checkedInAt as Date).getTime() - (a.checkedInAt as Date).getTime())
+    .map((r) => {
+      const enrich = auditByReg.get(r.id);
+      return {
+        registrationId: r.id,
+        serialId: r.serialId,
+        name: `${r.attendee?.firstName ?? ""} ${r.attendee?.lastName ?? ""}`.trim() || "—",
+        email: r.attendee?.email ?? "",
+        checkedInAt: (r.checkedInAt as Date).toISOString(),
+        checkedInBy: enrich?.by ?? "—",
+        method: enrich?.method ?? "Manual",
+      };
+    });
 
   // ── Revenue (finance-gated) ──
   let revenue: EventAnalytics["revenue"] = null;
@@ -222,6 +267,7 @@ export async function computeEventAnalytics(
       byHour,
       peakHour: peakHour ? { hour: peakHour.hour, count: peakHour.count } : null,
       byStaff,
+      log,
     },
     badges: {
       printed,

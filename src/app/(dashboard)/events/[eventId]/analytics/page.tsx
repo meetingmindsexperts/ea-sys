@@ -174,6 +174,61 @@ export default function EventAnalyticsPage() {
           </Section>
         )}
       </div>
+
+      {/* Per-attendee check-in log — individual records (name, email, exact
+          time, who checked them in, method). Newest first. */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+          <CardTitle className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+            Check-in log ({a.checkIn.log.length.toLocaleString()})
+          </CardTitle>
+          {a.checkIn.log.length > 0 && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/events/${eventId}/analytics?export=checkins`} download>
+                <Download className="mr-2 h-4 w-4" /> Export log
+              </a>
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {a.checkIn.log.length === 0 ? (
+            <p className="text-sm text-slate-400">No check-ins recorded yet.</p>
+          ) : (
+            <div className="max-h-[480px] overflow-auto rounded-md border border-slate-100">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">#</th>
+                    <th className="px-3 py-2 font-medium">Name</th>
+                    <th className="px-3 py-2 font-medium">Email</th>
+                    <th className="px-3 py-2 font-medium">Checked in</th>
+                    <th className="px-3 py-2 font-medium">By</th>
+                    <th className="px-3 py-2 font-medium">Method</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {a.checkIn.log.map((r, i) => (
+                    <tr key={`${r.registrationId}-${i}`} className="hover:bg-slate-50/50">
+                      <td className="px-3 py-2 font-mono text-xs text-slate-500">{r.serialId != null ? String(r.serialId).padStart(3, "0") : "—"}</td>
+                      <td className="px-3 py-2 text-slate-900">{r.name}</td>
+                      <td className="px-3 py-2 text-slate-600 truncate max-w-[200px]">{r.email || "—"}</td>
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                        {new Date(r.checkedInAt).toLocaleString("en-GB", { timeZone: a.event.timezone, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">{r.checkedInBy}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${r.method === "Scanned" ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-600"}`}>
+                          {r.method}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

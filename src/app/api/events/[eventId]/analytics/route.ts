@@ -80,12 +80,39 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (new URL(req.url).searchParams.get("export") === "csv") {
+    const exportType = new URL(req.url).searchParams.get("export");
+    if (exportType === "csv") {
       return new NextResponse(toCsv(analytics), {
         status: 200,
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename="analytics-${eventId}.csv"`,
+        },
+      });
+    }
+    if (exportType === "checkins") {
+      // Per-attendee check-in log — one row per check-in.
+      const header = ["Registration #", "Name", "Email", "Checked-in time", "Checked in by", "Method"];
+      const lines = [header.map(csvField).join(",")];
+      for (const r of analytics.checkIn.log) {
+        lines.push(
+          [
+            r.serialId != null ? String(r.serialId).padStart(3, "0") : "",
+            r.name,
+            r.email,
+            r.checkedInAt,
+            r.checkedInBy,
+            r.method,
+          ]
+            .map(csvField)
+            .join(","),
+        );
+      }
+      return new NextResponse(lines.join("\n"), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="check-in-log-${eventId}.csv"`,
         },
       });
     }
