@@ -83,7 +83,7 @@ export function SpecialtySelect({
       <SelectTrigger className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent className="min-w-[250px]">
+      <SelectContent position="popper" sideOffset={4} className="min-w-[250px]">
         <div className="flex items-center gap-2 px-2 pb-2 sticky top-0 bg-popover">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
