@@ -557,12 +557,12 @@ function CategoryRegistrationContent() {
 
                       {/* Account form — narrower centered */}
                       <div className="max-w-md mx-auto space-y-5 pt-4">
-                      <div className="flex items-center gap-4 mb-2">
+                      <div className="flex items-center gap-4 pb-4 mb-2">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Lock className="h-5 w-5 text-primary" />
                         </div>
                         <div>
-                          <h3 className="text-lg font-bold text-slate-800">Create your account</h3>
+                          <h3 className="text-xl font-bold text-slate-800">Create your account</h3>
                           <p className="text-xs text-slate-500">You&apos;ll use these credentials to sign in, manage your registration, and make payments.</p>
                         </div>
                       </div>
@@ -599,7 +599,7 @@ function CategoryRegistrationContent() {
                           You&apos;re already registered for this event.{" "}
                           <a
                             href={`/e/${slug}/login?redirect=registration&email=${encodeURIComponent(form.getValues("email"))}`}
-                            className="underline font-medium"
+                            className="underline text-md font-medium"
                           >
                             Sign in to view it
                           </a>
@@ -641,9 +641,9 @@ function CategoryRegistrationContent() {
                         )}
                       </Button>
 
-                      <p className="text-center text-xs text-slate-400">
-                        Already have an account?{" "}
-                        <a href={`/e/${slug}/login?redirect=registration`} className="text-primary hover:underline font-medium">Sign in</a>
+                      <p className="text-center  text-slate-400">
+                        <span className="text-xs">Already have an account?{" "}</span>
+                        <a href={`/e/${slug}/login?redirect=registration`} className="text-md text-primary hover:underline font-medium">Sign in</a>
                       </p>
                       </div>
                     </div>
