@@ -118,6 +118,12 @@ const EMAIL_TYPE_TO_SLUG: Record<string, string> = {
 interface RegistrationDetailSheetProps {
   eventId: string;
   registration: Registration | null;
+  /**
+   * Dubai (DET/DTCM) compliance flag from the parent event. When false the
+   * DTCM barcode field is hidden entirely — DTCM only applies to Dubai
+   * events, so non-Dubai events shouldn't show the field at all.
+   */
+  requiresDtcmBarcode?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -125,6 +131,7 @@ interface RegistrationDetailSheetProps {
 export function RegistrationDetailSheet({
   eventId,
   registration,
+  requiresDtcmBarcode = false,
   open,
   onOpenChange,
 }: RegistrationDetailSheetProps) {
@@ -701,17 +708,23 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-dtcmBarcode">DTCM Barcode</Label>
-                      <Input
-                        id="edit-dtcmBarcode"
-                        value={editData.dtcmBarcode}
-                        onChange={(e) => setEditData({ ...editData, dtcmBarcode: e.target.value })}
-                        placeholder="Enter DTCM barcode"
-                        className="font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground">Must be unique across the event.</p>
-                    </div>
+                    {/* DTCM barcode — Dubai (DET/DTCM) compliance only. Shown
+                        solely for events flagged requiresDtcmBarcode; these
+                        codes are normally bulk-imported via CSV, but the field
+                        allows a manual correction. */}
+                    {requiresDtcmBarcode && (
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dtcmBarcode">DTCM Barcode</Label>
+                        <Input
+                          id="edit-dtcmBarcode"
+                          value={editData.dtcmBarcode}
+                          onChange={(e) => setEditData({ ...editData, dtcmBarcode: e.target.value })}
+                          placeholder="Enter DTCM barcode"
+                          className="font-mono"
+                        />
+                        <p className="text-xs text-muted-foreground">Dubai compliance code — usually CSV-imported. Must be unique across the event.</p>
+                      </div>
+                    )}
 
                     {/* Membership Details */}
                     <div className="space-y-3 border-t pt-4">
@@ -1779,7 +1792,7 @@ export function RegistrationDetailSheet({
                       />
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={cn("grid gap-3", requiresDtcmBarcode ? "grid-cols-2" : "grid-cols-1")}>
                     <div className="space-y-2">
                       <div className="font-semibold text-sm flex items-center gap-2">
                         <Barcode className="h-4 w-4" />
@@ -1793,19 +1806,23 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div className="font-semibold text-sm flex items-center gap-2">
-                        <Barcode className="h-4 w-4" />
-                        DTCM Barcode
+                    {/* DTCM barcode tile — Dubai compliance only, shown solely
+                        for events flagged requiresDtcmBarcode. */}
+                    {requiresDtcmBarcode && (
+                      <div className="space-y-2">
+                        <div className="font-semibold text-sm flex items-center gap-2">
+                          <Barcode className="h-4 w-4" />
+                          DTCM Barcode
+                        </div>
+                        <div className="bg-muted p-3 rounded-lg text-center">
+                          {selectedRegistration.dtcmBarcode ? (
+                            <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground italic">Not set — usually CSV-imported</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="bg-muted p-3 rounded-lg text-center">
-                        {selectedRegistration.dtcmBarcode ? (
-                          <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
-                        ) : (
-                          <p className="text-sm text-muted-foreground italic">Not set — click Edit to add</p>
-                        )}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </section>
               )}

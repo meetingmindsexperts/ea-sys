@@ -14,10 +14,13 @@ interface RouteParams {
  * sheet can render a scannable image (byte-identical to the printed badge).
  *
  * Auth mirrors the registration detail GET: authenticated + event scoped to
- * the caller's access (org membership / event assignment). Prefers `qrCode`
- * (the auto-generated value) and falls back to `dtcmBarcode` so DTCM-only
- * registrations still render. 404 when neither exists — the UI gates the
- * <img> on the plumbed value so this is only hit for real barcodes.
+ * the caller's access (org membership / event assignment).
+ *
+ * Entry barcode = `qrCode` ONLY. The DTCM barcode is a separate Dubai
+ * (DET/DTCM) compliance artifact, not a substitute for the entry barcode —
+ * it lives in its own field and is still scannable at check-in, but is never
+ * rendered as the entry barcode here. 404 when there's no qrCode (the UI
+ * gates the <img> on the value so this is only hit for real barcodes).
  */
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
@@ -37,7 +40,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
-        select: { qrCode: true, dtcmBarcode: true },
+        select: { qrCode: true },
       }),
     ]);
 
@@ -48,12 +51,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const value = registration.qrCode || registration.dtcmBarcode;
-    if (!value) {
+    // Entry barcode is the qrCode only — never the DTCM compliance barcode.
+    if (!registration.qrCode) {
       return NextResponse.json({ error: "No barcode for this registration" }, { status: 404 });
     }
 
-    const png = await renderBarcodePng(value, { includetext: true });
+    const png = await renderBarcodePng(registration.qrCode, { includetext: true });
     return new NextResponse(new Uint8Array(png), {
       status: 200,
       headers: {

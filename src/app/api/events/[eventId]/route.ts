@@ -51,6 +51,9 @@ const updateEventSchema = z.object({
   taxLabel: z.string().max(50).nullable().optional(),
   bankDetails: z.string().max(5000).nullable().optional(),
   badgeVerticalOffset: z.number().int().min(-200).max(200).optional(),
+  // Dubai (DET/DTCM) compliance toggle — surfaces the per-registration
+  // DTCM barcode field for this event only.
+  requiresDtcmBarcode: z.boolean().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -177,6 +180,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       taxLabel,
       bankDetails,
       badgeVerticalOffset,
+      requiresDtcmBarcode,
       settings,
     } = validated.data;
 
@@ -247,6 +251,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(taxLabel !== undefined && { taxLabel }),
         ...(bankDetails !== undefined && { bankDetails }),
         ...(badgeVerticalOffset !== undefined && { badgeVerticalOffset }),
+        ...(requiresDtcmBarcode !== undefined && { requiresDtcmBarcode }),
         settings: updatedSettings,
       },
     });

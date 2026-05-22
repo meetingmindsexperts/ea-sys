@@ -163,6 +163,13 @@ model Event {
   tag            String?
   specialty      String?
   code           String?
+  // Dubai (DET/DTCM) compliance: when true, the per-registration DTCM
+  // barcode field is surfaced for this event. DTCM barcodes are a Dubai
+  // tourism requirement and are NOT applicable to Abu Dhabi / Fujairah /
+  // Al Ain / non-UAE events — organizer ticks this only for Dubai events.
+  // It does NOT make DTCM the entry barcode (that's always qrCode); it
+  // only controls visibility of the separate DTCM field.
+  requiresDtcmBarcode Boolean @default(false)
   status         EventStatus @default(DRAFT)
   settings       Json        @default("{}")
   bannerImage    String?

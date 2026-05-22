@@ -118,7 +118,9 @@ async function generateBadgePDF(
   const barcodeBuffers = new Map<string, Buffer>();
   await Promise.all(
     registrations.map(async (reg) => {
-      const barcodeText = reg.qrCode || reg.dtcmBarcode;
+      // Entry barcode = qrCode only. The DTCM compliance barcode is a
+      // separate Dubai artifact and is never substituted onto the badge.
+      const barcodeText = reg.qrCode;
       if (barcodeText && !barcodeBuffers.has(barcodeText)) {
         try {
           // Badge draws the registration number itself, so the bars carry
@@ -188,7 +190,8 @@ function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regI
   }
 
   // ── Barcode (centered, using pre-rendered buffer) ──
-  const barcodeText = reg.qrCode || reg.dtcmBarcode;
+  // qrCode only — see the pre-render loop above.
+  const barcodeText = reg.qrCode;
   if (barcodeText) {
     const png = barcodeBuffers.get(barcodeText);
     if (png) {

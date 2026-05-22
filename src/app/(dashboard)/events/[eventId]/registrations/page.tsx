@@ -686,6 +686,7 @@ export default function RegistrationsPage() {
       <RegistrationDetailSheet
         eventId={eventId}
         registration={selectedRegistration}
+        requiresDtcmBarcode={event?.requiresDtcmBarcode ?? false}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
       />
