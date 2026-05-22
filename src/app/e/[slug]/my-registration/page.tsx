@@ -76,6 +76,7 @@ interface Registration {
     firstName: string;
     lastName: string;
     email: string;
+    additionalEmail: string | null;
     organization: string | null;
     jobTitle: string | null;
     phone: string | null;
@@ -191,6 +192,7 @@ export default function EventMyRegistrationPage() {
       role: reg.attendee.role || "",
       firstName: reg.attendee.firstName,
       lastName: reg.attendee.lastName,
+      additionalEmail: reg.attendee.additionalEmail || "",
       organization: reg.attendee.organization || "",
       jobTitle: reg.attendee.jobTitle || "",
       phone: reg.attendee.phone || "",
@@ -213,6 +215,7 @@ export default function EventMyRegistrationPage() {
         role: editData.role || undefined,
         firstName: editData.firstName || undefined,
         lastName: editData.lastName || undefined,
+        additionalEmail: editData.additionalEmail?.trim() || null,
         organization: editData.organization || undefined,
         jobTitle: editData.jobTitle || undefined,
         phone: editData.phone || undefined,
@@ -536,6 +539,16 @@ export default function EventMyRegistrationPage() {
                             <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={editData.lastName || ""} onChange={(e) => setEditData({ ...editData, lastName: e.target.value })} /></div>
                           </div>
                           <div className="space-y-1"><Label className="text-xs">Email</Label><Input value={reg.attendee.email} disabled className="bg-muted" /></div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Additional Email</Label>
+                            <Input
+                              type="email"
+                              placeholder="alternate@example.com"
+                              value={editData.additionalEmail || ""}
+                              onChange={(e) => setEditData({ ...editData, additionalEmail: e.target.value })}
+                            />
+                            <p className="text-[11px] text-muted-foreground">Optional. We&apos;ll also send registration emails here.</p>
+                          </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1"><Label className="text-xs">Organization</Label><Input value={editData.organization || ""} onChange={(e) => setEditData({ ...editData, organization: e.target.value })} /></div>
                             <div className="space-y-1"><Label className="text-xs">Position</Label><Input value={editData.jobTitle || ""} onChange={(e) => setEditData({ ...editData, jobTitle: e.target.value })} /></div>

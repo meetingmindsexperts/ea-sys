@@ -87,6 +87,9 @@ const selfEditSchema = z.object({
     role: attendeeRoleEnum.optional(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
+    // Secondary inbox the registrant can self-manage; auto-CC'd on emails
+    // about this registration. Empty string clears it.
+    additionalEmail: z.string().email().max(255).optional().nullable().or(z.literal("")),
     organization: z.string().max(255).optional(),
     jobTitle: z.string().max(255).optional(),
     phone: z.string().max(50).optional(),
@@ -148,6 +151,7 @@ export async function PUT(req: Request) {
         ...(attendee.role !== undefined && { role: attendee.role }),
         ...(attendee.firstName && { firstName: attendee.firstName }),
         ...(attendee.lastName && { lastName: attendee.lastName }),
+        ...(attendee.additionalEmail !== undefined && { additionalEmail: attendee.additionalEmail?.trim() || null }),
         ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
         ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
         ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
@@ -172,6 +176,7 @@ export async function PUT(req: Request) {
         organizationId: event.organizationId,
         eventId: registration.eventId,
         email: updatedAttendee.email,
+        additionalEmail: updatedAttendee.additionalEmail,
         firstName: updatedAttendee.firstName,
         lastName: updatedAttendee.lastName,
         title: updatedAttendee.title,
