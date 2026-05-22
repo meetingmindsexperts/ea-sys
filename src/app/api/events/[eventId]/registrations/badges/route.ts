@@ -4,8 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { formatSerialId } from "@/lib/registration-serial";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const bwipjs = require("bwip-js");
+import { renderBarcodePng } from "@/lib/barcode";
 import PDFDocument from "pdfkit";
 
 interface RouteParams {
@@ -122,13 +121,9 @@ async function generateBadgePDF(
       const barcodeText = reg.qrCode || reg.dtcmBarcode;
       if (barcodeText && !barcodeBuffers.has(barcodeText)) {
         try {
-          const png = await bwipjs.toBuffer({
-            bcid: "code128",
-            text: barcodeText,
-            scale: 2,
-            height: 14,
-            includetext: false,
-          });
+          // Badge draws the registration number itself, so the bars carry
+          // no baked-in text (includetext defaults to false in the helper).
+          const png = await renderBarcodePng(barcodeText);
           barcodeBuffers.set(barcodeText, png);
         } catch (err) {
           apiLogger.warn({ msg: "Barcode render failed", barcodeText, error: err instanceof Error ? err.message : "Unknown" });

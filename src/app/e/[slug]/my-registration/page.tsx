@@ -444,11 +444,28 @@ export default function EventMyRegistrationPage() {
                           </div>
                         )}
                         {reg.qrCode && (
-                          <div className="flex items-center gap-3">
-                            <Barcode className="h-5 w-5 text-slate-500" />
+                          <div className="flex items-start gap-3">
+                            <Barcode className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
                             <div>
-                              <p className="text-xs text-muted-foreground">Barcode</p>
-                              <p className="font-mono text-sm font-medium tracking-wider">{reg.qrCode}</p>
+                              <p className="text-xs text-muted-foreground mb-1">Entry Barcode</p>
+                              {/* Scannable Code 128 image (matches the printed
+                                  badge). The endpoint 404s when no barcode
+                                  exists, but we gate on the value so it's only
+                                  requested when present. `unoptimized` — the
+                                  PNG is already small and must NOT pass through
+                                  Next's optimizer, which would re-encode it and
+                                  risk blurring the bars enough to break scanning. */}
+                              <Image
+                                src={`/api/registrant/registrations/${reg.id}/barcode`}
+                                alt="Entry barcode"
+                                width={260}
+                                height={64}
+                                unoptimized
+                                className="h-16 w-auto max-w-[260px] rounded bg-white p-2 border border-slate-200"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Show this at the registration desk for check-in.
+                              </p>
                             </div>
                           </div>
                         )}

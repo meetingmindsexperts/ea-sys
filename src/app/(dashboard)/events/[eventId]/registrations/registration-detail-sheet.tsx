@@ -1760,6 +1760,25 @@ export function RegistrationDetailSheet({
                     <Barcode className="h-4 w-4 text-slate-400" />
                     Barcodes
                   </h3>
+                  {/* Scannable Code 128 image (byte-identical to the printed
+                      badge). Rendered server-side via bwip-js; the endpoint
+                      prefers qrCode, falls back to dtcmBarcode. Gated on the
+                      value so the endpoint is only hit when a barcode exists. */}
+                  {(selectedRegistration.qrCode || selectedRegistration.dtcmBarcode) && (
+                    <div className="flex justify-center rounded-lg bg-white border border-slate-200 p-3">
+                      {/* `unoptimized` — barcode PNG must bypass Next's image
+                          optimizer; re-encoding could blur the bars and break
+                          scanning. */}
+                      <Image
+                        src={`/api/events/${eventId}/registrations/${selectedRegistration.id}/barcode`}
+                        alt="Registration barcode"
+                        width={320}
+                        height={64}
+                        unoptimized
+                        className="h-16 w-auto max-w-full"
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <div className="font-semibold text-sm flex items-center gap-2">
