@@ -31,11 +31,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Verify event access
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      select: { id: true, requiresDtcmBarcode: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // DTCM barcodes are a Dubai (DET/DTCM) compliance artifact — only
+    // importable for events flagged as Dubai. Mirrors the gated DTCM field
+    // and the hidden "Import Barcodes" button so the model stays coherent.
+    if (!event.requiresDtcmBarcode) {
+      apiLogger.warn({ msg: "barcode-import:event-not-dtcm-flagged", eventId, userId: session.user.id });
+      return NextResponse.json(
+        { error: "DTCM barcodes only apply to Dubai events. Enable 'Requires DTCM barcode' in Settings → Registration first." },
+        { status: 400 },
+      );
     }
 
     const formData = await req.formData();

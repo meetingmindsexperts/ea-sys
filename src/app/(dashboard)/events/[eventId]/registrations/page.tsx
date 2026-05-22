@@ -329,7 +329,10 @@ export default function RegistrationsPage() {
                 </Button>
               )}
               <CSVImportButton eventId={eventId} entityType="registrations" />
-              <BarcodeImportDialog eventId={eventId} />
+              {/* DTCM barcode import is Dubai-only — only surface it when the
+                  event is flagged (Settings → Registration). Keeps the import
+                  path consistent with the now-gated DTCM field. */}
+              {event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
               <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
               <ImportContactsButton eventId={eventId} mode="registration" />
               <Button asChild className="btn-gradient shadow-sm">
