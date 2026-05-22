@@ -391,7 +391,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           attendeeId: attendee.id,
           serialId,
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
-          paymentStatus: finalPrice === 0 ? "PAID" : "UNPAID",
+          // A zero-price registration (free ticket, or a promo code that
+          // discounts to 0) never goes through Stripe, so PAID is the wrong
+          // signal — there was no payment. COMPLIMENTARY is the correct
+          // "no money due" status, consistent with the service layer's
+          // free-ticket default and the CSV import path.
+          paymentStatus: finalPrice === 0 ? "COMPLIMENTARY" : "UNPAID",
           qrCode: generatedBarcode,
           promoCodeId: promoCodeRecord?.id || null,
           discountAmount: discountAmount > 0 ? discountAmount : null,

@@ -87,6 +87,36 @@ export default function NewRegistrationPage() {
     return tt?.pricingTiers ?? [];
   })();
 
+  /**
+   * Auto-default the payment status when the ticket/tier selection resolves
+   * to a free registration: free → COMPLIMENTARY (no Stripe charge ever
+   * happens), and revert COMPLIMENTARY → UNASSIGNED when switching back to a
+   * paid selection. Explicit admin choices (PAID / UNPAID / INCLUSIVE) are
+   * preserved — we only ever flip into/out of the COMPLIMENTARY auto-default.
+   */
+  const paymentStatusForSelection = (
+    ticketTypeId: string,
+    pricingTierId: string,
+    current: PaymentStatus,
+  ): PaymentStatus => {
+    const tt = (ticketTypes as TicketType[]).find((t) => t.id === ticketTypeId);
+    const tiers = tt?.pricingTiers ?? [];
+    let isFree: boolean;
+    if (!ticketTypeId || !tt) {
+      isFree = true; // no type = no charge
+    } else if (pricingTierId) {
+      const tier = tiers.find((t) => t.id === pricingTierId);
+      isFree = tier ? Number(tier.price) === 0 : Number(tt.price) === 0;
+    } else if (tiers.length > 0) {
+      isFree = false; // tiered type with no tier picked yet — price undetermined
+    } else {
+      isFree = Number(tt.price) === 0;
+    }
+    if (isFree) return PaymentStatus.COMPLIMENTARY;
+    if (current === PaymentStatus.COMPLIMENTARY) return PaymentStatus.UNASSIGNED;
+    return current;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -196,13 +226,21 @@ export default function NewRegistrationPage() {
                 <Label htmlFor="ticketType">Type</Label>
                 <Select
                   value={formData.ticketTypeId}
-                  onValueChange={(value) => setFormData({
-                    ...formData,
-                    ticketTypeId: value === "__none__" ? "" : value,
-                    // Reset tier when ticket type changes — old tier likely
-                    // belongs to a different ticket type now.
-                    pricingTierId: "",
-                  })}
+                  onValueChange={(value) => {
+                    const ticketTypeId = value === "__none__" ? "" : value;
+                    setFormData({
+                      ...formData,
+                      ticketTypeId,
+                      // Reset tier when ticket type changes — old tier likely
+                      // belongs to a different ticket type now.
+                      pricingTierId: "",
+                      paymentStatus: paymentStatusForSelection(
+                        ticketTypeId,
+                        "",
+                        formData.paymentStatus,
+                      ),
+                    });
+                  }}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="No registration type (optional)" />
@@ -248,10 +286,18 @@ export default function NewRegistrationPage() {
                   <Label htmlFor="pricingTier">Pricing Tier</Label>
                   <Select
                     value={formData.pricingTierId}
-                    onValueChange={(value) => setFormData({
-                      ...formData,
-                      pricingTierId: value === "__none__" ? "" : value,
-                    })}
+                    onValueChange={(value) => {
+                      const pricingTierId = value === "__none__" ? "" : value;
+                      setFormData({
+                        ...formData,
+                        pricingTierId,
+                        paymentStatus: paymentStatusForSelection(
+                          formData.ticketTypeId,
+                          pricingTierId,
+                          formData.paymentStatus,
+                        ),
+                      });
+                    }}
                   >
                     <SelectTrigger id="pricingTier" className="w-full">
                       <SelectValue placeholder="Pick a tier (optional)" />

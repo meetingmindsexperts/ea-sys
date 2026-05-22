@@ -204,15 +204,18 @@ describe("Registration: ticket availability logic", () => {
 // ── Business logic: payment status ─────────────────────────────────────────
 
 describe("Registration: payment status derivation", () => {
-  it('sets PAID for free tickets (price = 0)', () => {
+  it('sets COMPLIMENTARY for free tickets (price = 0)', () => {
+    // Free registrations never touch Stripe, so PAID would be a lie —
+    // COMPLIMENTARY is the correct "no money due" status. Mirrors the
+    // public register route + EventsAir import + service-layer default.
     const price = 0;
-    const paymentStatus = Number(price) === 0 ? "PAID" : "UNPAID";
-    expect(paymentStatus).toBe("PAID");
+    const paymentStatus = Number(price) === 0 ? "COMPLIMENTARY" : "UNPAID";
+    expect(paymentStatus).toBe("COMPLIMENTARY");
   });
 
   it('sets UNPAID for paid tickets (price > 0)', () => {
     const price = 50;
-    const paymentStatus = Number(price) === 0 ? "PAID" : "UNPAID";
+    const paymentStatus = Number(price) === 0 ? "COMPLIMENTARY" : "UNPAID";
     expect(paymentStatus).toBe("UNPAID");
   });
 });

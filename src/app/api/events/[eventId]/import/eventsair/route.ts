@@ -161,7 +161,10 @@ export async function POST(req: Request, { params }: RouteParams) {
               attendeeId: attendee.id,
               serialId,
               status: defaultTicketType.requiresApproval ? "PENDING" : "CONFIRMED",
-              paymentStatus: Number(defaultTicketType.price) === 0 ? "PAID" : "UNPAID",
+              // Free ticket → COMPLIMENTARY (no payment ever taken), not PAID.
+              // Matches the public register + CSV import + service-layer
+              // free-ticket convention.
+              paymentStatus: Number(defaultTicketType.price) === 0 ? "COMPLIMENTARY" : "UNPAID",
               qrCode: generatedBarcode,
             },
           });

@@ -147,7 +147,25 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
               ) : (
                 <Select
                   value={formData.ticketTypeId}
-                  onValueChange={(value) => setFormData({ ...formData, ticketTypeId: value })}
+                  onValueChange={(value) => {
+                    // Auto-default a free ticket to COMPLIMENTARY (no Stripe
+                    // charge), reverting that auto-default when switching to a
+                    // paid type. Explicit admin choices (PAID/UNPAID/INCLUSIVE)
+                    // are preserved. This dialog has no tier picker, so "free"
+                    // = base price 0 with no active tiers.
+                    const tt = ticketTypes.find((t) => t.id === value);
+                    const hasActiveTiers = (tt?.pricingTiers ?? []).some((t) => t.isActive);
+                    const isFree = !!tt && !hasActiveTiers && Number(tt.price) === 0;
+                    setFormData((prev) => ({
+                      ...prev,
+                      ticketTypeId: value,
+                      paymentStatus: isFree
+                        ? "COMPLIMENTARY"
+                        : prev.paymentStatus === "COMPLIMENTARY"
+                          ? "UNASSIGNED"
+                          : prev.paymentStatus,
+                    }));
+                  }}
                   required
                 >
                   <SelectTrigger className="w-full">
