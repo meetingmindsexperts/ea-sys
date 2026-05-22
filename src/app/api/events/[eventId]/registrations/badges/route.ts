@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { getClientIp } from "@/lib/security";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng } from "@/lib/barcode";
 import PDFDocument from "pdfkit";
@@ -84,6 +85,40 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Use event's saved vertical offset, clamped to reasonable range
     const vOffset = Math.max(-200, Math.min(200, event.badgeVerticalOffset || 0));
     const pdfBuffer = await generateBadgePDF(registrations, vOffset);
+
+    // Record the print for analytics ("badges printed vs registered" +
+    // reprints). Awaited but failure-isolated — a tracking error must never
+    // block handing the operator their PDF. badgePrintedAt is set only on the
+    // first print (where still null); badgePrintCount bumps every time; the
+    // AuditLog row gives the per-print timeline + who/when.
+    const printedIds = registrations.map((r) => r.id);
+    try {
+      await db.$transaction([
+        db.registration.updateMany({
+          where: { id: { in: printedIds } },
+          data: { badgePrintCount: { increment: 1 } },
+        }),
+        db.registration.updateMany({
+          where: { id: { in: printedIds }, badgePrintedAt: null },
+          data: { badgePrintedAt: new Date() },
+        }),
+        db.auditLog.create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "BADGE_PRINTED",
+            entityType: "Registration",
+            entityId: `bulk:${printedIds.length}`,
+            // Cap the id list so a 1000-badge print doesn't bloat the row;
+            // the count is the headline figure for analytics.
+            changes: { count: printedIds.length, all: !!all, registrationIds: printedIds.slice(0, 200) },
+            ipAddress: getClientIp(req),
+          },
+        }),
+      ]);
+    } catch (err) {
+      apiLogger.error({ err, msg: "Failed to record badge-print analytics", eventId, count: printedIds.length });
+    }
 
     return new Response(new Uint8Array(pdfBuffer), {
       headers: {

@@ -368,6 +368,12 @@ model Registration {
   utmMedium      String?
   utmCampaign    String?
   checkedInAt    DateTime?
+  // Badge-print analytics: first-print timestamp + total prints (reprints
+  // bump the count). Set by the badge route; powers "badges printed vs
+  // registered" and reprint metrics. Per-print history lives in AuditLog
+  // (action BADGE_PRINTED).
+  badgePrintedAt DateTime?
+  badgePrintCount Int               @default(0)
   notes          String?            @db.Text
   // Billing details (for invoices/tax)
   taxNumber          String?
@@ -927,6 +933,9 @@ model AuditLog {
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
+  // Analytics time-series: "all CHECK_IN / BADGE_PRINTED actions for event E,
+  // bucketed by time" — without this the histogram queries full-scan.
+  @@index([eventId, action, createdAt])
 }
 
 model SystemLog {
