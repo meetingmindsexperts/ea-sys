@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
+import { computeEventAnalytics } from "@/lib/event-analytics";
 import type { ToolExecutor } from "./_shared";
 
 const getEventDashboard: ToolExecutor = async (_input, ctx) => {
@@ -297,6 +298,20 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Operational analytics — registration funnel, check-in timing + per-attendee
+// log, badge-print metrics, and revenue. Finance-bearing (revenue) so it's in
+// FINANCE_ONLY_AGENT_TOOLS; MCP/API-key callers are admin-equivalent.
+const getEventAnalytics: ToolExecutor = async (_input, ctx) => {
+  try {
+    const analytics = await computeEventAnalytics(ctx.eventId, { includeFinance: true });
+    if (!analytics) return { error: "Event not found" };
+    return analytics;
+  } catch (err) {
+    apiLogger.error({ err }, "agent:get_event_analytics failed");
+    return { error: "Failed to compute event analytics" };
+  }
+};
+
 // ─── Tranche B: Action / update tools ─────────────────────────────────────────
 
 export const DASHBOARD_TOOL_DEFINITIONS: Tool[] = [
@@ -305,10 +320,17 @@ export const DASHBOARD_TOOL_DEFINITIONS: Tool[] = [
     description: "Get comprehensive event statistics: registration counts by status, payment breakdown, speaker counts, session counts, abstract counts.",
     input_schema: { type: "object" as const, properties: {}, required: [] },
   },
+  {
+    name: "get_event_analytics",
+    description:
+      "Get operational analytics for the event: registration funnel (by status/type/tier/day), check-in metrics (rate, no-shows, by-hour rush curve, peak hour, by-staff) PLUS a per-attendee check-in log (name, email, time, who, scanned/manual), badge-print stats (printed vs registered, reprints), and revenue (collected by currency, outstanding). Use this for reporting / 'how did the event go' questions.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
 ];
 
 export const DASHBOARD_EXECUTORS: Record<string, ToolExecutor> = {
   get_event_dashboard: getEventDashboard,
   get_event_stats: getEventStats,
   search_event: searchEvent,
+  get_event_analytics: getEventAnalytics,
 };

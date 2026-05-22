@@ -51,6 +51,7 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
         firstName: true,
         lastName: true,
         email: true,
+        additionalEmail: true,
         organization: true,
         jobTitle: true,
         specialty: true,
@@ -221,6 +222,8 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     }
     if (input.firstName != null) updates.firstName = String(input.firstName).slice(0, 100);
     if (input.lastName != null) updates.lastName = String(input.lastName).slice(0, 100);
+    // Secondary CC inbox — empty string clears it.
+    if (input.additionalEmail !== undefined) updates.additionalEmail = String(input.additionalEmail ?? "").trim().slice(0, 255) || null;
     if (input.bio != null) updates.bio = String(input.bio).slice(0, 5000);
     if (input.organization != null) updates.organization = String(input.organization).slice(0, 255);
     if (input.jobTitle != null) updates.jobTitle = String(input.jobTitle).slice(0, 255);

@@ -145,6 +145,7 @@ export function registerAllMcpTools(
       eventType: z.enum(["CONFERENCE", "WEBINAR", "HYBRID"]).optional(),
       tag: z.string().optional(),
       specialty: z.string().optional(),
+      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only; default false."),
       status: z.enum(["DRAFT", "PUBLISHED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
     },
     async (input) => safeTool("create_event", () =>
@@ -213,7 +214,7 @@ export function registerAllMcpTools(
 
   server.tool(
     "update_event",
-    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, code (invoice-number prefix, 1-20 chars A-Z0-9-), taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
+    "Update an event's safe-to-change fields. Allowed: name, description, venue, address, city, country, tag, specialty, code (invoice-number prefix, 1-20 chars A-Z0-9-), taxRate (0-100), taxLabel, bankDetails, badgeVerticalOffset, requiresDtcmBarcode. EXPLICITLY REJECTS slug/startDate/endDate/eventType/timezone — those cascade to public URLs, scheduled emails, Zoom provisioning, and session times. Use the dashboard Settings page to change those.",
     {
       eventId: z.string(),
       name: z.string().optional(),
@@ -229,6 +230,7 @@ export function registerAllMcpTools(
       taxLabel: z.string().nullable().optional(),
       bankDetails: z.string().nullable().optional(),
       badgeVerticalOffset: z.number().optional(),
+      requiresDtcmBarcode: z.boolean().optional().describe("Dubai (DET/DTCM) compliance toggle — surfaces the DTCM barcode field. Dubai events only."),
     },
     async (input) => safeTool("update_event", () =>
       runTool("update_event", input, {
@@ -276,6 +278,7 @@ export function registerAllMcpTools(
     { name: "get_event_stats", description: "Get event statistics dashboard.", params: {} },
     // ─── Orchestration reads ───
     { name: "get_event_dashboard", description: "Get a rich dashboard snapshot: registration counts by status + payment, speaker counts, session counts (upcoming / live now / past), check-in rate, signed/unsigned agreements, recent 5 registrations, next session.", params: {} },
+    { name: "get_event_analytics", description: "Operational analytics for reporting: registration funnel (by status/type/tier/day), check-in metrics (rate, no-shows, by-hour rush curve, peak hour, by-staff) + per-attendee check-in log (name, email, time, who, scanned/manual), badge-print stats (printed vs registered, reprints), and revenue (collected by currency, outstanding).", params: {} },
     { name: "list_unpaid_registrations", description: "List registrations where paymentStatus is UNPAID/PENDING/FAILED and status is not CANCELLED. Sorted oldest first. Optional daysPending filter (only those older than N days).", params: {
       daysPending: z.number().optional(), limit: z.number().optional(),
     }},
@@ -314,6 +317,7 @@ export function registerAllMcpTools(
     { name: "create_track", description: "Create a track.", params: { name: z.string(), color: z.string().optional(), description: z.string().optional() }},
     { name: "create_speaker", description: "Add a speaker.", params: {
       email: z.string(), firstName: z.string(), lastName: z.string(),
+      additionalEmail: z.string().optional().describe("Secondary CC inbox auto-CC'd on speaker emails."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       bio: z.string().optional(), organization: z.string().optional(), jobTitle: z.string().optional(),
       status: z.enum(["INVITED", "CONFIRMED"]).optional(),
@@ -331,6 +335,7 @@ export function registerAllMcpTools(
     { name: "create_ticket_type", description: "Create a registration type.", params: { name: z.string(), description: z.string().optional() }},
     { name: "create_registration", description: "Register an attendee. For sponsor-paid attendees set paymentStatus='INCLUSIVE' and pass sponsorId (use list_sponsors to discover ids).", params: {
       email: z.string(), firstName: z.string(), lastName: z.string(), ticketTypeId: z.string(),
+      additionalEmail: z.string().optional().describe("Secondary CC inbox auto-CC'd on registration emails."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
       paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional(),
@@ -446,6 +451,7 @@ export function registerAllMcpTools(
         title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
         firstName: z.string().optional(),
         lastName: z.string().optional(),
+        additionalEmail: z.string().optional().describe("Secondary CC inbox. Empty string clears it."),
         organization: z.string().optional(),
         jobTitle: z.string().optional(),
         phone: z.string().optional(),
@@ -464,6 +470,7 @@ export function registerAllMcpTools(
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
+      additionalEmail: z.string().optional().describe("Secondary CC inbox. Empty string clears it."),
       bio: z.string().optional(),
       organization: z.string().optional(),
       jobTitle: z.string().optional(),

@@ -31,6 +31,9 @@ export function canViewFinance(role: string | null | undefined): boolean {
 export const FINANCE_ONLY_AGENT_TOOLS = new Set<string>([
   "list_invoices",
   "list_unpaid_registrations",
+  // Analytics carries revenue (collected/outstanding) — finance-restricted
+  // for the read-only MEMBER role on the in-app agent.
+  "get_event_analytics",
 ]);
 
 /**

@@ -29,6 +29,9 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
         country: true,
         specialty: true,
         eventType: true,
+        // Dubai (DET/DTCM) compliance toggle — surfaces whether the DTCM
+        // barcode field applies to this event.
+        requiresDtcmBarcode: true,
         _count: {
           select: {
             registrations: true,
@@ -184,6 +187,8 @@ const createEvent: ToolExecutor = async (input, ctx) => {
         eventType: (eventType as never) ?? null,
         tag: input.tag ? String(input.tag).slice(0, 255) : null,
         specialty: input.specialty ? String(input.specialty).slice(0, 255) : null,
+        // Dubai (DET/DTCM) compliance toggle — defaults off.
+        requiresDtcmBarcode: input.requiresDtcmBarcode === true,
         status: (status as never) ?? "DRAFT",
         registrationTermsHtml: DEFAULT_REGISTRATION_TERMS_HTML,
         speakerAgreementHtml: DEFAULT_SPEAKER_AGREEMENT_HTML,
@@ -254,6 +259,8 @@ const EVENT_UPDATE_FIELD_WHITELIST = new Set([
   "taxLabel",
   "bankDetails",
   "badgeVerticalOffset",
+  // Dubai (DET/DTCM) compliance toggle — safe boolean, no cascade.
+  "requiresDtcmBarcode",
 ]);
 const EVENT_UPDATE_FIELD_BLACKLIST = new Set([
   "slug",
@@ -364,6 +371,9 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
         return { error: "badgeVerticalOffset must be between -500 and 500", code: "INVALID_BADGE_OFFSET" };
       }
       updates.badgeVerticalOffset = offset;
+    }
+    if (input.requiresDtcmBarcode !== undefined) {
+      updates.requiresDtcmBarcode = input.requiresDtcmBarcode === true;
     }
 
     if (Object.keys(updates).length === 0) {

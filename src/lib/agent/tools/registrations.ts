@@ -65,11 +65,22 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
         status: true,
         paymentStatus: true,
         createdAt: true,
+        // Check-in + badge analytics fields so the agent can read who's
+        // arrived and whose badge has been printed without a second call.
+        checkedInAt: true,
+        badgePrintedAt: true,
+        badgePrintCount: true,
+        // Barcodes — qrCode is the entry/check-in value; dtcmBarcode is the
+        // Dubai compliance code (present only on flagged events).
+        qrCode: true,
+        dtcmBarcode: true,
         attendee: {
           select: {
             firstName: true,
             lastName: true,
             email: true,
+            // Secondary CC inbox the registrant supplied.
+            additionalEmail: true,
             organization: true,
           },
         },
@@ -498,6 +509,8 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       }
       if (a.firstName != null) attendeeUpdates.firstName = String(a.firstName).slice(0, 100);
       if (a.lastName != null) attendeeUpdates.lastName = String(a.lastName).slice(0, 100);
+      // Secondary CC inbox — empty string clears it.
+      if (a.additionalEmail !== undefined) attendeeUpdates.additionalEmail = String(a.additionalEmail ?? "").trim().slice(0, 255) || null;
       if (a.organization != null) attendeeUpdates.organization = String(a.organization).slice(0, 255);
       if (a.jobTitle != null) attendeeUpdates.jobTitle = String(a.jobTitle).slice(0, 255);
       if (a.phone != null) attendeeUpdates.phone = String(a.phone).slice(0, 50);
