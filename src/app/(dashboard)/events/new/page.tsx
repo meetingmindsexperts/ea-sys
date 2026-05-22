@@ -24,6 +24,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -205,7 +206,10 @@ export default function NewEventPage() {
                     <FormItem>
                       <FormLabel>Specialty</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Cardiology, AI" {...field} />
+                        <SpecialtySelect
+                          value={field.value}
+                          onChange={field.onChange}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
