@@ -72,6 +72,7 @@ export default function CheckInPage() {
   const [scanning, setScanning] = useState(false);
   const [recentScans, setRecentScans] = useState<ScanResult[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [inputFocused, setInputFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScanRef = useRef<string>("");
 
@@ -83,6 +84,23 @@ export default function CheckInPage() {
     if (mode === "manual") {
       inputRef.current?.focus();
     }
+  }, [mode]);
+
+  // Hardware barcode scanners are keyboard-wedge devices: they "type" the code
+  // into the focused field then send Enter. If focus drifts (operator taps the
+  // page, dismisses a notification, etc.) scans silently go nowhere — the #1
+  // real-world failure at a live check-in desk. So in manual mode, refocus the
+  // input whenever the operator clicks anywhere that isn't an interactive
+  // control (button / link / another input).
+  useEffect(() => {
+    if (mode !== "manual") return;
+    const refocus = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, [role="button"]')) return;
+      inputRef.current?.focus();
+    };
+    document.addEventListener("click", refocus);
+    return () => document.removeEventListener("click", refocus);
   }, [mode]);
 
   const handleCheckIn = useCallback(async (code: string) => {
@@ -265,6 +283,8 @@ export default function CheckInPage() {
                     ref={inputRef}
                     value={manualInput}
                     onChange={(e) => setManualInput(e.target.value)}
+                    onFocus={() => setInputFocused(true)}
+                    onBlur={() => setInputFocused(false)}
                     placeholder="Scan or type barcode..."
                     className="pl-10 h-12 text-lg font-mono"
                     autoFocus
@@ -275,9 +295,27 @@ export default function CheckInPage() {
                   Check In
                 </Button>
               </form>
-              <p className="text-xs text-muted-foreground mt-2">
-                Point a hardware barcode scanner at this field, or type a barcode/QR code and press Enter.
-              </p>
+              <div className="flex items-center justify-between mt-2 gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Point a hardware barcode scanner at this field, or type a barcode/QR code and press Enter.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.focus()}
+                  className={`flex items-center gap-1.5 shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                    inputFocused
+                      ? "bg-green-50 text-green-700"
+                      : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  }`}
+                >
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      inputFocused ? "bg-green-500 animate-pulse" : "bg-amber-500"
+                    }`}
+                  />
+                  {inputFocused ? "Ready to scan" : "Tap to activate scanner"}
+                </button>
+              </div>
             </CardContent>
           </Card>
         )}

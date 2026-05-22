@@ -2,7 +2,7 @@
 
 A comprehensive record of every significant error, bug, and issue encountered in the project, organized by category. Each entry includes the root cause, the fix applied, and the files affected.
 
-**Last updated:** 2026-03-17
+**Last updated:** 2026-05-22
 
 ---
 
@@ -588,6 +588,22 @@ function getApiInstance() { /* create on first call */ }
 **Fix:** Changed to `useSyncExternalStore` — avoids hydration mismatch and lint warnings.
 
 **File:** `src/contexts/sidebar-context.tsx`
+
+---
+
+### U6 — Check-in camera scanner crashes the page ("Something went wrong") on tab switch
+
+**Error:** Switching from the Camera tab back to Scanner/Manual on the check-in page threw the dashboard error boundary ("Something went wrong"), with **no entry in `logs/app.log` or `docker logs`**.
+
+**Root cause:** Two issues.
+1. **stop/clear race.** In the `CameraScanner` unmount cleanup, `Html5Qrcode.stop()` is async but `clear()` was called synchronously immediately after — before `stop()` resolved. html5-qrcode's `clear()` throws `"Cannot clear while scan is in progress"` when the camera is still running. That throw escaped React's effect-cleanup and bubbled to `(dashboard)/error.tsx`.
+2. **Wrong place to look for the log.** It's a *client-side* error. Pino writes server-side only, so frontend crashes never reach `logs/app.log` / `docker logs` — they go to the browser console and **Sentry** (`error.tsx` → `Sentry.captureException`, tag `boundary: dashboard`). "Nothing in docker" was expected, not a logging bug.
+
+**Fix:** Sequenced teardown so cleanup never throws — null the ref first, then `stop().catch(()=>{}).then(() => { try { clear() } catch {} })`. Hardened `startCamera()` (tears down any lingering instance first → prevents "camera already in use" on re-entry) and `stopCamera()` (runs `clear()` even if `stop()` rejects). Camera-start failures now `console.error` with context + surface in the UI `error` state.
+
+**Files:** `src/app/(dashboard)/events/[eventId]/check-in/camera-scanner.tsx`
+
+**Prevention:** Any async-teardown library (camera, websocket, media stream) used in a React effect cleanup must sequence its async stop before any synchronous teardown call, and swallow errors — a cleanup throw bubbles to the nearest error boundary. For frontend error visibility, check Sentry, not docker.
 
 ---
 
