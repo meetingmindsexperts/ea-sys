@@ -12,6 +12,7 @@ import juice from "juice";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
+import { renderBarcodePng } from "./barcode";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,16 @@ export interface SendEmailParams {
     name: string;
     content: string; // Base64 encoded
     contentType?: string;
+    /**
+     * When set, the attachment is embedded INLINE (Content-ID) rather than
+     * offered as a download. Reference it from the HTML body via
+     * `<img src="cid:<contentId>">`. Used for the entry barcode in the
+     * registration confirmation so it renders offline in the recipient's
+     * inbox (no auth, no remote fetch — scannable at the desk months later).
+     * Pass the bare id (e.g. "reg-barcode"); the MIME builder wraps it in
+     * angle brackets.
+     */
+    contentId?: string;
   }>;
   /**
    * Optional audit context. Pass when the caller can identify which
@@ -234,7 +245,10 @@ const postmarkProvider: EmailProvider = {
           Name: att.name,
           Content: att.content,
           ContentType: att.contentType || "application/octet-stream",
-          ContentID: null,
+          // Postmark embeds an attachment inline when ContentID is set to
+          // `cid:<id>` (referenced from the HTML as `cid:<id>`); null = a
+          // normal download attachment.
+          ContentID: att.contentId ? `cid:${att.contentId}` : null,
         })),
       }),
       MessageStream: process.env.POSTMARK_MESSAGE_STREAM || "outbound",
@@ -318,14 +332,49 @@ const sesProvider: EmailProvider = {
 };
 
 /**
- * Build a raw RFC 5322 multipart/mixed MIME envelope for SES SendEmail.
- * Only used when the caller passes attachments (Quote PDF, agreement .docx,
- * etc.) — the Simple content path doesn't support attachments. Each
- * attachment is already base64-encoded by the caller; we just frame it.
+ * Build a raw RFC 5322 MIME envelope for SES SendEmail. Used when the caller
+ * passes attachments (Quote PDF, agreement .docx, etc.) — the Simple content
+ * path doesn't support them.
+ *
+ * Structure depends on whether any attachments are INLINE (have a contentId):
+ *
+ *   No inline images:
+ *     multipart/mixed
+ *       ├─ [multipart/alternative | text/html]   ← body
+ *       └─ <regular attachments>                 ← Content-Disposition: attachment
+ *
+ *   With inline images (e.g. the entry barcode):
+ *     multipart/mixed
+ *       ├─ multipart/related
+ *       │    ├─ [multipart/alternative | text/html]  ← body, references cid:
+ *       │    └─ <inline images>                       ← Content-ID, inline
+ *       └─ <regular attachments>
+ *
+ * Each attachment is already base64-encoded by the caller; we just frame it.
  */
-function buildRawMime(params: SendEmailParams, fromAddress: string): Uint8Array {
-  const boundary = `=_ea_sys_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  const altBoundary = `=_ea_sys_alt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+export function buildRawMime(params: SendEmailParams, fromAddress: string): Uint8Array {
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const mixed = `=_ea_mix_${suffix}`;
+  const related = `=_ea_rel_${suffix}`;
+  const alt = `=_ea_alt_${suffix}`;
+
+  const inlineAtts = (params.attachments ?? []).filter((a) => a.contentId);
+  const regularAtts = (params.attachments ?? []).filter((a) => !a.contentId);
+
+  // The body section — multipart/alternative when a plain-text part exists,
+  // otherwise a bare text/html part. Emitted as the lines that follow a
+  // boundary delimiter (Content-Type header → blank line → content).
+  const bodyLines: string[] = [];
+  if (params.textContent) {
+    bodyLines.push(
+      `Content-Type: multipart/alternative; boundary="${alt}"`, "",
+      `--${alt}`, 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.textContent,
+      `--${alt}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent,
+      `--${alt}--`,
+    );
+  } else {
+    bodyLines.push('Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent);
+  }
 
   const headers: string[] = [
     `From: ${fromAddress}`,
@@ -334,23 +383,36 @@ function buildRawMime(params: SendEmailParams, fromAddress: string): Uint8Array 
     ...(params.replyTo ? [`Reply-To: ${formatAddress(params.replyTo)}`] : []),
     `Subject: ${encodeRfc2047(params.subject)}`,
     "MIME-Version: 1.0",
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
   ];
 
-  const body: string[] = [`--${boundary}`];
+  const body: string[] = [`--${mixed}`];
 
-  if (params.textContent) {
-    body.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`, "");
-    body.push(`--${altBoundary}`, 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.textContent);
-    body.push(`--${altBoundary}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent);
-    body.push(`--${altBoundary}--`);
+  if (inlineAtts.length > 0) {
+    // Body + inline images live together inside a multipart/related so the
+    // HTML's cid: references resolve to the sibling image parts.
+    body.push(`Content-Type: multipart/related; boundary="${related}"`, "");
+    body.push(`--${related}`, ...bodyLines);
+    for (const att of inlineAtts) {
+      body.push(
+        `--${related}`,
+        `Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-ID: <${att.contentId}>`,
+        `Content-Disposition: inline; filename="${att.name}"`,
+        "",
+        att.content.replace(/(.{76})/g, "$1\r\n"),
+      );
+    }
+    body.push(`--${related}--`);
   } else {
-    body.push('Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", params.htmlContent);
+    body.push(...bodyLines);
   }
 
-  for (const att of params.attachments ?? []) {
+  // Regular (download) attachments hang off the outer multipart/mixed.
+  for (const att of regularAtts) {
     body.push(
-      `--${boundary}`,
+      `--${mixed}`,
       `Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
       "Content-Transfer-Encoding: base64",
       `Content-Disposition: attachment; filename="${att.name}"`,
@@ -358,7 +420,7 @@ function buildRawMime(params: SendEmailParams, fromAddress: string): Uint8Array 
       att.content.replace(/(.{76})/g, "$1\r\n"),
     );
   }
-  body.push(`--${boundary}--`);
+  body.push(`--${mixed}--`);
 
   return new TextEncoder().encode(headers.join("\r\n") + "\r\n\r\n" + body.join("\r\n"));
 }
@@ -1973,16 +2035,49 @@ export async function sendRegistrationConfirmation(params: {
     return { success: false, error: "Email template not found" };
   }
 
-  // Render HTML with raw paymentBlock (contains HTML), text with plain text version
+  // Entry barcode — embedded INLINE (cid:reg-barcode) so it renders offline
+  // in the recipient's inbox and stays scannable at the registration desk
+  // even months later, with no auth and no remote fetch. Rendered from the
+  // immutable qrCode via the same helper the badge uses (includetext so the
+  // digits sit under the bars). Failure is non-fatal — the email still sends
+  // without the barcode, and the badge/portal remain as fallbacks.
+  let barcodeAttachment: NonNullable<SendEmailParams["attachments"]>[number] | null = null;
+  let barcodeBlock = "";
+  let barcodeBlockText = "";
+  if (params.qrCode) {
+    try {
+      const png = await renderBarcodePng(params.qrCode, { includetext: true });
+      barcodeAttachment = {
+        name: "entry-barcode.png",
+        content: png.toString("base64"),
+        contentType: "image/png",
+        contentId: "reg-barcode",
+      };
+      barcodeBlock = `<div style="text-align:center; margin:24px 0; padding:16px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px;">
+        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#6b7280; font-weight:600;">YOUR ENTRY BARCODE</p>
+        <img src="cid:reg-barcode" alt="Entry barcode" style="display:block; margin:0 auto; max-width:280px; height:auto;" />
+        <p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in.</p>
+      </div>`;
+      barcodeBlockText = `\n\nYour entry barcode: ${params.qrCode}\nShow this at the registration desk for check-in.`;
+    } catch (err) {
+      apiLogger.error({ err, msg: "Failed to render entry barcode for confirmation email", registrationId: params.registrationId });
+    }
+  }
+
+  // Render HTML with raw paymentBlock (contains HTML), text with plain text
+  // version. The barcode block is appended after the template body so it
+  // shows regardless of whether a DB-overridden template includes a
+  // placeholder for it.
   const subject = renderTemplatePlain(template.subject, vars);
-  const bodyHtml = renderTemplate(template.htmlContent, vars, new Set(["paymentBlock"]));
+  const bodyHtml = renderTemplate(template.htmlContent, vars, new Set(["paymentBlock"])) + barcodeBlock;
   const wrapped = wrapWithBranding(bodyHtml, branding);
   const htmlContent = inlineCss(wrapped);
   const textVars = { ...vars, paymentBlock: paymentBlockText };
-  const textContent = renderTemplatePlain(template.textContent, textVars);
+  const textContent = renderTemplatePlain(template.textContent, textVars) + barcodeBlockText;
 
-  // Generate quote PDF attachment if price > 0
-  let attachments: SendEmailParams["attachments"];
+  // Attachments: inline barcode (if rendered) + quote PDF for paid tickets.
+  const attachments: NonNullable<SendEmailParams["attachments"]> = [];
+  if (barcodeAttachment) attachments.push(barcodeAttachment);
   if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName) {
     try {
       const { generateQuotePDF } = await import("@/lib/quote-pdf");
@@ -2027,11 +2122,11 @@ export async function sendRegistrationConfirmation(params: {
         taxId: params.taxId || null,
         logoPath: params.logoPath || null,
       });
-      attachments = [{
+      attachments.push({
         name: `quote-${params.registrationId.slice(-8)}.pdf`,
         content: pdfBuffer.toString("base64"),
         contentType: "application/pdf",
-      }];
+      });
     } catch (err) {
       apiLogger.error({ err, msg: "Failed to generate quote PDF for email attachment" });
     }
@@ -2044,7 +2139,9 @@ export async function sendRegistrationConfirmation(params: {
     htmlContent,
     textContent,
     from: brandingFrom(branding),
-    attachments,
+    // Empty → undefined so a barcode-less, quote-less confirmation still
+    // uses SES's Simple content path instead of raw MIME.
+    attachments: attachments.length ? attachments : undefined,
     emailType: "registration_confirmation",
     stream: "transactional",
     logContext: {
