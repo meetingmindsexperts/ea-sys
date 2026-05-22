@@ -19,17 +19,39 @@ export default function CameraScanner({ onScan }: CameraScannerProps) {
 
   useEffect(() => {
     return () => {
-      // Cleanup on unmount
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch((err) => console.error("Failed to stop camera scanner", err));
-        scannerRef.current.clear();
-        scannerRef.current = null;
-      }
+      // Cleanup on unmount (e.g. switching back to the Scanner/Manual tab).
+      // stop() is ASYNC; clear() throws "Cannot clear while scan is in progress"
+      // if called before stop() resolves. A throw here escapes into React's
+      // effect-cleanup and bubbles to the dashboard error boundary
+      // ("Something went wrong"). So: null the ref first, then sequence
+      // stop() -> clear() and swallow every error — a teardown failure must
+      // never crash the page.
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+      if (!scanner) return;
+      Promise.resolve()
+        .then(() => scanner.stop())
+        .catch(() => { /* not scanning / already stopped */ })
+        .then(() => {
+          try {
+            scanner.clear();
+          } catch {
+            /* element already gone */
+          }
+        });
     };
   }, []);
 
   const startCamera = async () => {
     setError(null);
+    // Defensive: tear down any lingering instance before starting a new one,
+    // otherwise the browser can report the camera as already in use.
+    if (scannerRef.current) {
+      const old = scannerRef.current;
+      scannerRef.current = null;
+      try { await old.stop(); } catch { /* not scanning */ }
+      try { old.clear(); } catch { /* already cleared */ }
+    }
     try {
       const scanner = new Html5Qrcode(containerId);
       scannerRef.current = scanner;
@@ -51,19 +73,20 @@ export default function CameraScanner({ onScan }: CameraScannerProps) {
       setStarted(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Camera access denied";
+      // Surface in the UI (no server logger on the client) + browser console
+      // with context so it's findable in devtools / Sentry breadcrumbs.
+      console.error("[check-in] camera start failed", err);
       setError(msg);
+      scannerRef.current = null;
     }
   };
 
   const stopCamera = async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch {
-        // Ignore stop errors
-      }
-      scannerRef.current = null;
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (scanner) {
+      try { await scanner.stop(); } catch { /* not scanning */ }
+      try { scanner.clear(); } catch { /* already cleared */ }
     }
     setStarted(false);
   };
