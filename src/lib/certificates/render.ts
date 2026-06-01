@@ -348,19 +348,33 @@ function drawTitleBlock(doc: PDFDoc, data: CertificateData, topBandY: number): n
   const titleBaseline = y + sizes.titleMain * 0.7;
 
   // Left + right horizontal rules flanking the main title — short navy
-  // lines (gold would clash with the navy title). The flourish that
-  // distinguishes "ceremonial heading" from "bold text".
+  // lines with a small navy diamond at the inner end of each rule
+  // (closest to the title). The diamond detail distinguishes
+  // "ceremonial heading" from "ruled text" — engraved feel.
+  const ruleInner = 3;
+  doc.save().lineWidth(0.75).strokeColor(colors.title);
+  // Left rule + diamond
   doc
-    .save()
-    .lineWidth(0.75)
-    .strokeColor(colors.title)
     .moveTo(titleX - sizes.titleRuleGap - sizes.titleRuleWidth, titleBaseline)
-    .lineTo(titleX - sizes.titleRuleGap, titleBaseline)
-    .stroke()
-    .moveTo(titleX + titleWidth + sizes.titleRuleGap, titleBaseline)
+    .lineTo(titleX - sizes.titleRuleGap - ruleInner * 2, titleBaseline)
+    .stroke();
+  // Right rule + diamond
+  doc
+    .moveTo(titleX + titleWidth + sizes.titleRuleGap + ruleInner * 2, titleBaseline)
     .lineTo(titleX + titleWidth + sizes.titleRuleGap + sizes.titleRuleWidth, titleBaseline)
-    .stroke()
-    .restore();
+    .stroke();
+  // Diamonds at the inner ends.
+  doc.fillColor(colors.title);
+  for (const x of [titleX - sizes.titleRuleGap - ruleInner, titleX + titleWidth + sizes.titleRuleGap + ruleInner]) {
+    doc
+      .moveTo(x, titleBaseline - ruleInner)
+      .lineTo(x + ruleInner, titleBaseline)
+      .lineTo(x, titleBaseline + ruleInner)
+      .lineTo(x - ruleInner, titleBaseline)
+      .closePath()
+      .fill();
+  }
+  doc.restore();
 
   doc.fillColor(colors.title).text(copy.titleMain, 0, y, {
     align: "center",
@@ -391,15 +405,15 @@ function drawRecipientBlock(doc: PDFDoc, titleSubBottomY: number, data: Certific
   const introLine = copyForType(data).recipientIntro;
   let y = titleSubBottomY + spacing.titleSubToBody;
 
-  // Every variable-length text in this block uses drawWrappedCentered
-  // — wraps within innerContentWidth instead of overflowing past the
-  // border. Caught in CEO/MD review when a long poster abstract title
-  // bled past the right border (issue: lineBreak: false everywhere
-  // prevented pagination but also prevented wrapping).
+  // Recipient intro ("This is to certify that" / "is hereby presented
+  // to") rendered in italic — diploma convention differentiates the
+  // cred. statement from the rest of the body text. Times-Italic
+  // matches the recipient name's font family below, creating typographic
+  // coherence in the central focal block.
   y = drawWrappedCentered(doc, introLine, y, {
-    font: fonts.body,
-    size: sizes.body,
-    color: colors.text,
+    font: fonts.recipient, // Times-Italic
+    size: sizes.body + 1,
+    color: colors.muted,
   });
   y += spacing.bodyToRecipient;
 

@@ -85,14 +85,22 @@ export const CERT_TOKENS = {
     //   ~80% cerulean → #2baedc   saturated
     borderInner: "#7bc9db",
     borderMid: "#c0e5ec",
-    cornerOrnament: "#2baedc",
+    // Corner-rosette centers get the FULL saturated cerulean — these
+    // are focal-point ornaments that should read crisply. Petals stay
+    // softer for hierarchy. The pop on the rosette centers is what
+    // saves the corners from feeling washed-out against cream.
+    cornerOrnament: "#00aade",
     cornerOrnamentPetal: "#7bc9db",
     dividerOrnament: "#7bc9db",
     // The strong-saturated cerulean — kept for the celebratory moments:
     // the "OF ATTENDANCE" subtitle, the "18 CPD Hours" number. Two-tier
     // cerulean hierarchy: pale shades for ornaments, strong for emphasis.
     cmeHighlight: "#00aade",
-    watermarkOpacity: 0.04,
+    // 0.025 sits just below text-legibility — the eye registers a
+    // presence behind the content as "this paper has a watermark"
+    // without the watermark competing with text legibility (the
+    // 0.04 from the prior round was visible enough to read).
+    watermarkOpacity: 0.025,
     // Accreditor panel — cream-on-cream callout with a pale-cerulean border.
     accreditorBoxBg: "#fffaee",
     accreditorBoxBorder: "#7bc9db",
@@ -118,7 +126,11 @@ export const CERT_TOKENS = {
     serial: "Helvetica",
   },
   sizes: {
-    logoHeight: 56,
+    // Logo bumped 56→72 — diploma convention has a more prominent
+    // identity mark at the top, and 56 read as timid against the
+    // huge title below it. Aspect ratio preserved via pdfkit's
+    // `fit: [w, h]` so we don't hardcode the logo's width.
+    logoHeight: 72,
     // Title is now split into TWO lines (matching the design references):
     //   "CERTIFICATE"  — huge, navy, ALL CAPS (the headline)
     //   "OF ATTENDANCE" / "OF CME" / etc — smaller, cerulean accent (the type)
