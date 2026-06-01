@@ -40,6 +40,12 @@ export const CERT_TOKENS = {
     cornerOrnamentSize: 6,
   },
   colors: {
+    // Page background — warm cream/parchment instead of stark white.
+    // The #fbf6e8 → #f5ecd2 vertical gradient gives subtle depth, like
+    // aged paper. THIS is the single change that flipped the cert from
+    // "form" to "diploma." (2026-06-01 — Phase B iteration round 2.)
+    bgTop: "#fbf6e8",
+    bgBottom: "#f5ecd2",
     text: "#111111",
     muted: "#4a5568",
     soft: "#7a8499",
@@ -47,15 +53,24 @@ export const CERT_TOKENS = {
     title: "#1a2e5a",
     // Borders — navy outer, gold inner, the classic cert pairing.
     borderOuter: "#1a2e5a",
-    borderInner: "#c9a13c",
-    cornerOrnament: "#c9a13c",
-    dividerOrnament: "#c9a13c",
+    borderInner: "#b8862c", // deeper gold than v1 — more saturated against cream
+    borderMid: "#d4af5c",   // pale-gold third rule between outer + inner (triple border)
+    cornerOrnament: "#b8862c",
+    cornerOrnamentPetal: "#c9a13c",
+    dividerOrnament: "#b8862c",
     // The one cerulean accent — the CME hours number. MMG brand peeks
     // through at the most celebratory moment.
     cmeHighlight: "#00aade",
-    // Accreditor panel — subtle off-white with a navy header rule.
-    accreditorBoxBg: "#fbfbf6",
-    accreditorBoxBorder: "#c9a13c",
+    // Watermark MME logo behind content — opacity is applied via
+    // doc.opacity() rather than this color, but the color sets the tone.
+    // 0.04 sits just at the edge of perceptibility — the eye registers
+    // a presence behind the content without being able to read the
+    // logo (which would distract from the recipient's name).
+    watermarkOpacity: 0.04,
+    // Accreditor panel — slightly warmer cream than the page bg so it
+    // visually pops out as a "callout" against the parchment.
+    accreditorBoxBg: "#fffaee",
+    accreditorBoxBorder: "#b8862c",
     accreditorHeaderText: "#1a2e5a",
     accreditorBodyText: "#1a1a1a",
     accreditorMeta: "#4a5568",

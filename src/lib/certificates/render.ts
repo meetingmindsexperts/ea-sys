@@ -58,7 +58,15 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
   const doc = new PDFDocument({
     size: "A4",
     layout: "landscape",
-    margin: layout.margin,
+    // Document margins set to 0 — we manage layout absolutely via the
+    // tokens, and pdfkit's auto-pagination triggers when text crosses
+    // `pageHeight - bottomMargin`. With margin: 60 (the default-ish),
+    // the cert overflowed onto page 2 the moment we added the
+    // decorative top band. Setting margins to 0 means pdfkit never
+    // paginates the cert — exactly what we want for a single-page
+    // certificate. Belt-and-suspenders alongside `lineBreak: false`
+    // on every text() call.
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
     info: {
       Title: titleForType(data),
       Author: data.event.organizationName,
@@ -74,9 +82,16 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
     doc.on("error", reject);
   });
 
+  // Draw order is intentional — each step sits visually on top of the
+  // previous. Background and watermark first (deepest layer), then
+  // borders, then content. The watermark goes between background and
+  // borders so the borders aren't dimmed by it.
+  drawBackground(doc);
+  drawWatermark(doc);
   drawBorder(doc);
   const logoBottomY = drawLogo(doc);
-  const subtitleBottomY = drawTitleBlock(doc, data, logoBottomY);
+  drawTopBand(doc, logoBottomY);
+  const subtitleBottomY = drawTitleBlock(doc, data, logoBottomY + spacing.logoToTitle * 0.4);
   const recipientBottomY = drawRecipientBlock(doc, subtitleBottomY, data);
   const eventBottomY = drawEventBlock(doc, data, recipientBottomY);
   if (data.type === "CME") {
@@ -90,10 +105,55 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
 
 // ── Block renderers ──────────────────────────────────────────────────────────
 
+/**
+ * Cream/parchment background fill, full page. Single change that flipped
+ * the cert from "form" to "diploma" — Phase B iteration round 2. Subtle
+ * top-to-bottom gradient adds depth without distracting from content.
+ */
+function drawBackground(doc: PDFDoc) {
+  // pdfkit supports linear gradients via `linearGradient(x1,y1,x2,y2).stop()`.
+  // Vertical gradient (top to bottom) gives the "page sat in the sun a
+  // while" parchment feel that a flat fill can't.
+  const grad = doc
+    .linearGradient(0, 0, 0, layout.height)
+    .stop(0, colors.bgTop)
+    .stop(1, colors.bgBottom);
+  doc.save().rect(0, 0, layout.width, layout.height).fill(grad).restore();
+}
+
+/**
+ * Large faint MME logo behind the content as a watermark/seal. Embossed-
+ * look without needing PDF transparency tricks — just very low opacity.
+ * Centered both axes. Sized to roughly fill the inner content area so
+ * it reads as the cert's "underlay" rather than a decoration.
+ */
+function drawWatermark(doc: PDFDoc) {
+  if (!MME_LOGO_BUFFER) return;
+  const innerW = layout.width - 2 * layout.borderInnerInset;
+  const innerH = layout.height - 2 * layout.borderInnerInset;
+  // Fit the watermark inside a centered box ~60% of the inner cert area
+  // — large enough to feel like a seal, small enough not to overpower.
+  const wmBox = Math.min(innerW, innerH) * 0.6;
+  doc.save();
+  doc.opacity(colors.watermarkOpacity);
+  doc.image(MME_LOGO_BUFFER, (layout.width - wmBox) / 2, (layout.height - wmBox) / 2, {
+    fit: [wmBox, wmBox],
+    align: "center",
+  });
+  doc.restore();
+}
+
+/**
+ * Triple-line border (navy outer thick, pale-gold middle hairline, deeper
+ * gold inner hairline) + rosette ornaments at each inner corner. The
+ * triple line is the convention for "this is a real diploma" — single line
+ * looks like a form, triple line is unmistakably ceremonial.
+ */
 function drawBorder(doc: PDFDoc) {
-  // Outer thick frame (navy).
+  doc.save();
+
+  // Outer thick navy frame.
   doc
-    .save()
     .lineWidth(layout.borderStrokeOuter)
     .strokeColor(colors.borderOuter)
     .rect(
@@ -102,7 +162,25 @@ function drawBorder(doc: PDFDoc) {
       layout.width - 2 * layout.borderOuterInset,
       layout.height - 2 * layout.borderOuterInset,
     )
-    .stroke()
+    .stroke();
+
+  // Middle pale-gold hairline at the midpoint between outer and inner.
+  // This is the "third line" that does most of the visual work for the
+  // diploma feel.
+  const midInset = (layout.borderOuterInset + layout.borderInnerInset) / 2;
+  doc
+    .lineWidth(0.3)
+    .strokeColor(colors.borderMid)
+    .rect(
+      midInset,
+      midInset,
+      layout.width - 2 * midInset,
+      layout.height - 2 * midInset,
+    )
+    .stroke();
+
+  // Inner thin deeper-gold frame.
+  doc
     .lineWidth(layout.borderStrokeInner)
     .strokeColor(colors.borderInner)
     .rect(
@@ -113,10 +191,10 @@ function drawBorder(doc: PDFDoc) {
     )
     .stroke();
 
-  // Corner ornaments — small gold diamonds at each inner corner. Tiny
-  // decorative flourish that lifts the formality from "framed rectangle"
-  // to "framed cert with intentional design."
-  const s = layout.cornerOrnamentSize;
+  // Corner rosettes — central filled circle + 4 small petals around it.
+  // Replaces the v1 single-diamond corner ornament. Each rosette is
+  // small but visually intricate; together they make the corners feel
+  // engraved rather than ruled.
   const inset = layout.borderInnerInset;
   const corners: Array<[number, number]> = [
     [inset, inset],
@@ -124,14 +202,67 @@ function drawBorder(doc: PDFDoc) {
     [layout.width - inset, layout.height - inset],
     [inset, layout.height - inset],
   ];
-  doc.fillColor(colors.cornerOrnament);
-  for (const [x, y] of corners) {
-    // Diamond = 45° rotated square. pdfkit doesn't have a primitive so
-    // we draw the 4-point polygon directly.
-    doc.moveTo(x, y - s).lineTo(x + s, y).lineTo(x, y + s).lineTo(x - s, y).closePath().fill();
+  for (const [cx, cy] of corners) {
+    drawRosette(doc, cx, cy);
   }
 
   doc.restore();
+}
+
+/**
+ * Small ornate corner ornament — central deeper-gold circle with 4
+ * lighter-gold petal circles arranged at the cardinal points. Easy to
+ * read at full size, evokes engraved cert flourishes without needing
+ * actual filigree (which would require custom paths or a vector asset).
+ */
+function drawRosette(doc: PDFDoc, cx: number, cy: number) {
+  const petalRadius = 2.2;
+  const petalDistance = 4.5;
+  const centerRadius = 2.6;
+  doc.save();
+
+  // Petals first (lighter gold) so the center sits on top.
+  doc.fillColor(colors.cornerOrnamentPetal);
+  doc.circle(cx, cy - petalDistance, petalRadius).fill();
+  doc.circle(cx + petalDistance, cy, petalRadius).fill();
+  doc.circle(cx, cy + petalDistance, petalRadius).fill();
+  doc.circle(cx - petalDistance, cy, petalRadius).fill();
+
+  // Center disc (deeper gold).
+  doc.fillColor(colors.cornerOrnament).circle(cx, cy, centerRadius).fill();
+
+  doc.restore();
+}
+
+/**
+ * Thin decorative band under the logo — short horizontal rule with a
+ * small diamond ornament at its midpoint. Visually closes the top
+ * region of the cert before the title. Same pattern as the
+ * recipient-name divider but smaller; deliberate consistency.
+ */
+function drawTopBand(doc: PDFDoc, logoBottomY: number) {
+  const cx = layout.width / 2;
+  const bandY = logoBottomY + 8;
+  const lineW = 80;
+  const ornament = 3;
+  doc
+    .save()
+    .strokeColor(colors.dividerOrnament)
+    .fillColor(colors.dividerOrnament)
+    .lineWidth(0.6)
+    .moveTo(cx - lineW, bandY)
+    .lineTo(cx - ornament - 2, bandY)
+    .stroke()
+    .moveTo(cx + ornament + 2, bandY)
+    .lineTo(cx + lineW, bandY)
+    .stroke()
+    .moveTo(cx, bandY - ornament)
+    .lineTo(cx + ornament, bandY)
+    .lineTo(cx, bandY + ornament)
+    .lineTo(cx - ornament, bandY)
+    .closePath()
+    .fill()
+    .restore();
 }
 
 /** Returns the Y coordinate immediately below the logo block. */
