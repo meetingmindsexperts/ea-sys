@@ -32,6 +32,7 @@ import {
   ImageIcon,
   Video,
   Award,
+  GraduationCap,
   ClipboardCheck,
   HelpCircle,
   BarChart3,
@@ -104,6 +105,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
     label: "Tools",
     items: [
       { name: "Communications", href: "/communications", icon: Mail },
+      { name: "Certificates",   href: "/certificates",   icon: GraduationCap },
       { name: "Media",          href: "/media",          icon: ImageIcon },
       { name: "Sponsors",       href: "/sponsors",       icon: Award },
       { name: "AI Agent",       href: "/agent",          icon: Bot },

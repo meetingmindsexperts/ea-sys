@@ -11,25 +11,25 @@ datasource db {
 // ==================== CORE ENTITIES ====================
 
 model Organization {
-  id           String   @id @default(cuid())
-  name         String
-  slug         String   @unique
-  logo         String?
-  primaryColor String?  @map("primary_color")
-  settings     Json     @default("{}")
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  logo           String?
+  primaryColor   String?  @map("primary_color")
+  settings       Json     @default("{}")
   // Billing/Company info (for invoice "From" section)
-  companyName      String?
-  companyAddress   String?   @db.Text
-  companyCity      String?
-  companyState     String?
-  companyZipCode   String?
-  companyCountry   String?
-  companyPhone     String?
-  companyEmail     String?
-  taxId            String?
-  invoicePrefix    String?   @default("INV")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  companyName    String?
+  companyAddress String?  @db.Text
+  companyCity    String?
+  companyState   String?
+  companyZipCode String?
+  companyCountry String?
+  companyPhone   String?
+  companyEmail   String?
+  taxId          String?
+  invoicePrefix  String?  @default("INV")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   users           User[]
   events          Event[]
@@ -43,39 +43,40 @@ model Organization {
 }
 
 model User {
-  id             String    @id @default(cuid())
-  organizationId String?
-  email          String    @unique
-  passwordHash   String
-  firstName      String
-  lastName       String
-  role           UserRole  @default(ORGANIZER)
-  specialty      String?
-  emailVerified    DateTime?
-  termsAcceptedAt  DateTime?
-  termsAcceptedIp  String?
-  image            String?
-  emailSignature   String?   @db.Text
-  createdAt        DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  organizationId  String?
+  email           String    @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  role            UserRole  @default(ORGANIZER)
+  specialty       String?
+  emailVerified   DateTime?
+  termsAcceptedAt DateTime?
+  termsAcceptedIp String?
+  image           String?
+  emailSignature  String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  organization    Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  speakers        Speaker[]
-  registrations   Registration[]
-  auditLogs       AuditLog[]
-  accounts        Account[]
-  sessions        AuthSession[]
-  notifications   Notification[]
-  mediaFiles      MediaFile[]
-  deviceTokens    DeviceToken[]
-  scheduledEmails ScheduledEmail[]
-  mcpOAuthAuthCodes    McpOAuthAuthCode[]
-  mcpOAuthAccessTokens McpOAuthAccessToken[]
+  organization              Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  speakers                  Speaker[]
+  registrations             Registration[]
+  auditLogs                 AuditLog[]
+  accounts                  Account[]
+  sessions                  AuthSession[]
+  notifications             Notification[]
+  mediaFiles                MediaFile[]
+  deviceTokens              DeviceToken[]
+  scheduledEmails           ScheduledEmail[]
+  mcpOAuthAuthCodes         McpOAuthAuthCode[]
+  mcpOAuthAccessTokens      McpOAuthAccessToken[]
   abstractReviewerOf        AbstractReviewer[]         @relation("ReviewerOnAbstracts")
   assignedAbstractReviewers AbstractReviewer[]         @relation("AssignedAbstractReviewers")
   abstractSubmissions       AbstractReviewSubmission[] @relation("UserAbstractSubmissions")
   triggeredEmailLogs        EmailLog[]
   attachedBillingAccounts   EventBillingAccount[]
+  issuedCertificates        IssuedCertificate[]
 
   @@index([organizationId])
   @@index([email])
@@ -147,67 +148,80 @@ enum AttendeeRole {
 }
 
 model Event {
-  id             String      @id @default(cuid())
-  organizationId String
-  name           String
-  slug           String
-  description    String?     @db.Text
-  startDate      DateTime
-  endDate        DateTime
-  timezone       String      @default("Asia/Dubai")
-  venue          String?
-  address        String?
-  city           String?
-  country        String?
-  eventType      EventType?
-  tag            String?
-  specialty      String?
-  code           String?
+  id                           String      @id @default(cuid())
+  organizationId               String
+  name                         String
+  slug                         String
+  description                  String?     @db.Text
+  startDate                    DateTime
+  endDate                      DateTime
+  timezone                     String      @default("Asia/Dubai")
+  venue                        String?
+  address                      String?
+  city                         String?
+  country                      String?
+  eventType                    EventType?
+  tag                          String?
+  specialty                    String?
+  code                         String?
   // Dubai (DET/DTCM) compliance: when true, the per-registration DTCM
   // barcode field is surfaced for this event. DTCM barcodes are a Dubai
   // tourism requirement and are NOT applicable to Abu Dhabi / Fujairah /
   // Al Ain / non-UAE events — organizer ticks this only for Dubai events.
   // It does NOT make DTCM the entry barcode (that's always qrCode); it
   // only controls visibility of the separate DTCM field.
-  requiresDtcmBarcode Boolean @default(false)
-  status         EventStatus @default(DRAFT)
-  settings       Json        @default("{}")
-  bannerImage    String?
-  footerHtml     String?     @db.Text
-  emailHeaderImage String?
+  requiresDtcmBarcode          Boolean     @default(false)
+  status                       EventStatus @default(DRAFT)
+  settings                     Json        @default("{}")
+  bannerImage                  String?
+  footerHtml                   String?     @db.Text
+  emailHeaderImage             String?
   // Responsive logo / sign-off image rendered at the very bottom of
   // every event email body (below the optional emailFooterHtml).
   // Same responsive treatment as emailHeaderImage — width="600"
   // attribute + max-width:600px CSS so Outlook desktop and modern
   // clients both render at the email-body width.
-  emailFooterImage String?
-  emailFooterHtml  String?   @db.Text
-  emailFromAddress String?
-  emailFromName    String?
+  emailFooterImage             String?
+  emailFooterHtml              String?     @db.Text
+  emailFromAddress             String?
+  emailFromName                String?
   // Addresses CC'd on every event-scoped email — both automated
   // (registration confirmation, speaker invite, abstract status,
   // bulk email, scheduled email) and manual single-sends from the
   // detail sheets. Empty array = no auto-CC.
-  emailCcAddresses String[]  @default([])
-  supportEmail           String?
-  registrationTermsHtml    String?   @db.Text
-  registrationWelcomeHtml  String?   @db.Text
-  abstractWelcomeHtml      String?   @db.Text
-  abstractTermsHtml        String?   @db.Text
-  abstractConfirmationHtml String?   @db.Text
-  registrationConfirmationHtml String? @db.Text
-  speakerAgreementHtml     String?   @db.Text
-  speakerAgreementTemplate Json?
-  taxRate                  Decimal?  @db.Decimal(5, 2)
-  taxLabel                 String?   @default("VAT")
-  bankDetails              String?   @db.Text
-  badgeVerticalOffset      Int       @default(0)
-  externalId     String?
-  externalSource String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  emailCcAddresses             String[]    @default([])
+  supportEmail                 String?
+  registrationTermsHtml        String?     @db.Text
+  registrationWelcomeHtml      String?     @db.Text
+  abstractWelcomeHtml          String?     @db.Text
+  abstractTermsHtml            String?     @db.Text
+  abstractConfirmationHtml     String?     @db.Text
+  registrationConfirmationHtml String?     @db.Text
+  speakerAgreementHtml         String?     @db.Text
+  speakerAgreementTemplate     Json?
+  taxRate                      Decimal?    @db.Decimal(5, 2)
+  taxLabel                     String?     @default("VAT")
+  bankDetails                  String?     @db.Text
+  badgeVerticalOffset          Int         @default(0)
+  // CME / CPD hours awarded for attending this event. Read by the CME
+  // certificate template. Decimal(4,1) allows fractional hours up to
+  // 999.9 — accreditors routinely award half-hour increments.
+  // Nullable: events that aren't CME-accredited leave this empty and
+  // the Issue CME button stays disabled. Per-event accreditor list
+  // (DHA / DOH / SCFHS / EACCME / ACCME / OTHER — multiple allowed)
+  // lives in `settings.cme.accreditations[]` JSON, not a separate
+  // column, because: at most 2-3 accreditations per event in practice,
+  // we never query by reference, and it matches the existing
+  // settings-blob pattern (settings.zoom, settings.sponsors,
+  // settings.webinar). Design-approval flag for cert templates lives
+  // in `settings.cme.designApprovedBy` + `designApprovedAt`.
+  cmeHours                     Decimal?    @db.Decimal(4, 1)
+  externalId                   String?
+  externalSource               String?
+  createdAt                    DateTime    @default(now())
+  updatedAt                    DateTime    @updatedAt
 
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ticketTypes    TicketType[]
   registrations  Registration[]
   speakers       Speaker[]
@@ -220,26 +234,91 @@ model Event {
   reviewCriteria ReviewCriterion[]
   auditLogs      AuditLog[]
 
-  importLogs     ImportLog[]
-  emailTemplates EmailTemplate[]
-  notifications  Notification[]
-  mediaFiles     MediaFile[]
-  invoices        Invoice[]
-  invoiceCounters InvoiceCounter[]
+  importLogs                ImportLog[]
+  emailTemplates            EmailTemplate[]
+  notifications             Notification[]
+  mediaFiles                MediaFile[]
+  invoices                  Invoice[]
+  invoiceCounters           InvoiceCounter[]
   registrationSerialCounter RegistrationSerialCounter?
-  billingAccounts EventBillingAccount[]
-  zoomMeetings    ZoomMeeting[]
-  zoomAttendances ZoomAttendance[]
-  promoCodes      PromoCode[]
-  scheduledEmails ScheduledEmail[]
-  eventStats      EventStats?
-  emailLogs       EmailLog[]
+  billingAccounts           EventBillingAccount[]
+  zoomMeetings              ZoomMeeting[]
+  zoomAttendances           ZoomAttendance[]
+  promoCodes                PromoCode[]
+  scheduledEmails           ScheduledEmail[]
+  eventStats                EventStats?
+  emailLogs                 EmailLog[]
+  issuedCertificates        IssuedCertificate[]
+  certificateSerialCounters CertificateSerialCounter[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([status])
   @@index([startDate])
   @@index([externalSource, externalId])
+}
+
+// ==================== CERTIFICATES ====================
+
+enum CertificateType {
+  ATTENDANCE
+  PRESENTER
+  POSTER
+  CME
+}
+
+/// Per-event-per-type atomic serial counter — mirrors RegistrationSerialCounter
+/// (added 2026-05-18). One row per `(eventId, type)`. PK is composite so we
+/// can upsert+increment in a single statement under concurrent issues
+/// without P2002 collisions on `IssuedCertificate.serial`'s unique index.
+model CertificateSerialCounter {
+  eventId    String
+  type       CertificateType
+  lastSerial Int             @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, type])
+}
+
+/// Audit record of a certificate that was actually issued + emailed. One row
+/// per (event, type, recipient) — the dual @@unique constraints prevent
+/// accidental double-issue from concurrent operator clicks or MCP retries.
+///
+/// `recipientSnapshot` and `cmeHoursSnapshot` lock in the values at issue
+/// time so a reprint months later matches the original PDF byte-for-byte
+/// even if the underlying Attendee/Speaker/Event record drifts. Mirrors
+/// the immutability strategy `Speaker.agreementTextSnapshot` uses for
+/// legal-text fixity.
+model IssuedCertificate {
+  id               String          @id @default(cuid())
+  eventId          String
+  registrationId   String?
+  speakerId        String?
+  type             CertificateType
+  serial           String          @unique
+  issuedAt         DateTime        @default(now())
+  issuedByUserId   String
+  lastReprintedAt  DateTime?
+  reprintCount     Int             @default(0)
+  revokedAt        DateTime?
+  revocationReason String?
+
+  // Frozen at issue time. Schema:
+  //   { title, firstName, lastName, fullName (formatted),
+  //     organization?, jobTitle?, city?, country? }
+  recipientSnapshot Json
+  cmeHoursSnapshot  Decimal? @db.Decimal(4, 1)
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker      Speaker?      @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  issuedBy     User          @relation(fields: [issuedByUserId], references: [id])
+
+  @@unique([eventId, type, registrationId])
+  @@unique([eventId, type, speakerId])
+  @@index([eventId, type])
+  @@index([serial])
 }
 
 enum EventStatus {
@@ -259,15 +338,15 @@ enum EventType {
 // ==================== REGISTRATION & TICKETING ====================
 
 model TicketType {
-  id               String   @id @default(cuid())
-  eventId          String
-  name             String
-  description      String?  @db.Text
-  isDefault        Boolean   @default(false)
-  isActive         Boolean   @default(true)
-  sortOrder        Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  eventId     String
+  name        String
+  description String?  @db.Text
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Deprecated: kept for migration backward compat, will be removed
   category         String    @default("Standard")
@@ -280,7 +359,7 @@ model TicketType {
   salesEnd         DateTime?
   requiresApproval Boolean   @default(false)
 
-  event          Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event          Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
   pricingTiers   PricingTier[]
   registrations  Registration[]
   promoCodeLinks PromoCodeTicketType[]
@@ -351,50 +430,50 @@ model Attendee {
 }
 
 model Registration {
-  id             String             @id @default(cuid())
-  eventId        String
-  ticketTypeId   String?
-  pricingTierId  String?
-  attendeeId     String
-  userId         String?
-  serialId       Int?
-  status         RegistrationStatus @default(PENDING)
-  paymentStatus  PaymentStatus      @default(UNPAID)
-  qrCode         String?            @unique
-  dtcmBarcode    String?            @unique
-  badgeType      String?
-  referrer       String?
-  utmSource      String?
-  utmMedium      String?
-  utmCampaign    String?
-  checkedInAt    DateTime?
+  id                  String             @id @default(cuid())
+  eventId             String
+  ticketTypeId        String?
+  pricingTierId       String?
+  attendeeId          String
+  userId              String?
+  serialId            Int?
+  status              RegistrationStatus @default(PENDING)
+  paymentStatus       PaymentStatus      @default(UNPAID)
+  qrCode              String?            @unique
+  dtcmBarcode         String?            @unique
+  badgeType           String?
+  referrer            String?
+  utmSource           String?
+  utmMedium           String?
+  utmCampaign         String?
+  checkedInAt         DateTime?
   // Badge-print analytics: first-print timestamp + total prints (reprints
   // bump the count). Set by the badge route; powers "badges printed vs
   // registered" and reprint metrics. Per-print history lives in AuditLog
   // (action BADGE_PRINTED).
-  badgePrintedAt DateTime?
-  badgePrintCount Int               @default(0)
-  notes          String?            @db.Text
+  badgePrintedAt      DateTime?
+  badgePrintCount     Int                @default(0)
+  notes               String?            @db.Text
   // Billing details (for invoices/tax)
-  taxNumber          String?
-  billingFirstName   String?
-  billingLastName    String?
-  billingEmail       String?
-  billingPhone       String?
-  billingAddress     String?
-  billingCity        String?
-  billingState       String?
-  billingZipCode     String?
-  billingCountry     String?
+  taxNumber           String?
+  billingFirstName    String?
+  billingLastName     String?
+  billingEmail        String?
+  billingPhone        String?
+  billingAddress      String?
+  billingCity         String?
+  billingState        String?
+  billingZipCode      String?
+  billingCountry      String?
   // Promo code discount
-  promoCodeId        String?
-  discountAmount     Decimal?       @db.Decimal(10, 2)
-  originalPrice      Decimal?       @db.Decimal(10, 2)
+  promoCodeId         String?
+  discountAmount      Decimal?           @db.Decimal(10, 2)
+  originalPrice       Decimal?           @db.Decimal(10, 2)
   // Sponsor attribution — set when paymentStatus = INCLUSIVE so reports
   // can group "all Abbott-sponsored attendees." References the entry's
   // id inside Event.settings.sponsors[] JSON (no FK because sponsors
   // are stored as a JSON array on the event, not a Prisma table).
-  sponsorId          String?
+  sponsorId           String?
   // Third-party billing ("charge to another account") — when set, the
   // invoice is addressed to this BillingAccount (the attendee's hospital,
   // or a pharma/grant covering this specific doctor) instead of the
@@ -407,22 +486,23 @@ model Registration {
   // Per-registration fallback: when true, an unpaid third-party invoice
   // may be reassigned back to the attendee (finance action); also keeps
   // the attendee's Pay-Now path available as a guarantor.
-  attendeeIsGuarantor Boolean        @default(false)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  attendeeIsGuarantor Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketType      TicketType?         @relation(fields: [ticketTypeId], references: [id])
-  pricingTier     PricingTier?        @relation(fields: [pricingTierId], references: [id])
-  attendee        Attendee            @relation(fields: [attendeeId], references: [id])
-  user            User?               @relation(fields: [userId], references: [id])
-  promoCode       PromoCode?          @relation(fields: [promoCodeId], references: [id])
-  billingAccount  BillingAccount?     @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
-  payments        Payment[]
-  accommodation   Accommodation?
-  invoices        Invoice[]
-  promoRedemption PromoCodeRedemption?
-  zoomAttendances ZoomAttendance[]
+  event              Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType         TicketType?          @relation(fields: [ticketTypeId], references: [id])
+  pricingTier        PricingTier?         @relation(fields: [pricingTierId], references: [id])
+  attendee           Attendee             @relation(fields: [attendeeId], references: [id])
+  user               User?                @relation(fields: [userId], references: [id])
+  promoCode          PromoCode?           @relation(fields: [promoCodeId], references: [id])
+  billingAccount     BillingAccount?      @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  payments           Payment[]
+  accommodation      Accommodation?
+  invoices           Invoice[]
+  promoRedemption    PromoCodeRedemption?
+  zoomAttendances    ZoomAttendance[]
+  issuedCertificates IssuedCertificate[]
 
   @@unique([eventId, serialId])
   @@index([sponsorId])
@@ -491,45 +571,46 @@ model Payment {
 // ==================== SPEAKER MANAGEMENT ====================
 
 model Speaker {
-  id               String        @id @default(cuid())
-  eventId          String
-  userId           String?
-  title            Title?
-  role             AttendeeRole?
-  email            String
-  additionalEmail  String?
-  firstName        String
-  lastName         String
-  bio              String?       @db.Text
-  organization     String?
-  jobTitle         String?
-  phone            String?
-  website          String?
-  photo            String?
-  city             String?
-  state            String?
-  zipCode          String?
-  country          String?
-  specialty        String?
-  customSpecialty  String?
-  registrationType String?
-  tags             String[]      @default([])
-  socialLinks      Json          @default("{}")
-  status           SpeakerStatus @default(INVITED)
-  externalId       String?
-  agreementAcceptedAt    DateTime?
-  agreementAcceptedIp    String?
-  agreementAcceptedBy    String?
-  agreementTextSnapshot  String?  @db.Text
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                    String        @id @default(cuid())
+  eventId               String
+  userId                String?
+  title                 Title?
+  role                  AttendeeRole?
+  email                 String
+  additionalEmail       String?
+  firstName             String
+  lastName              String
+  bio                   String?       @db.Text
+  organization          String?
+  jobTitle              String?
+  phone                 String?
+  website               String?
+  photo                 String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  country               String?
+  specialty             String?
+  customSpecialty       String?
+  registrationType      String?
+  tags                  String[]      @default([])
+  socialLinks           Json          @default("{}")
+  status                SpeakerStatus @default(INVITED)
+  externalId            String?
+  agreementAcceptedAt   DateTime?
+  agreementAcceptedIp   String?
+  agreementAcceptedBy   String?
+  agreementTextSnapshot String?       @db.Text
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  event         Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user          User?            @relation(fields: [userId], references: [id])
-  sessions      SessionSpeaker[]
-  topicSpeakers TopicSpeaker[]
-  abstracts     Abstract[]
-  accommodation Accommodation?
+  event              Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user               User?               @relation(fields: [userId], references: [id])
+  sessions           SessionSpeaker[]
+  topicSpeakers      TopicSpeaker[]
+  abstracts          Abstract[]
+  accommodation      Accommodation?
+  issuedCertificates IssuedCertificate[]
 
   @@unique([eventId, email])
   @@index([eventId])
@@ -560,10 +641,10 @@ model Abstract {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  event        Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  speaker      Speaker        @relation(fields: [speakerId], references: [id], onDelete: Cascade)
-  track        Track?         @relation(fields: [trackId], references: [id])
-  theme        AbstractTheme? @relation(fields: [themeId], references: [id])
+  event        Event                      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker      Speaker                    @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  track        Track?                     @relation(fields: [trackId], references: [id])
+  theme        AbstractTheme?             @relation(fields: [themeId], references: [id])
   eventSession EventSession?
   sessionTopic SessionTopic?
   reviewers    AbstractReviewer[]
@@ -616,12 +697,12 @@ model AbstractReviewSubmission {
 }
 
 model AbstractTheme {
-  id        String     @id @default(cuid())
+  id        String   @id @default(cuid())
   eventId   String
   name      String
-  sortOrder Int        @default(0)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstracts Abstract[]
@@ -708,12 +789,12 @@ model EventSession {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  event    Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  abstract Abstract?        @relation(fields: [abstractId], references: [id])
-  track    Track?           @relation(fields: [trackId], references: [id])
-  speakers    SessionSpeaker[]
-  topics      SessionTopic[]
-  zoomMeeting ZoomMeeting?
+  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstract        Abstract?        @relation(fields: [abstractId], references: [id])
+  track           Track?           @relation(fields: [trackId], references: [id])
+  speakers        SessionSpeaker[]
+  topics          SessionTopic[]
+  zoomMeeting     ZoomMeeting?
   zoomAttendances ZoomAttendance[]
 
   @@index([eventId])
@@ -835,10 +916,10 @@ model Accommodation {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registration Registration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   speaker      Speaker?      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
-  roomType     RoomType     @relation(fields: [roomTypeId], references: [id])
+  roomType     RoomType      @relation(fields: [roomTypeId], references: [id])
 
   @@index([eventId])
   @@index([roomTypeId])
@@ -894,7 +975,7 @@ model Contact {
 // ==================== MEDIA ====================
 
 model MediaFile {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   eventId        String?
   uploadedById   String
@@ -902,11 +983,11 @@ model MediaFile {
   url            String
   mimeType       String
   size           Int
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime @default(now())
 
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event          Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy     User         @relation(fields: [uploadedById], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
 
   @@index([organizationId])
   @@index([eventId])
@@ -940,8 +1021,8 @@ model AuditLog {
 
 model SystemLog {
   id        String   @id @default(cuid())
-  level     String   // error, warn, info, debug
-  module    String   // api, auth, database, events, middleware
+  level     String // error, warn, info, debug
+  module    String // api, auth, database, events, middleware
   message   String   @db.Text
   timestamp DateTime @default(now())
 
@@ -956,8 +1037,8 @@ model ImportLog {
   id             String   @id @default(cuid())
   eventId        String
   userId         String
-  source         String   // "eventsair" | "csv"
-  entityType     String   // "contacts" | "registrations" | "speakers" | "sessions"
+  source         String // "eventsair" | "csv"
+  entityType     String // "contacts" | "registrations" | "speakers" | "sessions"
   totalProcessed Int
   totalCreated   Int
   totalSkipped   Int
@@ -977,9 +1058,9 @@ model ImportLog {
 model EmailTemplate {
   id          String   @id @default(cuid())
   eventId     String
-  slug        String   // e.g. "registration-confirmation", "speaker-invitation"
-  name        String   // Human-readable: "Registration Confirmation"
-  subject     String   // Subject line with {{variables}}
+  slug        String // e.g. "registration-confirmation", "speaker-invitation"
+  name        String // Human-readable: "Registration Confirmation"
+  subject     String // Subject line with {{variables}}
   htmlContent String   @db.Text // HTML body with {{variables}}
   textContent String?  @db.Text // Plain text fallback
   isActive    Boolean  @default(true)
@@ -998,10 +1079,10 @@ model Notification {
   id        String   @id @default(cuid())
   userId    String
   eventId   String?
-  type      String   // REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN
+  type      String // REGISTRATION, PAYMENT, ABSTRACT, REVIEW, CHECK_IN
   title     String
   message   String
-  link      String?  // URL to navigate to when clicked
+  link      String? // URL to navigate to when clicked
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -1017,7 +1098,7 @@ model Notification {
 model DeviceToken {
   id        String   @id @default(cuid())
   userId    String
-  platform  String   // "ios" or "android"
+  platform  String // "ios" or "android"
   pushToken String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1031,15 +1112,15 @@ model DeviceToken {
 // ==================== API KEYS ====================
 
 model ApiKey {
-  id             String    @id @default(cuid())
+  id             String              @id @default(cuid())
   organizationId String
   name           String
-  keyHash        String    @unique
+  keyHash        String              @unique
   prefix         String
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime            @default(now())
   lastUsedAt     DateTime?
   expiresAt      DateTime?
-  isActive       Boolean   @default(true)
+  isActive       Boolean             @default(true)
   rateLimitTier  ApiKeyRateLimitTier @default(NORMAL)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1056,49 +1137,49 @@ enum ApiKeyRateLimitTier {
 // ==================== INVOICES & RECEIPTS ====================
 
 model Invoice {
-  id               String        @id @default(cuid())
-  organizationId   String
-  eventId          String
-  registrationId   String
-  paymentId        String?       @unique
+  id             String  @id @default(cuid())
+  organizationId String
+  eventId        String
+  registrationId String
+  paymentId      String? @unique
 
-  type             InvoiceType
-  invoiceNumber    String        @unique
-  sequenceNumber   Int
+  type           InvoiceType
+  invoiceNumber  String      @unique
+  sequenceNumber Int
 
-  status           InvoiceStatus @default(DRAFT)
+  status InvoiceStatus @default(DRAFT)
 
-  issueDate        DateTime      @default(now())
-  dueDate          DateTime?
-  paidDate         DateTime?
+  issueDate DateTime  @default(now())
+  dueDate   DateTime?
+  paidDate  DateTime?
 
   // Financial snapshot (frozen at creation time)
-  subtotal         Decimal       @db.Decimal(10, 2)
-  discountCode     String?
-  discountAmount   Decimal       @default(0) @db.Decimal(10, 2)
-  taxRate          Decimal?      @db.Decimal(5, 2)
-  taxLabel         String?
-  taxAmount        Decimal       @default(0) @db.Decimal(10, 2)
-  total            Decimal       @db.Decimal(10, 2)
-  currency         String        @default("USD")
+  subtotal       Decimal  @db.Decimal(10, 2)
+  discountCode   String?
+  discountAmount Decimal  @default(0) @db.Decimal(10, 2)
+  taxRate        Decimal? @db.Decimal(5, 2)
+  taxLabel       String?
+  taxAmount      Decimal  @default(0) @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(10, 2)
+  currency       String   @default("USD")
 
   paymentMethod    String?
   paymentReference String?
   parentInvoiceId  String?
 
-  notes            String?       @db.Text
-  sentAt           DateTime?
-  sentTo           String?
+  notes  String?   @db.Text
+  sentAt DateTime?
+  sentTo String?
 
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event            Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration     Registration  @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  payment          Payment?      @relation(fields: [paymentId], references: [id])
-  parentInvoice    Invoice?      @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
-  creditNotes      Invoice[]     @relation("CreditNotes")
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event         Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration  Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  payment       Payment?     @relation(fields: [paymentId], references: [id])
+  parentInvoice Invoice?     @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
+  creditNotes   Invoice[]    @relation("CreditNotes")
 
   @@unique([eventId, sequenceNumber, type])
   @@index([eventId])
@@ -1108,10 +1189,10 @@ model Invoice {
 }
 
 model InvoiceCounter {
-  id               String      @id @default(cuid())
-  eventId          String
-  type             InvoiceType
-  lastSequence     Int         @default(0)
+  id           String      @id @default(cuid())
+  eventId      String
+  type         InvoiceType
+  lastSequence Int         @default(0)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
@@ -1211,37 +1292,37 @@ enum InvoiceStatus {
 // ==================== ZOOM INTEGRATION ====================
 
 model ZoomMeeting {
-  id             String            @id @default(cuid())
-  sessionId      String            @unique
-  eventId        String
-  zoomMeetingId  String
-  meetingType    ZoomMeetingType
-  joinUrl        String
-  startUrl       String?           @db.Text
-  passcode       String?
-  duration       Int?
-  status         ZoomMeetingStatus @default(CREATED)
-  isRecurring    Boolean           @default(false)
-  recurrenceType Int?
-  occurrences    Json?
-  zoomResponse   Json?
+  id                   String            @id @default(cuid())
+  sessionId            String            @unique
+  eventId              String
+  zoomMeetingId        String
+  meetingType          ZoomMeetingType
+  joinUrl              String
+  startUrl             String?           @db.Text
+  passcode             String?
+  duration             Int?
+  status               ZoomMeetingStatus @default(CREATED)
+  isRecurring          Boolean           @default(false)
+  recurrenceType       Int?
+  occurrences          Json?
+  zoomResponse         Json?
   // Live streaming (RTMP → MediaMTX → HLS)
-  liveStreamEnabled Boolean       @default(false)
-  streamKey         String?       // unique key for RTMP path
-  streamStatus      StreamStatus  @default(IDLE)
+  liveStreamEnabled    Boolean           @default(false)
+  streamKey            String? // unique key for RTMP path
+  streamStatus         StreamStatus      @default(IDLE)
   // Cloud recording (fetched by /api/cron/webinar-recordings post-event)
-  recordingUrl         String?          @db.Text
+  recordingUrl         String?           @db.Text
   recordingPassword    String?
-  recordingDownloadUrl String?          @db.Text
-  recordingDuration    Int?             // seconds
+  recordingDownloadUrl String?           @db.Text
+  recordingDuration    Int? // seconds
   recordingFetchedAt   DateTime?
-  recordingStatus      RecordingStatus  @default(NOT_REQUESTED)
+  recordingStatus      RecordingStatus   @default(NOT_REQUESTED)
   // Attendance tracking (fetched by /api/cron/webinar-attendance post-event)
   lastAttendanceSyncAt DateTime?
   // Engagement (polls + Q&A, fetched alongside attendance post-event)
   lastEngagementSyncAt DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   session     EventSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -1257,13 +1338,13 @@ model ZoomMeeting {
 
 // ── Webinar polls (fetched from Zoom's /report/webinars/{id}/polls) ──
 model WebinarPoll {
-  id             String   @id @default(cuid())
-  zoomMeetingId  String
-  zoomPollId     String?  // Zoom's poll id (nullable for imported/legacy rows)
-  title          String
-  questions      Json     @default("[]")  // [{ name, question_type, answer_details?: [] }]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(cuid())
+  zoomMeetingId String
+  zoomPollId    String? // Zoom's poll id (nullable for imported/legacy rows)
+  title         String
+  questions     Json     @default("[]") // [{ name, question_type, answer_details?: [] }]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   zoomMeeting ZoomMeeting           @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
   responses   WebinarPollResponse[]
@@ -1305,19 +1386,19 @@ model WebinarQuestion {
 
 // ── Per-attendee join/leave records pulled from Zoom's participant report ──
 model ZoomAttendance {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   zoomMeetingId      String
   eventId            String
   sessionId          String
-  registrationId     String?               // best-effort match by email
-  zoomParticipantId  String?               // Zoom's per-session participant id
+  registrationId     String? // best-effort match by email
+  zoomParticipantId  String? // Zoom's per-session participant id
   name               String
   email              String?
   joinTime           DateTime
   leaveTime          DateTime?
-  durationSeconds    Int                   // sum from Zoom report
-  attentivenessScore Int?                  // Zoom returns this for some webinars
-  createdAt          DateTime @default(now())
+  durationSeconds    Int // sum from Zoom report
+  attentivenessScore Int? // Zoom returns this for some webinars
+  createdAt          DateTime  @default(now())
 
   zoomMeeting  ZoomMeeting   @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
   event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -1335,11 +1416,11 @@ model ZoomAttendance {
 }
 
 enum RecordingStatus {
-  NOT_REQUESTED  // cloud recording not enabled for this webinar
-  PENDING        // webinar ended but recording not yet available
-  AVAILABLE      // recording fetched and URL stored
-  FAILED         // fetch attempts exhausted
-  EXPIRED        // recording fetch window closed (>7 days post-event)
+  NOT_REQUESTED // cloud recording not enabled for this webinar
+  PENDING // webinar ended but recording not yet available
+  AVAILABLE // recording fetched and URL stored
+  FAILED // fetch attempts exhausted
+  EXPIRED // recording fetch window closed (>7 days post-event)
 }
 
 enum ZoomMeetingType {
@@ -1365,26 +1446,26 @@ enum StreamStatus {
 // ==================== PROMO CODES ====================
 
 model PromoCode {
-  id               String       @id @default(cuid())
-  eventId          String
-  code             String
-  description      String?      @db.Text
-  discountType     DiscountType
-  discountValue    Decimal      @db.Decimal(10, 2)
-  currency         String?
-  maxUses          Int?
-  maxUsesPerEmail  Int?         @default(1)
-  usedCount        Int          @default(0)
-  validFrom        DateTime?
-  validUntil       DateTime?
-  isActive         Boolean      @default(true)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id              String       @id @default(cuid())
+  eventId         String
+  code            String
+  description     String?      @db.Text
+  discountType    DiscountType
+  discountValue   Decimal      @db.Decimal(10, 2)
+  currency        String?
+  maxUses         Int?
+  maxUsesPerEmail Int?         @default(1)
+  usedCount       Int          @default(0)
+  validFrom       DateTime?
+  validUntil      DateTime?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  event            Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketTypes      PromoCodeTicketType[]
-  redemptions      PromoCodeRedemption[]
-  registrations    Registration[]
+  event         Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypes   PromoCodeTicketType[]
+  redemptions   PromoCodeRedemption[]
+  registrations Registration[]
 
   @@unique([eventId, code])
   @@index([eventId])
@@ -1397,12 +1478,12 @@ enum DiscountType {
 }
 
 model PromoCodeTicketType {
-  id           String     @id @default(cuid())
+  id           String @id @default(cuid())
   promoCodeId  String
   ticketTypeId String
 
-  promoCode    PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  promoCode  PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
 
   @@unique([promoCodeId, ticketTypeId])
   @@index([promoCodeId])
@@ -1410,17 +1491,17 @@ model PromoCodeTicketType {
 }
 
 model PromoCodeRedemption {
-  id              String   @id @default(cuid())
-  promoCodeId     String
-  registrationId  String   @unique
-  email           String
-  originalPrice   Decimal  @db.Decimal(10, 2)
-  discountAmount  Decimal  @db.Decimal(10, 2)
-  finalPrice      Decimal  @db.Decimal(10, 2)
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  promoCodeId    String
+  registrationId String   @unique
+  email          String
+  originalPrice  Decimal  @db.Decimal(10, 2)
+  discountAmount Decimal  @db.Decimal(10, 2)
+  finalPrice     Decimal  @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
 
-  promoCode       PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-  registration    Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  promoCode    PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@index([promoCodeId])
   @@index([email])
@@ -1437,29 +1518,29 @@ enum ScheduledEmailStatus {
 }
 
 model ScheduledEmail {
-  id             String   @id @default(cuid())
+  id             String @id @default(cuid())
   eventId        String
   organizationId String
   createdById    String
 
-  recipientType  String   // "speakers" | "registrations" | "reviewers" | "abstracts"
-  emailType      String   // matches bulkEmailSchema.emailType values
-  customSubject  String?
-  customMessage  String?  @db.Text
-  attachments    Json?    // [{ name, content (base64), contentType }]
-  filters        Json?    // { status?, ticketTypeId? }
+  recipientType String // "speakers" | "registrations" | "reviewers" | "abstracts"
+  emailType     String // matches bulkEmailSchema.emailType values
+  customSubject String?
+  customMessage String? @db.Text
+  attachments   Json? // [{ name, content (base64), contentType }]
+  filters       Json? // { status?, ticketTypeId? }
 
-  scheduledFor   DateTime
-  status         ScheduledEmailStatus @default(PENDING)
-  sentAt         DateTime?
-  successCount   Int?
-  failureCount   Int?
-  totalCount     Int?
-  lastError      String?  @db.Text
-  retryCount     Int      @default(0)
+  scheduledFor DateTime
+  status       ScheduledEmailStatus @default(PENDING)
+  sentAt       DateTime?
+  successCount Int?
+  failureCount Int?
+  totalCount   Int?
+  lastError    String?              @db.Text
+  retryCount   Int                  @default(0)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1472,16 +1553,16 @@ model ScheduledEmail {
 // ==================== MCP OAUTH 2.1 (RFC 7591 DCR + PKCE) ====================
 
 model McpOAuthClient {
-  id                      String   @id @default(cuid())
-  clientId                String   @unique
+  id                      String              @id @default(cuid())
+  clientId                String              @unique
   clientSecretHash        String?
   clientName              String?
   redirectUris            String[]
-  grantTypes              String[] @default(["authorization_code", "refresh_token"])
-  tokenEndpointAuthMethod String   @default("none")
-  scope                   String   @default("mcp")
+  grantTypes              String[]            @default(["authorization_code", "refresh_token"])
+  tokenEndpointAuthMethod String              @default("none")
+  scope                   String              @default("mcp")
   rateLimitTier           ApiKeyRateLimitTier @default(NORMAL)
-  createdAt               DateTime @default(now())
+  createdAt               DateTime            @default(now())
 
   authCodes    McpOAuthAuthCode[]
   accessTokens McpOAuthAccessToken[]
