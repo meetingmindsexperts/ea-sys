@@ -82,11 +82,19 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
     doc.on("error", reject);
   });
 
-  // Draw order is intentional — each step sits visually on top of the
-  // previous. Background and watermark first (deepest layer), then
-  // borders, then content. The watermark goes between background and
-  // borders so the borders aren't dimmed by it.
+  // Draw order is intentional — deepest layer first:
+  //   1. Cream gradient background (full page)
+  //   2. White header + footer bands (top + bottom zones for logo + signatures)
+  //   3. Watermark MME logo (centered in cream middle area only)
+  //   4. Triple border + rosette corners (on top of bands so the cert frame
+  //      runs continuously around the page)
+  //   5. Content blocks (logo, title, recipient, event, CME, footer)
   drawBackground(doc);
+  // Header/footer white bands removed 2026-06-01 — the MME logo is now
+  // transparent (alpha-channel PNG, white background stripped), so it
+  // composites cleanly on the cream parchment and the band workaround
+  // is no longer needed. The drawHeaderAndFooterBands helper is kept
+  // in case we ever want letterhead zoning back.
   drawWatermark(doc);
   drawBorder(doc);
   const logoBottomY = drawLogo(doc);
@@ -122,25 +130,66 @@ function drawBackground(doc: PDFDoc) {
 }
 
 /**
- * Large faint MME logo behind the content as a watermark/seal. Embossed-
- * look without needing PDF transparency tricks — just very low opacity.
- * Centered both axes. Sized to roughly fill the inner content area so
- * it reads as the cert's "underlay" rather than a decoration.
+ * Large faint MME logo behind the content as a watermark/seal. Centered
+ * in the CREAM MIDDLE AREA only — drawn after the white bands so it
+ * doesn't render over the white zones (where it'd be invisible anyway,
+ * and where the bright logo would be needed for crispness).
  */
 function drawWatermark(doc: PDFDoc) {
   if (!MME_LOGO_BUFFER) return;
+  const creamTop = layout.borderInnerInset + layout.headerBandHeight;
+  const creamBottom = layout.height - layout.borderInnerInset - layout.footerBandHeight;
+  const creamHeight = creamBottom - creamTop;
   const innerW = layout.width - 2 * layout.borderInnerInset;
-  const innerH = layout.height - 2 * layout.borderInnerInset;
-  // Fit the watermark inside a centered box ~60% of the inner cert area
-  // — large enough to feel like a seal, small enough not to overpower.
-  const wmBox = Math.min(innerW, innerH) * 0.6;
+  // Fit the watermark inside a centered box ~70% of the cream area's
+  // smaller dimension — large enough to feel like a seal, small enough
+  // not to overpower.
+  const wmBox = Math.min(innerW, creamHeight) * 0.7;
+  const wmCenterY = (creamTop + creamBottom) / 2;
   doc.save();
   doc.opacity(colors.watermarkOpacity);
-  doc.image(MME_LOGO_BUFFER, (layout.width - wmBox) / 2, (layout.height - wmBox) / 2, {
+  doc.image(MME_LOGO_BUFFER, (layout.width - wmBox) / 2, wmCenterY - wmBox / 2, {
     fit: [wmBox, wmBox],
     align: "center",
   });
   doc.restore();
+}
+
+/**
+ * Render center-aligned text with width-clamping + automatic wrapping
+ * + returns the bottom Y so the caller can advance its cursor. This is
+ * the safe path for ANY variable-length user-supplied text — recipient
+ * name, affiliation, event name, venue, poster abstract title. With
+ * `lineBreak: true`, pdfkit wraps text inside the width constraint
+ * instead of overflowing past the page border (the bug caught in
+ * CEO/MD review when a long poster abstract title overflowed).
+ *
+ * Pagination prevented by the document-level `margins: 0` + the
+ * inner-content-width clamping ensuring text never reaches the bottom.
+ */
+function drawWrappedCentered(
+  doc: PDFDoc,
+  text: string,
+  y: number,
+  options: {
+    font: string;
+    size: number;
+    color: string;
+    characterSpacing?: number;
+    width?: number;
+  },
+): number {
+  const width = options.width ?? layout.innerContentWidth;
+  const x = (layout.width - width) / 2;
+  doc.font(options.font).fontSize(options.size).fillColor(options.color);
+  const measureOpts = {
+    width,
+    align: "center" as const,
+    characterSpacing: options.characterSpacing,
+  };
+  const height = doc.heightOfString(text, measureOpts);
+  doc.text(text, x, y, { ...measureOpts, lineBreak: true });
+  return y + height;
 }
 
 /**
@@ -342,23 +391,24 @@ function drawRecipientBlock(doc: PDFDoc, titleSubBottomY: number, data: Certific
   const introLine = copyForType(data).recipientIntro;
   let y = titleSubBottomY + spacing.titleSubToBody;
 
-  doc
-    .font(fonts.body)
-    .fontSize(sizes.body)
-    .fillColor(colors.text)
-    .text(introLine, 0, y, { align: "center", width: layout.width, lineBreak: false });
-  y += sizes.body + spacing.bodyToRecipient;
+  // Every variable-length text in this block uses drawWrappedCentered
+  // — wraps within innerContentWidth instead of overflowing past the
+  // border. Caught in CEO/MD review when a long poster abstract title
+  // bled past the right border (issue: lineBreak: false everywhere
+  // prevented pagination but also prevented wrapping).
+  y = drawWrappedCentered(doc, introLine, y, {
+    font: fonts.body,
+    size: sizes.body,
+    color: colors.text,
+  });
+  y += spacing.bodyToRecipient;
 
-  doc
-    .font(fonts.recipient)
-    .fontSize(sizes.recipient)
-    .fillColor(colors.text)
-    .text(data.recipient.fullName, 0, y, {
-      align: "center",
-      width: layout.width,
-      lineBreak: false,
-    });
-  y += sizes.recipient + spacing.recipientToDivider;
+  y = drawWrappedCentered(doc, data.recipient.fullName, y, {
+    font: fonts.recipient,
+    size: sizes.recipient,
+    color: colors.text,
+  });
+  y += spacing.recipientToDivider;
 
   // Decorative divider under the recipient name — short line + diamond
   // ornament + short line, centered. Visual closure on the cert's focal
@@ -368,12 +418,11 @@ function drawRecipientBlock(doc: PDFDoc, titleSubBottomY: number, data: Certific
 
   const affilLine = composeAffiliation(data.recipient);
   if (affilLine) {
-    doc
-      .font(fonts.affiliation)
-      .fontSize(sizes.affiliation)
-      .fillColor(colors.muted)
-      .text(affilLine, 0, y, { align: "center", width: layout.width, lineBreak: false });
-    y += sizes.affiliation;
+    y = drawWrappedCentered(doc, affilLine, y, {
+      font: fonts.affiliation,
+      size: sizes.affiliation,
+      color: colors.muted,
+    });
   }
 
   return y;
@@ -414,54 +463,62 @@ function drawEventBlock(
   data: CertificateData,
   startY: number,
 ): number {
-  const verb = copyForType(data).eventVerb;
+  const copy = copyForType(data);
   let y = startY + spacing.affilToBody;
 
-  // All absolute-positioned text uses `lineBreak: false` so doc.y never
-  // advances past page-bottom mid-render (which would auto-paginate into
-  // blank pages 2+3). Y position is tracked explicitly via the local
-  // `y` variable instead of reading doc.y.
-  doc
-    .font(fonts.body)
-    .fontSize(sizes.body)
-    .fillColor(colors.text)
-    .text(verb, 0, y, { align: "center", width: layout.width, lineBreak: false });
-  y += sizes.body + spacing.bodyToEventName;
-
-  doc
-    .font(fonts.eventName)
-    .fontSize(sizes.eventName)
-    .fillColor(colors.title)
-    .text(data.event.name, 0, y, {
-      align: "center",
-      width: layout.width,
-      lineBreak: false,
+  // POSTER: render the abstract title in italic on its own line BEFORE
+  // the event-connector. Cleaner than stuffing it into the recipient
+  // intro line (the v1 approach that overflowed in CEO/MD review).
+  if (copy.middleItalic) {
+    y = drawWrappedCentered(doc, copy.middleItalic, y, {
+      font: fonts.recipient,    // Times-Italic — matches recipient name styling
+      size: sizes.eventDates + 2, // ~14pt, smaller than name but italic
+      color: colors.text,
     });
-  y += sizes.eventName + spacing.eventNameToDates;
-
-  doc
-    .font(fonts.body)
-    .fontSize(sizes.eventDates)
-    .fillColor(colors.muted)
-    .text(formatDateRange(data.event.startDate, data.event.endDate), 0, y, {
-      align: "center",
-      width: layout.width,
-      lineBreak: false,
+    if (copy.middleItalicSuffix) {
+      y += 6;
+      y = drawWrappedCentered(doc, copy.middleItalicSuffix, y, {
+        font: fonts.body,
+        size: sizes.body,
+        color: colors.text,
+      });
+    }
+    y += spacing.bodyToEventName;
+  } else {
+    // Non-POSTER types: render the connector ("attended" / "for outstanding
+    // contribution to") directly above the event name.
+    y = drawWrappedCentered(doc, copy.eventConnector, y, {
+      font: fonts.body,
+      size: sizes.body,
+      color: colors.text,
     });
-  y += sizes.eventDates + spacing.datesToVenue;
+    y += spacing.bodyToEventName;
+  }
+  // For POSTER, the "presented at" suffix already played the connector
+  // role above, so we go straight to the event name. For others, the
+  // connector was rendered above and now we render the event name.
+
+  y = drawWrappedCentered(doc, data.event.name, y, {
+    font: fonts.eventName,
+    size: sizes.eventName,
+    color: colors.title,
+  });
+  y += spacing.eventNameToDates;
+
+  y = drawWrappedCentered(doc, formatDateRange(data.event.startDate, data.event.endDate), y, {
+    font: fonts.body,
+    size: sizes.eventDates,
+    color: colors.muted,
+  });
+  y += spacing.datesToVenue;
 
   const venueLine = composeVenue(data.event);
   if (venueLine) {
-    doc
-      .font(fonts.body)
-      .fontSize(sizes.venue)
-      .fillColor(colors.soft)
-      .text(venueLine, 0, y, {
-        align: "center",
-        width: layout.width,
-        lineBreak: false,
-      });
-    y += sizes.venue;
+    y = drawWrappedCentered(doc, venueLine, y, {
+      font: fonts.body,
+      size: sizes.venue,
+      color: colors.soft,
+    });
   }
 
   return y;
@@ -516,10 +573,10 @@ function drawAccreditorBox(
   fallbackHours: number | null,
   startY: number,
 ): number {
-  // Box dimensions — width is a centered fraction of page width so it
-  // never butts against the inner border, height is computed from the
-  // content row count.
-  const boxWidth = Math.min(560, layout.width - 2 * layout.borderInnerInset - 60);
+  // Box dimensions — clamp to innerContentWidth (the same width
+  // constraint every other variable-length text element uses, so the
+  // accreditor panel visually aligns with the body of the cert).
+  const boxWidth = layout.innerContentWidth;
   const boxX = (layout.width - boxWidth) / 2;
   const padX = sizes.accreditorBoxPaddingX;
   const padY = sizes.accreditorBoxPaddingY;
@@ -740,8 +797,24 @@ function copyForType(data: CertificateData): {
    *  "FOR FACULTY" / "FOR POSTER PRESENTER". Renders smaller below the
    *  main title, in our cerulean accent color. */
   titleSub: string;
+  /** Phrase that precedes the recipient name. Grammatically must work
+   *  as "<intro> <Dr. Name>" — that's why PRESENTER + POSTER use
+   *  "is hereby presented to" rather than the verb-first phrase that
+   *  the v1 used (which read backwards once the name was rendered
+   *  below the intro). */
   recipientIntro: string;
-  eventVerb: string;
+  /** Connector phrase between the recipient block and the event block.
+   *  Grammatically reads as "<...affiliation...> <connector> <event name>". */
+  eventConnector: string;
+  /**
+   * Optional italic line rendered between the affiliation and the
+   * event-connector. POSTER cert uses this to surface the abstract
+   * title without overstuffing the intro line; other cert types leave
+   * it null and the abstract block doesn't render.
+   */
+  middleItalic: string | null;
+  /** Static phrase under the middleItalic (e.g. "presented at"). */
+  middleItalicSuffix: string | null;
 } {
   switch (data.type) {
     case "ATTENDANCE":
@@ -749,14 +822,18 @@ function copyForType(data: CertificateData): {
         titleMain: "CERTIFICATE",
         titleSub: "OF ATTENDANCE",
         recipientIntro: "This is to certify that",
-        eventVerb: "attended",
+        eventConnector: "attended",
+        middleItalic: null,
+        middleItalicSuffix: null,
       };
     case "PRESENTER":
       return {
         titleMain: "CERTIFICATE",
         titleSub: "FOR INVITED FACULTY",
-        recipientIntro: "is hereby recognized for outstanding contribution as faculty to",
-        eventVerb: "at",
+        recipientIntro: "is hereby presented to",
+        eventConnector: "for outstanding contribution as faculty to",
+        middleItalic: null,
+        middleItalicSuffix: null,
       };
     case "POSTER": {
       const abstractTitle =
@@ -764,10 +841,14 @@ function copyForType(data: CertificateData): {
       return {
         titleMain: "CERTIFICATE",
         titleSub: "FOR POSTER PRESENTER",
-        recipientIntro: abstractTitle
-          ? `is hereby recognized for the poster titled "${abstractTitle}" presented at`
-          : "is hereby recognized for the poster presented at",
-        eventVerb: "at",
+        recipientIntro: "is hereby presented to",
+        eventConnector: "at",
+        // Abstract title renders on its own italic line between the
+        // affiliation and the event-connector — gives the work its
+        // own visual moment instead of cramming it into the intro
+        // line (which overflowed in the CEO/MD review).
+        middleItalic: abstractTitle ? `"${abstractTitle}"` : null,
+        middleItalicSuffix: abstractTitle ? "presented at" : null,
       };
     }
     case "CME":
@@ -775,7 +856,9 @@ function copyForType(data: CertificateData): {
         titleMain: "CERTIFICATE",
         titleSub: "OF CONTINUING MEDICAL EDUCATION",
         recipientIntro: "This is to certify that",
-        eventVerb: "attended",
+        eventConnector: "attended",
+        middleItalic: null,
+        middleItalicSuffix: null,
       };
   }
   throw new Error(`Unhandled certificate type: ${String(data.type)}`);

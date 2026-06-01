@@ -32,47 +32,70 @@ export const CERT_TOKENS = {
     width: A4_PORTRAIT_W,
     height: A4_PORTRAIT_H,
     margin: 60,
-    // Outer ornate frame — thicker, navy. Middle pale-gold hairline.
-    // Inner thin gold. The triple line + corner rosettes create the
+    // Outer ornate frame — thicker, navy. Middle pale-cerulean hairline.
+    // Inner thin cerulean. The triple line + corner rosettes create the
     // formal "engraved diploma" look the references showed.
     borderOuterInset: 22,
     borderInnerInset: 34,
     borderStrokeOuter: 2.8,
     borderStrokeInner: 0.7,
     cornerOrnamentSize: 6,
+    // White header + footer bands. The MME logo has a white PNG
+    // background, so the header band gives it a clean letterhead zone
+    // to sit on instead of clashing against cream. Footer band mirrors
+    // the convention and gives the signature row + seal a clean canvas.
+    headerBandHeight: 130,
+    footerBandHeight: 172,
+    // Inner content width — used to clamp ALL variable-length text so it
+    // can never overflow the cert's printable area (the poster-cert
+    // overflow caught in CEO/MD review 2026-06-01 was this exact bug:
+    // a long abstract title concatenated into the recipient intro line
+    // pushed text past the right border). Computed once, used everywhere.
+    innerContentWidth: A4_PORTRAIT_W - 2 * 34 - 30, // borderInnerInset * 2 + breathing room
   },
   colors: {
-    // Page background — warm cream/parchment instead of stark white.
-    // The #fbf6e8 → #f5ecd2 vertical gradient gives subtle depth, like
-    // aged paper. THIS is the single change that flipped the cert from
-    // "form" to "diploma." (2026-06-01 — Phase B iteration round 2.)
+    // Page background — warm cream/parchment.
     bgTop: "#fbf6e8",
     bgBottom: "#f5ecd2",
+    // Header + footer bands — solid white at top and bottom of the page.
+    // Two purposes: (1) the MME logo has a white PNG background so it
+    // visually clashes against cream; the white band lets it blend
+    // cleanly. (2) gives the cert a "letterhead" zoning convention —
+    // top white band = identity, middle cream = body, bottom white
+    // band = sign-off. Per CEO/MD review 2026-06-01.
+    bandWhite: "#ffffff",
+    // Soft cerulean rule at the edge between band and cream — separates
+    // the zones without a hard line.
+    bandRule: "#7bc9db",
     text: "#111111",
     muted: "#4a5568",
     soft: "#7a8499",
     // Title + body emphasis — deep navy for formality.
     title: "#1a2e5a",
-    // Borders — navy outer, gold inner, the classic cert pairing.
+    // Outer cert frame — navy.
     borderOuter: "#1a2e5a",
-    borderInner: "#b8862c", // deeper gold than v1 — more saturated against cream
-    borderMid: "#d4af5c",   // pale-gold third rule between outer + inner (triple border)
-    cornerOrnament: "#b8862c",
-    cornerOrnamentPetal: "#c9a13c",
-    dividerOrnament: "#b8862c",
-    // The one cerulean accent — the CME hours number. MMG brand peeks
-    // through at the most celebratory moment.
+    // Inner + middle frame lines and all decorative ornaments — now
+    // pale-cerulean shades instead of gold (CEO/MD feedback: "I do not
+    // like the yellow color at all, maybe cerulean blue at 25% opacity").
+    // Values are pre-blended hex (cerulean #00aade over cream bg) so we
+    // get the visual effect of opacity without juggling doc.opacity()
+    // save/restore around every stroke.
+    //   ~25% cerulean → #c0e5ec   pale
+    //   ~50% cerulean → #7bc9db   mid
+    //   ~80% cerulean → #2baedc   saturated
+    borderInner: "#7bc9db",
+    borderMid: "#c0e5ec",
+    cornerOrnament: "#2baedc",
+    cornerOrnamentPetal: "#7bc9db",
+    dividerOrnament: "#7bc9db",
+    // The strong-saturated cerulean — kept for the celebratory moments:
+    // the "OF ATTENDANCE" subtitle, the "18 CPD Hours" number. Two-tier
+    // cerulean hierarchy: pale shades for ornaments, strong for emphasis.
     cmeHighlight: "#00aade",
-    // Watermark MME logo behind content — opacity is applied via
-    // doc.opacity() rather than this color, but the color sets the tone.
-    // 0.04 sits just at the edge of perceptibility — the eye registers
-    // a presence behind the content without being able to read the
-    // logo (which would distract from the recipient's name).
     watermarkOpacity: 0.04,
-    // Accreditor panel — slightly warmer cream than the page bg so it
-    // visually pops out as a "callout" against the parchment.
+    // Accreditor panel — cream-on-cream callout with a pale-cerulean border.
     accreditorBoxBg: "#fffaee",
-    accreditorBoxBorder: "#b8862c",
+    accreditorBoxBorder: "#7bc9db",
     accreditorHeaderText: "#1a2e5a",
     accreditorBodyText: "#1a1a1a",
     accreditorMeta: "#4a5568",
