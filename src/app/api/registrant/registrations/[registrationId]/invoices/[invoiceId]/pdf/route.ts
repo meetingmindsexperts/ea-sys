@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
@@ -24,8 +25,32 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // `organizationId: null` and would otherwise produce a Prisma
     // validation error instead of a clean 403.
     const isRegistrant = session.user.role === "REGISTRANT";
-    if (!isRegistrant && !session.user.organizationId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!isRegistrant) {
+      if (!session.user.organizationId) {
+        apiLogger.warn({
+          msg: "registrant/invoice-pdf:forbidden-no-org",
+          registrationId,
+          invoiceId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      // Invoice PDF carries every financial figure on the registration —
+      // MEMBER (org-bound read-only viewer) must not see it. REGISTRANT
+      // branch stays exempt as the legitimate self-view path. Closed
+      // Pass #1 (June 2026).
+      const noFinance = denyFinance(session);
+      if (noFinance) {
+        apiLogger.warn({
+          msg: "registrant/invoice-pdf:denyFinance",
+          registrationId,
+          invoiceId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return noFinance;
+      }
     }
 
     const registration = await db.registration.findFirst({

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
@@ -25,8 +26,29 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // Prisma's nested relation filter rejects the query rather than
     // silently matching every event. Short-circuit to 403 instead.
     const isRegistrant = session.user.role === "REGISTRANT";
-    if (!isRegistrant && !session.user.organizationId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!isRegistrant) {
+      if (!session.user.organizationId) {
+        apiLogger.warn({
+          msg: "registrant/invoices:forbidden-no-org",
+          registrationId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      // Invoice list carries amounts/totals — gate MEMBER. REGISTRANT
+      // branch is owner-scoped and stays exempt. See sibling /quote
+      // route for the same reasoning. Closed Pass #1 (June 2026).
+      const noFinance = denyFinance(session);
+      if (noFinance) {
+        apiLogger.warn({
+          msg: "registrant/invoices:denyFinance",
+          registrationId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return noFinance;
+      }
     }
 
     const registration = await db.registration.findFirst({

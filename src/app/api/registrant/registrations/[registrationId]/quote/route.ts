@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
+import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
@@ -48,14 +49,31 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // here — Prisma would otherwise throw a validation error on the
     // nested relation filter.
     const isRegistrant = session.user.role === "REGISTRANT";
-    if (!isRegistrant && !session.user.organizationId) {
-      apiLogger.warn({
-        msg: "registrant/quote:forbidden-no-org",
-        registrationId,
-        userId: session.user.id,
-        role: session.user.role,
-      });
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!isRegistrant) {
+      if (!session.user.organizationId) {
+        apiLogger.warn({
+          msg: "registrant/quote:forbidden-no-org",
+          registrationId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      // MEMBER has organizationId but is the read-only no-finance role; the
+      // quote PDF carries amounts/tax/payer, so this branch must be gated.
+      // The REGISTRANT branch above stays exempt — viewing your own quote
+      // is the whole point of the registrant portal. Audit-hardening HIGH
+      // from May 18 review, closed Core Stability Pass #1 (June 2026).
+      const noFinance = denyFinance(session);
+      if (noFinance) {
+        apiLogger.warn({
+          msg: "registrant/quote:denyFinance",
+          registrationId,
+          userId: session.user.id,
+          role: session.user.role,
+        });
+        return noFinance;
+      }
     }
 
     const registration = await db.registration.findFirst({
