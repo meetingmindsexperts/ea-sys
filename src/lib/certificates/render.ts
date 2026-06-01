@@ -1,30 +1,53 @@
 /**
  * Certificate PDF renderer — pdfkit-based, A4 landscape.
  *
- * One renderCertificate(data) entry point. Dispatches per CertificateType
- * to type-specific copy + the optional CME block. Visual decisions all
- * live in tokens.ts so design iteration with the CEO/MD (Phase B) doesn't
- * touch this file.
+ * Phase A baseline + Phase B first design pass (2026-06-01).
  *
- * Phase A consumers: the preview endpoint only — no DB writes, no email.
- * Phase C will reuse this from the issue route, passing data sourced from
- * `IssuedCertificate.recipientSnapshot` so reprints render byte-identical
- * to the original.
+ * One renderCertificate(data) entry point. Dispatches per CertificateType
+ * to type-specific copy + the optional CME hours + accreditor block.
+ * Visual decisions all live in tokens.ts so further design iteration
+ * doesn't touch this file.
  *
  * Why pdfkit directly (not HTML→PDF): a certificate is a fixed precise
  * layout, not flowing content. Direct pdfkit gives us exact coordinates
  * + no surprises from CSS-to-PDF translation. The HTML-template approach
  * the speaker-agreement renderer uses is right for prose-heavy variable
  * layouts; certs are the opposite shape.
+ *
+ * MeetingMindsExperts logo is loaded once at module init from
+ * public/certificates/mme-logo.png and embedded in every cert (centered
+ * above the title). Missing-asset case fails gracefully — cert still
+ * renders, just without the logo crown. Logs a warn so the absence is
+ * visible in /logs.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import PDFDocument from "pdfkit";
 import { CERT_TOKENS } from "./tokens";
+import { apiLogger } from "@/lib/logger";
 import type { CertificateData, AccreditationEntry } from "./types";
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
 
 const { layout, colors, fonts, sizes, spacing } = CERT_TOKENS;
+
+// Load logo once at module init — synchronous read is fine here, this
+// runs at first import, not per request. Missing asset = cert renders
+// without logo, structured warn so the absence is debuggable.
+const MME_LOGO_BUFFER: Buffer | null = (() => {
+  try {
+    return readFileSync(join(process.cwd(), "public", "certificates", "mme-logo.png"));
+  } catch (err) {
+    apiLogger.warn({
+      err,
+      msg: "cert-renderer:logo-missing",
+      path: "public/certificates/mme-logo.png",
+      hint: "Cert will render with empty logo slot. Copy the MME brand logo to that path on the EC2 host (or commit to the repo) to restore.",
+    });
+    return null;
+  }
+})();
 
 /**
  * Render a certificate to a PDF buffer. Pure: no I/O beyond the in-memory
@@ -52,8 +75,9 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
   });
 
   drawBorder(doc);
-  drawTitleBlock(doc, data);
-  const recipientBottomY = drawRecipientBlock(doc, data);
+  const logoBottomY = drawLogo(doc);
+  const subtitleBottomY = drawTitleBlock(doc, data, logoBottomY);
+  const recipientBottomY = drawRecipientBlock(doc, subtitleBottomY, data);
   const eventBottomY = drawEventBlock(doc, data, recipientBottomY);
   if (data.type === "CME") {
     drawCmeBlock(doc, data, eventBottomY);
@@ -67,6 +91,7 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
 // ── Block renderers ──────────────────────────────────────────────────────────
 
 function drawBorder(doc: PDFDoc) {
+  // Outer thick frame (navy).
   doc
     .save()
     .lineWidth(layout.borderStrokeOuter)
@@ -86,47 +111,125 @@ function drawBorder(doc: PDFDoc) {
       layout.width - 2 * layout.borderInnerInset,
       layout.height - 2 * layout.borderInnerInset,
     )
-    .stroke()
-    .restore();
+    .stroke();
+
+  // Corner ornaments — small gold diamonds at each inner corner. Tiny
+  // decorative flourish that lifts the formality from "framed rectangle"
+  // to "framed cert with intentional design."
+  const s = layout.cornerOrnamentSize;
+  const inset = layout.borderInnerInset;
+  const corners: Array<[number, number]> = [
+    [inset, inset],
+    [layout.width - inset, inset],
+    [layout.width - inset, layout.height - inset],
+    [inset, layout.height - inset],
+  ];
+  doc.fillColor(colors.cornerOrnament);
+  for (const [x, y] of corners) {
+    // Diamond = 45° rotated square. pdfkit doesn't have a primitive so
+    // we draw the 4-point polygon directly.
+    doc.moveTo(x, y - s).lineTo(x + s, y).lineTo(x, y + s).lineTo(x - s, y).closePath().fill();
+  }
+
+  doc.restore();
 }
 
-function drawTitleBlock(doc: PDFDoc, data: CertificateData) {
+/** Returns the Y coordinate immediately below the logo block. */
+function drawLogo(doc: PDFDoc): number {
+  const startY = layout.borderInnerInset + spacing.logoTopFromMargin;
+  if (!MME_LOGO_BUFFER) {
+    // No logo → just reserve no vertical space, title flows up.
+    return startY;
+  }
+  // Use pdfkit's `fit: [w, h]` + `align: "center"` to place the logo
+  // inside a bounding box bounded horizontally by the inner-border insets
+  // and vertically by `sizes.logoHeight`, preserving aspect ratio. This
+  // means the logo can change file (different aspect, different bytes)
+  // and the layout still works — we never hardcode logo dimensions.
+  const h = sizes.logoHeight;
+  const innerW = layout.width - 2 * layout.borderInnerInset;
+  doc.image(MME_LOGO_BUFFER, layout.borderInnerInset, startY, {
+    fit: [innerW, h],
+    align: "center",
+  });
+  return startY + h;
+}
+
+function drawTitleBlock(doc: PDFDoc, data: CertificateData, logoBottomY: number): number {
   const { title, subtitle } = copyForType(data);
-  const y = layout.borderInnerInset + spacing.titleTopFromMargin;
+  const y = logoBottomY + spacing.logoToTitle;
 
+  // Measure title width so we can place the rule decorators on each side.
+  doc.font(fonts.title).fontSize(sizes.title);
+  const titleWidth = doc.widthOfString(title);
+  const titleX = (layout.width - titleWidth) / 2;
+  const titleBaseline = y + sizes.title * 0.7; // approximate visual middle
+
+  // Left + right horizontal rules — short navy lines flanking the title.
+  // This single touch is what makes the title feel "ceremonial" rather
+  // than just "bold heading."
+  const ruleY = titleBaseline;
   doc
-    .font(fonts.title)
-    .fontSize(sizes.title)
-    .fillColor(colors.accent)
-    .text(title, 0, y, { align: "center", width: layout.width });
+    .save()
+    .lineWidth(0.75)
+    .strokeColor(colors.title)
+    .moveTo(titleX - sizes.titleRuleGap - sizes.titleRuleWidth, ruleY)
+    .lineTo(titleX - sizes.titleRuleGap, ruleY)
+    .stroke()
+    .moveTo(titleX + titleWidth + sizes.titleRuleGap, ruleY)
+    .lineTo(titleX + titleWidth + sizes.titleRuleGap + sizes.titleRuleWidth, ruleY)
+    .stroke()
+    .restore();
 
+  // The title itself, on top of the rules. lineBreak: false prevents
+  // pdfkit from advancing doc.y past page-bottom (which auto-paginates
+  // the cert into a second/third blank page). All absolute-positioned
+  // text in this renderer uses the same pattern.
+  doc
+    .fillColor(colors.title)
+    .text(title, 0, y, { align: "center", width: layout.width, lineBreak: false });
+
+  // Optional subtitle (organization name) just below.
+  const subtitleY = y + sizes.title + spacing.titleToSubtitle;
   doc
     .font(fonts.subtitle)
     .fontSize(sizes.subtitle)
     .fillColor(colors.muted)
-    .text(subtitle, 0, doc.y + spacing.titleToSubtitle - sizes.subtitle, {
+    .text(subtitle, 0, subtitleY, {
       align: "center",
       width: layout.width,
+      lineBreak: false,
     });
+  return subtitleY + sizes.subtitle;
 }
 
-function drawRecipientBlock(doc: PDFDoc, data: CertificateData): number {
+function drawRecipientBlock(doc: PDFDoc, subtitleBottomY: number, data: CertificateData): number {
   const introLine = copyForType(data).recipientIntro;
-  let y = doc.y + spacing.subtitleToBody;
+  let y = subtitleBottomY + spacing.subtitleToBody;
 
   doc
     .font(fonts.body)
     .fontSize(sizes.body)
     .fillColor(colors.text)
-    .text(introLine, 0, y, { align: "center", width: layout.width });
-  y = doc.y + spacing.bodyToRecipient;
+    .text(introLine, 0, y, { align: "center", width: layout.width, lineBreak: false });
+  y += sizes.body + spacing.bodyToRecipient;
 
   doc
     .font(fonts.recipient)
     .fontSize(sizes.recipient)
     .fillColor(colors.text)
-    .text(data.recipient.fullName, 0, y, { align: "center", width: layout.width });
-  y = doc.y + spacing.recipientToAffil;
+    .text(data.recipient.fullName, 0, y, {
+      align: "center",
+      width: layout.width,
+      lineBreak: false,
+    });
+  y += sizes.recipient + spacing.recipientToDivider;
+
+  // Decorative divider under the recipient name — short line + diamond
+  // ornament + short line, centered. Visual closure on the cert's focal
+  // point.
+  drawRecipientDivider(doc, y);
+  y += spacing.dividerToAffil;
 
   const affilLine = composeAffiliation(data.recipient);
   if (affilLine) {
@@ -134,11 +237,41 @@ function drawRecipientBlock(doc: PDFDoc, data: CertificateData): number {
       .font(fonts.affiliation)
       .fontSize(sizes.affiliation)
       .fillColor(colors.muted)
-      .text(affilLine, 0, y, { align: "center", width: layout.width });
-    y = doc.y;
+      .text(affilLine, 0, y, { align: "center", width: layout.width, lineBreak: false });
+    y += sizes.affiliation;
   }
 
   return y;
+}
+
+function drawRecipientDivider(doc: PDFDoc, y: number) {
+  const w = sizes.recipientDividerWidth;
+  const ornament = 4;            // half-diagonal of the centre diamond
+  const lineW = (w - ornament * 2 - 8) / 2;  // line on each side, with 4pt gap
+  const cx = layout.width / 2;
+  const lineY = y + ornament;
+
+  doc
+    .save()
+    .strokeColor(colors.dividerOrnament)
+    .fillColor(colors.dividerOrnament)
+    .lineWidth(0.5)
+    // Left line
+    .moveTo(cx - w / 2, lineY)
+    .lineTo(cx - w / 2 + lineW, lineY)
+    .stroke()
+    // Right line
+    .moveTo(cx + w / 2 - lineW, lineY)
+    .lineTo(cx + w / 2, lineY)
+    .stroke()
+    // Center diamond
+    .moveTo(cx, lineY - ornament)
+    .lineTo(cx + ornament, lineY)
+    .lineTo(cx, lineY + ornament)
+    .lineTo(cx - ornament, lineY)
+    .closePath()
+    .fill()
+    .restore();
 }
 
 function drawEventBlock(
@@ -149,19 +282,27 @@ function drawEventBlock(
   const verb = copyForType(data).eventVerb;
   let y = startY + spacing.affilToBody;
 
+  // All absolute-positioned text uses `lineBreak: false` so doc.y never
+  // advances past page-bottom mid-render (which would auto-paginate into
+  // blank pages 2+3). Y position is tracked explicitly via the local
+  // `y` variable instead of reading doc.y.
   doc
     .font(fonts.body)
     .fontSize(sizes.body)
     .fillColor(colors.text)
-    .text(verb, 0, y, { align: "center", width: layout.width });
-  y = doc.y + spacing.bodyToEventName;
+    .text(verb, 0, y, { align: "center", width: layout.width, lineBreak: false });
+  y += sizes.body + spacing.bodyToEventName;
 
   doc
     .font(fonts.eventName)
     .fontSize(sizes.eventName)
-    .fillColor(colors.text)
-    .text(data.event.name, 0, y, { align: "center", width: layout.width });
-  y = doc.y + spacing.eventNameToDates;
+    .fillColor(colors.title)
+    .text(data.event.name, 0, y, {
+      align: "center",
+      width: layout.width,
+      lineBreak: false,
+    });
+  y += sizes.eventName + spacing.eventNameToDates;
 
   doc
     .font(fonts.body)
@@ -170,8 +311,9 @@ function drawEventBlock(
     .text(formatDateRange(data.event.startDate, data.event.endDate), 0, y, {
       align: "center",
       width: layout.width,
+      lineBreak: false,
     });
-  y = doc.y + spacing.datesToVenue;
+  y += sizes.eventDates + spacing.datesToVenue;
 
   const venueLine = composeVenue(data.event);
   if (venueLine) {
@@ -179,8 +321,12 @@ function drawEventBlock(
       .font(fonts.body)
       .fontSize(sizes.venue)
       .fillColor(colors.soft)
-      .text(venueLine, 0, y, { align: "center", width: layout.width });
-    y = doc.y;
+      .text(venueLine, 0, y, {
+        align: "center",
+        width: layout.width,
+        lineBreak: false,
+      });
+    y += sizes.venue;
   }
 
   return y;
@@ -196,8 +342,12 @@ function drawCmeBlock(doc: PDFDoc, data: CertificateData, startY: number): numbe
       .font(fonts.body)
       .fontSize(sizes.hoursLabel)
       .fillColor(colors.text)
-      .text("and is hereby awarded", 0, y, { align: "center", width: layout.width });
-    y = doc.y + spacing.hoursLabelToHours;
+      .text("and is hereby awarded", 0, y, {
+        align: "center",
+        width: layout.width,
+        lineBreak: false,
+      });
+    y += sizes.hoursLabel + spacing.hoursLabelToHours;
 
     doc
       .font(fonts.hours)
@@ -206,25 +356,121 @@ function drawCmeBlock(doc: PDFDoc, data: CertificateData, startY: number): numbe
       .text(`${formatHours(hours)} CPD Hours`, 0, y, {
         align: "center",
         width: layout.width,
+        lineBreak: false,
       });
-    y = doc.y + spacing.hoursToAccreditor;
+    y += sizes.hours + spacing.hoursToAccreditorBox;
   }
 
   if (accreditations.length > 0) {
-    // Render each accreditor on its own line — short, formal, centered.
-    // Multi-body events (e.g. DHA + EACCME) get one line each.
-    for (const acc of accreditations) {
-      const statement = composeAccreditationLine(acc, hours);
-      doc
-        .font(fonts.accreditor)
-        .fontSize(sizes.accreditor)
-        .fillColor(colors.muted)
-        .text(statement, 0, y, { align: "center", width: layout.width });
-      y = doc.y + 2;
-    }
+    y = drawAccreditorBox(doc, accreditations, hours ?? null, y);
   }
 
   return y;
+}
+
+/**
+ * The boxed "ACCREDITED BY" panel — the design move that gives the
+ * accrediting body the visual weight the CEO/MD asked for. Renders a
+ * white-ish rounded rect with a gold border, a small "ACCREDITED BY"
+ * pre-header in navy, then each accreditor on its own row inside,
+ * separated by a thin gold rule when there's more than one.
+ */
+function drawAccreditorBox(
+  doc: PDFDoc,
+  accreditations: AccreditationEntry[],
+  fallbackHours: number | null,
+  startY: number,
+): number {
+  // Box dimensions — width is a centered fraction of page width so it
+  // never butts against the inner border, height is computed from the
+  // content row count.
+  const boxWidth = Math.min(560, layout.width - 2 * layout.borderInnerInset - 60);
+  const boxX = (layout.width - boxWidth) / 2;
+  const padX = sizes.accreditorBoxPaddingX;
+  const padY = sizes.accreditorBoxPaddingY;
+
+  // First measure total height needed: header + each accreditor's
+  // (body line + meta line) + (n-1) dividers + row gaps.
+  const rowHeight = sizes.accreditorBody + 2 + sizes.accreditorMeta;
+  const dividerHeight = 8;
+  const headerBlock = sizes.accreditorHeader + 6;
+  const innerHeight =
+    headerBlock +
+    accreditations.length * rowHeight +
+    Math.max(0, accreditations.length - 1) * dividerHeight +
+    Math.max(0, accreditations.length - 1) * sizes.accreditorBoxRowGap;
+  const boxHeight = innerHeight + padY * 2;
+
+  // Background fill + border.
+  doc
+    .save()
+    .fillColor(colors.accreditorBoxBg)
+    .strokeColor(colors.accreditorBoxBorder)
+    .lineWidth(0.8)
+    .roundedRect(boxX, startY, boxWidth, boxHeight, 4)
+    .fillAndStroke();
+
+  // "ACCREDITED BY" pre-header — small caps, navy, letter-spaced via
+  // pdfkit's characterSpacing option. Sits centered at the top of the
+  // box. lineBreak: false on every text() call so doc.y never advances
+  // past page-bottom + triggers pagination (the multi-page bug we
+  // hit on first render).
+  let cursor = startY + padY;
+  doc
+    .font(fonts.accreditorHeader)
+    .fontSize(sizes.accreditorHeader)
+    .fillColor(colors.accreditorHeaderText)
+    .text("ACCREDITED BY", boxX, cursor, {
+      align: "center",
+      width: boxWidth,
+      characterSpacing: 2,
+      lineBreak: false,
+    });
+  cursor += sizes.accreditorHeader + 6;
+
+  // Each accreditor row — body name in bold navy, reference + hours in
+  // smaller muted text below. Multi-body rows separated by a short
+  // centered gold rule.
+  accreditations.forEach((acc, idx) => {
+    if (idx > 0) {
+      // Divider rule between rows.
+      const dy = cursor + 3;
+      doc
+        .strokeColor(colors.borderInner)
+        .lineWidth(0.4)
+        .moveTo(boxX + sizes.accreditorBoxDividerInset, dy)
+        .lineTo(boxX + boxWidth - sizes.accreditorBoxDividerInset, dy)
+        .stroke();
+      cursor += dividerHeight + sizes.accreditorBoxRowGap;
+    }
+
+    const bodyLine = friendlyAccreditorName(acc.body);
+    doc
+      .font(fonts.accreditorBody)
+      .fontSize(sizes.accreditorBody)
+      .fillColor(colors.accreditorBodyText)
+      .text(bodyLine, boxX + padX, cursor, {
+        align: "center",
+        width: boxWidth - padX * 2,
+        lineBreak: false,
+      });
+    cursor += sizes.accreditorBody + 2;
+
+    const metaLine = composeAccreditorMeta(acc, fallbackHours);
+    doc
+      .font(fonts.accreditorMeta)
+      .fontSize(sizes.accreditorMeta)
+      .fillColor(colors.accreditorMeta)
+      .text(metaLine, boxX + padX, cursor, {
+        align: "center",
+        width: boxWidth - padX * 2,
+        lineBreak: false,
+      });
+    cursor += sizes.accreditorMeta;
+  });
+
+  doc.restore();
+  return startY + boxHeight;
 }
 
 function drawFooter(doc: PDFDoc, data: CertificateData) {
@@ -233,39 +479,51 @@ function drawFooter(doc: PDFDoc, data: CertificateData) {
   // signature-line position even when CME pushes the content down. That's
   // why this helper takes no Y-cursor input from the caller.
   const footerY = layout.height - layout.borderInnerInset - 70;
-  const leftX = layout.borderInnerInset + 30;
-  const rightX = layout.width - layout.borderInnerInset - 230;
-  const rightW = 200;
+  const leftX = layout.borderInnerInset + 35;
+  const rightX = layout.width - layout.borderInnerInset - 270;
+  const rightW = 240;
 
-  // Left: serial + issued date
+  // Left: serial + issued date.
   doc
     .font(fonts.serial)
     .fontSize(sizes.serial)
     .fillColor(colors.soft)
     .text(`Certificate # ${data.serial}`, leftX, footerY, { lineBreak: false });
-  doc
-    .text(`Issued ${formatDate(data.issuedAt)}`, leftX, footerY + 12, {
-      lineBreak: false,
-    });
+  doc.text(`Issued ${formatDate(data.issuedAt)}`, leftX, footerY + 12, {
+    lineBreak: false,
+  });
 
-  // Right: signature line + label
+  // Right: signature line + small ornament + label.
+  const lineY = footerY + 14;
   doc
     .save()
-    .moveTo(rightX, footerY + 12)
-    .lineTo(rightX + rightW, footerY + 12)
-    .lineWidth(0.5)
+    .moveTo(rightX, lineY)
+    .lineTo(rightX + rightW, lineY)
+    .lineWidth(0.6)
     .strokeColor(colors.muted)
+    .stroke()
+    // Small flourish ornament at line ends (tiny vertical ticks)
+    .moveTo(rightX, lineY - 3)
+    .lineTo(rightX, lineY + 3)
+    .stroke()
+    .moveTo(rightX + rightW, lineY - 3)
+    .lineTo(rightX + rightW, lineY + 3)
     .stroke()
     .restore();
   doc
     .font(fonts.signature)
     .fontSize(sizes.signatureLabel)
     .fillColor(colors.muted)
-    .text(`${data.event.organizationName} — Activity Director`, rightX, footerY + 18, {
+    .text(`${data.event.organizationName} · Activity Director`, rightX, lineY + 6, {
       width: rightW,
       align: "center",
       lineBreak: false,
     });
+
+  // Defensive reset: any subsequent operation that reads doc.y (e.g.,
+  // pdfkit's implicit text positioning if a feature were added later)
+  // gets a safe value, not "off the page" from text rendering above.
+  doc.y = layout.height - layout.borderInnerInset - 30;
 }
 
 // ── Per-type copy ────────────────────────────────────────────────────────────
@@ -311,12 +569,6 @@ function copyForType(data: CertificateData): {
         eventVerb: "attended",
       };
   }
-  // Unreachable under the current CertificateType enum — only here so
-  // TypeScript's reachability analysis stops complaining about a
-  // missing return. If a new enum value is added without a matching
-  // case above, this throws at runtime; the right long-term shape is
-  // a never-guard, but Prisma's generated enum + this project's TS
-  // config don't currently narrow to never after exhaustive cases.
   throw new Error(`Unhandled certificate type: ${String(data.type)}`);
 }
 
@@ -342,14 +594,21 @@ function composeVenue(e: CertificateData["event"]): string | null {
   return parts.length > 0 ? `held at ${parts.join(", ")}` : null;
 }
 
-function composeAccreditationLine(
+/**
+ * Meta line that goes UNDER the accreditor's name inside the box. When
+ * the accreditor supplied a verbatim `officialStatement`, that wins
+ * (regulators sometimes require exact wording). Otherwise we compose:
+ * "Reference: <ref> · <hours> CPD Hours"
+ */
+function composeAccreditorMeta(
   acc: AccreditationEntry,
   fallbackHours: number | null | undefined,
 ): string {
   if (acc.officialStatement) return acc.officialStatement;
   const hours = acc.hours ?? fallbackHours ?? null;
-  const hoursPart = hours ? ` for ${formatHours(hours)} CPD Hours` : "";
-  return `Accredited by ${friendlyAccreditorName(acc.body)} reference ${acc.reference}${hoursPart}`;
+  const parts: string[] = [`Reference: ${acc.reference}`];
+  if (hours) parts.push(`${formatHours(hours)} CPD Hours`);
+  return parts.join(" · ");
 }
 
 function friendlyAccreditorName(body: AccreditationEntry["body"]): string {
@@ -365,7 +624,7 @@ function friendlyAccreditorName(body: AccreditationEntry["body"]): string {
     case "ACCME":
       return "ACCME";
     case "OTHER":
-      return "the accrediting body";
+      return "The Accrediting Body";
   }
 }
 

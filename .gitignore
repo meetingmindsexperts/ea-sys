@@ -80,3 +80,7 @@ playwright-report/
 .playwright-mcp/
 *.docx
 *.xlsx
+
+# Playwright local-verification scratch screenshots (not in repo)
+cert-*.png
+.playwright-mcp/
