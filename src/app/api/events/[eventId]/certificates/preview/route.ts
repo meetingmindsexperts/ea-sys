@@ -124,7 +124,24 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const data = buildPreviewCertificate({ type, event });
+    // Pull the organizer-configured template out of Event.settings.
+    // The renderer falls back to the per-type default in template.ts
+    // when fields are missing.
+    const settings =
+      event.settings && typeof event.settings === "object" && !Array.isArray(event.settings)
+        ? (event.settings as Record<string, unknown>)
+        : {};
+    const rawTemplate = settings.certificateTemplate;
+    const template =
+      rawTemplate && typeof rawTemplate === "object" && !Array.isArray(rawTemplate)
+        ? (rawTemplate as Record<string, unknown>)
+        : {};
+
+    const data = buildPreviewCertificate({
+      type,
+      event,
+      template: template as Parameters<typeof buildPreviewCertificate>[0]["template"],
+    });
     const pdf = await renderCertificate(data);
 
     apiLogger.info({

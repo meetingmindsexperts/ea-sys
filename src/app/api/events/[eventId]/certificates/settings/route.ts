@@ -27,7 +27,18 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { readEventCmeSettings } from "@/lib/certificates/sample-data";
-import type { EventCmeSettings } from "@/lib/certificates/types";
+import type { EventCmeSettings, CertificateTemplate } from "@/lib/certificates/types";
+
+/** Pull the per-event certificate template from `Event.settings.certificateTemplate`.
+ *  Returns an empty object when the path doesn't exist (event without
+ *  a configured template yet). */
+function readCertTemplate(settings: unknown): CertificateTemplate {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
+  const obj = settings as Record<string, unknown>;
+  const t = obj.certificateTemplate;
+  if (!t || typeof t !== "object" || Array.isArray(t)) return {};
+  return t as CertificateTemplate;
+}
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -46,6 +57,29 @@ const accreditationSchema = z.object({
   officialStatement: z.string().max(500).optional(),
 });
 
+// Per-event certificate template fields — organizer-controlled visual
+// elements (post-2026-06-01 redesign). Every field optional so the UI
+// can patch one slice at a time (just upload a banner, or just edit body,
+// etc.). URL fields accept the project's standard `/uploads/...` paths.
+const signatureSchema = z.object({
+  image: z.string().max(500).nullable().optional(),
+  name: z.string().min(1).max(120).trim(),
+  lines: z.array(z.string().max(200)).max(6).default([]),
+});
+const footerLogoSchema = z.object({
+  label: z.string().max(60).optional(),
+  image: z.string().min(1).max(500),
+});
+const templateSchema = z.object({
+  headerImage: z.string().max(500).nullable().optional(),
+  titleText: z.string().max(120).optional(),
+  titleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a 6-digit hex color").optional(),
+  bodyTemplate: z.string().max(4000).optional(),
+  signatures: z.array(signatureSchema).max(4).optional(),
+  footerLogos: z.array(footerLogoSchema).max(6).optional(),
+  footerText: z.string().max(800).optional(),
+});
+
 const patchSchema = z
   .object({
     // Allow nulling out to "no CME" — cap 999.9, decimal allowed up to 1dp.
@@ -55,6 +89,10 @@ const patchSchema = z
     // review) have signed off the cert design. Server enforces the role
     // gate; UI hides the checkbox for non-SUPER_ADMIN.
     designApproved: z.boolean().optional(),
+    // Organizer-controlled visual template (banner image, title, body
+    // copy, signatures, footer). Top-level "template" key — clients
+    // patch a partial template here and we merge with what's persisted.
+    template: templateSchema.optional(),
   })
   .strict();
 
@@ -80,11 +118,21 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const cme = readEventCmeSettings(event.settings);
+    const template = readCertTemplate(event.settings);
     return NextResponse.json({
       cmeHours: event.cmeHours == null ? null : Number(event.cmeHours),
       accreditations: cme.accreditations ?? [],
       designApprovedBy: cme.designApprovedBy ?? null,
       designApprovedAt: cme.designApprovedAt ?? null,
+      template: {
+        headerImage: template.headerImage ?? null,
+        titleText: template.titleText ?? null,
+        titleColor: template.titleColor ?? null,
+        bodyTemplate: template.bodyTemplate ?? null,
+        signatures: template.signatures ?? [],
+        footerLogos: template.footerLogos ?? [],
+        footerText: template.footerText ?? null,
+      },
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-settings:get-failed" });
@@ -177,7 +225,23 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }
     }
 
-    const nextSettings = { ...currentSettings, cme: nextCme };
+    // Merge template patch into existing certificateTemplate, preserving
+    // unrelated fields so a UI patching ONLY the banner image doesn't
+    // wipe the signatures + footer logos.
+    const currentTemplate = readCertTemplate(currentSettings);
+    const nextTemplate: CertificateTemplate = { ...currentTemplate };
+    if (parsed.data.template) {
+      const p = parsed.data.template;
+      if (p.headerImage !== undefined) nextTemplate.headerImage = p.headerImage;
+      if (p.titleText !== undefined) nextTemplate.titleText = p.titleText;
+      if (p.titleColor !== undefined) nextTemplate.titleColor = p.titleColor;
+      if (p.bodyTemplate !== undefined) nextTemplate.bodyTemplate = p.bodyTemplate;
+      if (p.signatures !== undefined) nextTemplate.signatures = p.signatures;
+      if (p.footerLogos !== undefined) nextTemplate.footerLogos = p.footerLogos;
+      if (p.footerText !== undefined) nextTemplate.footerText = p.footerText;
+    }
+
+    const nextSettings = { ...currentSettings, cme: nextCme, certificateTemplate: nextTemplate };
 
     const updated = await db.event.update({
       where: { id: eventId },
@@ -221,11 +285,21 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     const finalCme = readEventCmeSettings(updated.settings);
+    const finalTemplate = readCertTemplate(updated.settings);
     return NextResponse.json({
       cmeHours: updated.cmeHours == null ? null : Number(updated.cmeHours),
       accreditations: finalCme.accreditations ?? [],
       designApprovedBy: finalCme.designApprovedBy ?? null,
       designApprovedAt: finalCme.designApprovedAt ?? null,
+      template: {
+        headerImage: finalTemplate.headerImage ?? null,
+        titleText: finalTemplate.titleText ?? null,
+        titleColor: finalTemplate.titleColor ?? null,
+        bodyTemplate: finalTemplate.bodyTemplate ?? null,
+        signatures: finalTemplate.signatures ?? [],
+        footerLogos: finalTemplate.footerLogos ?? [],
+        footerText: finalTemplate.footerText ?? null,
+      },
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-settings:patch-failed", eventId });

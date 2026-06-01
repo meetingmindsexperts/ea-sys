@@ -43,6 +43,73 @@ export interface EventCmeSettings {
   designApprovedAt?: string;
 }
 
+// ── Certificate template (organizer-controlled visual assets) ─────────────────
+//
+// Per CEO/MD review of two real-world CME certs (MASH IN FOCUS 2026, EIGHC
+// 2025), the cert visual identity lives in event-specific uploaded assets
+// — banner image, signature(s), society logos — not in a fixed in-code
+// design. The new "template" model lets organizers fully control the
+// look while we own the composition + data merge.
+
+/** One signature block. Multi-signature support (chairman + co-chairmen). */
+export interface CertificateSignature {
+  /** URL to the uploaded hand-signature image (PNG/SVG, transparent bg
+   *  preferred — sits over the white cert body). */
+  image?: string | null;
+  /** Display name shown under the signature line, e.g. "DR. AHMAD AL-RIFAI". */
+  name: string;
+  /** Free-form lines below the name (title, institution, country, etc).
+   *  Each entry renders on its own line in the cert. */
+  lines: string[];
+}
+
+/** One footer logo with an optional label above it (e.g., "Hosted by",
+ *  "In Collaboration with", "Managed by"). */
+export interface CertificateFooterLogo {
+  /** Optional small label rendered above the logo in muted text. */
+  label?: string;
+  /** URL to the uploaded logo image. */
+  image: string;
+}
+
+/**
+ * Per-event certificate template. Lives in `Event.settings.certificateTemplate`.
+ * All fields are optional so an event without a configured template still
+ * renders a default cert (using the static defaults in template.ts).
+ *
+ * `bodyTemplate` is plain text with `{{token}}` merge placeholders. Supported
+ * tokens at render time: recipientName, eventName, eventSubtitle,
+ * eventDateRange, venueLine, accreditationBody, accreditationReference,
+ * cmeHours. Unknown tokens render as empty string (with a warn log) so a
+ * typo doesn't surface `{{cmeHourz}}` literally on a printed cert.
+ */
+export interface CertificateTemplate {
+  /** Banner image URL — typically uploaded by organizer; renders across
+   *  the top ~22% of the cert. Aspect ratio responsibility is on the
+   *  organizer (they design it once, the renderer just places it). */
+  headerImage?: string | null;
+  /** Heading text — "Certificate of Attendance" / "Certificate of CME" /
+   *  etc. Rendered in italic script style. */
+  titleText?: string;
+  /** Hex color for the heading — navy by default, but organizers can pick
+   *  per event (refs showed navy + magenta). */
+  titleColor?: string;
+  /** Body text with {{token}} placeholders. Multi-line — each newline
+   *  renders as a paragraph. */
+  bodyTemplate?: string;
+  /** Zero, one, or more signatures (chairman, co-chairmen). When more
+   *  than one, signatures render side-by-side. */
+  signatures?: CertificateSignature[];
+  /** Zero or more society logos at the bottom of the cert. */
+  footerLogos?: CertificateFooterLogo[];
+  /** Optional text rendered below the footer logos. */
+  footerText?: string;
+  /** SUPER_ADMIN-only design-approval gate (preserved from prior
+   *  architecture; unlocks Phase C "Issue" button). */
+  designApprovedBy?: string;
+  designApprovedAt?: string;
+}
+
 /** Recipient data — flattened from Attendee or Speaker depending on cert type. */
 export interface CertificateRecipient {
   title: string | null;     // "Dr." / "Prof." etc — already formatted via getTitleLabel
@@ -87,6 +154,11 @@ export type CertificateExtras =
  * the same function is reused identically by Phase A's preview path
  * (where data is mocked or pulled fresh) and Phase C's issue path
  * (where data comes from a frozen recipientSnapshot).
+ *
+ * `template` is the organizer-controlled visual config (banner image,
+ * title, signatures, footer logos, etc.) merged with the renderer's
+ * built-in defaults. The renderer treats every template field as
+ * optional + falls back to defaults.
  */
 export interface CertificateData {
   type: CertificateType;
@@ -95,4 +167,5 @@ export interface CertificateData {
   recipient: CertificateRecipient;
   event: CertificateEventContext;
   extras: CertificateExtras;
+  template: CertificateTemplate;
 }

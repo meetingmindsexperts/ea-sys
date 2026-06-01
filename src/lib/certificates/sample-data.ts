@@ -20,6 +20,7 @@ import type {
   CertificateType,
   AccreditationEntry,
   EventCmeSettings,
+  CertificateTemplate,
 } from "./types";
 
 const SYNTHETIC_RECIPIENT: CertificateRecipient = {
@@ -92,6 +93,9 @@ export function buildPreviewCertificate(args: {
   type: CertificateType;
   event: PreviewEventRow;
   recipient?: CertificateRecipient;
+  /** Organizer-configured template (per-event). When omitted the renderer
+   *  falls back to the type default in template.ts. */
+  template?: CertificateTemplate;
 }): CertificateData {
   const eventCtx = buildEventContext(args.event);
   const extras = extrasForPreview(args.type);
@@ -102,6 +106,7 @@ export function buildPreviewCertificate(args: {
     recipient: args.recipient ?? SYNTHETIC_RECIPIENT,
     event: eventCtx,
     extras,
+    template: args.template ?? {},
   };
 }
 
@@ -119,6 +124,7 @@ function extrasForPreview(type: CertificateType): CertificateExtras {
     case "ATTENDANCE":
       return { type: "ATTENDANCE" };
   }
+  throw new Error(`Unhandled certificate type: ${String(type)}`);
 }
 
 /**
