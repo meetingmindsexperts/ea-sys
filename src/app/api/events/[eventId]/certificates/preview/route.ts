@@ -145,6 +145,14 @@ export async function GET(req: Request, { params }: RouteParams) {
         // would actively mislead the CEO/MD.
         "Content-Disposition": `inline; filename="preview-${type.toLowerCase()}.pdf"`,
         "Cache-Control": "private, max-age=0, no-store",
+        // Override the global X-Frame-Options for THIS response so the
+        // dashboard iframe can render it. Same-origin framing only —
+        // matches the global default after the 2026-06-01 hardening.
+        // Belt-and-suspenders explicit because the cost of getting this
+        // wrong is "preview doesn't render, no server-side log
+        // explains why" — exactly the failure mode we just fixed.
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "frame-ancestors 'self'",
       },
     });
   } catch (error) {

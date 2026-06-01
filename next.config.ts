@@ -10,7 +10,20 @@ const nextConfig: NextConfig = {
       {
         source: "/(.*)",
         headers: [
-          { key: "X-Frame-Options", value: "DENY" },
+          // SAMEORIGIN (was DENY before 2026-06-01) — DENY blocked our own
+          // dashboard from iframing same-origin pages (e.g. the certificates
+          // preview PDF), and the failure mode is browser-level + silent
+          // (no server logs because the response never renders in the
+          // frame). SAMEORIGIN still blocks external sites embedding our
+          // pages for clickjacking — the only thing we used to also block
+          // (which we now allow) is OUR OWN pages framing OUR OWN pages.
+          // Matches the nginx-layer header at deploy/nginx.conf:26.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // Modern equivalent — Content-Security-Policy frame-ancestors
+          // supersedes X-Frame-Options on browsers that support both. 'self'
+          // = only same-origin documents can frame us. Defense-in-depth
+          // since some niche browsers ignore X-Frame-Options.
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

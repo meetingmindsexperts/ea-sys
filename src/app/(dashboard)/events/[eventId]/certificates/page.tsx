@@ -83,6 +83,13 @@ export default function CertificatesPage() {
   const [previewType, setPreviewType] = useState<CertType>("ATTENDANCE");
   const [previewBust, setPreviewBust] = useState(0); // forces iframe reload on re-render
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewProbe, setPreviewProbe] = useState<
+    | { kind: "idle" }
+    | { kind: "probing" }
+    | { kind: "ok"; bytes: number }
+    | { kind: "http-error"; status: number; body: string }
+    | { kind: "network-error"; message: string }
+  >({ kind: "idle" });
 
   const settingsQuery = useQuery<SettingsResponse>({
     queryKey: ["cert-settings", eventId],
@@ -175,9 +182,36 @@ export default function CertificatesPage() {
     saveMutation.mutate({ designApproved: approved });
   }
 
-  function showPreview() {
+  async function showPreview() {
     setPreviewVisible(true);
     setPreviewBust((b) => b + 1);
+
+    // BACKGROUND PROBE: fetch the same URL the iframe uses to surface any
+    // server-side failure (500, 404, 429, 403) that an iframe would
+    // otherwise hide behind a generic "refused to connect". Adds zero
+    // delay to the iframe (it loads in parallel) but means a broken
+    // response shows a real error message in the UI + console instead of
+    // a silent blank frame. Same-origin → no CORS concerns.
+    setPreviewProbe({ kind: "probing" });
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/certificates/preview?type=${previewType}&t=${Date.now()}`,
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => "(no body)");
+        setPreviewProbe({ kind: "http-error", status: res.status, body });
+        toast.error(`Preview failed: HTTP ${res.status}. Check /logs.`);
+        console.error("[cert-preview] HTTP error", { status: res.status, body });
+        return;
+      }
+      const buf = await res.arrayBuffer();
+      setPreviewProbe({ kind: "ok", bytes: buf.byteLength });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setPreviewProbe({ kind: "network-error", message });
+      toast.error(`Preview network failure: ${message}`);
+      console.error("[cert-preview] Network error", e);
+    }
   }
 
   const previewSrc = `/api/events/${eventId}/certificates/preview?type=${previewType}&t=${previewBust}`;
@@ -455,15 +489,59 @@ export default function CertificatesPage() {
           </div>
 
           {previewVisible ? (
-            <div className="rounded-md border overflow-hidden bg-muted">
-              <iframe
-                key={previewBust}
-                src={previewSrc}
-                className="w-full"
-                style={{ height: "700px" }}
-                title="Certificate preview"
-              />
-            </div>
+            <>
+              {/* Probe-based status banner — replaces the silent "iframe blank
+                  for unknown reason" failure mode with a visible explanation
+                  when the server side is misbehaving. */}
+              {previewProbe.kind === "probing" && (
+                <div className="rounded-md border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  Probing server response…
+                </div>
+              )}
+              {previewProbe.kind === "ok" && (
+                <div className="rounded-md border bg-green-50 px-3 py-2 text-xs text-green-700 dark:bg-green-950/30 dark:text-green-400">
+                  Server returned {previewProbe.bytes.toLocaleString()} bytes of PDF.
+                </div>
+              )}
+              {previewProbe.kind === "http-error" && (
+                <div className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
+                  <div className="font-semibold mb-1">
+                    HTTP {previewProbe.status} from preview endpoint
+                  </div>
+                  <div>The PDF didn&apos;t render. Server response body:</div>
+                  <pre className="mt-1 whitespace-pre-wrap break-all bg-red-100/50 p-2 rounded font-mono dark:bg-red-900/40">
+                    {previewProbe.body.slice(0, 800)}
+                  </pre>
+                  <div className="mt-2">
+                    Check{" "}
+                    <code className="bg-red-100 dark:bg-red-900/40 px-1 rounded">
+                      /logs?source=database&amp;search=cert-preview
+                    </code>{" "}
+                    for the server-side stack trace.
+                  </div>
+                </div>
+              )}
+              {previewProbe.kind === "network-error" && (
+                <div className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
+                  <div className="font-semibold mb-1">Network failure</div>
+                  <div>{previewProbe.message}</div>
+                  <div className="mt-2 text-muted-foreground">
+                    The browser couldn&apos;t reach the preview endpoint at all.
+                    Likely a deploy in progress, a server crash, or a network
+                    interruption.
+                  </div>
+                </div>
+              )}
+              <div className="rounded-md border overflow-hidden bg-muted">
+                <iframe
+                  key={previewBust}
+                  src={previewSrc}
+                  className="w-full"
+                  style={{ height: "700px" }}
+                  title="Certificate preview"
+                />
+              </div>
+            </>
           ) : (
             <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
               Click <strong>Generate preview</strong> above to render a draft.
