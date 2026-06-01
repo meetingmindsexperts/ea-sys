@@ -272,8 +272,93 @@ function getSesClient(): SESv2Client {
       // file (~/.aws/credentials) → EC2 instance profile (preferred in prod —
       // attach an IAM role to the instance with ses:SendEmail permission).
     });
+    // Fire-and-forget identity probe so the first SES use on every process
+    // start logs WHICH credential source the SDK actually resolved. The
+    // first time this got rejected with UnrecognizedClientException
+    // (Sentry 121795612, May 22 2026), the catch block told us the call
+    // failed but not WHICH identity AWS rejected — we had to debug from
+    // a stack trace alone. This log line + the warn below close that gap.
+    void logSesIdentityDiagnostic(sesClient);
   }
   return sesClient;
+}
+
+/**
+ * One-shot diagnostic that runs the first time the SES client is constructed.
+ * Resolves the SDK's credential provider chain and logs the key shape (no
+ * secrets!) so we know which identity SES is being called as.
+ *
+ * Key prefixes (public AWS convention, safe to log):
+ *   AKIA  — long-term IAM user access key (from env or ~/.aws/credentials)
+ *   ASIA  — short-term STS / instance-role credentials (sessionToken present)
+ *   AROA  — IAM role ID (rare in this code path)
+ *   ANPA  — managed policy ID
+ *   AIDA  — IAM user ID
+ *
+ * The "env key set AND no sessionToken in resolved creds" branch is the
+ * precedence trap that caused the May 22 incident — env vars override any
+ * attached EC2 instance role, so a stale .env key gets sent to SES, gets
+ * rejected, and the role we *think* we're using never gets a chance.
+ */
+// Exported only so the unit suite can call it directly with a fake client;
+// production callers always reach this via getSesClient() on first use.
+export async function logSesIdentityDiagnostic(client: SESv2Client): Promise<void> {
+  try {
+    const regionProvider = client.config.region;
+    const region = typeof regionProvider === "function" ? await regionProvider() : regionProvider;
+    const credsProvider = client.config.credentials;
+    if (typeof credsProvider !== "function") {
+      apiLogger.warn({ msg: "ses:identity-diagnostic-skipped", reason: "no credential provider on client config" });
+      return;
+    }
+    const creds = await credsProvider();
+    const keyPrefix = (creds.accessKeyId ?? "").slice(0, 4) || "(empty)";
+    const hasSessionToken = !!creds.sessionToken;
+    const hasExpiration = !!creds.expiration;
+    const envKeySet = !!process.env.AWS_ACCESS_KEY_ID;
+    const envKeyPrefix = envKeySet ? process.env.AWS_ACCESS_KEY_ID!.slice(0, 4) : null;
+
+    const source = hasSessionToken
+      ? "temporary credentials (instance role / STS / SSO)"
+      : keyPrefix === "AKIA"
+        ? "long-term IAM user key (env var or shared credentials file)"
+        : "unknown";
+
+    apiLogger.info({
+      msg: "ses:identity-diagnostic",
+      region,
+      keyPrefix,
+      hasSessionToken,
+      hasExpiration,
+      credentialSource: source,
+      envKeySet,
+      envKeyPrefix,
+    });
+
+    if (envKeySet && !hasSessionToken) {
+      // Precedence trap — env vars are present AND the resolved creds are
+      // long-term (no session token), meaning the SDK picked env over any
+      // attached instance role. If the env key is stale (rotated, deleted,
+      // wrong account), every SES send becomes UnrecognizedClientException.
+      // Remediation: clear AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY from
+      // the deployed .env on the box and restart so the SDK falls through
+      // to the instance role. See docs/runbook-ses.md.
+      apiLogger.warn({
+        msg: "ses:env-credentials-in-use",
+        warning:
+          "AWS_ACCESS_KEY_ID is set in env and is taking precedence over any EC2 instance role. " +
+          "If this key is stale, SES sends will fail with UnrecognizedClientException. " +
+          "See docs/runbook-ses.md for remediation.",
+        envKeyPrefix,
+        resolvedKeyPrefix: keyPrefix,
+      });
+    }
+  } catch (error) {
+    // Don't crash the process or block sends if the diagnostic itself
+    // throws — it's an aid, not a gate. The SES send below will still
+    // run and emit its own structured error if the creds are bad.
+    apiLogger.warn({ err: error, msg: "ses:identity-diagnostic-failed" });
+  }
 }
 
 function formatAddress(r: { email: string; name?: string }): string {
@@ -496,12 +581,35 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     // Pluck them as top-level context so the file logs + Sentry payload have
     // them without us having to JSON-stringify the whole error.
     const err = error as { code?: number | string; statusCode?: number; body?: unknown; response?: unknown };
+    // AWS SDK v3 errors carry a different shape than Postmark/SendGrid:
+    //   error.name              — the AWS error code, e.g. "UnrecognizedClientException"
+    //   error.$metadata.httpStatusCode  — HTTP status from the service
+    //   error.$metadata.requestId       — the X-Amz-RequestId we'd quote to AWS support
+    //   error.$fault            — "client" (4xx-class) or "server" (5xx / retryable)
+    // Without this, Sentry sees only the message + stack and we have no way
+    // to grep for "all UnrecognizedClientException last 24h" or to attach
+    // an AWS request ID to a support ticket. Sentry issue 121795612 (May 22)
+    // is the worked example.
+    const awsErr = error as {
+      name?: string;
+      $metadata?: { httpStatusCode?: number; requestId?: string; extendedRequestId?: string; attempts?: number };
+      $fault?: "client" | "server";
+    };
+    const awsErrorName = awsErr.name && awsErr.name !== "Error" ? awsErr.name : undefined;
+    const awsRequestId = awsErr.$metadata?.requestId;
     apiLogger.error({
       // Pass the raw Error so withSentryForwarding routes it via captureException
       // (full stack trace) instead of captureMessage (string only).
       err: error,
       msg: "Failed to send email",
       error: message,
+      // AWS SDK v3 shape — populated when provider is SES, undefined otherwise.
+      awsErrorName,
+      awsHttpStatus: awsErr.$metadata?.httpStatusCode,
+      awsRequestId,
+      awsFault: awsErr.$fault,
+      // Postmark/SendGrid shape — kept for the currently-disabled providers
+      // and back-compat with older log queries.
       providerCode: err.code,
       providerStatus: err.statusCode,
       providerBody: err.body,
@@ -510,13 +618,21 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       subject: params.subject,
       provider: providerName,
     });
+    // Persist the AWS requestId in the EmailLog row when present so the
+    // operator can correlate a failed row in /logs back to the exact SES
+    // API call (and quote it in an AWS support ticket). Stays inside the
+    // existing errorMessage column — no migration needed for what's a
+    // diagnostic aid.
+    const errorMessageForLog = awsRequestId
+      ? `${message} [awsErrorName=${awsErrorName ?? "(unknown)"} awsRequestId=${awsRequestId}]`
+      : message;
     void logEmail({
       to: primaryTo,
       cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
       subject: params.subject,
       provider: providerName,
       status: "FAILED",
-      errorMessage: message,
+      errorMessage: errorMessageForLog,
       context: params.logContext,
     });
     return {
