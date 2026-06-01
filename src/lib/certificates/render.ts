@@ -57,13 +57,13 @@ const MME_LOGO_BUFFER: Buffer | null = (() => {
 export async function renderCertificate(data: CertificateData): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
-    layout: "landscape",
+    // No `layout` field — A4 defaults to portrait (the format both
+    // CEO/MD design references showed). Was landscape in v1; switched
+    // 2026-06-01 Phase B round 3.
     // Document margins set to 0 — we manage layout absolutely via the
     // tokens, and pdfkit's auto-pagination triggers when text crosses
-    // `pageHeight - bottomMargin`. With margin: 60 (the default-ish),
-    // the cert overflowed onto page 2 the moment we added the
-    // decorative top band. Setting margins to 0 means pdfkit never
-    // paginates the cert — exactly what we want for a single-page
+    // `pageHeight - bottomMargin`. Setting margins to 0 means pdfkit
+    // never paginates the cert — exactly what we want for a single-page
     // certificate. Belt-and-suspenders alongside `lineBreak: false`
     // on every text() call.
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -91,8 +91,8 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
   drawBorder(doc);
   const logoBottomY = drawLogo(doc);
   drawTopBand(doc, logoBottomY);
-  const subtitleBottomY = drawTitleBlock(doc, data, logoBottomY + spacing.logoToTitle * 0.4);
-  const recipientBottomY = drawRecipientBlock(doc, subtitleBottomY, data);
+  const titleSubBottomY = drawTitleBlock(doc, data, logoBottomY + spacing.logoToTopBand + 10);
+  const recipientBottomY = drawRecipientBlock(doc, titleSubBottomY, data);
   const eventBottomY = drawEventBlock(doc, data, recipientBottomY);
   if (data.type === "CME") {
     drawCmeBlock(doc, data, eventBottomY);
@@ -286,57 +286,61 @@ function drawLogo(doc: PDFDoc): number {
   return startY + h;
 }
 
-function drawTitleBlock(doc: PDFDoc, data: CertificateData, logoBottomY: number): number {
-  const { title, subtitle } = copyForType(data);
-  const y = logoBottomY + spacing.logoToTitle;
+function drawTitleBlock(doc: PDFDoc, data: CertificateData, topBandY: number): number {
+  const copy = copyForType(data);
+  const y = topBandY + spacing.topBandToTitleMain;
 
-  // Measure title width so we can place the rule decorators on each side.
-  doc.font(fonts.title).fontSize(sizes.title);
-  const titleWidth = doc.widthOfString(title);
+  // MAIN TITLE — "CERTIFICATE" in huge bold navy. The headline. Matches
+  // the design-reference convention where this word is the visual anchor
+  // of the page, not the sub-type.
+  doc.font(fonts.title).fontSize(sizes.titleMain);
+  const titleWidth = doc.widthOfString(copy.titleMain);
   const titleX = (layout.width - titleWidth) / 2;
-  const titleBaseline = y + sizes.title * 0.7; // approximate visual middle
+  const titleBaseline = y + sizes.titleMain * 0.7;
 
-  // Left + right horizontal rules — short navy lines flanking the title.
-  // This single touch is what makes the title feel "ceremonial" rather
-  // than just "bold heading."
-  const ruleY = titleBaseline;
+  // Left + right horizontal rules flanking the main title — short navy
+  // lines (gold would clash with the navy title). The flourish that
+  // distinguishes "ceremonial heading" from "bold text".
   doc
     .save()
     .lineWidth(0.75)
     .strokeColor(colors.title)
-    .moveTo(titleX - sizes.titleRuleGap - sizes.titleRuleWidth, ruleY)
-    .lineTo(titleX - sizes.titleRuleGap, ruleY)
+    .moveTo(titleX - sizes.titleRuleGap - sizes.titleRuleWidth, titleBaseline)
+    .lineTo(titleX - sizes.titleRuleGap, titleBaseline)
     .stroke()
-    .moveTo(titleX + titleWidth + sizes.titleRuleGap, ruleY)
-    .lineTo(titleX + titleWidth + sizes.titleRuleGap + sizes.titleRuleWidth, ruleY)
+    .moveTo(titleX + titleWidth + sizes.titleRuleGap, titleBaseline)
+    .lineTo(titleX + titleWidth + sizes.titleRuleGap + sizes.titleRuleWidth, titleBaseline)
     .stroke()
     .restore();
 
-  // The title itself, on top of the rules. lineBreak: false prevents
-  // pdfkit from advancing doc.y past page-bottom (which auto-paginates
-  // the cert into a second/third blank page). All absolute-positioned
-  // text in this renderer uses the same pattern.
-  doc
-    .fillColor(colors.title)
-    .text(title, 0, y, { align: "center", width: layout.width, lineBreak: false });
+  doc.fillColor(colors.title).text(copy.titleMain, 0, y, {
+    align: "center",
+    width: layout.width,
+    lineBreak: false,
+  });
 
-  // Optional subtitle (organization name) just below.
-  const subtitleY = y + sizes.title + spacing.titleToSubtitle;
+  // SUB TITLE — "OF ATTENDANCE" / "OF CONTINUING MEDICAL EDUCATION" /
+  // "FOR FACULTY" / "FOR POSTER PRESENTER". Cerulean (our brand accent)
+  // for the secondary emphasis, matching the design-reference pattern
+  // where the type indicator pops in the accent color.
+  const titleSubY = y + sizes.titleMain + spacing.titleMainToTitleSub;
   doc
     .font(fonts.subtitle)
-    .fontSize(sizes.subtitle)
-    .fillColor(colors.muted)
-    .text(subtitle, 0, subtitleY, {
+    .fontSize(sizes.titleSub)
+    .fillColor(colors.cmeHighlight)
+    .text(copy.titleSub, 0, titleSubY, {
       align: "center",
       width: layout.width,
       lineBreak: false,
+      characterSpacing: 4,
     });
-  return subtitleY + sizes.subtitle;
+
+  return titleSubY + sizes.titleSub;
 }
 
-function drawRecipientBlock(doc: PDFDoc, subtitleBottomY: number, data: CertificateData): number {
+function drawRecipientBlock(doc: PDFDoc, titleSubBottomY: number, data: CertificateData): number {
   const introLine = copyForType(data).recipientIntro;
-  let y = subtitleBottomY + spacing.subtitleToBody;
+  let y = titleSubBottomY + spacing.titleSubToBody;
 
   doc
     .font(fonts.body)
@@ -604,79 +608,153 @@ function drawAccreditorBox(
   return startY + boxHeight;
 }
 
+/**
+ * Footer for portrait layout — two signature blocks (left + right) with a
+ * centered gold seal/medallion between them. Matches the diploma
+ * convention shown in both CEO/MD design references. Anchored to the
+ * page bottom, never reads from `doc.y` so it positions identically
+ * regardless of how tall the content above is.
+ */
 function drawFooter(doc: PDFDoc, data: CertificateData) {
-  // Footer always sits a fixed distance from the bottom border — not from
-  // the last block's bottom — so different cert types have a stable
-  // signature-line position even when CME pushes the content down. That's
-  // why this helper takes no Y-cursor input from the caller.
-  const footerY = layout.height - layout.borderInnerInset - 70;
-  const leftX = layout.borderInnerInset + 35;
-  const rightX = layout.width - layout.borderInnerInset - 270;
-  const rightW = 240;
+  const cx = layout.width / 2;
+  // Signature lines sit roughly 90pt above the bottom inner border —
+  // leaves room for the line itself, two label lines, and a small
+  // bottom gutter for the serial + issued date row.
+  const lineY = layout.height - layout.borderInnerInset - spacing.footerBottomInset;
+  const lineW = sizes.signatureLineWidth;
+  const sigGutterFromSeal = 80; // gap between seal center and start of signature line
 
-  // Left: serial + issued date.
-  doc
-    .font(fonts.serial)
-    .fontSize(sizes.serial)
-    .fillColor(colors.soft)
-    .text(`Certificate # ${data.serial}`, leftX, footerY, { lineBreak: false });
-  doc.text(`Issued ${formatDate(data.issuedAt)}`, leftX, footerY + 12, {
+  // Two signature lines — left and right of the central seal.
+  const leftLineEnd = cx - sigGutterFromSeal;
+  const leftLineStart = leftLineEnd - lineW;
+  const rightLineStart = cx + sigGutterFromSeal;
+  const rightLineEnd = rightLineStart + lineW;
+
+  doc.save().lineWidth(0.6).strokeColor(colors.muted);
+  doc.moveTo(leftLineStart, lineY).lineTo(leftLineEnd, lineY).stroke();
+  doc.moveTo(rightLineStart, lineY).lineTo(rightLineEnd, lineY).stroke();
+  // Small flourish tick marks at each line end — adds engraving feel.
+  for (const x of [leftLineStart, leftLineEnd, rightLineStart, rightLineEnd]) {
+    doc.moveTo(x, lineY - 3).lineTo(x, lineY + 3).stroke();
+  }
+  doc.restore();
+
+  // Signature labels under each line — title + name on two lines.
+  // For v1 we don't carry actual signatory names per event; default to
+  // "Activity Director" + the organization name. Future iteration could
+  // pull from Event.signatories (a new JSON field) so each cert can be
+  // signed by named individuals.
+  const labelY = lineY + 6;
+  doc.font(fonts.signature).fontSize(sizes.signatureLabel).fillColor(colors.muted);
+  doc.text("ACTIVITY DIRECTOR", leftLineStart, labelY, {
+    width: lineW,
+    align: "center",
+    lineBreak: false,
+    characterSpacing: 1.5,
+  });
+  doc.text(data.event.organizationName, leftLineStart, labelY + 10, {
+    width: lineW,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text("ACCREDITATION OFFICER", rightLineStart, labelY, {
+    width: lineW,
+    align: "center",
+    lineBreak: false,
+    characterSpacing: 1.5,
+  });
+  doc.text(data.event.organizationName, rightLineStart, labelY + 10, {
+    width: lineW,
+    align: "center",
     lineBreak: false,
   });
 
-  // Right: signature line + small ornament + label.
-  const lineY = footerY + 14;
-  doc
-    .save()
-    .moveTo(rightX, lineY)
-    .lineTo(rightX + rightW, lineY)
-    .lineWidth(0.6)
-    .strokeColor(colors.muted)
-    .stroke()
-    // Small flourish ornament at line ends (tiny vertical ticks)
-    .moveTo(rightX, lineY - 3)
-    .lineTo(rightX, lineY + 3)
-    .stroke()
-    .moveTo(rightX + rightW, lineY - 3)
-    .lineTo(rightX + rightW, lineY + 3)
-    .stroke()
-    .restore();
-  doc
-    .font(fonts.signature)
-    .fontSize(sizes.signatureLabel)
-    .fillColor(colors.muted)
-    .text(`${data.event.organizationName} · Activity Director`, rightX, lineY + 6, {
-      width: rightW,
-      align: "center",
-      lineBreak: false,
-    });
+  // Central gold seal/medallion between the signatures. Anchored on the
+  // signature-line Y so it sits visually balanced with the signatures.
+  drawSeal(doc, cx, lineY);
 
-  // Defensive reset: any subsequent operation that reads doc.y (e.g.,
-  // pdfkit's implicit text positioning if a feature were added later)
-  // gets a safe value, not "off the page" from text rendering above.
-  doc.y = layout.height - layout.borderInnerInset - 30;
+  // Bottom row — serial + issued date, very small and muted, sits at
+  // the very bottom inset. This is the audit-trail metadata, not the
+  // diploma's focal content.
+  const serialY = layout.height - layout.borderInnerInset - 18;
+  doc.font(fonts.serial).fontSize(sizes.serial).fillColor(colors.soft);
+  doc.text(`Certificate # ${data.serial}`, layout.borderInnerInset + 28, serialY, {
+    lineBreak: false,
+  });
+  doc.text(
+    `Issued ${formatDate(data.issuedAt)}`,
+    layout.width - layout.borderInnerInset - 28 - 120,
+    serialY,
+    { width: 120, align: "right", lineBreak: false },
+  );
+
+  // Defensive reset of doc.y so any future addition to the renderer
+  // doesn't inherit a position past page bottom.
+  doc.y = layout.height - 5;
+}
+
+/**
+ * Gold seal/medallion — concentric rings + the MME monogram embedded in
+ * the center. Sits between the two signature lines at the bottom of the
+ * cert as the central focal point of the footer band. References both
+ * showed a ribbon/medal here; we use a simpler concentric-ring seal
+ * because (a) it composes cleanly with our existing assets, (b) ribbon
+ * geometry is complex bezier work that's better deferred until we know
+ * the CEO/MD likes the seal direction.
+ */
+function drawSeal(doc: PDFDoc, cx: number, cy: number) {
+  const outer = sizes.sealOuterRadius;
+  const inner = sizes.sealInnerRadius;
+  doc.save();
+
+  // Outer ring — filled gold.
+  doc.fillColor(colors.borderInner).circle(cx, cy, outer).fill();
+  // Mid ring — slightly lighter, creates the engraved-edge feel.
+  doc.fillColor(colors.cornerOrnamentPetal).circle(cx, cy, outer - 2).fill();
+  // Inner disc — back to cream so the logo embed reads cleanly.
+  doc.fillColor(colors.bgTop).circle(cx, cy, inner).fill();
+
+  // MME logo at the center, fitted inside the inner disc.
+  if (MME_LOGO_BUFFER) {
+    const fit = sizes.sealLogoFit;
+    doc.image(MME_LOGO_BUFFER, cx - fit / 2, cy - fit / 2, {
+      fit: [fit, fit],
+      align: "center",
+    });
+  }
+
+  // Thin gold border ring on the inner disc edge for definition.
+  doc.lineWidth(0.6).strokeColor(colors.borderInner).circle(cx, cy, inner).stroke();
+  // Outer engraved ring — thin navy hairline at the outer edge.
+  doc.lineWidth(0.5).strokeColor(colors.borderOuter).circle(cx, cy, outer).stroke();
+
+  doc.restore();
 }
 
 // ── Per-type copy ────────────────────────────────────────────────────────────
 
 function copyForType(data: CertificateData): {
-  title: string;
-  subtitle: string;
+  /** Headline word — always "CERTIFICATE". Renders huge in navy. */
+  titleMain: string;
+  /** Type indicator — "OF ATTENDANCE" / "OF CONTINUING MEDICAL EDUCATION" /
+   *  "FOR FACULTY" / "FOR POSTER PRESENTER". Renders smaller below the
+   *  main title, in our cerulean accent color. */
+  titleSub: string;
   recipientIntro: string;
   eventVerb: string;
 } {
   switch (data.type) {
     case "ATTENDANCE":
       return {
-        title: "CERTIFICATE OF ATTENDANCE",
-        subtitle: data.event.organizationName,
+        titleMain: "CERTIFICATE",
+        titleSub: "OF ATTENDANCE",
         recipientIntro: "This is to certify that",
         eventVerb: "attended",
       };
     case "PRESENTER":
       return {
-        title: "CERTIFICATE OF APPRECIATION — FACULTY",
-        subtitle: data.event.organizationName,
+        titleMain: "CERTIFICATE",
+        titleSub: "FOR INVITED FACULTY",
         recipientIntro: "is hereby recognized for outstanding contribution as faculty to",
         eventVerb: "at",
       };
@@ -684,8 +762,8 @@ function copyForType(data: CertificateData): {
       const abstractTitle =
         data.extras.type === "POSTER" ? data.extras.abstractTitle : undefined;
       return {
-        title: "CERTIFICATE OF APPRECIATION — POSTER PRESENTER",
-        subtitle: data.event.organizationName,
+        titleMain: "CERTIFICATE",
+        titleSub: "FOR POSTER PRESENTER",
         recipientIntro: abstractTitle
           ? `is hereby recognized for the poster titled "${abstractTitle}" presented at`
           : "is hereby recognized for the poster presented at",
@@ -694,8 +772,8 @@ function copyForType(data: CertificateData): {
     }
     case "CME":
       return {
-        title: "CERTIFICATE OF CONTINUING MEDICAL EDUCATION",
-        subtitle: data.event.organizationName,
+        titleMain: "CERTIFICATE",
+        titleSub: "OF CONTINUING MEDICAL EDUCATION",
         recipientIntro: "This is to certify that",
         eventVerb: "attended",
       };
@@ -704,7 +782,8 @@ function copyForType(data: CertificateData): {
 }
 
 function titleForType(data: CertificateData): string {
-  return `${copyForType(data).title} — ${data.recipient.fullName}`;
+  const c = copyForType(data);
+  return `${c.titleMain} ${c.titleSub} — ${data.recipient.fullName}`;
 }
 
 // ── Formatting helpers ───────────────────────────────────────────────────────

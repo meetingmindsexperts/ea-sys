@@ -21,22 +21,24 @@
  *     gives CME accreditation visual weight.
  */
 
-// A4 landscape in pdfkit points (1 pt = 1/72").
-const A4_LANDSCAPE_W = 842;
-const A4_LANDSCAPE_H = 595;
+// A4 portrait in pdfkit points (1 pt = 1/72").
+// Switched from landscape → portrait 2026-06-01 (Phase B round 3) after
+// CEO/MD design references both showed portrait diploma format.
+const A4_PORTRAIT_W = 595;
+const A4_PORTRAIT_H = 842;
 
 export const CERT_TOKENS = {
   layout: {
-    width: A4_LANDSCAPE_W,
-    height: A4_LANDSCAPE_H,
+    width: A4_PORTRAIT_W,
+    height: A4_PORTRAIT_H,
     margin: 60,
-    // Outer ornate frame — thicker, navy. Inner frame — thin, gold. The
-    // gap between the two creates the formal double-line look. Corner
-    // ornaments (small diamonds in `colors.borderInner`) sit on top.
-    borderOuterInset: 18,
-    borderInnerInset: 28,
-    borderStrokeOuter: 2.5,
-    borderStrokeInner: 0.6,
+    // Outer ornate frame — thicker, navy. Middle pale-gold hairline.
+    // Inner thin gold. The triple line + corner rosettes create the
+    // formal "engraved diploma" look the references showed.
+    borderOuterInset: 22,
+    borderInnerInset: 34,
+    borderStrokeOuter: 2.8,
+    borderStrokeInner: 0.7,
     cornerOrnamentSize: 6,
   },
   colors: {
@@ -93,49 +95,68 @@ export const CERT_TOKENS = {
     serial: "Helvetica",
   },
   sizes: {
-    logoHeight: 50,
-    title: 24,
-    titleRuleWidth: 60,         // length of the horizontal rule on each side of the title
-    titleRuleGap: 16,           // gap between rule end and title text
+    logoHeight: 56,
+    // Title is now split into TWO lines (matching the design references):
+    //   "CERTIFICATE"  — huge, navy, ALL CAPS (the headline)
+    //   "OF ATTENDANCE" / "OF CME" / etc — smaller, cerulean accent (the type)
+    titleMain: 48,
+    titleSub: 18,
+    titleRuleWidth: 70,
+    titleRuleGap: 18,
     subtitle: 11,
-    body: 12,
-    recipient: 36,
-    recipientDividerWidth: 110, // total width of the line+ornament+line under the name
-    affiliation: 13,
-    eventName: 18,
-    eventDates: 12,
-    venue: 11,
+    body: 11,
+    recipient: 32,
+    recipientDividerWidth: 140,
+    affiliation: 12,
+    eventName: 17,
+    eventDates: 11,
+    venue: 10,
     hours: 36,
-    hoursLabel: 13,
+    hoursLabel: 12,
     accreditorHeader: 9,
-    accreditorBody: 14,
-    accreditorMeta: 10,
-    accreditorBoxPaddingX: 22,
-    accreditorBoxPaddingY: 14,
-    accreditorBoxRowGap: 6,
-    accreditorBoxDividerInset: 14, // inset of the multi-body separator line from each side
-    signature: 11,
-    signatureLabel: 9,
-    serial: 9,
+    accreditorBody: 13,
+    accreditorMeta: 9,
+    accreditorBoxPaddingX: 20,
+    accreditorBoxPaddingY: 12,
+    accreditorBoxRowGap: 5,
+    accreditorBoxDividerInset: 14,
+    // Seal — a circular gold medallion at the bottom-center between the
+    // two signature lines. Contains the MME logo at low scale + concentric
+    // gold rings. References showed a center medal/ribbon as a
+    // ceremonial focal point.
+    sealOuterRadius: 32,
+    sealInnerRadius: 26,
+    sealLogoFit: 36,
+    // Footer: TWO signature blocks (left + right of seal). Each is a
+    // signature line + 2 lines of label below.
+    signatureLineWidth: 150,
+    signature: 9,
+    signatureLabel: 8,
+    serial: 8,
   },
   spacing: {
     // Top-down vertical rhythm. Each value is the gap between the
     // previous block's bottom and the next block's top.
-    logoTopFromMargin: 16,
-    logoToTitle: 18,
-    titleToSubtitle: 8,
-    subtitleToBody: 22,
-    bodyToRecipient: 12,
-    recipientToDivider: 8,
-    dividerToAffil: 8,
-    affilToBody: 18,
-    bodyToEventName: 4,
+    // Tuned for A4 portrait (842pt of vertical room — much more than
+    // landscape, so we can breathe).
+    logoTopFromMargin: 18,
+    logoToTopBand: 10,
+    topBandToTitleMain: 26,
+    titleMainToTitleSub: 14,
+    titleSubToBody: 30,
+    bodyToRecipient: 14,
+    recipientToDivider: 12,
+    dividerToAffil: 10,
+    affilToBody: 22,
+    bodyToEventName: 6,
     eventNameToDates: 6,
-    datesToVenue: 3,
-    venueToHoursLabel: 18,
+    datesToVenue: 4,
+    venueToHoursLabel: 24,
     hoursLabelToHours: 2,
-    hoursToAccreditorBox: 14,
-    accreditorBoxBottomToFooter: 10,
+    hoursToAccreditorBox: 18,
+    // Footer always anchored to the bottom inset; spacing values above
+    // only matter for the upper content flow.
+    footerBottomInset: 72,
   },
 } as const;
 
