@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import dynamic from "next/dynamic";
 import {
   GraduationCap,
   Plus,
@@ -62,6 +63,14 @@ import {
   PenLine,
   PaintBucket,
 } from "lucide-react";
+
+// Lazy-load Tiptap so the cert page doesn't pull the entire editor
+// bundle into the dashboard's first-paint critical path. Matches the
+// pattern used by other dashboard pages that embed Tiptap.
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
+  { ssr: false, loading: () => <div className="h-48 rounded border bg-muted/30 animate-pulse" /> },
+);
 
 type CertType = "ATTENDANCE" | "PRESENTER" | "POSTER" | "CME";
 
@@ -97,12 +106,22 @@ interface TemplateState {
   footerText: string;
 }
 
+const CERT_TYPES = [
+  { key: "ATTENDANCE", label: "Attendance" },
+  { key: "PRESENTER", label: "Presenter / Faculty" },
+  { key: "POSTER", label: "Poster Presenter" },
+  { key: "CME", label: "CME" },
+] as const;
+type CertTypeKey = (typeof CERT_TYPES)[number]["key"];
+
+type TemplatesByType = Record<CertTypeKey, TemplateState>;
+
 interface SettingsResponse {
   cmeHours: number | null;
   accreditations: AccreditationRow[];
   designApprovedBy: string | null;
   designApprovedAt: string | null;
-  template: TemplateState;
+  templates: TemplatesByType;
 }
 
 const EMPTY_TEMPLATE: TemplateState = {
@@ -114,6 +133,15 @@ const EMPTY_TEMPLATE: TemplateState = {
   footerLogos: [],
   footerText: "",
 };
+
+function makeEmptyTemplates(): TemplatesByType {
+  return {
+    ATTENDANCE: { ...EMPTY_TEMPLATE },
+    PRESENTER: { ...EMPTY_TEMPLATE },
+    POSTER: { ...EMPTY_TEMPLATE },
+    CME: { ...EMPTY_TEMPLATE },
+  };
+}
 
 const AVAILABLE_TOKENS: Array<{ token: string; description: string }> = [
   { token: "{{recipientName}}", description: "Full attendee name (with title prefix)" },
@@ -132,6 +160,11 @@ export default function CertificatesPage() {
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
 
   const [draft, setDraft] = useState<SettingsResponse | null>(null);
+  // Which cert type's template is currently being edited in the Template
+  // tab — switched via the inner sub-tabs. State scope is page-level so
+  // the selection survives switching between outer tabs (Template / CME /
+  // Preview).
+  const [activeTemplateType, setActiveTemplateType] = useState<CertTypeKey>("ATTENDANCE");
   const [previewType, setPreviewType] = useState<CertType>("ATTENDANCE");
   const [previewBust, setPreviewBust] = useState(0);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -148,23 +181,31 @@ export default function CertificatesPage() {
     queryFn: async () => {
       const res = await fetch(`/api/events/${eventId}/certificates/settings`);
       if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
-      const json = (await res.json()) as Partial<SettingsResponse>;
-      // Normalize template — server may return nulls for unset fields; the
-      // UI's text inputs need actual strings.
+      const json = (await res.json()) as Partial<SettingsResponse> & {
+        templates?: Partial<Record<CertTypeKey, Partial<TemplateState> | null>>;
+      };
+      // Normalize templates — server returns nulls for unset fields, the
+      // UI's text inputs need strings. Walk all 4 type slots so the UI
+      // always has a fully-populated TemplateState per type.
+      const normalizedTemplates = makeEmptyTemplates();
+      for (const { key } of CERT_TYPES) {
+        const raw = json.templates?.[key] ?? null;
+        normalizedTemplates[key] = {
+          headerImage: raw?.headerImage ?? null,
+          titleText: raw?.titleText ?? "",
+          titleColor: raw?.titleColor ?? "#1a2e5a",
+          bodyTemplate: raw?.bodyTemplate ?? "",
+          signatures: (raw?.signatures as SignatureRow[]) ?? [],
+          footerLogos: (raw?.footerLogos as FooterLogoRow[]) ?? [],
+          footerText: raw?.footerText ?? "",
+        };
+      }
       const normalized: SettingsResponse = {
         cmeHours: json.cmeHours ?? null,
         accreditations: (json.accreditations as AccreditationRow[]) ?? [],
         designApprovedBy: json.designApprovedBy ?? null,
         designApprovedAt: json.designApprovedAt ?? null,
-        template: {
-          headerImage: json.template?.headerImage ?? null,
-          titleText: json.template?.titleText ?? "",
-          titleColor: json.template?.titleColor ?? "#1a2e5a",
-          bodyTemplate: json.template?.bodyTemplate ?? "",
-          signatures: (json.template?.signatures as SignatureRow[]) ?? [],
-          footerLogos: (json.template?.footerLogos as FooterLogoRow[]) ?? [],
-          footerText: json.template?.footerText ?? "",
-        },
+        templates: normalizedTemplates,
       };
       setDraft((current) => current ?? normalized);
       return normalized;
@@ -206,12 +247,22 @@ export default function CertificatesPage() {
     setDraft((cur) => ({ ...(cur ?? settingsQuery.data!), ...patch }));
   }
 
-  function updateTemplate(patch: Partial<TemplateState>) {
+  // The "current template" being edited — whichever type the inner
+  // sub-tabs has active. All template-mutating helpers below scope to
+  // this slot in the templates map.
+  const currentTemplate = editable?.templates[activeTemplateType] ?? EMPTY_TEMPLATE;
+
+  function updateCurrentTemplate(patch: Partial<TemplateState>) {
     if (!editable) return;
-    updateDraft({ template: { ...editable.template, ...patch } });
+    updateDraft({
+      templates: {
+        ...editable.templates,
+        [activeTemplateType]: { ...currentTemplate, ...patch },
+      },
+    });
   }
 
-  // Accreditations ─────────────────────────────────────────────────────
+  // Accreditations (single, shared across cert types) ─────────────────
   function addAccreditation() {
     if (!editable) return;
     updateDraft({
@@ -233,45 +284,39 @@ export default function CertificatesPage() {
     });
   }
 
-  // Signatures ─────────────────────────────────────────────────────────
+  // Signatures (per active cert type) ─────────────────────────────────
   function addSignature() {
-    if (!editable) return;
-    updateTemplate({
-      signatures: [...editable.template.signatures, { name: "", lines: [] }],
+    updateCurrentTemplate({
+      signatures: [...currentTemplate.signatures, { name: "", lines: [] }],
     });
   }
   function removeSignature(idx: number) {
-    if (!editable) return;
-    updateTemplate({
-      signatures: editable.template.signatures.filter((_, i) => i !== idx),
+    updateCurrentTemplate({
+      signatures: currentTemplate.signatures.filter((_, i) => i !== idx),
     });
   }
   function updateSignature(idx: number, patch: Partial<SignatureRow>) {
-    if (!editable) return;
-    updateTemplate({
-      signatures: editable.template.signatures.map((s, i) =>
+    updateCurrentTemplate({
+      signatures: currentTemplate.signatures.map((s, i) =>
         i === idx ? { ...s, ...patch } : s,
       ),
     });
   }
 
-  // Footer logos ───────────────────────────────────────────────────────
+  // Footer logos (per active cert type) ───────────────────────────────
   function addFooterLogo() {
-    if (!editable) return;
-    updateTemplate({
-      footerLogos: [...editable.template.footerLogos, { image: "", label: "" }],
+    updateCurrentTemplate({
+      footerLogos: [...currentTemplate.footerLogos, { image: "", label: "" }],
     });
   }
   function removeFooterLogo(idx: number) {
-    if (!editable) return;
-    updateTemplate({
-      footerLogos: editable.template.footerLogos.filter((_, i) => i !== idx),
+    updateCurrentTemplate({
+      footerLogos: currentTemplate.footerLogos.filter((_, i) => i !== idx),
     });
   }
   function updateFooterLogo(idx: number, patch: Partial<FooterLogoRow>) {
-    if (!editable) return;
-    updateTemplate({
-      footerLogos: editable.template.footerLogos.map((l, i) =>
+    updateCurrentTemplate({
+      footerLogos: currentTemplate.footerLogos.map((l, i) =>
         i === idx ? { ...l, ...patch } : l,
       ),
     });
@@ -288,33 +333,38 @@ export default function CertificatesPage() {
         officialStatement: a.officialStatement?.trim() || undefined,
       }));
 
-    // Strip empty rows from signatures + footer logos before send.
-    const cleanedSignatures = editable.template.signatures
-      .filter((s) => s.name.trim().length > 0)
-      .map((s) => ({
-        image: s.image || null,
-        name: s.name.trim(),
-        lines: s.lines.map((l) => l.trim()).filter(Boolean),
-      }));
-    const cleanedLogos = editable.template.footerLogos
-      .filter((l) => l.image.trim().length > 0)
-      .map((l) => ({
-        image: l.image.trim(),
-        label: l.label?.trim() || undefined,
-      }));
+    // Send all 4 type slots in one PATCH — each cleaned of empty rows
+    // and trimmed strings. The server merges each slot into the
+    // existing per-type template independently.
+    const cleanedTemplates: Record<string, unknown> = {};
+    for (const { key } of CERT_TYPES) {
+      const t = editable.templates[key];
+      cleanedTemplates[key] = {
+        headerImage: t.headerImage || null,
+        titleText: t.titleText.trim() || undefined,
+        titleColor: t.titleColor,
+        bodyTemplate: t.bodyTemplate,
+        signatures: t.signatures
+          .filter((s) => s.name.trim().length > 0)
+          .map((s) => ({
+            image: s.image || null,
+            name: s.name.trim(),
+            lines: s.lines.map((l) => l.trim()).filter(Boolean),
+          })),
+        footerLogos: t.footerLogos
+          .filter((l) => l.image.trim().length > 0)
+          .map((l) => ({
+            image: l.image.trim(),
+            label: l.label?.trim() || undefined,
+          })),
+        footerText: t.footerText.trim() || undefined,
+      };
+    }
 
     saveMutation.mutate({
       cmeHours: editable.cmeHours,
       accreditations: cleanedAccreditations,
-      template: {
-        headerImage: editable.template.headerImage || null,
-        titleText: editable.template.titleText.trim() || undefined,
-        titleColor: editable.template.titleColor,
-        bodyTemplate: editable.template.bodyTemplate,
-        signatures: cleanedSignatures,
-        footerLogos: cleanedLogos,
-        footerText: editable.template.footerText.trim() || undefined,
-      },
+      templates: cleanedTemplates,
     });
   }
 
@@ -349,7 +399,6 @@ export default function CertificatesPage() {
   }
 
   const previewSrc = `/api/events/${eventId}/certificates/preview?type=${previewType}&t=${previewBust}`;
-  const template = editable?.template ?? EMPTY_TEMPLATE;
 
   return (
     <div className="space-y-6 p-6">
@@ -399,6 +448,31 @@ export default function CertificatesPage() {
 
         {/* ── Tab 1: Template editor ───────────────────────────────── */}
         <TabsContent value="template" className="space-y-6 mt-6">
+          {/* Inner cert-type selector — switches which of the 4 templates
+              (Attendance / Presenter / Poster / CME) the editor below
+              binds to. State persists at page-level so the selection
+              survives switching between outer tabs. */}
+          <Tabs
+            value={activeTemplateType}
+            onValueChange={(v) => setActiveTemplateType(v as CertTypeKey)}
+          >
+            <TabsList className="grid w-full grid-cols-4">
+              {CERT_TYPES.map((t) => (
+                <TabsTrigger key={t.key} value={t.key}>
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            Editing the{" "}
+            <strong className="text-foreground">
+              {CERT_TYPES.find((t) => t.key === activeTemplateType)?.label}
+            </strong>{" "}
+            template. All 4 cert types have their own banner, body,
+            signatures, and footer — switch tabs above to edit each.
+          </div>
+
           {/* Header banner */}
           <Card>
             <CardHeader>
@@ -416,8 +490,8 @@ export default function CertificatesPage() {
             <CardContent>
               <div className="max-w-md">
                 <PhotoUpload
-                  value={template.headerImage}
-                  onChange={(url) => updateTemplate({ headerImage: url })}
+                  value={currentTemplate.headerImage}
+                  onChange={(url) => updateCurrentTemplate({ headerImage: url })}
                 />
               </div>
             </CardContent>
@@ -442,8 +516,8 @@ export default function CertificatesPage() {
                   <Input
                     id="titleText"
                     placeholder="Certificate of Attendance"
-                    value={template.titleText}
-                    onChange={(e) => updateTemplate({ titleText: e.target.value })}
+                    value={currentTemplate.titleText}
+                    onChange={(e) => updateCurrentTemplate({ titleText: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     Leave blank to use the per-type default (e.g. &quot;Certificate
@@ -455,16 +529,16 @@ export default function CertificatesPage() {
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
-                      value={template.titleColor}
-                      onChange={(e) => updateTemplate({ titleColor: e.target.value })}
+                      value={currentTemplate.titleColor}
+                      onChange={(e) => updateCurrentTemplate({ titleColor: e.target.value })}
                       className="h-9 w-12 rounded border cursor-pointer"
                       aria-label="Pick title color"
                     />
                     <Input
                       id="titleColor"
                       placeholder="#1a2e5a"
-                      value={template.titleColor}
-                      onChange={(e) => updateTemplate({ titleColor: e.target.value })}
+                      value={currentTemplate.titleColor}
+                      onChange={(e) => updateCurrentTemplate({ titleColor: e.target.value })}
                       className="font-mono text-sm"
                     />
                   </div>
@@ -481,21 +555,20 @@ export default function CertificatesPage() {
                 Body
               </CardTitle>
               <CardDescription>
-                The cert body content. Each newline becomes a separate paragraph.
-                Use <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
-                that get replaced with real data at issue time. Lines containing
-                the recipient name or event name are auto-styled larger.
+                The cert body content. Use the toolbar to format text — bold
+                event names, italic subtitles, headings for size. Insert{" "}
+                <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
+                anywhere to merge real data at issue time. The renderer maps
+                headings to size hierarchy: <strong>H2</strong> = recipient-
+                name sized; <strong>H3</strong> = navy bold (good for event
+                name); plain paragraph = body text.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Textarea
-                rows={12}
-                placeholder={
-                  "We hereby confirm\n{{recipientName}}\nhas attended\n{{eventName}}\nheld on {{eventDateRange}}\n{{venueLine}}\nAccredited by {{accreditationBody}}\nAccreditation #: {{accreditationReference}}\nTotal Hour/s Awarded: {{cmeHours}}"
-                }
-                value={template.bodyTemplate}
-                onChange={(e) => updateTemplate({ bodyTemplate: e.target.value })}
-                className="font-mono text-sm"
+              <TiptapEditor
+                content={currentTemplate.bodyTemplate}
+                onChange={(html) => updateCurrentTemplate({ bodyTemplate: html })}
+                placeholder="Compose the cert body — use H2 for the recipient line, paragraph for the rest..."
               />
               <details className="rounded-md border bg-muted/30 p-3 text-sm">
                 <summary className="cursor-pointer font-medium">
@@ -544,12 +617,12 @@ export default function CertificatesPage() {
                   <Plus className="h-4 w-4 mr-1" /> Add signature
                 </Button>
               </div>
-              {template.signatures.length === 0 ? (
+              {currentTemplate.signatures.length === 0 ? (
                 <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                   No signatures yet — add the conference chairman / co-chairmen.
                 </div>
               ) : (
-                template.signatures.map((sig, idx) => (
+                currentTemplate.signatures.map((sig, idx) => (
                   <div
                     key={idx}
                     className="rounded-md border p-4 grid gap-3 md:grid-cols-[200px_1fr_auto]"
@@ -628,13 +701,13 @@ export default function CertificatesPage() {
                   <Plus className="h-4 w-4 mr-1" /> Add logo
                 </Button>
               </div>
-              {template.footerLogos.length === 0 ? (
+              {currentTemplate.footerLogos.length === 0 ? (
                 <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                   No footer logos — typical CME certs have 1-3 (hosting
                   society, accrediting body, managing partner).
                 </div>
               ) : (
-                template.footerLogos.map((logo, idx) => (
+                currentTemplate.footerLogos.map((logo, idx) => (
                   <div
                     key={idx}
                     className="rounded-md border p-4 grid gap-3 md:grid-cols-[200px_1fr_auto]"
@@ -682,16 +755,16 @@ export default function CertificatesPage() {
                 Footer text
               </CardTitle>
               <CardDescription>
-                Plain text rendered below the footer logos — disclaimers,
-                organization tag-lines, contact info, etc.
+                Rich text rendered below the footer logos — disclaimers,
+                organization tag-lines, contact info, etc. Same toolbar as
+                the body editor (bold / italic / links).
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Textarea
-                rows={3}
+              <TiptapEditor
+                content={currentTemplate.footerText}
+                onChange={(html) => updateCurrentTemplate({ footerText: html })}
                 placeholder="e.g. Meeting Minds Experts · www.meetingmindsexperts.com"
-                value={template.footerText}
-                onChange={(e) => updateTemplate({ footerText: e.target.value })}
               />
             </CardContent>
           </Card>

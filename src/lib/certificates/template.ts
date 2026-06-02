@@ -78,53 +78,67 @@ export function defaultTemplateForType(type: CertificateType): CertificateTempla
         footerLogos: [],
       };
   }
+  // Unreachable for current CertificateType enum; throws on enum drift
+  // so the renderer never returns undefined silently.
+  throw new Error(`Unhandled certificate type: ${String(type)}`);
 }
+
+// Default body HTML per type. Bodies are HTML now (Tiptap editor output)
+// to support inline formatting (bold event name, italic subtitles).
+// Tokens like `{{recipientName}}` survive HTML wrapping — the renderer's
+// merge pass runs on the text inside each run, not the HTML structure.
+//
+// Heading levels drive the renderer's size hierarchy:
+//   <h2> = largest emphasis (recipient name)
+//   <h3> = medium emphasis (event name)
+//   <p>  = body text
+// Organizers override these via Tiptap toolbar (B / I / H1 / H2 / H3).
 
 function defaultBodyAttendance(): string {
   return [
-    "We hereby confirm",
-    "{{recipientName}}",
-    "has attended",
-    "{{eventName}}",
-    "held on {{eventDateRange}}",
-    "{{venueLine}}",
-  ].join("\n");
+    "<p>We hereby confirm</p>",
+    "<h2>{{recipientName}}</h2>",
+    "<p>has attended</p>",
+    "<h3><strong>{{eventName}}</strong></h3>",
+    "<p>held on {{eventDateRange}}</p>",
+    "<p>{{venueLine}}</p>",
+  ].join("");
 }
 
 function defaultBodyPresenter(): string {
   return [
-    "is hereby presented to",
-    "{{recipientName}}",
-    "for outstanding contribution as faculty to",
-    "{{eventName}}",
-    "held on {{eventDateRange}}",
-    "{{venueLine}}",
-  ].join("\n");
+    "<p>is hereby presented to</p>",
+    "<h2>{{recipientName}}</h2>",
+    "<p>for outstanding contribution as faculty to</p>",
+    "<h3><strong>{{eventName}}</strong></h3>",
+    "<p>held on {{eventDateRange}}</p>",
+    "<p>{{venueLine}}</p>",
+  ].join("");
 }
 
 function defaultBodyPoster(): string {
   return [
-    "is hereby presented to",
-    "{{recipientName}}",
-    "for the poster presentation at",
-    "{{eventName}}",
-    "held on {{eventDateRange}}",
-    "{{venueLine}}",
-  ].join("\n");
+    "<p>is hereby presented to</p>",
+    "<h2>{{recipientName}}</h2>",
+    "<p>for the poster presentation at</p>",
+    "<h3><strong>{{eventName}}</strong></h3>",
+    "<p>held on {{eventDateRange}}</p>",
+    "<p>{{venueLine}}</p>",
+  ].join("");
 }
 
 function defaultBodyCme(): string {
   return [
-    "We hereby confirm",
-    "{{recipientName}}",
-    "has attended",
-    "{{eventName}}",
-    "held on {{eventDateRange}}",
-    "{{venueLine}}",
-    "Accredited by {{accreditationBody}}",
-    "Accreditation #: {{accreditationReference}}",
-    "Total Hour/s Awarded: {{cmeHours}}",
-  ].join("\n");
+    "<p>We hereby confirm</p>",
+    "<h2>{{recipientName}}</h2>",
+    "<p>has attended</p>",
+    "<h3><strong>{{eventName}}</strong></h3>",
+    "<p>held on {{eventDateRange}}</p>",
+    "<p>{{venueLine}}</p>",
+    "<p>Accredited by {{accreditationBody}}</p>",
+    "<p>Accreditation #: {{accreditationReference}}</p>",
+    "<p><strong>Total Hour/s Awarded: {{cmeHours}}</strong></p>",
+  ].join("");
 }
 
 // ── Token merge ───────────────────────────────────────────────────────────────

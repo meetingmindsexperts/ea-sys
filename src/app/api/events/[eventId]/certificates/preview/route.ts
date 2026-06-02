@@ -124,18 +124,32 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Pull the organizer-configured template out of Event.settings.
-    // The renderer falls back to the per-type default in template.ts
-    // when fields are missing.
+    // Pull the per-type organizer template out of Event.settings.
+    // Storage shape: `Event.settings.certificateTemplates[type]`.
+    // Backward compat: if the legacy singular `certificateTemplate`
+    // exists, use it as a fallback for any type that doesn't have its
+    // own configured slot yet.
     const settings =
       event.settings && typeof event.settings === "object" && !Array.isArray(event.settings)
         ? (event.settings as Record<string, unknown>)
         : {};
-    const rawTemplate = settings.certificateTemplate;
-    const template =
-      rawTemplate && typeof rawTemplate === "object" && !Array.isArray(rawTemplate)
-        ? (rawTemplate as Record<string, unknown>)
+    const templatesMap =
+      settings.certificateTemplates &&
+      typeof settings.certificateTemplates === "object" &&
+      !Array.isArray(settings.certificateTemplates)
+        ? (settings.certificateTemplates as Record<string, unknown>)
         : {};
+    const legacy =
+      settings.certificateTemplate &&
+      typeof settings.certificateTemplate === "object" &&
+      !Array.isArray(settings.certificateTemplate)
+        ? (settings.certificateTemplate as Record<string, unknown>)
+        : {};
+    const slot = templatesMap[type];
+    const template =
+      slot && typeof slot === "object" && !Array.isArray(slot)
+        ? (slot as Record<string, unknown>)
+        : legacy;
 
     const data = buildPreviewCertificate({
       type,

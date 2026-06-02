@@ -73,6 +73,20 @@ export interface CertificateFooterLogo {
 }
 
 /**
+ * Per-cert-type templates for an event. Each of the four cert types
+ * (Attendance / Presenter / Poster / CME) gets its own complete
+ * template, persisted under `Event.settings.certificateTemplates`.
+ * Defaults seeded per type by `defaultTemplateForType` when an event
+ * hasn't configured the slot yet.
+ */
+export type EventCertificateTemplates = {
+  ATTENDANCE?: CertificateTemplate;
+  PRESENTER?: CertificateTemplate;
+  POSTER?: CertificateTemplate;
+  CME?: CertificateTemplate;
+};
+
+/**
  * Per-event certificate template. Lives in `Event.settings.certificateTemplate`.
  * All fields are optional so an event without a configured template still
  * renders a default cert (using the static defaults in template.ts).

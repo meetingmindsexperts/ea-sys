@@ -584,7 +584,10 @@ function tokenizeHtml(html: string): Token[] {
   return out;
 }
 
-interface InlineRun {
+// Exported for reuse by the certificate renderer, which uses
+// `parseHtmlToBlocks` to handle WYSIWYG cert bodies. Keep these shapes
+// stable — both the agreement PDF and the cert PDF compose against them.
+export interface InlineRun {
   text: string;
   bold: boolean;
   italic: boolean;
@@ -600,7 +603,7 @@ interface TableRow {
   cells: TableCell[];
 }
 
-type Block =
+export type Block =
   | { kind: "paragraph"; runs: InlineRun[] }
   | { kind: "heading"; level: number; runs: InlineRun[] }
   | { kind: "list-item"; ordered: boolean; index: number; depth: number; runs: InlineRun[] }

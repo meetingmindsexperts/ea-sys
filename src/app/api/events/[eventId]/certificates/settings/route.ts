@@ -27,17 +27,32 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { readEventCmeSettings } from "@/lib/certificates/sample-data";
-import type { EventCmeSettings, CertificateTemplate } from "@/lib/certificates/types";
+import type { EventCmeSettings, CertificateTemplate, EventCertificateTemplates } from "@/lib/certificates/types";
+import type { CertificateType } from "@prisma/client";
 
-/** Pull the per-event certificate template from `Event.settings.certificateTemplate`.
- *  Returns an empty object when the path doesn't exist (event without
- *  a configured template yet). */
-function readCertTemplate(settings: unknown): CertificateTemplate {
+const CERT_TYPES: CertificateType[] = ["ATTENDANCE", "PRESENTER", "POSTER", "CME"];
+
+/**
+ * Pull the per-cert-type templates map from `Event.settings.certificateTemplates`.
+ * Backward compat — if the old singular `certificateTemplate` exists from
+ * Phase 1, seed all four type slots from it so an organizer who already
+ * configured a single template doesn't lose work when the storage shape
+ * changes.
+ */
+function readCertTemplates(settings: unknown): EventCertificateTemplates {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
   const obj = settings as Record<string, unknown>;
-  const t = obj.certificateTemplate;
-  if (!t || typeof t !== "object" || Array.isArray(t)) return {};
-  return t as CertificateTemplate;
+  const t = obj.certificateTemplates;
+  if (t && typeof t === "object" && !Array.isArray(t)) {
+    return t as EventCertificateTemplates;
+  }
+  // Backward compat: migrate from old single-template shape.
+  const legacy = obj.certificateTemplate;
+  if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+    const seed = legacy as CertificateTemplate;
+    return { ATTENDANCE: seed, PRESENTER: seed, POSTER: seed, CME: seed };
+  }
+  return {};
 }
 
 interface RouteParams {
@@ -80,6 +95,19 @@ const templateSchema = z.object({
   footerText: z.string().max(800).optional(),
 });
 
+// Per-type templates map — each key is a CertificateType, value is a
+// partial template. PATCH accepts updates to any subset of types in one
+// call (so the UI can save a whole bulk-edit at once).
+const templatesByTypeSchema = z
+  .object({
+    ATTENDANCE: templateSchema.optional(),
+    PRESENTER: templateSchema.optional(),
+    POSTER: templateSchema.optional(),
+    CME: templateSchema.optional(),
+  })
+  .strict()
+  .optional();
+
 const patchSchema = z
   .object({
     // Allow nulling out to "no CME" — cap 999.9, decimal allowed up to 1dp.
@@ -89,10 +117,11 @@ const patchSchema = z
     // review) have signed off the cert design. Server enforces the role
     // gate; UI hides the checkbox for non-SUPER_ADMIN.
     designApproved: z.boolean().optional(),
-    // Organizer-controlled visual template (banner image, title, body
-    // copy, signatures, footer). Top-level "template" key — clients
-    // patch a partial template here and we merge with what's persisted.
-    template: templateSchema.optional(),
+    // Per-cert-type templates — one template per type. The PATCH can
+    // include zero, one, or all four type slots. Each slot accepts a
+    // partial template (just headerImage, just signatures, etc.) and is
+    // merged into the existing persisted template for that type.
+    templates: templatesByTypeSchema,
   })
   .strict();
 
@@ -118,21 +147,30 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const cme = readEventCmeSettings(event.settings);
-    const template = readCertTemplate(event.settings);
+    const templates = readCertTemplates(event.settings);
     return NextResponse.json({
       cmeHours: event.cmeHours == null ? null : Number(event.cmeHours),
       accreditations: cme.accreditations ?? [],
       designApprovedBy: cme.designApprovedBy ?? null,
       designApprovedAt: cme.designApprovedAt ?? null,
-      template: {
-        headerImage: template.headerImage ?? null,
-        titleText: template.titleText ?? null,
-        titleColor: template.titleColor ?? null,
-        bodyTemplate: template.bodyTemplate ?? null,
-        signatures: template.signatures ?? [],
-        footerLogos: template.footerLogos ?? [],
-        footerText: template.footerText ?? null,
-      },
+      // Always return all four type slots — unconfigured slots come back
+      // as empty templates (UI then shows the default copy + empty
+      // upload widgets). Caller can rely on `templates.CME` etc. being
+      // present without an existence check.
+      templates: Object.fromEntries(
+        CERT_TYPES.map((type) => {
+          const t = templates[type] ?? {};
+          return [type, {
+            headerImage: t.headerImage ?? null,
+            titleText: t.titleText ?? null,
+            titleColor: t.titleColor ?? null,
+            bodyTemplate: t.bodyTemplate ?? null,
+            signatures: t.signatures ?? [],
+            footerLogos: t.footerLogos ?? [],
+            footerText: t.footerText ?? null,
+          }];
+        }),
+      ),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-settings:get-failed" });
@@ -225,23 +263,38 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Merge template patch into existing certificateTemplate, preserving
-    // unrelated fields so a UI patching ONLY the banner image doesn't
-    // wipe the signatures + footer logos.
-    const currentTemplate = readCertTemplate(currentSettings);
-    const nextTemplate: CertificateTemplate = { ...currentTemplate };
-    if (parsed.data.template) {
-      const p = parsed.data.template;
-      if (p.headerImage !== undefined) nextTemplate.headerImage = p.headerImage;
-      if (p.titleText !== undefined) nextTemplate.titleText = p.titleText;
-      if (p.titleColor !== undefined) nextTemplate.titleColor = p.titleColor;
-      if (p.bodyTemplate !== undefined) nextTemplate.bodyTemplate = p.bodyTemplate;
-      if (p.signatures !== undefined) nextTemplate.signatures = p.signatures;
-      if (p.footerLogos !== undefined) nextTemplate.footerLogos = p.footerLogos;
-      if (p.footerText !== undefined) nextTemplate.footerText = p.footerText;
+    // Merge per-type template patches into the existing templates map.
+    // Each type slot is independent — patching ATTENDANCE doesn't touch
+    // CME. Inside a slot, fields are merged (partial patch — keeping
+    // signatures intact when only headerImage is sent, etc.).
+    const currentTemplates = readCertTemplates(currentSettings);
+    const nextTemplates: EventCertificateTemplates = { ...currentTemplates };
+    if (parsed.data.templates) {
+      for (const type of CERT_TYPES) {
+        const slot = parsed.data.templates[type];
+        if (!slot) continue;
+        const prev: CertificateTemplate = nextTemplates[type] ?? {};
+        const merged: CertificateTemplate = { ...prev };
+        if (slot.headerImage !== undefined) merged.headerImage = slot.headerImage;
+        if (slot.titleText !== undefined) merged.titleText = slot.titleText;
+        if (slot.titleColor !== undefined) merged.titleColor = slot.titleColor;
+        if (slot.bodyTemplate !== undefined) merged.bodyTemplate = slot.bodyTemplate;
+        if (slot.signatures !== undefined) merged.signatures = slot.signatures;
+        if (slot.footerLogos !== undefined) merged.footerLogos = slot.footerLogos;
+        if (slot.footerText !== undefined) merged.footerText = slot.footerText;
+        nextTemplates[type] = merged;
+      }
     }
 
-    const nextSettings = { ...currentSettings, cme: nextCme, certificateTemplate: nextTemplate };
+    const nextSettings = {
+      ...currentSettings,
+      cme: nextCme,
+      certificateTemplates: nextTemplates,
+      // Drop the legacy singular key if it was used to seed the per-type
+      // map above. Cleans up the JSON over time so future reads don't
+      // re-trigger the backward-compat branch.
+      certificateTemplate: undefined,
+    };
 
     const updated = await db.event.update({
       where: { id: eventId },
@@ -285,21 +338,26 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     const finalCme = readEventCmeSettings(updated.settings);
-    const finalTemplate = readCertTemplate(updated.settings);
+    const finalTemplates = readCertTemplates(updated.settings);
     return NextResponse.json({
       cmeHours: updated.cmeHours == null ? null : Number(updated.cmeHours),
       accreditations: finalCme.accreditations ?? [],
       designApprovedBy: finalCme.designApprovedBy ?? null,
       designApprovedAt: finalCme.designApprovedAt ?? null,
-      template: {
-        headerImage: finalTemplate.headerImage ?? null,
-        titleText: finalTemplate.titleText ?? null,
-        titleColor: finalTemplate.titleColor ?? null,
-        bodyTemplate: finalTemplate.bodyTemplate ?? null,
-        signatures: finalTemplate.signatures ?? [],
-        footerLogos: finalTemplate.footerLogos ?? [],
-        footerText: finalTemplate.footerText ?? null,
-      },
+      templates: Object.fromEntries(
+        CERT_TYPES.map((type) => {
+          const t = finalTemplates[type] ?? {};
+          return [type, {
+            headerImage: t.headerImage ?? null,
+            titleText: t.titleText ?? null,
+            titleColor: t.titleColor ?? null,
+            bodyTemplate: t.bodyTemplate ?? null,
+            signatures: t.signatures ?? [],
+            footerLogos: t.footerLogos ?? [],
+            footerText: t.footerText ?? null,
+          }];
+        }),
+      ),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-settings:patch-failed", eventId });

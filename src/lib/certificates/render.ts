@@ -29,6 +29,7 @@ import { join } from "node:path";
 import PDFDocument from "pdfkit";
 import { apiLogger } from "@/lib/logger";
 import { effectiveTemplate, mergeBody } from "./template";
+import { parseHtmlToBlocks, type InlineRun } from "@/lib/speaker-agreement";
 import type {
   CertificateData,
   CertificateSignature,
@@ -51,7 +52,6 @@ const TITLE_SIZE = 38;
 const TITLE_FLOURISH_LEN = 80;
 const TITLE_FLOURISH_GAP = 18;
 const BODY_TOP_GAP = 30;
-const BODY_LINE_HEIGHT = 22;
 const RECIPIENT_SIZE = 30;
 const BODY_SIZE = 12;
 const SIGNATURE_LINE_WIDTH = 180;
@@ -228,72 +228,185 @@ function drawTitle(doc: PDFDoc, titleText: string, color: string, y: number): nu
 }
 
 /**
- * Body block — render each line of the merged body template. Lines that
- * look like "the recipient name" (token resolution made them equal to
- * data.recipient.fullName) get rendered larger + in serif for emphasis.
- * Everything else renders as plain Helvetica.
+ * Body block — renders the WYSIWYG body template as a sequence of
+ * centered paragraphs + headings with inline bold / italic / underline
+ * runs. Replaces the previous line-by-line plain-text rendering with
+ * content-match heuristics (which were fragile — relied on lines
+ * equalling recipient.fullName etc).
+ *
+ * Pipeline:
+ *   1. mergeBody() substitutes {{tokens}} in the HTML string
+ *   2. parseHtmlToBlocks() (reused from speaker-agreement.ts) turns the
+ *      merged HTML into a flat list of Block directives with InlineRun
+ *      arrays carrying per-run formatting
+ *   3. We render each block centered with size hierarchy:
+ *        <h1> ~32pt, <h2> ~26pt (recipient name), <h3> ~16pt navy bold
+ *        (event name), <p> ~12pt body
+ *      Lists / tables / callouts from the parser are ignored — those
+ *      shapes aren't sensible on a centered cert body.
  */
 function drawBody(doc: PDFDoc, bodyTemplate: string, data: CertificateData, y: number) {
-  const merged = mergeBody(bodyTemplate, data);
-  const lines = merged.split("\n");
-  const recipientName = data.recipient.fullName;
+  const mergedHtml = mergeBody(bodyTemplate, data);
+  const blocks = parseHtmlToBlocks(mergedHtml);
 
   let cursor = y;
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (line.length === 0) {
-      cursor += BODY_LINE_HEIGHT * 0.5;
-      continue;
-    }
-    // Heuristic: if this line is the recipient name (post-merge),
-    // render it large + bold-serif as the visual focus.
-    if (line === recipientName) {
-      doc
-        .font("Times-Bold")
-        .fontSize(RECIPIENT_SIZE)
-        .fillColor("#111111")
-        .text(line, SIDE_MARGIN, cursor, {
-          align: "center",
-          width: INNER_WIDTH,
-          lineBreak: false,
-        });
-      cursor += RECIPIENT_SIZE + 8;
-      continue;
-    }
-    // Heuristic: if this line contains the event name (and isn't just
-    // the recipient), render bold to highlight it. Mirrors the
-    // references' bold event-name treatment.
-    const isEventName = line === data.event.name;
-    if (isEventName) {
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(BODY_SIZE + 4)
-        .fillColor("#1a2e5a");
-      const wrapped = doc.heightOfString(line, {
-        width: INNER_WIDTH,
-        align: "center",
+  for (const block of blocks) {
+    if (block.kind === "paragraph") {
+      cursor = drawCenteredRuns(doc, block.runs, cursor, {
+        size: BODY_SIZE,
+        color: "#333333",
       });
-      doc.text(line, SIDE_MARGIN, cursor, {
-        align: "center",
-        width: INNER_WIDTH,
-        lineBreak: true,
+      cursor += 4;
+    } else if (block.kind === "heading") {
+      // H1 → largest; H2 → recipient-sized; H3 → bold-navy emphasis.
+      // H4+ fall back to H3 styling.
+      const styleByLevel = headingStyle(block.level);
+      cursor = drawCenteredRuns(doc, block.runs, cursor, styleByLevel);
+      cursor += 6;
+    } else if (block.kind === "list-item") {
+      // Lists render as plain centered paragraphs prefixed with a bullet;
+      // ordered lists prefix with the index. Center alignment makes
+      // numbered/bulleted lists feel odd on a cert but the user asked
+      // for the bullet so we honor it minimally.
+      const prefix = block.ordered ? `${block.index}. ` : "• ";
+      const prefixed: InlineRun[] = [
+        { text: prefix, bold: false, italic: false, underline: false },
+        ...block.runs,
+      ];
+      cursor = drawCenteredRuns(doc, prefixed, cursor, {
+        size: BODY_SIZE,
+        color: "#333333",
       });
-      cursor += wrapped + 4;
-      continue;
+      cursor += 4;
+    } else if (block.kind === "rule") {
+      // <hr> renders as a thin centered rule.
+      const ruleW = INNER_WIDTH * 0.4;
+      const ruleX = (PAGE_W - ruleW) / 2;
+      doc
+        .save()
+        .strokeColor("#999999")
+        .lineWidth(0.5)
+        .moveTo(ruleX, cursor + 4)
+        .lineTo(ruleX + ruleW, cursor + 4)
+        .stroke()
+        .restore();
+      cursor += 12;
     }
-    // Plain body line
-    doc.font("Helvetica").fontSize(BODY_SIZE).fillColor("#333333");
-    const wrapped = doc.heightOfString(line, {
-      width: INNER_WIDTH,
-      align: "center",
-    });
-    doc.text(line, SIDE_MARGIN, cursor, {
-      align: "center",
-      width: INNER_WIDTH,
-      lineBreak: true,
-    });
-    cursor += wrapped + 4;
+    // tables + callouts intentionally ignored — they don't fit the
+    // centered single-column cert layout. If a user pastes one in
+    // they're silently dropped (not great UX; future polish if needed).
   }
+}
+
+/** Heading size + color by level — fixed scale. */
+function headingStyle(level: number): { size: number; color: string; bold?: boolean } {
+  switch (level) {
+    case 1:
+      return { size: 32, color: "#111111" };
+    case 2:
+      return { size: RECIPIENT_SIZE, color: "#111111" }; // recipient-sized
+    case 3:
+      return { size: BODY_SIZE + 4, color: "#1a2e5a" }; // navy emphasis
+    default:
+      return { size: BODY_SIZE + 2, color: "#1a2e5a" };
+  }
+}
+
+/**
+ * Render a sequence of inline runs centered on the page, with bold /
+ * italic / underline applied per run via font swapping. Returns the
+ * bottom Y after rendering so the caller can advance its cursor.
+ *
+ * pdfkit doesn't natively support "mixed-formatting wrapped paragraph"
+ * rendering — the closest API is `text(..., { continued: true })` which
+ * lets you chain runs on a single line but breaks center alignment when
+ * the line wraps. So we measure each run's width and lay out manually:
+ *   - Group runs into visual lines that fit within INNER_WIDTH
+ *   - For each line, compute total width + center-X start
+ *   - Render each run with `continued: true` until the last
+ */
+function drawCenteredRuns(
+  doc: PDFDoc,
+  runs: InlineRun[],
+  y: number,
+  style: { size: number; color: string },
+): number {
+  if (runs.length === 0) return y + style.size * 1.2;
+
+  // Greedy line wrap: walk through runs word by word, measure as we
+  // go, break to a new line when adding the next word would exceed
+  // INNER_WIDTH.
+  type LinedRun = { text: string; bold: boolean; italic: boolean; underline: boolean };
+  const lines: LinedRun[][] = [[]];
+  for (const run of runs) {
+    const words = run.text.split(/(\s+)/); // keep whitespace tokens
+    for (const word of words) {
+      if (word === "") continue;
+      const font = pickFont(run.bold, run.italic);
+      doc.font(font).fontSize(style.size);
+      const wordWidth = doc.widthOfString(word);
+      const currentLine = lines[lines.length - 1];
+      const currentLineWidth = currentLine.reduce((sum, r) => {
+        doc.font(pickFont(r.bold, r.italic)).fontSize(style.size);
+        return sum + doc.widthOfString(r.text);
+      }, 0);
+      if (currentLineWidth + wordWidth > INNER_WIDTH && currentLine.length > 0) {
+        // Trim trailing whitespace before line break.
+        while (currentLine.length > 0 && /^\s+$/.test(currentLine[currentLine.length - 1].text)) {
+          currentLine.pop();
+        }
+        lines.push([]);
+      }
+      lines[lines.length - 1].push({
+        text: word,
+        bold: run.bold,
+        italic: run.italic,
+        underline: run.underline,
+      });
+    }
+  }
+
+  let cursor = y;
+  for (const line of lines) {
+    if (line.length === 0) continue;
+    // Compute total line width to find the centered starting X.
+    let totalW = 0;
+    for (const r of line) {
+      doc.font(pickFont(r.bold, r.italic)).fontSize(style.size);
+      totalW += doc.widthOfString(r.text);
+    }
+    let x = (PAGE_W - totalW) / 2;
+    const lineY = cursor;
+    for (const r of line) {
+      doc
+        .font(pickFont(r.bold, r.italic))
+        .fontSize(style.size)
+        .fillColor(style.color);
+      doc.text(r.text, x, lineY, { lineBreak: false });
+      const w = doc.widthOfString(r.text);
+      if (r.underline) {
+        doc
+          .save()
+          .strokeColor(style.color)
+          .lineWidth(0.5)
+          .moveTo(x, lineY + style.size * 0.95)
+          .lineTo(x + w, lineY + style.size * 0.95)
+          .stroke()
+          .restore();
+      }
+      x += w;
+    }
+    cursor += style.size * 1.2;
+  }
+  return cursor;
+}
+
+/** Pick a pdfkit built-in font name for a run's bold/italic combo. */
+function pickFont(bold: boolean, italic: boolean): string {
+  if (bold && italic) return "Helvetica-BoldOblique";
+  if (bold) return "Helvetica-Bold";
+  if (italic) return "Helvetica-Oblique";
+  return "Helvetica";
 }
 
 /**
@@ -329,15 +442,20 @@ function drawFooterRegion(
     cursor += logoBlockHeight + gap2;
   }
   if (footerText) {
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#666666")
-      .text(footerText, SIDE_MARGIN, cursor, {
-        align: "center",
-        width: INNER_WIDTH,
-        lineBreak: true,
+    // Footer text is HTML (Tiptap output) — render it via the same
+    // inline-runs pipeline as the body so bold/italic/links round-trip.
+    // Sized smaller than the body (9pt) and muted.
+    const blocks = parseHtmlToBlocks(footerText);
+    let footerCursor = cursor;
+    for (const block of blocks) {
+      const runs = "runs" in block ? block.runs : null;
+      if (!runs || runs.length === 0) continue;
+      footerCursor = drawCenteredRuns(doc, runs, footerCursor, {
+        size: 9,
+        color: "#666666",
       });
+      footerCursor += 2;
+    }
   }
 }
 
