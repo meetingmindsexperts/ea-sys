@@ -305,6 +305,7 @@ export function registerAllMcpTools(
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
+    { name: "list_certificate_templates", description: "Read all 4 certificate templates (ATTENDANCE / PRESENTER / POSTER / CME) for the event plus event-level CME hours, accreditations, and design-approval state. Templates live in Event.settings.certificateTemplates; per-cert-type banner image URL, title text + color, body HTML (with {{tokens}}), signatures array, footer logos, footer text.", params: {} },
     // ─── Accommodation reads ───
     { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
       hotelId: z.string().optional(),
@@ -539,6 +540,33 @@ export function registerAllMcpTools(
     }},
     { name: "cancel_scheduled_email", description: "Cancel a PENDING scheduled email. Only works on status=PENDING rows — already-sent or already-processing emails cannot be cancelled.", params: {
       scheduledEmailId: z.string(),
+    }},
+    // ─── Certificate template writes ───
+    { name: "update_certificate_template", description: "Patch ONE cert type's template (Attendance / Presenter / Poster / CME). Partial — only the fields you include get updated; existing fields are preserved. Asset URLs (headerImage, signatures[].image, footerLogos[].image) must be `/uploads/...` paths — upload via the media library first to get a usable URL. Each cert type has its own complete template so the four can differ entirely (different banners, different signatories, different footer copy). Body is HTML (Tiptap output) with {{recipientName}} / {{eventName}} / {{eventDateRange}} / {{venueLine}} / {{accreditationBody}} / {{accreditationReference}} / {{cmeHours}} tokens.", params: {
+      type: z.enum(["ATTENDANCE", "PRESENTER", "POSTER", "CME"]),
+      headerImage: z.string().nullable().optional(),
+      titleText: z.string().max(120).optional(),
+      titleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      bodyTemplate: z.string().max(4000).optional(),
+      signatures: z.array(z.object({
+        image: z.string().nullable().optional(),
+        name: z.string().min(1).max(120),
+        lines: z.array(z.string().max(200)).max(6).optional(),
+      })).max(4).optional(),
+      footerLogos: z.array(z.object({
+        image: z.string().min(1).max(500),
+        label: z.string().max(60).optional(),
+      })).max(6).optional(),
+      footerText: z.string().max(800).optional(),
+    }},
+    { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. These are shared across all 4 cert types (the {{cmeHours}}, {{accreditationBody}}, {{accreditationReference}} body tokens read from here). Independent of template editing. Provide at least one of cmeHours or accreditations.", params: {
+      cmeHours: z.number().min(0).max(999.9).nullable().optional(),
+      accreditations: z.array(z.object({
+        body: z.enum(["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"]),
+        reference: z.string().min(1).max(120),
+        hours: z.number().min(0).max(999.9).optional(),
+        officialStatement: z.string().max(500).optional(),
+      })).max(5).optional(),
     }},
     { name: "upload_speaker_agreement_template", description: "Upload a .docx mail-merge template for speaker agreements. MCP is JSON-RPC only (no multipart), so pass the file as base64Content (base64-encoded .docx bytes). Enforces the same 2MB cap, DOCX MIME magic-byte check, and 10/hr/user rate limit as the dashboard upload. Replaces any existing template (previous file is unlinked from disk). Use {token} placeholders in the .docx for mail-merge — tokens available from get_speaker_agreement_template notes.", params: {
       filename: z.string().describe("Must end with .docx — used for display only; storage filename is a UUID"),

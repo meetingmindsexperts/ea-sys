@@ -21,6 +21,7 @@ import { WEBINAR_TOOL_DEFINITIONS, WEBINAR_EXECUTORS } from "./tools/webinar";
 import { COMMUNICATION_TOOL_DEFINITIONS, COMMUNICATION_EXECUTORS } from "./tools/communications";
 import { PROMO_CODE_TOOL_DEFINITIONS, PROMO_CODE_EXECUTORS } from "./tools/promo-codes";
 import { DASHBOARD_TOOL_DEFINITIONS, DASHBOARD_EXECUTORS } from "./tools/dashboard";
+import { CERTIFICATE_TOOL_DEFINITIONS, CERTIFICATE_EXECUTORS } from "./tools/certificates";
 
 export type { AgentContext } from "./tools/_shared";
 
@@ -37,6 +38,7 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
   ...COMMUNICATION_TOOL_DEFINITIONS,
   ...PROMO_CODE_TOOL_DEFINITIONS,
   ...DASHBOARD_TOOL_DEFINITIONS,
+  ...CERTIFICATE_TOOL_DEFINITIONS,
 ];
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -52,4 +54,5 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   ...COMMUNICATION_EXECUTORS,
   ...PROMO_CODE_EXECUTORS,
   ...DASHBOARD_EXECUTORS,
+  ...CERTIFICATE_EXECUTORS,
 };
