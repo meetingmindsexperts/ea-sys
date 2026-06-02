@@ -437,6 +437,35 @@ export default function CertificatesPage() {
   //      recipient list + sample preview so the operator sees who
   //      gets the cert before clicking Issue.
   // Re-fetch when either the template or the tag changes.
+  // Active-runs list — non-terminal runs for THIS event. The page's
+  // `activeRunIds` state is React-only (lost on refresh), so without
+  // this query an in-progress run becomes invisible after a refresh.
+  // Polls at the same 4s cadence as the per-run query while at least
+  // one run is active, then stops to avoid wasted requests on idle events.
+  const activeRunsQuery = useQuery<{
+    runs: Array<{
+      id: string;
+      type: CertCategory;
+      status: RunResp["status"];
+      totalCount: number;
+      renderedCount: number;
+      emailedCount: number;
+      failedCount: number;
+      triggeredAt: string;
+      certificateTemplate: { id: string; name: string } | null;
+    }>;
+  }>({
+    queryKey: ["cert-runs-active", eventId],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/certificates/runs?status=active`);
+      if (!res.ok) throw new Error(`Active-runs query failed (${res.status})`);
+      return res.json();
+    },
+    // Refetch every 4s while runs exist; React Query stops on hidden tab.
+    refetchInterval: (q) =>
+      q.state.data?.runs && q.state.data.runs.length > 0 ? 4000 : false,
+  });
+
   const eligibilityQuery = useQuery<EligibilityResp>({
     queryKey: ["cert-eligibility", eventId, issueTemplateId, issueTag],
     queryFn: async () => {
@@ -1183,6 +1212,90 @@ export default function CertificatesPage() {
 
         {/* ── ISSUE TAB ─────────────────────────────────────────── */}
         <TabsContent value="issue" className="space-y-6 mt-6">
+          {/* Runs in progress — non-terminal runs surviving across page
+              refreshes. The page's local activeRunIds state is React-only
+              (lost on refresh / tab close), so without this server-backed
+              list, a run sitting at AWAITING_REVIEW becomes invisible
+              the moment the operator reloads. Resume lifts the run into
+              the active panel below by picking its template + seeding
+              activeRunIds — the existing per-run polling + Send/Cancel
+              UI takes over from there. */}
+          {activeRunsQuery.data && activeRunsQuery.data.runs.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Loader2 className="h-4 w-4 text-amber-600 animate-spin" />
+                  Runs in progress ({activeRunsQuery.data.runs.length})
+                </CardTitle>
+                <CardDescription>
+                  Active certificate-issue runs for this event. Resume one to
+                  spot-check rendered PDFs, send emails, or cancel.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {activeRunsQuery.data.runs.map((r) => {
+                  const isCurrent = Boolean(
+                    issueTemplateId && activeRunIds[issueTemplateId] === r.id,
+                  );
+                  return (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between gap-2 rounded-md border p-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium truncate">
+                            {r.certificateTemplate?.name ??
+                              `${r.type} (template deleted)`}
+                          </span>
+                          <RunStatusBadge status={r.status} />
+                        </div>
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
+                          <span>Total: {r.totalCount}</span>
+                          <span>Rendered: {r.renderedCount}</span>
+                          <span>Emailed: {r.emailedCount}</span>
+                          {r.failedCount > 0 && (
+                            <span className="text-red-600">
+                              Failed: {r.failedCount}
+                            </span>
+                          )}
+                          <span className="text-muted-foreground/70">
+                            triggered{" "}
+                            {new Date(r.triggeredAt).toLocaleString(undefined, {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={isCurrent ? "secondary" : "outline"}
+                        onClick={() => {
+                          // Pick the run's template so the panel below
+                          // renders for it. The activeRunIds entry
+                          // (keyed by templateId) drives the per-run
+                          // polling query.
+                          if (r.certificateTemplate) {
+                            setIssueTemplateId(r.certificateTemplate.id);
+                            setActiveRunIds((cur) => ({
+                              ...cur,
+                              [r.certificateTemplate!.id]: r.id,
+                            }));
+                            setIssueTag("");
+                          }
+                        }}
+                        disabled={!r.certificateTemplate || isCurrent}
+                      >
+                        {isCurrent ? "Showing below" : "Resume"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
