@@ -1,16 +1,27 @@
 /**
- * PDF upload endpoint — accepts the organizer-uploaded background PDF
- * for the certificate template editor.
+ * Cert background upload endpoint — accepts the organizer-uploaded
+ * cert visual for the canvas editor.
  *
- * Validates via magic bytes (PDF files start with `%PDF-` = 0x25 0x50
- * 0x44 0x46 0x2D). Server-validates the actual file content rather than
- * trusting the Content-Type header. 5MB cap — designer PDFs are
- * vector + small images, rarely exceed 1-2MB.
+ * Accepts three input formats, validated by magic bytes (Content-Type
+ * header is not trusted):
+ *   - PDF      (%PDF-                  = 0x25 0x50 0x44 0x46 0x2D)
+ *   - JPEG     (FF D8 FF)
+ *   - PNG      (89 50 4E 47 0D 0A 1A 0A)
  *
- * Stored at `public/uploads/certificates/{year}/{month}/{uuid}.pdf` via
- * the existing storage provider (local or Supabase). Returns the URL.
- * Same auth + rate-limit envelope as photo upload (denyReviewer + 50/hr
- * per user).
+ * If the upload is an image, it's wrapped in a single-page PDF using
+ * pdf-lib (page dimensions = image's intrinsic pixel dimensions, image
+ * fills the page edge-to-edge). The conversion happens once at upload
+ * time so downstream code (renderer, canvas editor) only ever sees PDF.
+ *
+ * Designers commonly export cert visuals as JPG/PNG from Photoshop /
+ * Illustrator / Canva instead of PDF; the conversion removes that
+ * friction. The stored URL always ends in `.pdf`; the original image
+ * is discarded after the wrap.
+ *
+ * 10MB cap on the upload (PNG cert designs can be 5-8MB at full res).
+ * Stored at `public/uploads/certificates/{eventId}/{uuid}.pdf` via the
+ * existing storage provider. Same auth + rate-limit envelope as photo
+ * upload (denyReviewer + 50/hr per user).
  */
 
 import { NextResponse } from "next/server";
@@ -20,16 +31,65 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { denyReviewer } from "@/lib/auth-guards";
 import { uploadCertificatePdf } from "@/lib/storage";
+import { PDFDocument } from "pdf-lib";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2D]; // "%PDF-"
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (raised from 5MB to cover full-res PNG designs)
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
 
-function isPdfBuffer(buf: Buffer): boolean {
-  if (buf.length < PDF_MAGIC.length) return false;
-  for (let i = 0; i < PDF_MAGIC.length; i++) {
-    if (buf[i] !== PDF_MAGIC[i]) return false;
+type DetectedFormat = "pdf" | "png" | "jpeg" | null;
+
+function detectFormat(buf: Buffer): DetectedFormat {
+  if (startsWith(buf, PDF_MAGIC)) return "pdf";
+  if (startsWith(buf, PNG_MAGIC)) return "png";
+  if (startsWith(buf, JPEG_MAGIC)) return "jpeg";
+  return null;
+}
+
+function startsWith(buf: Buffer, magic: number[]): boolean {
+  if (buf.length < magic.length) return false;
+  for (let i = 0; i < magic.length; i++) {
+    if (buf[i] !== magic[i]) return false;
   }
   return true;
+}
+
+/**
+ * Wrap a JPG/PNG image buffer in a single-page PDF. Page dimensions =
+ * image's intrinsic pixel dimensions (in points; 1pt = 1/72"). The image
+ * fills the page edge-to-edge with no scaling, so the canvas editor's
+ * displayScale arithmetic stays correct regardless of image resolution.
+ *
+ * Returns the resulting PDF as a Buffer ready for `uploadCertificatePdf`.
+ */
+async function imageToPdf(
+  buffer: Buffer,
+  format: "png" | "jpeg",
+): Promise<Buffer> {
+  const pdfDoc = await PDFDocument.create();
+  const image =
+    format === "png"
+      ? await pdfDoc.embedPng(buffer)
+      : await pdfDoc.embedJpg(buffer);
+
+  // page = image's intrinsic dimensions. pdf-lib's PDFImage exposes
+  // .width and .height in image-pixel units which we map 1:1 to PDF
+  // points — fine because the renderer + canvas editor use the page's
+  // own dimensions consistently.
+  const page = pdfDoc.addPage([image.width, image.height]);
+  page.drawImage(image, {
+    x: 0,
+    y: 0,
+    width: image.width,
+    height: image.height,
+  });
+
+  pdfDoc.setTitle("Certificate background (converted from image)");
+  pdfDoc.setCreator("EA-SYS cert upload");
+
+  const out = await pdfDoc.save();
+  return Buffer.from(out);
 }
 
 export async function POST(req: Request) {
@@ -72,34 +132,73 @@ export async function POST(req: Request) {
     // Optional eventId for storage path scoping — uses "shared" if absent.
     const eventId = (form.get("eventId") as string) || "shared";
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    if (!isPdfBuffer(buffer)) {
+    const inputBuffer = Buffer.from(await file.arrayBuffer());
+    const format = detectFormat(inputBuffer);
+    if (!format) {
       apiLogger.warn({
-        msg: "pdf-upload:invalid-magic",
+        msg: "cert-upload:invalid-magic",
         userId: session.user.id,
-        firstBytes: buffer.slice(0, 8).toString("hex"),
+        firstBytes: inputBuffer.subarray(0, 8).toString("hex"),
         clientType: file.type,
       });
       return NextResponse.json(
-        { error: "File is not a valid PDF (magic bytes mismatch)" },
+        {
+          error:
+            "File must be a PDF, PNG, or JPEG (magic bytes mismatch). Re-export your cert from your designer tool.",
+        },
         { status: 400 },
       );
     }
 
+    // Convert image inputs to PDF; PDF inputs pass through.
+    let pdfBuffer: Buffer;
+    let convertedFrom: "png" | "jpeg" | null = null;
+    if (format === "pdf") {
+      pdfBuffer = inputBuffer;
+    } else {
+      try {
+        pdfBuffer = await imageToPdf(inputBuffer, format);
+        convertedFrom = format;
+      } catch (e) {
+        apiLogger.error({
+          err: e,
+          msg: "cert-upload:image-to-pdf-failed",
+          userId: session.user.id,
+          format,
+          size: inputBuffer.length,
+        });
+        return NextResponse.json(
+          {
+            error: `Failed to convert ${format.toUpperCase()} to PDF. The image may be corrupt or in an unsupported encoding.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     const filename = `${randomUUID()}.pdf`;
-    const url = await uploadCertificatePdf(buffer, filename, eventId);
+    const url = await uploadCertificatePdf(pdfBuffer, filename, eventId);
 
     apiLogger.info({
-      msg: "pdf-upload:ok",
+      msg: "cert-upload:ok",
       userId: session.user.id,
       eventId,
-      size: buffer.length,
+      inputFormat: format,
+      convertedFrom,
+      inputSize: inputBuffer.length,
+      outputSize: pdfBuffer.length,
       url,
     });
 
-    return NextResponse.json({ url, size: buffer.length });
+    return NextResponse.json({
+      url,
+      size: pdfBuffer.length,
+      // Surfaced so the editor can show a one-liner ("Converted from PNG")
+      // when appropriate; harmless to ignore.
+      convertedFrom,
+    });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "pdf-upload:failed" });
+    apiLogger.error({ err: error, msg: "cert-upload:failed" });
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }

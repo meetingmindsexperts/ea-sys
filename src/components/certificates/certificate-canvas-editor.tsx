@@ -216,8 +216,8 @@ export function CertificateCanvasEditor({
   // ── Upload PDF — POSTs to /api/upload/pdf and stores the returned URL
   const handleUpload = useCallback(
     async (file: File, eventId?: string) => {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("PDF too large — max 5MB.");
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("File too large — max 10MB.");
         return;
       }
       setUploading(true);
@@ -229,16 +229,21 @@ export function CertificateCanvasEditor({
         const json = (await res.json().catch(() => ({}))) as {
           url?: string;
           size?: number;
+          convertedFrom?: "png" | "jpeg" | null;
           error?: string;
         };
         if (!res.ok || !json.url) {
           const msg = json.error ?? `Upload failed (HTTP ${res.status})`;
           toast.error(msg);
-          console.error("[cert-canvas-editor] PDF upload failed", { status: res.status, json });
+          console.error("[cert-canvas-editor] cert background upload failed", { status: res.status, json });
           return;
         }
         onChange({ backgroundPdfUrl: json.url });
-        toast.success("Background PDF uploaded.");
+        toast.success(
+          json.convertedFrom
+            ? `${json.convertedFrom.toUpperCase()} converted and uploaded as PDF background.`
+            : "Background PDF uploaded.",
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         toast.error(`Upload network error: ${msg}`);
@@ -312,18 +317,19 @@ export function CertificateCanvasEditor({
       <div className="space-y-4">
         <div className="rounded-md border-2 border-dashed border-primary/40 bg-primary/5 p-10 text-center">
           <Upload className="h-10 w-10 mx-auto mb-3 text-primary/70" />
-          <p className="font-medium mb-2">Upload the background certificate PDF</p>
+          <p className="font-medium mb-2">Upload the certificate background</p>
           <p className="text-sm text-muted-foreground mb-4">
-            Your designer&apos;s finished cert PDF — banner, borders,
+            Your designer&apos;s finished cert visual — banner, borders,
             signatures, footer logos all baked in. We&apos;ll overlay
             text boxes with{" "}
             <code className="bg-background px-1 rounded">{`{{tokens}}`}</code>{" "}
-            on top.
+            on top. <strong>PDF, JPG, or PNG</strong> all accepted —
+            images get wrapped into a single-page PDF automatically.
           </p>
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,image/jpeg,image/png"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -340,11 +346,11 @@ export function CertificateCanvasEditor({
             ) : (
               <Upload className="h-4 w-4 mr-1" />
             )}
-            {uploading ? "Uploading…" : "Choose PDF"}
+            {uploading ? "Uploading…" : "Choose file"}
           </Button>
           <p className="text-xs text-muted-foreground mt-3">
-            Single page, max 5MB. PNG/JPG-only designs should be exported
-            to PDF in your designer tool first.
+            Single page (or single image), max 10MB. Aspect ratio is
+            preserved — design at A4 / Letter for the cleanest result.
           </p>
         </div>
       </div>
@@ -377,7 +383,7 @@ export function CertificateCanvasEditor({
           ) : (
             <Upload className="h-4 w-4 mr-1" />
           )}
-          Replace PDF
+          Replace background
         </Button>
         <Button size="sm" onClick={addBox}>
           <Plus className="h-4 w-4 mr-1" />
