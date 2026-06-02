@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * Certificates page — three tabs:
+ * Certificates page — four tabs (v3 PDF-overlay model, 2026-06-02):
  *
- *   1. Template       — organizer-controlled visual config: banner image
- *                       upload, title text + color, body template with
- *                       merge tokens, signatures repeater (chairman +
- *                       co-chairmen), footer logos repeater (society
- *                       logos), footer text.
+ *   1. Template       — organizer uploads the finished cert PDF from
+ *                       their designer (banner / borders / signatures /
+ *                       footer logos all baked in) and drags text boxes
+ *                       on top containing `{{tokens}}`. One template per
+ *                       cert type (Attendance / Presenter / Poster / CME).
+ *                       The canvas drag-and-drop editor lands in the
+ *                       next commit — this tab currently shows a
+ *                       placeholder with the architecture rationale.
  *   2. CME / CPD      — per-event hours awarded + accrediting bodies
  *                       (DHA/EACCME/etc) for CME certs. Independent of
  *                       the template; tokens render conditionally.
@@ -16,9 +19,7 @@
  *                       errors are visible. SUPER_ADMIN design-approval
  *                       gate lives here (it's the cert-design sign-off
  *                       step, naturally adjacent to the preview).
- *
- * Phase C will add eligibility-list / Issue tabs above this once the
- * design-approval flag is flipped.
+ *   4. Issue          — eligibility list + run progress (Phase C).
  */
 
 import { useMemo, useState } from "react";
@@ -39,7 +40,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PhotoUpload } from "@/components/ui/photo-upload";
 import {
   Select,
   SelectContent,
@@ -48,7 +48,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import dynamic from "next/dynamic";
 import {
   GraduationCap,
   Plus,
@@ -58,23 +57,13 @@ import {
   Info,
   Lock,
   CheckCircle2,
-  Image as ImageIcon,
   FileText,
   PenLine,
-  PaintBucket,
   Send,
   Mail,
   XCircle,
   Loader2,
 } from "lucide-react";
-
-// Lazy-load Tiptap so the cert page doesn't pull the entire editor
-// bundle into the dashboard's first-paint critical path. Matches the
-// pattern used by other dashboard pages that embed Tiptap.
-const TiptapEditor = dynamic(
-  () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
-  { ssr: false, loading: () => <div className="h-48 rounded border bg-muted/30 animate-pulse" /> },
-);
 
 type CertType = "ATTENDANCE" | "PRESENTER" | "POSTER" | "CME";
 
@@ -89,25 +78,20 @@ interface AccreditationRow {
 }
 type AccreditatorBodyOrEmpty = AccreditorBody | "";
 
-interface SignatureRow {
-  image?: string | null;
-  name: string;
-  lines: string[];
-}
-
-interface FooterLogoRow {
-  label?: string;
-  image: string;
-}
-
+/**
+ * v3 PDF-overlay template state (2026-06-02). The organizer uploads a
+ * finished cert PDF and positions text boxes on top with `{{tokens}}`.
+ * The canvas drag-and-drop editor lands in the next commit — for now
+ * the Template tab is a placeholder, but the state shape + persistence
+ * round-trip is wired so the eventual editor just plugs in.
+ *
+ * `textBoxes` is intentionally typed loose here; the editor commit will
+ * import the strict `CertificateTextBox` shape from
+ * `src/lib/certificates/types.ts` and tighten this.
+ */
 interface TemplateState {
-  headerImage: string | null;
-  titleText: string;
-  titleColor: string;
-  bodyTemplate: string;
-  signatures: SignatureRow[];
-  footerLogos: FooterLogoRow[];
-  footerText: string;
+  backgroundPdfUrl: string | null;
+  textBoxes: unknown[];
 }
 
 const CERT_TYPES = [
@@ -129,13 +113,8 @@ interface SettingsResponse {
 }
 
 const EMPTY_TEMPLATE: TemplateState = {
-  headerImage: null,
-  titleText: "",
-  titleColor: "#1a2e5a",
-  bodyTemplate: "",
-  signatures: [],
-  footerLogos: [],
-  footerText: "",
+  backgroundPdfUrl: null,
+  textBoxes: [],
 };
 
 function makeEmptyTemplates(): TemplatesByType {
@@ -193,16 +172,6 @@ interface RunResp {
     issuedCertificateId: string | null;
   }>;
 }
-
-const AVAILABLE_TOKENS: Array<{ token: string; description: string }> = [
-  { token: "{{recipientName}}", description: "Full attendee name (with title prefix)" },
-  { token: "{{eventName}}", description: "Event name from the event record" },
-  { token: "{{eventDateRange}}", description: "Event start–end dates (e.g. 5th - 7th December 2025)" },
-  { token: "{{venueLine}}", description: "Venue + city + country, prefixed with 'at'" },
-  { token: "{{accreditationBody}}", description: "First accreditor's friendly name (e.g. Dubai Health Authority (DHA))" },
-  { token: "{{accreditationReference}}", description: "First accreditor's reference number" },
-  { token: "{{cmeHours}}", description: "CME hours from the event's CME tab" },
-];
 
 export default function CertificatesPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -361,13 +330,8 @@ export default function CertificatesPage() {
       for (const { key } of CERT_TYPES) {
         const raw = json.templates?.[key] ?? null;
         normalizedTemplates[key] = {
-          headerImage: raw?.headerImage ?? null,
-          titleText: raw?.titleText ?? "",
-          titleColor: raw?.titleColor ?? "#1a2e5a",
-          bodyTemplate: raw?.bodyTemplate ?? "",
-          signatures: (raw?.signatures as SignatureRow[]) ?? [],
-          footerLogos: (raw?.footerLogos as FooterLogoRow[]) ?? [],
-          footerText: raw?.footerText ?? "",
+          backgroundPdfUrl: raw?.backgroundPdfUrl ?? null,
+          textBoxes: (raw?.textBoxes as unknown[]) ?? [],
         };
       }
       const normalized: SettingsResponse = {
@@ -422,6 +386,12 @@ export default function CertificatesPage() {
   // this slot in the templates map.
   const currentTemplate = editable?.templates[activeTemplateType] ?? EMPTY_TEMPLATE;
 
+  // Wired but unused in this commit — the gutted Template tab only
+  // reads from `currentTemplate`. The canvas editor (next commit)
+  // calls this on every text-box add / move / resize / edit and on
+  // `backgroundPdfUrl` upload. Keeping it here so the editor commit
+  // doesn't have to re-introduce the same helper.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function updateCurrentTemplate(patch: Partial<TemplateState>) {
     if (!editable) return;
     updateDraft({
@@ -454,43 +424,9 @@ export default function CertificatesPage() {
     });
   }
 
-  // Signatures (per active cert type) ─────────────────────────────────
-  function addSignature() {
-    updateCurrentTemplate({
-      signatures: [...currentTemplate.signatures, { name: "", lines: [] }],
-    });
-  }
-  function removeSignature(idx: number) {
-    updateCurrentTemplate({
-      signatures: currentTemplate.signatures.filter((_, i) => i !== idx),
-    });
-  }
-  function updateSignature(idx: number, patch: Partial<SignatureRow>) {
-    updateCurrentTemplate({
-      signatures: currentTemplate.signatures.map((s, i) =>
-        i === idx ? { ...s, ...patch } : s,
-      ),
-    });
-  }
-
-  // Footer logos (per active cert type) ───────────────────────────────
-  function addFooterLogo() {
-    updateCurrentTemplate({
-      footerLogos: [...currentTemplate.footerLogos, { image: "", label: "" }],
-    });
-  }
-  function removeFooterLogo(idx: number) {
-    updateCurrentTemplate({
-      footerLogos: currentTemplate.footerLogos.filter((_, i) => i !== idx),
-    });
-  }
-  function updateFooterLogo(idx: number, patch: Partial<FooterLogoRow>) {
-    updateCurrentTemplate({
-      footerLogos: currentTemplate.footerLogos.map((l, i) =>
-        i === idx ? { ...l, ...patch } : l,
-      ),
-    });
-  }
+  // v2 signature + footer-logo helpers were dropped in the 2026-06-02
+  // architecture flip — the canvas editor (next commit) owns text-box
+  // CRUD via the `textBoxes` array directly.
 
   async function onSave() {
     if (!editable) return;
@@ -503,31 +439,16 @@ export default function CertificatesPage() {
         officialStatement: a.officialStatement?.trim() || undefined,
       }));
 
-    // Send all 4 type slots in one PATCH — each cleaned of empty rows
-    // and trimmed strings. The server merges each slot into the
-    // existing per-type template independently.
+    // Send all 4 type slots in one PATCH. v3 shape is intentionally
+    // small — `backgroundPdfUrl` (the uploaded designer PDF) plus the
+    // text-box array (the canvas editor's output, populated in the
+    // next commit). The server merges each slot independently.
     const cleanedTemplates: Record<string, unknown> = {};
     for (const { key } of CERT_TYPES) {
       const t = editable.templates[key];
       cleanedTemplates[key] = {
-        headerImage: t.headerImage || null,
-        titleText: t.titleText.trim() || undefined,
-        titleColor: t.titleColor,
-        bodyTemplate: t.bodyTemplate,
-        signatures: t.signatures
-          .filter((s) => s.name.trim().length > 0)
-          .map((s) => ({
-            image: s.image || null,
-            name: s.name.trim(),
-            lines: s.lines.map((l) => l.trim()).filter(Boolean),
-          })),
-        footerLogos: t.footerLogos
-          .filter((l) => l.image.trim().length > 0)
-          .map((l) => ({
-            image: l.image.trim(),
-            label: l.label?.trim() || undefined,
-          })),
-        footerText: t.footerText.trim() || undefined,
+        backgroundPdfUrl: t.backgroundPdfUrl || null,
+        textBoxes: t.textBoxes,
       };
     }
 
@@ -643,305 +564,63 @@ export default function CertificatesPage() {
             <strong className="text-foreground">
               {CERT_TYPES.find((t) => t.key === activeTemplateType)?.label}
             </strong>{" "}
-            template. All 4 cert types have their own banner, body,
-            signatures, and footer — switch tabs above to edit each.
+            template — one slot per cert type.
           </div>
 
-          {/* Header banner */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5" />
-                Header banner
-              </CardTitle>
-              <CardDescription>
-                Upload the event banner that appears across the top of every
-                certificate. Design at roughly{" "}
-                <strong>2480 × 700 pixels</strong> (A4 portrait top band) for the
-                cleanest result. PNG or JPG.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="max-w-md">
-                <PhotoUpload
-                  value={currentTemplate.headerImage}
-                  onChange={(url) => updateCurrentTemplate({ headerImage: url })}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Title */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PaintBucket className="h-5 w-5" />
-                Title
-              </CardTitle>
-              <CardDescription>
-                The italic-script heading below the banner. Renders flanked by
-                short navy bracket flourishes on each side.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 md:grid-cols-[1fr_180px]">
-                <div>
-                  <Label htmlFor="titleText">Title text</Label>
-                  <Input
-                    id="titleText"
-                    placeholder="Certificate of Attendance"
-                    value={currentTemplate.titleText}
-                    onChange={(e) => updateCurrentTemplate({ titleText: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Leave blank to use the per-type default (e.g. &quot;Certificate
-                    of CME&quot; for CME certs).
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="titleColor">Title color</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={currentTemplate.titleColor}
-                      onChange={(e) => updateCurrentTemplate({ titleColor: e.target.value })}
-                      className="h-9 w-12 rounded border cursor-pointer"
-                      aria-label="Pick title color"
-                    />
-                    <Input
-                      id="titleColor"
-                      placeholder="#1a2e5a"
-                      value={currentTemplate.titleColor}
-                      onChange={(e) => updateCurrentTemplate({ titleColor: e.target.value })}
-                      className="font-mono text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Body */}
+          {/* v3 PDF-overlay placeholder. The canvas drag-and-drop editor
+              lands in the next commit. State + persistence round-trip is
+              already wired so the eventual editor plugs straight in. */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Body
+                Background PDF + text boxes (v3, 2026-06-02)
               </CardTitle>
               <CardDescription>
-                The cert body content. Use the toolbar to format text — bold
-                event names, italic subtitles, headings for size. Insert{" "}
-                <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
-                anywhere to merge real data at issue time. The renderer maps
-                headings to size hierarchy: <strong>H2</strong> = recipient-
-                name sized; <strong>H3</strong> = navy bold (good for event
-                name); plain paragraph = body text.
+                The certificate design now comes from a finished PDF you
+                upload (banner, borders, signatures, footer logos all baked
+                in by your designer), with positioned text boxes overlaid
+                on top containing <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
+                that resolve per recipient at issue time.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <TiptapEditor
-                content={currentTemplate.bodyTemplate}
-                onChange={(html) => updateCurrentTemplate({ bodyTemplate: html })}
-                placeholder="Compose the cert body — use H2 for the recipient line, paragraph for the rest..."
-              />
-              <details className="rounded-md border bg-muted/30 p-3 text-sm">
-                <summary className="cursor-pointer font-medium">
-                  Available tokens ({AVAILABLE_TOKENS.length})
-                </summary>
-                <div className="mt-3 space-y-1.5">
-                  {AVAILABLE_TOKENS.map((t) => (
-                    <div key={t.token} className="grid grid-cols-[200px_1fr] gap-2 text-xs">
-                      <code className="bg-background px-1.5 py-0.5 rounded font-mono">
-                        {t.token}
-                      </code>
-                      <span className="text-muted-foreground">{t.description}</span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-              <p className="text-xs text-muted-foreground">
-                Tip — leave the body blank to use the per-cert-type default
-                (matches the MASH IN FOCUS / EIGHC reference structure).
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Signatures */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PenLine className="h-5 w-5" />
-                Signatures
-              </CardTitle>
-              <CardDescription>
-                Conference chairman, co-chairmen, accreditation officer. Each
-                signature renders side-by-side in the footer with the uploaded
-                image above a signature line, then the name + title/affiliation
-                below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={addSignature}
-                  disabled={!editable}
-                >
-                  <Plus className="h-4 w-4 mr-1" /> Add signature
-                </Button>
-              </div>
-              {currentTemplate.signatures.length === 0 ? (
-                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No signatures yet — add the conference chairman / co-chairmen.
-                </div>
-              ) : (
-                currentTemplate.signatures.map((sig, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-md border p-4 grid gap-3 md:grid-cols-[200px_1fr_auto]"
-                  >
-                    <div>
-                      <Label className="text-xs">Signature image</Label>
-                      <PhotoUpload
-                        value={sig.image ?? null}
-                        onChange={(url) => updateSignature(idx, { image: url })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-xs">Name</Label>
-                        <Input
-                          placeholder="DR. AHMAD AL-RIFAI"
-                          value={sig.name}
-                          onChange={(e) =>
-                            updateSignature(idx, { name: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">
-                          Lines below the name (one per line)
-                        </Label>
-                        <Textarea
-                          rows={3}
-                          placeholder={"Consultant Hepatologist & Gastroenterologist\nSheikh Shakhbout Medical City\nUnited Arab Emirates"}
-                          value={sig.lines.join("\n")}
-                          onChange={(e) =>
-                            updateSignature(idx, {
-                              lines: e.target.value.split("\n"),
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeSignature(idx)}
-                        aria-label="Remove signature"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
+                <div className="flex items-start gap-2">
+                  <Info className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="space-y-2">
+                    <p className="font-medium text-amber-900">
+                      Canvas editor coming in the next commit.
+                    </p>
+                    <p className="text-amber-800">
+                      The page-level state shape, PATCH round-trip, server
+                      Zod schema, upload endpoint{" "}
+                      <code className="bg-amber-100 px-1 rounded">POST /api/upload/pdf</code>,
+                      and pdf-lib overlay renderer are all wired and live.
+                      The drag-and-drop UI for positioning boxes on the
+                      uploaded PDF ships next — until then the renderer
+                      falls back to the &quot;upload a background PDF&quot;
+                      placeholder PDF you&apos;ll see in the Preview tab.
+                    </p>
+                    <p className="text-amber-800">
+                      Current state for{" "}
+                      <strong>
+                        {CERT_TYPES.find((t) => t.key === activeTemplateType)?.label}
+                      </strong>
+                      :{" "}
+                      {currentTemplate.backgroundPdfUrl ? (
+                        <>background PDF uploaded ({currentTemplate.textBoxes.length} text boxes)</>
+                      ) : (
+                        <>no background PDF uploaded yet, {currentTemplate.textBoxes.length} text boxes</>
+                      )}
+                      .
+                    </p>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Footer logos */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5" />
-                Footer logos
-              </CardTitle>
-              <CardDescription>
-                Society logos shown at the very bottom — &quot;Hosted by&quot;,
-                &quot;In Collaboration with&quot;, &quot;Managed by&quot;, etc.
-                Each logo can have an optional label above it.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={addFooterLogo}
-                  disabled={!editable}
-                >
-                  <Plus className="h-4 w-4 mr-1" /> Add logo
-                </Button>
-              </div>
-              {currentTemplate.footerLogos.length === 0 ? (
-                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No footer logos — typical CME certs have 1-3 (hosting
-                  society, accrediting body, managing partner).
                 </div>
-              ) : (
-                currentTemplate.footerLogos.map((logo, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-md border p-4 grid gap-3 md:grid-cols-[200px_1fr_auto]"
-                  >
-                    <div>
-                      <Label className="text-xs">Logo image</Label>
-                      <PhotoUpload
-                        value={logo.image || null}
-                        onChange={(url) =>
-                          updateFooterLogo(idx, { image: url ?? "" })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Label (optional)</Label>
-                      <Input
-                        placeholder="Hosted by"
-                        value={logo.label ?? ""}
-                        onChange={(e) =>
-                          updateFooterLogo(idx, { label: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeFooterLogo(idx)}
-                        aria-label="Remove logo"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
+              </div>
             </CardContent>
           </Card>
 
-          {/* Footer text */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Footer text
-              </CardTitle>
-              <CardDescription>
-                Rich text rendered below the footer logos — disclaimers,
-                organization tag-lines, contact info, etc. Same toolbar as
-                the body editor (bold / italic / links).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <TiptapEditor
-                content={currentTemplate.footerText}
-                onChange={(html) => updateCurrentTemplate({ footerText: html })}
-                placeholder="e.g. Meeting Minds Experts · www.meetingmindsexperts.com"
-              />
-            </CardContent>
-          </Card>
         </TabsContent>
 
         {/* ── Tab 2: CME / CPD config ──────────────────────────────── */}

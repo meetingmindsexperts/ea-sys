@@ -72,27 +72,33 @@ const accreditationSchema = z.object({
   officialStatement: z.string().max(500).optional(),
 });
 
-// Per-event certificate template fields — organizer-controlled visual
-// elements (post-2026-06-01 redesign). Every field optional so the UI
-// can patch one slice at a time (just upload a banner, or just edit body,
-// etc.). URL fields accept the project's standard `/uploads/...` paths.
-const signatureSchema = z.object({
-  image: z.string().max(500).nullable().optional(),
-  name: z.string().min(1).max(120).trim(),
-  lines: z.array(z.string().max(200)).max(6).default([]),
+// v3 PDF-overlay template schema. Organizers upload a background PDF
+// per cert type + position text boxes containing static text + tokens
+// on top. Each slot is independent (4 types × 4 PDFs per event).
+const FONT_NAMES = [
+  "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+  "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+  "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+] as const;
+
+const textBoxSchema = z.object({
+  id: z.string().min(1).max(64),
+  content: z.string().max(500),
+  x: z.number().min(0).max(2000),
+  y: z.number().min(0).max(2000),
+  width: z.number().min(1).max(2000),
+  height: z.number().min(1).max(2000),
+  font: z.enum(FONT_NAMES),
+  size: z.number().min(4).max(120),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a 6-digit hex color"),
+  align: z.enum(["left", "center", "right"]),
 });
-const footerLogoSchema = z.object({
-  label: z.string().max(60).optional(),
-  image: z.string().min(1).max(500),
-});
+
 const templateSchema = z.object({
-  headerImage: z.string().max(500).nullable().optional(),
-  titleText: z.string().max(120).optional(),
-  titleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a 6-digit hex color").optional(),
-  bodyTemplate: z.string().max(4000).optional(),
-  signatures: z.array(signatureSchema).max(4).optional(),
-  footerLogos: z.array(footerLogoSchema).max(6).optional(),
-  footerText: z.string().max(800).optional(),
+  // /uploads/... URL of the uploaded background PDF (designer's output).
+  // Nullable to clear; omitting the field preserves the existing value.
+  backgroundPdfUrl: z.string().max(500).nullable().optional(),
+  textBoxes: z.array(textBoxSchema).max(40).optional(),
 });
 
 // Per-type templates map — each key is a CertificateType, value is a
@@ -161,13 +167,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         CERT_TYPES.map((type) => {
           const t = templates[type] ?? {};
           return [type, {
-            headerImage: t.headerImage ?? null,
-            titleText: t.titleText ?? null,
-            titleColor: t.titleColor ?? null,
-            bodyTemplate: t.bodyTemplate ?? null,
-            signatures: t.signatures ?? [],
-            footerLogos: t.footerLogos ?? [],
-            footerText: t.footerText ?? null,
+            backgroundPdfUrl: t.backgroundPdfUrl ?? null,
+            textBoxes: t.textBoxes ?? [],
           }];
         }),
       ),
@@ -265,8 +266,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     // Merge per-type template patches into the existing templates map.
     // Each type slot is independent — patching ATTENDANCE doesn't touch
-    // CME. Inside a slot, fields are merged (partial patch — keeping
-    // signatures intact when only headerImage is sent, etc.).
+    // CME. Inside a slot, the partial patch merges field-by-field so
+    // patching ONLY backgroundPdfUrl doesn't wipe textBoxes (and vice
+    // versa). v3 has only the two visual fields; v2 fields stripped.
     const currentTemplates = readCertTemplates(currentSettings);
     const nextTemplates: EventCertificateTemplates = { ...currentTemplates };
     if (parsed.data.templates) {
@@ -275,13 +277,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         if (!slot) continue;
         const prev: CertificateTemplate = nextTemplates[type] ?? {};
         const merged: CertificateTemplate = { ...prev };
-        if (slot.headerImage !== undefined) merged.headerImage = slot.headerImage;
-        if (slot.titleText !== undefined) merged.titleText = slot.titleText;
-        if (slot.titleColor !== undefined) merged.titleColor = slot.titleColor;
-        if (slot.bodyTemplate !== undefined) merged.bodyTemplate = slot.bodyTemplate;
-        if (slot.signatures !== undefined) merged.signatures = slot.signatures;
-        if (slot.footerLogos !== undefined) merged.footerLogos = slot.footerLogos;
-        if (slot.footerText !== undefined) merged.footerText = slot.footerText;
+        if (slot.backgroundPdfUrl !== undefined) merged.backgroundPdfUrl = slot.backgroundPdfUrl;
+        if (slot.textBoxes !== undefined) merged.textBoxes = slot.textBoxes;
         nextTemplates[type] = merged;
       }
     }
@@ -348,13 +345,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         CERT_TYPES.map((type) => {
           const t = finalTemplates[type] ?? {};
           return [type, {
-            headerImage: t.headerImage ?? null,
-            titleText: t.titleText ?? null,
-            titleColor: t.titleColor ?? null,
-            bodyTemplate: t.bodyTemplate ?? null,
-            signatures: t.signatures ?? [],
-            footerLogos: t.footerLogos ?? [],
-            footerText: t.footerText ?? null,
+            backgroundPdfUrl: t.backgroundPdfUrl ?? null,
+            textBoxes: t.textBoxes ?? [],
           }];
         }),
       ),

@@ -43,32 +43,71 @@ export interface EventCmeSettings {
   designApprovedAt?: string;
 }
 
-// ── Certificate template (organizer-controlled visual assets) ─────────────────
+// ── Certificate template (organizer-controlled — PDF overlay model) ─────────
 //
-// Per CEO/MD review of two real-world CME certs (MASH IN FOCUS 2026, EIGHC
-// 2025), the cert visual identity lives in event-specific uploaded assets
-// — banner image, signature(s), society logos — not in a fixed in-code
-// design. The new "template" model lets organizers fully control the
-// look while we own the composition + data merge.
+// Architecture v3 (2026-06-02): organizers upload a finished cert PDF
+// produced by their designer (banner / borders / signatures / footer logos
+// all baked into the PDF). Our job is to position text boxes containing
+// {{tokens}} on top of that PDF, then per-recipient substitute the tokens
+// and overlay the text using pdf-lib. Matches the EventsAir/CertifyMe
+// pattern; user's organizer rejected our compose-from-assets approach
+// because designers want to own the entire visual.
+//
+// Old shape (CertificateSignature + CertificateFooterLogo + body/footer
+// HTML) is kept exported below for one release cycle so any in-flight
+// references compile, but the renderer ignores them. Hard cut-over per
+// the 2026-06-02 plan — no migration of old data, organizers re-upload
+// as a single PDF.
 
-/** One signature block. Multi-signature support (chairman + co-chairmen). */
-export interface CertificateSignature {
-  /** URL to the uploaded hand-signature image (PNG/SVG, transparent bg
-   *  preferred — sits over the white cert body). */
-  image?: string | null;
-  /** Display name shown under the signature line, e.g. "DR. AHMAD AL-RIFAI". */
-  name: string;
-  /** Free-form lines below the name (title, institution, country, etc).
-   *  Each entry renders on its own line in the cert. */
-  lines: string[];
+/** Standard fonts available via pdf-lib's StandardFonts enum. Subset shown
+ *  in the UI; complete enum supported by the renderer. */
+export type CertificateFontName =
+  | "Helvetica" | "Helvetica-Bold" | "Helvetica-Oblique" | "Helvetica-BoldOblique"
+  | "Times-Roman" | "Times-Bold" | "Times-Italic" | "Times-BoldItalic"
+  | "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique";
+
+export type TextBoxAlign = "left" | "center" | "right";
+
+/** One positioned text box on the cert PDF background.
+ *
+ * Coordinates are in pdf-lib points (1pt = 1/72") with (0,0) at the
+ * BOTTOM-LEFT of the page (PDF convention). The canvas editor converts
+ * from browser pixel coords (top-left origin, scaled to viewer width)
+ * to PDF coords at save time. Width controls text wrapping + alignment
+ * anchor; height is informational (the renderer just draws from y down).
+ *
+ * `content` is plain text with `{{tokens}}` — same merge tokens as the
+ * old template body (recipientName / eventName / eventDateRange /
+ * venueLine / accreditationBody / accreditationReference / cmeHours).
+ * Single line per box; multi-line + rich text were explicitly out of
+ * scope per the 2026-06-02 confirmation. */
+export interface CertificateTextBox {
+  /** Stable id (cuid or uuid generated at create time) — used as the
+   *  React key in the editor and to target updates. */
+  id: string;
+  /** Text + tokens — e.g. "Dr. {{recipientName}}" or just "{{cmeHours}}". */
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  font: CertificateFontName;
+  /** Font size in points. */
+  size: number;
+  /** Hex color — 6 digits, e.g. "#1a2e5a". */
+  color: string;
+  align: TextBoxAlign;
 }
 
-/** One footer logo with an optional label above it (e.g., "Hosted by",
- *  "In Collaboration with", "Managed by"). */
+// Legacy v2 shapes — retained for one release so old serialized
+// templates parse without TS errors. Renderer ignores them.
+export interface CertificateSignature {
+  image?: string | null;
+  name: string;
+  lines: string[];
+}
 export interface CertificateFooterLogo {
-  /** Optional small label rendered above the logo in muted text. */
   label?: string;
-  /** URL to the uploaded logo image. */
   image: string;
 }
 
@@ -87,41 +126,51 @@ export type EventCertificateTemplates = {
 };
 
 /**
- * Per-event certificate template. Lives in `Event.settings.certificateTemplate`.
- * All fields are optional so an event without a configured template still
- * renders a default cert (using the static defaults in template.ts).
+ * Per-event-per-type certificate template (v3 PDF-overlay model).
  *
- * `bodyTemplate` is plain text with `{{token}}` merge placeholders. Supported
- * tokens at render time: recipientName, eventName, eventSubtitle,
- * eventDateRange, venueLine, accreditationBody, accreditationReference,
- * cmeHours. Unknown tokens render as empty string (with a warn log) so a
- * typo doesn't surface `{{cmeHourz}}` literally on a printed cert.
+ * Lives at `Event.settings.certificateTemplates[CertificateType]`. Each
+ * of the four cert types (Attendance / Presenter / Poster / CME) has
+ * its own slot — the designer typically produces 4 separate cert PDFs.
+ *
+ * `backgroundPdfUrl` is the uploaded finished-design PDF (single page).
+ * `textBoxes` are positioned overlay text boxes containing static text +
+ * {{tokens}} that get token-substituted per recipient at issue time.
+ *
+ * Legacy fields from v2 (headerImage, titleText, titleColor, bodyTemplate,
+ * signatures, footerLogos, footerText) are kept optional for backward
+ * compatibility during the deserialization phase, but the renderer
+ * ignores them. The settings API reads them as "missing" → caller sees
+ * empty arrays so the new editor surface treats it as unconfigured.
  */
 export interface CertificateTemplate {
-  /** Banner image URL — typically uploaded by organizer; renders across
-   *  the top ~22% of the cert. Aspect ratio responsibility is on the
-   *  organizer (they design it once, the renderer just places it). */
-  headerImage?: string | null;
-  /** Heading text — "Certificate of Attendance" / "Certificate of CME" /
-   *  etc. Rendered in italic script style. */
-  titleText?: string;
-  /** Hex color for the heading — navy by default, but organizers can pick
-   *  per event (refs showed navy + magenta). */
-  titleColor?: string;
-  /** Body text with {{token}} placeholders. Multi-line — each newline
-   *  renders as a paragraph. */
-  bodyTemplate?: string;
-  /** Zero, one, or more signatures (chairman, co-chairmen). When more
-   *  than one, signatures render side-by-side. */
-  signatures?: CertificateSignature[];
-  /** Zero or more society logos at the bottom of the cert. */
-  footerLogos?: CertificateFooterLogo[];
-  /** Optional text rendered below the footer logos. */
-  footerText?: string;
+  /** URL to the uploaded background PDF — single page. Organizer's
+   *  designer produces this externally (Photoshop / Illustrator / Canva
+   *  → PDF export). Whatever's in this PDF becomes the cert's visual
+   *  identity; the platform only paints text boxes on top. */
+  backgroundPdfUrl?: string | null;
+  /** Positioned text overlays — each renders at its (x, y) on the PDF
+   *  with its content tokens substituted per recipient. */
+  textBoxes?: CertificateTextBox[];
   /** SUPER_ADMIN-only design-approval gate (preserved from prior
    *  architecture; unlocks Phase C "Issue" button). */
   designApprovedBy?: string;
   designApprovedAt?: string;
+
+  // ── Legacy v2 fields (ignored by renderer, kept for soft-deserialize) ──
+  /** @deprecated v2 banner image — ignored by v3 renderer. */
+  headerImage?: string | null;
+  /** @deprecated v2 title text — ignored by v3 renderer. */
+  titleText?: string;
+  /** @deprecated v2 title color — ignored by v3 renderer. */
+  titleColor?: string;
+  /** @deprecated v2 body HTML — ignored by v3 renderer. */
+  bodyTemplate?: string;
+  /** @deprecated v2 signatures — ignored by v3 renderer. */
+  signatures?: CertificateSignature[];
+  /** @deprecated v2 footer logos — ignored by v3 renderer. */
+  footerLogos?: CertificateFooterLogo[];
+  /** @deprecated v2 footer text — ignored by v3 renderer. */
+  footerText?: string;
 }
 
 /** Recipient data — flattened from Attendee or Speaker depending on cert type. */

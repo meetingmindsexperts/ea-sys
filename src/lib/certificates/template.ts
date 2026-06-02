@@ -43,103 +43,27 @@ import type {
  * Defaults mirror that structure exactly so the out-of-box cert reads
  * like the references.
  */
-export function defaultTemplateForType(type: CertificateType): CertificateTemplate {
-  switch (type) {
-    case "ATTENDANCE":
-      return {
-        titleText: "Certificate of Attendance",
-        titleColor: "#1a2e5a",
-        bodyTemplate: defaultBodyAttendance(),
-        signatures: [],
-        footerLogos: [],
-      };
-    case "PRESENTER":
-      return {
-        titleText: "Certificate of Appreciation",
-        titleColor: "#1a2e5a",
-        bodyTemplate: defaultBodyPresenter(),
-        signatures: [],
-        footerLogos: [],
-      };
-    case "POSTER":
-      return {
-        titleText: "Certificate of Appreciation",
-        titleColor: "#1a2e5a",
-        bodyTemplate: defaultBodyPoster(),
-        signatures: [],
-        footerLogos: [],
-      };
-    case "CME":
-      return {
-        titleText: "Certificate of CME",
-        titleColor: "#1a2e5a",
-        bodyTemplate: defaultBodyCme(),
-        signatures: [],
-        footerLogos: [],
-      };
-  }
-  // Unreachable for current CertificateType enum; throws on enum drift
-  // so the renderer never returns undefined silently.
-  throw new Error(`Unhandled certificate type: ${String(type)}`);
+/**
+ * v3 default — empty template. Organizers must upload a background PDF
+ * and configure text boxes; we don't compose anything ourselves. The
+ * placeholder PDF returned by renderCertificate() when backgroundPdfUrl
+ * is null is what the operator sees until they configure the slot.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function defaultTemplateForType(_type: CertificateType): CertificateTemplate {
+  // v3 default is empty for every cert type — organizers must upload
+  // their own background PDF. The signature still takes `type` so the
+  // call sites + tests stay stable; a future per-type default (e.g. a
+  // canned CME layout) can read the argument then.
+  return {
+    backgroundPdfUrl: null,
+    textBoxes: [],
+  };
 }
 
-// Default body HTML per type. Bodies are HTML now (Tiptap editor output)
-// to support inline formatting (bold event name, italic subtitles).
-// Tokens like `{{recipientName}}` survive HTML wrapping — the renderer's
-// merge pass runs on the text inside each run, not the HTML structure.
-//
-// Heading levels drive the renderer's size hierarchy:
-//   <h2> = largest emphasis (recipient name)
-//   <h3> = medium emphasis (event name)
-//   <p>  = body text
-// Organizers override these via Tiptap toolbar (B / I / H1 / H2 / H3).
-
-function defaultBodyAttendance(): string {
-  return [
-    "<p>We hereby confirm</p>",
-    "<h2>{{recipientName}}</h2>",
-    "<p>has attended</p>",
-    "<h3><strong>{{eventName}}</strong></h3>",
-    "<p>held on {{eventDateRange}}</p>",
-    "<p>{{venueLine}}</p>",
-  ].join("");
-}
-
-function defaultBodyPresenter(): string {
-  return [
-    "<p>is hereby presented to</p>",
-    "<h2>{{recipientName}}</h2>",
-    "<p>for outstanding contribution as faculty to</p>",
-    "<h3><strong>{{eventName}}</strong></h3>",
-    "<p>held on {{eventDateRange}}</p>",
-    "<p>{{venueLine}}</p>",
-  ].join("");
-}
-
-function defaultBodyPoster(): string {
-  return [
-    "<p>is hereby presented to</p>",
-    "<h2>{{recipientName}}</h2>",
-    "<p>for the poster presentation at</p>",
-    "<h3><strong>{{eventName}}</strong></h3>",
-    "<p>held on {{eventDateRange}}</p>",
-    "<p>{{venueLine}}</p>",
-  ].join("");
-}
-
-function defaultBodyCme(): string {
-  return [
-    "<p>We hereby confirm</p>",
-    "<h2>{{recipientName}}</h2>",
-    "<p>has attended</p>",
-    "<h3><strong>{{eventName}}</strong></h3>",
-    "<p>held on {{eventDateRange}}</p>",
-    "<p>{{venueLine}}</p>",
-    "<p>Accredited by {{accreditationBody}}</p>",
-    "<p>Accreditation #: {{accreditationReference}}</p>",
-    "<p><strong>Total Hour/s Awarded: {{cmeHours}}</strong></p>",
-  ].join("");
-}
+// (v2 default bodies removed in 2026-06-02 hard cut-over to PDF-overlay
+// model — organizers upload their own PDFs now. Token list unchanged
+// below; mergeBody still operates on text-box content strings.)
 
 // ── Token merge ───────────────────────────────────────────────────────────────
 
@@ -257,10 +181,12 @@ function formatHoursForToken(h: number | null | undefined): string {
 }
 
 /**
- * Merge the org-defined template over the cert-type default — every
- * field the organizer set takes precedence; unset fields fall back to
- * the type default. Keeps the renderer free of "did the organizer set
- * this?" branching since `effective.titleText` is always populated.
+ * Merge the org-defined template over the cert-type default. v3 has
+ * only two organizer-controlled fields (backgroundPdfUrl + textBoxes),
+ * so the merge is trivial — only the two v3 paths plus the approval
+ * timestamps. Legacy v2 fields are intentionally ignored here per the
+ * 2026-06-02 hard cut-over (organizers re-upload as PDF, old data is
+ * inert until they reconfigure).
  */
 export function effectiveTemplate(
   type: CertificateType,
@@ -269,13 +195,8 @@ export function effectiveTemplate(
   const def = defaultTemplateForType(type);
   if (!template) return def;
   return {
-    headerImage: template.headerImage ?? def.headerImage ?? null,
-    titleText: template.titleText || def.titleText,
-    titleColor: template.titleColor || def.titleColor,
-    bodyTemplate: template.bodyTemplate || def.bodyTemplate,
-    signatures: template.signatures ?? def.signatures ?? [],
-    footerLogos: template.footerLogos ?? def.footerLogos ?? [],
-    footerText: template.footerText ?? def.footerText,
+    backgroundPdfUrl: template.backgroundPdfUrl ?? def.backgroundPdfUrl ?? null,
+    textBoxes: template.textBoxes ?? def.textBoxes ?? [],
     designApprovedBy: template.designApprovedBy,
     designApprovedAt: template.designApprovedAt,
   };
