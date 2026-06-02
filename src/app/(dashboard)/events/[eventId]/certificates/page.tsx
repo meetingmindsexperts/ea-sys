@@ -224,7 +224,13 @@ export default function CertificatesPage() {
     open: false,
     category: "ATTENDANCE",
   });
-  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+  // Preview-dialog state. Driven from the canvas-editor card now —
+  // the separate Preview tab was removed since operators want the
+  // 'render a draft PDF with synthetic data' right next to the edit
+  // surface (saves a tab switch per iteration). The bust counter
+  // forces a fresh iframe load when the operator clicks Re-render
+  // after tweaking the template.
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [previewBust, setPreviewBust] = useState(0);
   const [issueTemplateId, setIssueTemplateId] = useState<string | null>(null);
   // Tag-driven manual selection (2026-06-02 evening). Required at
@@ -422,7 +428,6 @@ export default function CertificatesPage() {
     onSuccess: (templateId) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
       if (editingTemplateId === templateId) setEditingTemplateId(null);
-      if (previewTemplateId === templateId) setPreviewTemplateId(null);
       if (issueTemplateId === templateId) setIssueTemplateId(null);
       toast.success("Template deleted");
     },
@@ -781,10 +786,6 @@ export default function CertificatesPage() {
             <FileText className="h-4 w-4 mr-1.5" />
             CME / CPD
           </TabsTrigger>
-          <TabsTrigger value="preview">
-            <Eye className="h-4 w-4 mr-1.5" />
-            Preview
-          </TabsTrigger>
           <TabsTrigger value="issue">
             <Send className="h-4 w-4 mr-1.5" />
             Issue
@@ -837,6 +838,21 @@ export default function CertificatesPage() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        // Flush pending canvas patches before previewing
+                        // so the rendered PDF reflects the latest tweaks
+                        // (debounced PATCH may still be pending in the
+                        // queueCanvasPatch ref).
+                        flushPatch(editingTemplate.id);
+                        setPreviewBust((b) => b + 1);
+                        setPreviewDialogOpen(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4 mr-1" />
+                      Preview
+                    </Button>
                     <Button
                       variant="outline"
                       onClick={() => setTmplEmailDialogOpen(true)}
@@ -1170,72 +1186,6 @@ export default function CertificatesPage() {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── PREVIEW TAB ─────────────────────────────────────────── */}
-        <TabsContent value="preview" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Eye className="h-5 w-5" />
-                Preview
-              </CardTitle>
-              <CardDescription>
-                Renders a draft PDF using the event&apos;s real data + a synthetic
-                recipient (&quot;Dr. Sample Attendee&quot;). No certificate is created,
-                no email is sent.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {templates.length === 0 ? (
-                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  Create a template in the <strong>Templates</strong> tab first.
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div className="grid gap-2 min-w-[280px]">
-                      <Label>Template</Label>
-                      <Select
-                        value={previewTemplateId ?? ""}
-                        onValueChange={(v) => setPreviewTemplateId(v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Pick a template" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CERT_CATEGORIES.map((cat) => {
-                            const tpls = templatesByCategory[cat.key];
-                            if (tpls.length === 0) return null;
-                            return tpls.map((t) => (
-                              <SelectItem key={t.id} value={t.id}>
-                                {cat.label} — {t.name}
-                              </SelectItem>
-                            ));
-                          })}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button
-                      onClick={() => setPreviewBust((b) => b + 1)}
-                      disabled={!previewTemplateId}
-                    >
-                      <Eye className="h-4 w-4 mr-1" />
-                      Render preview
-                    </Button>
-                  </div>
-                  {previewTemplateId && previewBust > 0 && (
-                    <iframe
-                      key={previewBust}
-                      src={`/api/events/${eventId}/certificates/preview?templateId=${previewTemplateId}&t=${previewBust}`}
-                      className="w-full h-[800px] rounded border"
-                      title="Certificate preview"
-                    />
-                  )}
-                </>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1824,6 +1774,54 @@ export default function CertificatesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Preview dialog — opens from the canvas editor's Preview button.
+          Renders a draft PDF for the template using the event's real
+          data + a synthetic recipient ("Dr. Sample Attendee"). No DB
+          writes, no email, no serial allocation — the cert serial reads
+          PREVIEW-DRAFT-{TYPE} so an accidental print can never be
+          mistaken for a real cert. previewBust cache-busts the iframe
+          so Re-render after canvas tweaks always shows fresh output. */}
+      {editingTemplate && (
+        <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
+          <DialogContent className="sm:max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Eye className="h-5 w-5" />
+                Preview &mdash; {editingTemplate.name}
+              </DialogTitle>
+              <DialogDescription>
+                Synthetic recipient (&ldquo;Dr. Sample Attendee&rdquo;) with
+                real event data. Serial reads <code className="text-xs">PREVIEW-DRAFT-{editingTemplate.category}</code> so
+                an accidental print can&apos;t be confused with a real cert.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-[600px] overflow-hidden rounded border">
+              {previewBust > 0 && (
+                <iframe
+                  key={previewBust}
+                  src={`/api/events/${eventId}/certificates/preview?templateId=${editingTemplate.id}&t=${previewBust}`}
+                  className="w-full h-full"
+                  title="Certificate preview"
+                />
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  flushPatch(editingTemplate.id);
+                  setPreviewBust((b) => b + 1);
+                }}
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                Re-render
+              </Button>
+              <Button onClick={() => setPreviewDialogOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Per-template email-defaults dialog — opens from the canvas
           editor card's "Cover email" button. PATCHes the template
