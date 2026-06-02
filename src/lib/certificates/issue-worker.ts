@@ -275,20 +275,27 @@ async function renderAndStoreItem(args: {
     throw new Error(`Recipient not found (registrationId=${item.registrationId}, speakerId=${item.speakerId})`);
   }
 
+  // Build cert-type-specific extras. Post enum collapse (2 types, 2026-06-02)
+  // APPRECIATION rolls up the old PRESENTER / POSTER / CME buckets:
+  //   - poster authors carry the abstract title (rendered via a
+  //     dedicated `{{abstractTitle}}` text box if the organizer adds one);
+  //   - everyone else gets an empty extras payload so the template's
+  //     tokens drive the visible variation.
+  let extras: CertificateData["extras"];
+  if (type === "APPRECIATION" && item.speakerId) {
+    const abstractTitle = await loadPosterAbstractTitle(item.speakerId, eventId);
+    extras = { type: "APPRECIATION", abstractTitle };
+  } else {
+    extras = { type: "ATTENDANCE" };
+  }
+
   const certData: CertificateData = {
     type,
     serial: await allocateSerial(eventId, type),
     issuedAt: new Date(),
     recipient: recipientData,
     event,
-    extras:
-      type === "POSTER" && item.speakerId
-        ? { type: "POSTER", abstractTitle: await loadPosterAbstractTitle(item.speakerId, eventId) }
-        : type === "PRESENTER"
-          ? { type: "PRESENTER" }
-          : type === "CME"
-            ? { type: "CME" }
-            : { type: "ATTENDANCE" },
+    extras,
     template,
   };
 
@@ -309,7 +316,11 @@ async function renderAndStoreItem(args: {
         serial: certData.serial,
         issuedByUserId: await getRunTriggerUserId(args.runId),
         recipientSnapshot: recipientData as unknown as Prisma.InputJsonValue,
-        cmeHoursSnapshot: type === "CME" ? event.cmeHours ?? null : null,
+        // Snapshot CME hours on the cert row regardless of type — the
+        // CME-as-its-own-type concept was collapsed on 2026-06-02 and
+        // both ATTENDANCE and APPRECIATION certs may render {{cmeHours}}
+        // when the event is CME-accredited.
+        cmeHoursSnapshot: event.cmeHours ?? null,
       },
       select: { id: true },
     });

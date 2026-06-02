@@ -112,17 +112,17 @@ export interface CertificateFooterLogo {
 }
 
 /**
- * Per-cert-type templates for an event. Each of the four cert types
- * (Attendance / Presenter / Poster / CME) gets its own complete
- * template, persisted under `Event.settings.certificateTemplates`.
- * Defaults seeded per type by `defaultTemplateForType` when an event
- * hasn't configured the slot yet.
+ * Per-cert-type templates for an event. Two slots (Attendance +
+ * Appreciation), each holding a `CertificateTemplate` (uploaded
+ * background PDF + positioned text boxes). Collapsed from 4 to 2 on
+ * 2026-06-02 to match the designer workflow — Appreciation absorbed
+ * the old PRESENTER / POSTER / CME slots. CME metadata stays on the
+ * event row and renders via `{{cmeHours}}` etc. on whichever template
+ * needs it.
  */
 export type EventCertificateTemplates = {
   ATTENDANCE?: CertificateTemplate;
-  PRESENTER?: CertificateTemplate;
-  POSTER?: CertificateTemplate;
-  CME?: CertificateTemplate;
+  APPRECIATION?: CertificateTemplate;
 };
 
 /**
@@ -200,16 +200,17 @@ export interface CertificateEventContext {
 }
 
 /**
- * Cert-type-specific extras. Discriminated by `type` so the renderer can
- * narrow without runtime checks. POSTER carries the abstract title;
- * PRESENTER carries the session/topic the speaker presented; CME pulls
- * hours + accreditations from the event context.
+ * Cert-type-specific extras. Discriminated by `type` so the renderer
+ * can narrow without runtime checks. Post enum collapse (2026-06-02)
+ * APPRECIATION optionally carries the abstract title — set when the
+ * recipient qualifies via the old "poster" path so the template can
+ * render `{{abstractTitle}}` if the organizer adds a text box for it.
+ * CME hours + accreditations live on the event context and render via
+ * `{{cmeHours}}` / `{{accreditationBody}}` tokens on either cert type.
  */
 export type CertificateExtras =
   | { type: "ATTENDANCE" }
-  | { type: "PRESENTER"; sessionTitles?: string[] }
-  | { type: "POSTER"; abstractTitle?: string | null }
-  | { type: "CME" };
+  | { type: "APPRECIATION"; abstractTitle?: string | null; sessionTitles?: string[] };
 
 /**
  * Single argument passed to `renderCertificate`. Everything the layout

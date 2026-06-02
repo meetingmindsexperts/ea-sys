@@ -108,7 +108,7 @@ describe("buildEventContext", () => {
 
 describe("buildPreviewCertificate", () => {
   it("uses the PREVIEW-DRAFT serial naming so an accidental print can never be mistaken for an issued cert", () => {
-    for (const type of ["ATTENDANCE", "PRESENTER", "POSTER", "CME"] as CertificateType[]) {
+    for (const type of ["ATTENDANCE", "APPRECIATION"] as CertificateType[]) {
       const cert = buildPreviewCertificate({ type, event: SAMPLE_EVENT });
       expect(cert.serial).toBe(`PREVIEW-DRAFT-${type}`);
     }
@@ -121,26 +121,26 @@ describe("buildPreviewCertificate", () => {
   });
 
   it("attaches the right extras shape per type (discriminated union)", () => {
-    const presenter = buildPreviewCertificate({ type: "PRESENTER", event: SAMPLE_EVENT });
-    if (presenter.extras.type === "PRESENTER") {
-      expect(presenter.extras.sessionTitles).toBeDefined();
+    // Post-2026-06-02: APPRECIATION absorbed PRESENTER + POSTER + CME.
+    // Preview wires sample sessionTitles + abstractTitle so the renderer
+    // can paint either set of tokens; both are optional at the type level.
+    const appreciation = buildPreviewCertificate({ type: "APPRECIATION", event: SAMPLE_EVENT });
+    if (appreciation.extras.type === "APPRECIATION") {
+      expect(appreciation.extras.sessionTitles).toBeDefined();
+      expect(appreciation.extras.abstractTitle).toBeDefined();
     } else {
-      expect.fail("presenter extras must have type 'PRESENTER'");
+      expect.fail("appreciation extras must have type 'APPRECIATION'");
     }
 
-    const poster = buildPreviewCertificate({ type: "POSTER", event: SAMPLE_EVENT });
-    if (poster.extras.type === "POSTER") {
-      expect(poster.extras.abstractTitle).toBeDefined();
-    } else {
-      expect.fail("poster extras must have type 'POSTER'");
-    }
+    const attendance = buildPreviewCertificate({ type: "ATTENDANCE", event: SAMPLE_EVENT });
+    expect(attendance.extras.type).toBe("ATTENDANCE");
   });
 });
 
 describe("renderCertificate", () => {
-  // 35s timeout — pdfkit's lazy font load takes a moment on cold start. Subsequent
-  // renders in the same process are instant.
-  for (const type of ["ATTENDANCE", "PRESENTER", "POSTER", "CME"] as CertificateType[]) {
+  // 35s timeout — pdf-lib's lazy font embed takes a moment on cold start.
+  // Subsequent renders in the same process are instant.
+  for (const type of ["ATTENDANCE", "APPRECIATION"] as CertificateType[]) {
     it(`renders a valid PDF buffer for ${type}`, async () => {
       const data = buildPreviewCertificate({ type, event: SAMPLE_EVENT });
       const pdf = await renderCertificate(data);
@@ -151,9 +151,12 @@ describe("renderCertificate", () => {
     }, 35_000);
   }
 
-  it("does not crash when the event has zero accreditations on a CME render", async () => {
+  it("does not crash when the event has zero accreditations", async () => {
+    // CME tokens (cmeHours, accreditationBody) live on the event — when
+    // the cert template references them but the event has none configured,
+    // the renderer substitutes empty strings rather than failing.
     const data = buildPreviewCertificate({
-      type: "CME",
+      type: "APPRECIATION",
       event: {
         ...SAMPLE_EVENT,
         settings: { cme: { accreditations: [] } },
@@ -163,9 +166,9 @@ describe("renderCertificate", () => {
     expect(pdf.slice(0, 4).toString("ascii")).toBe("%PDF");
   }, 35_000);
 
-  it("does not crash when cmeHours is null on a CME render — the hours block just doesn't draw", async () => {
+  it("does not crash when cmeHours is null — the {{cmeHours}} token resolves to empty", async () => {
     const data = buildPreviewCertificate({
-      type: "CME",
+      type: "APPRECIATION",
       event: { ...SAMPLE_EVENT, cmeHours: null },
     });
     const pdf = await renderCertificate(data);

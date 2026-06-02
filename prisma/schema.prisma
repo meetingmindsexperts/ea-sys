@@ -262,11 +262,17 @@ model Event {
 
 // ==================== CERTIFICATES ====================
 
+// Collapsed from 4 to 2 values on 2026-06-02. Designers typically hand
+// the organizer two physical cert PDFs — "Certificate of Attendance"
+// and "Certificate of Appreciation" — and the organizer modifies the
+// per-recipient text via {{tokens}} on text boxes overlaid on each.
+// PRESENTER + POSTER + CME were collapsed into APPRECIATION; CME
+// metadata (hours + accrediting bodies) stays on the event itself and
+// is rendered into either cert type via tokens (`{{cmeHours}}`,
+// `{{accreditationBody}}`, `{{accreditationReference}}`).
 enum CertificateType {
   ATTENDANCE
-  PRESENTER
-  POSTER
-  CME
+  APPRECIATION
 }
 
 /// Per-event-per-type atomic serial counter — mirrors RegistrationSerialCounter

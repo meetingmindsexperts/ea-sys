@@ -112,19 +112,26 @@ export function buildPreviewCertificate(args: {
 
 function extrasForPreview(type: CertificateType): CertificateExtras {
   switch (type) {
-    case "PRESENTER":
-      return { type: "PRESENTER", sessionTitles: ["Advances in Skull Base Surgery"] };
-    case "POSTER":
-      return {
-        type: "POSTER",
-        abstractTitle: "Outcomes of Endoscopic Endonasal Approaches in Pediatric Skull Base Tumors",
-      };
-    case "CME":
-      return { type: "CME" };
     case "ATTENDANCE":
       return { type: "ATTENDANCE" };
+    case "APPRECIATION":
+      // Preview uses a sample abstract title + session title so the
+      // organizer sees what `{{abstractTitle}}` / `{{sessionTitles}}`
+      // text boxes will look like on a real recipient. On a live run
+      // these come from the speaker's actual data (or omitted entirely
+      // if they qualified via the SessionSpeaker path with no poster).
+      return {
+        type: "APPRECIATION",
+        sessionTitles: ["Advances in Skull Base Surgery"],
+        abstractTitle:
+          "Outcomes of Endoscopic Endonasal Approaches in Pediatric Skull Base Tumors",
+      };
   }
-  throw new Error(`Unhandled certificate type: ${String(type)}`);
+  // Exhaustiveness backstop — TS can't always prove the switch over a
+  // Prisma-generated enum is total. Throws if someone adds a new
+  // CertificateType value without updating this map.
+  const _exhaustive: never = type;
+  throw new Error(`Unhandled certificate type: ${String(_exhaustive)}`);
 }
 
 /**

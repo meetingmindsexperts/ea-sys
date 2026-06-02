@@ -65,7 +65,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-type CertType = "ATTENDANCE" | "PRESENTER" | "POSTER" | "CME";
+type CertType = "ATTENDANCE" | "APPRECIATION";
 
 const ACCREDITOR_BODIES = ["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"] as const;
 type AccreditorBody = (typeof ACCREDITOR_BODIES)[number];
@@ -94,11 +94,14 @@ interface TemplateState {
   textBoxes: unknown[];
 }
 
+// Collapsed from 4 to 2 cert types on 2026-06-02 — designers hand
+// the organizer two physical PDFs (Attendance + Appreciation) and the
+// organizer modifies per-recipient text via {{tokens}} on overlaid
+// text boxes. APPRECIATION absorbed the old PRESENTER + POSTER + CME
+// slots; CME hours stay on the event row and render via tokens.
 const CERT_TYPES = [
-  { key: "ATTENDANCE", label: "Attendance" },
-  { key: "PRESENTER", label: "Presenter / Faculty" },
-  { key: "POSTER", label: "Poster Presenter" },
-  { key: "CME", label: "CME" },
+  { key: "ATTENDANCE", label: "Certificate of Attendance" },
+  { key: "APPRECIATION", label: "Certificate of Appreciation" },
 ] as const;
 type CertTypeKey = (typeof CERT_TYPES)[number]["key"];
 
@@ -120,9 +123,7 @@ const EMPTY_TEMPLATE: TemplateState = {
 function makeEmptyTemplates(): TemplatesByType {
   return {
     ATTENDANCE: { ...EMPTY_TEMPLATE },
-    PRESENTER: { ...EMPTY_TEMPLATE },
-    POSTER: { ...EMPTY_TEMPLATE },
-    CME: { ...EMPTY_TEMPLATE },
+    APPRECIATION: { ...EMPTY_TEMPLATE },
   };
 }
 
@@ -551,7 +552,7 @@ export default function CertificatesPage() {
             value={activeTemplateType}
             onValueChange={(v) => setActiveTemplateType(v as CertTypeKey)}
           >
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-2">
               {CERT_TYPES.map((t) => (
                 <TabsTrigger key={t.key} value={t.key}>
                   {t.label}
@@ -788,10 +789,8 @@ export default function CertificatesPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ATTENDANCE">Attendance</SelectItem>
-                      <SelectItem value="PRESENTER">Presenter (Faculty)</SelectItem>
-                      <SelectItem value="POSTER">Poster Presenter</SelectItem>
-                      <SelectItem value="CME">CME</SelectItem>
+                      <SelectItem value="ATTENDANCE">Certificate of Attendance</SelectItem>
+                      <SelectItem value="APPRECIATION">Certificate of Appreciation</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -931,7 +930,7 @@ export default function CertificatesPage() {
             value={activeIssueType}
             onValueChange={(v) => setActiveIssueType(v as CertTypeKey)}
           >
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-2">
               {CERT_TYPES.map((t) => (
                 <TabsTrigger key={t.key} value={t.key}>
                   {t.label}

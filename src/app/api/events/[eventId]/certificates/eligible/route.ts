@@ -1,9 +1,9 @@
 /**
- * GET /api/events/[eventId]/certificates/eligible?type=ATTENDANCE|PRESENTER|POSTER|CME
+ * GET /api/events/[eventId]/certificates/eligible?type=ATTENDANCE|APPRECIATION
  *
- * Returns the eligible recipient list + exclusion reasons (the operator
- * UI shows the count + a few sample names + any "missing CME hours"
- * banners). Read-only.
+ * Returns the eligible recipient list + exclusion reasons. Read-only.
+ * Collapsed to 2 types on 2026-06-02 — APPRECIATION is the union of
+ * the old PRESENTER + POSTER buckets.
  */
 
 import { NextResponse } from "next/server";
@@ -14,7 +14,7 @@ import { apiLogger } from "@/lib/logger";
 import { eligibleForType } from "@/lib/certificates/eligibility";
 import type { CertificateType } from "@prisma/client";
 
-const VALID: CertificateType[] = ["ATTENDANCE", "PRESENTER", "POSTER", "CME"];
+const VALID: CertificateType[] = ["ATTENDANCE", "APPRECIATION"];
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;

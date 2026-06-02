@@ -305,7 +305,7 @@ export function registerAllMcpTools(
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
-    { name: "list_certificate_templates", description: "Read all 4 certificate templates (ATTENDANCE / PRESENTER / POSTER / CME) for the event plus event-level CME hours, accreditations, and design-approval state. Templates live in Event.settings.certificateTemplates; per-cert-type banner image URL, title text + color, body HTML (with {{tokens}}), signatures array, footer logos, footer text.", params: {} },
+    { name: "list_certificate_templates", description: "Read both certificate templates (ATTENDANCE / APPRECIATION) for the event plus event-level CME hours, accreditations, and design-approval state. Each template is the v3 PDF-overlay shape — backgroundPdfUrl (uploaded finished cert PDF from the designer) + textBoxes[] (positioned overlays with {{tokens}}). Collapsed from 4 to 2 cert types on 2026-06-02 — APPRECIATION absorbed the old PRESENTER / POSTER / CME slots; CME hours render via tokens on either type.", params: {} },
     // ─── Accommodation reads ───
     { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
       hotelId: z.string().optional(),
@@ -542,24 +542,27 @@ export function registerAllMcpTools(
       scheduledEmailId: z.string(),
     }},
     // ─── Certificate template writes ───
-    { name: "update_certificate_template", description: "Patch ONE cert type's template (Attendance / Presenter / Poster / CME). Partial — only the fields you include get updated; existing fields are preserved. Asset URLs (headerImage, signatures[].image, footerLogos[].image) must be `/uploads/...` paths — upload via the media library first to get a usable URL. Each cert type has its own complete template so the four can differ entirely (different banners, different signatories, different footer copy). Body is HTML (Tiptap output) with {{recipientName}} / {{eventName}} / {{eventDateRange}} / {{venueLine}} / {{accreditationBody}} / {{accreditationReference}} / {{cmeHours}} tokens.", params: {
-      type: z.enum(["ATTENDANCE", "PRESENTER", "POSTER", "CME"]),
-      headerImage: z.string().nullable().optional(),
-      titleText: z.string().max(120).optional(),
-      titleColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-      bodyTemplate: z.string().max(4000).optional(),
-      signatures: z.array(z.object({
-        image: z.string().nullable().optional(),
-        name: z.string().min(1).max(120),
-        lines: z.array(z.string().max(200)).max(6).optional(),
-      })).max(4).optional(),
-      footerLogos: z.array(z.object({
-        image: z.string().min(1).max(500),
-        label: z.string().max(60).optional(),
-      })).max(6).optional(),
-      footerText: z.string().max(800).optional(),
+    { name: "update_certificate_template", description: "Patch ONE cert type's template (ATTENDANCE or APPRECIATION). v3 PDF-overlay shape — set the backgroundPdfUrl (uploaded finished cert PDF from the designer; upload via POST /api/upload/pdf first to get a /uploads/... path) and/or the textBoxes array (positioned overlays with {{tokens}} that resolve per recipient at issue time). Partial — only the fields you include get updated; existing fields are preserved. The two cert types are independent; you can use the same PDF or two different PDFs.", params: {
+      type: z.enum(["ATTENDANCE", "APPRECIATION"]),
+      backgroundPdfUrl: z.string().nullable().optional(),
+      textBoxes: z.array(z.object({
+        id: z.string().min(1).max(64),
+        content: z.string().max(500),
+        x: z.number().min(0).max(2000),
+        y: z.number().min(0).max(2000),
+        width: z.number().min(1).max(2000),
+        height: z.number().min(1).max(2000),
+        font: z.enum([
+          "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+          "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+          "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+        ]),
+        size: z.number().min(4).max(120),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+        align: z.enum(["left", "center", "right"]),
+      })).max(40).optional(),
     }},
-    { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. These are shared across all 4 cert types (the {{cmeHours}}, {{accreditationBody}}, {{accreditationReference}} body tokens read from here). Independent of template editing. Provide at least one of cmeHours or accreditations.", params: {
+    { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. Event-level data consumed via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens on either cert type's text boxes (not a separate cert type any more — collapsed 2026-06-02). Provide at least one of cmeHours or accreditations.", params: {
       cmeHours: z.number().min(0).max(999.9).nullable().optional(),
       accreditations: z.array(z.object({
         body: z.enum(["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"]),

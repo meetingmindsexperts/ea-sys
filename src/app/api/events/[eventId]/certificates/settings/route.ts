@@ -30,7 +30,7 @@ import { readEventCmeSettings } from "@/lib/certificates/sample-data";
 import type { EventCmeSettings, CertificateTemplate, EventCertificateTemplates } from "@/lib/certificates/types";
 import type { CertificateType } from "@prisma/client";
 
-const CERT_TYPES: CertificateType[] = ["ATTENDANCE", "PRESENTER", "POSTER", "CME"];
+const CERT_TYPES: CertificateType[] = ["ATTENDANCE", "APPRECIATION"];
 
 /**
  * Pull the per-cert-type templates map from `Event.settings.certificateTemplates`.
@@ -46,11 +46,15 @@ function readCertTemplates(settings: unknown): EventCertificateTemplates {
   if (t && typeof t === "object" && !Array.isArray(t)) {
     return t as EventCertificateTemplates;
   }
-  // Backward compat: migrate from old single-template shape.
+  // Backward compat: migrate from old single-template shape. After the
+  // 2026-06-02 type collapse there are only two slots; seed both from
+  // the legacy single template so an organizer's pre-Phase-3 work
+  // survives the v3 PDF-overlay flip (the visual is gone but the
+  // existence of a slot is preserved so they know to re-upload).
   const legacy = obj.certificateTemplate;
   if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
     const seed = legacy as CertificateTemplate;
-    return { ATTENDANCE: seed, PRESENTER: seed, POSTER: seed, CME: seed };
+    return { ATTENDANCE: seed, APPRECIATION: seed };
   }
   return {};
 }
@@ -107,9 +111,7 @@ const templateSchema = z.object({
 const templatesByTypeSchema = z
   .object({
     ATTENDANCE: templateSchema.optional(),
-    PRESENTER: templateSchema.optional(),
-    POSTER: templateSchema.optional(),
-    CME: templateSchema.optional(),
+    APPRECIATION: templateSchema.optional(),
   })
   .strict()
   .optional();

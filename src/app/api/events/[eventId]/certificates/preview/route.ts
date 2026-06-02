@@ -1,5 +1,5 @@
 /**
- * GET /api/events/[eventId]/certificates/preview?type=ATTENDANCE|PRESENTER|POSTER|CME
+ * GET /api/events/[eventId]/certificates/preview?type=ATTENDANCE|APPRECIATION
  *
  * Returns a draft PDF of the requested certificate type for the event,
  * using the event's REAL data (name, dates, venue, organization, CME
@@ -34,7 +34,7 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-const VALID_TYPES: CertificateType[] = ["ATTENDANCE", "PRESENTER", "POSTER", "CME"];
+const VALID_TYPES: CertificateType[] = ["ATTENDANCE", "APPRECIATION"];
 
 export async function GET(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
