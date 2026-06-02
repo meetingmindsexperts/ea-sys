@@ -1,19 +1,30 @@
 /**
  * POST /api/events/[eventId]/certificates/issue
- *   body: { type: CertificateType }
+ *   body: { templateId: string, recipientIds?: { registrationIds?: string[];
+ *                                                speakerIds?: string[] } }
  *   → 201 { runId, totalCount, status }
  *
- * Creates a new CertificateIssueRun for the given cert type.
+ * Creates a new CertificateIssueRun bound to a specific template (v3
+ * multi-template model, 2026-06-02). Eligibility derives from the
+ * template's category — Attendance hits checked-in registrations,
+ * Appreciation hits speakers + poster authors. Optional `recipientIds`
+ * narrows to a subset within the eligible pool (operator-chosen).
  *
  * Guards:
- *   - Design-approval flag must be set on the event (cert design has
- *     been signed off by SUPER_ADMIN). Otherwise 403.
- *   - For CME: cmeHours + at least one accreditation must be set.
- *   - Only one non-terminal run per (event, type) — concurrent click
+ *   - Template must belong to the (org-bound) event.
+ *   - For Appreciation referencing CME hours via template tokens — no
+ *     gate; missing CME data renders as empty string per template.ts.
+ *   - Only one non-terminal run per (event, category) — concurrent click
  *     returns 409 with the existing runId so the UI can navigate to it.
+ *     Note: scoped to category, not template, because one cert per
+ *     recipient per category is the eligibility invariant.
+ *
+ * Design-approval gate REMOVED on 2026-06-02. The PDF-overlay model
+ * makes the design tangible (operator sees the canvas + Preview button)
+ * so the dedicated SUPER_ADMIN sign-off step is no longer warranted.
  *
  * Side effects:
- *   - INSERT CertificateIssueRun (status=PENDING)
+ *   - INSERT CertificateIssueRun (status=PENDING, certificateTemplateId set)
  *   - INSERT CertificateIssueRunItem for each eligible recipient
  *   - Audit log row (source: "dashboard"/"mcp" depending on caller)
  *
@@ -22,21 +33,25 @@
  */
 
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { eligibleForType } from "@/lib/certificates/eligibility";
-import type { CertificateType } from "@prisma/client";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
 const bodySchema = z.object({
-  type: z.enum(["ATTENDANCE", "PRESENTER", "POSTER", "CME"]),
+  templateId: z.string().min(1),
+  recipientIds: z
+    .object({
+      registrationIds: z.array(z.string()).max(10000).optional(),
+      speakerIds: z.array(z.string()).max(10000).optional(),
+    })
+    .optional(),
 });
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -54,6 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
     if (!session.user.organizationId) {
+      apiLogger.warn({ msg: "cert-issue:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -69,61 +85,56 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const type = parsed.data.type as CertificateType;
+    const { templateId, recipientIds } = parsed.data;
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
-      select: { id: true, settings: true },
-    });
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
-    // Design-approval gate — same flag the dashboard's Design approval
-    // card writes. Without sign-off, the Issue button must not work.
-    const cmeSettings = readCmeSettings(event.settings);
-    if (!cmeSettings.designApprovedBy) {
-      return NextResponse.json(
-        {
-          error: "Certificate design hasn't been approved yet. A SUPER_ADMIN must approve the design before issuing.",
-          code: "DESIGN_NOT_APPROVED",
-        },
-        { status: 403 },
-      );
-    }
-
-    // Concurrent-run guard — only one non-terminal run per (event, type).
-    // Returns 409 with the existing runId so the UI can show it.
-    const existing = await db.certificateIssueRun.findFirst({
+    // Combined lookup — template must belong to an event in the user's org.
+    const template = await db.certificateTemplate.findFirst({
       where: {
-        eventId,
-        type,
-        status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
+        id: templateId,
+        event: { organizationId: session.user.organizationId },
       },
-      select: { id: true, status: true },
+      select: { id: true, eventId: true, category: true, name: true, backgroundPdfUrl: true },
     });
-    if (existing) {
-      return NextResponse.json(
-        {
-          error: `A ${type} issue run is already in progress (status: ${existing.status}). Wait for it to complete or cancel it first.`,
-          code: "RUN_IN_PROGRESS",
-          runId: existing.id,
-        },
-        { status: 409 },
-      );
+    if (!template || template.eventId !== eventId) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    // Eligibility query — returns full recipient list + any blocking
-    // exclusions (e.g. "CME hours not set"). If exclusions block the
-    // whole list (eligible.length === 0 due to event-level blockers),
-    // we surface that as a 422 instead of inserting a zero-item run.
-    const elig = await eligibleForType(type, eventId);
-    if (elig.eligible.length === 0) {
+    // Eligibility query — pulls everyone in the category who hasn't
+    // received this category's cert yet. The recipientIds filter (if
+    // supplied) narrows to a subset.
+    const elig = await eligibleForType(template.category, eventId);
+    let eligible = elig.eligible;
+    if (recipientIds) {
+      const regSet = new Set(recipientIds.registrationIds ?? []);
+      const spkSet = new Set(recipientIds.speakerIds ?? []);
+      const hasFilter = regSet.size > 0 || spkSet.size > 0;
+      if (hasFilter) {
+        eligible = eligible.filter((r) =>
+          r.kind === "registration"
+            ? r.registrationId !== null && regSet.has(r.registrationId)
+            : r.speakerId !== null && spkSet.has(r.speakerId),
+        );
+      }
+    }
+
+    if (eligible.length === 0) {
+      apiLogger.warn({
+        msg: "cert-issue:no-eligible-recipients",
+        eventId,
+        userId: session.user.id,
+        templateId: template.id,
+        category: template.category,
+        exclusionsCount: elig.exclusions.length,
+        narrowedByRecipientIds: !!recipientIds,
+      });
       return NextResponse.json(
         {
-          error: elig.exclusions.length > 0
-            ? `No eligible recipients. Reasons: ${elig.exclusions.map((e) => e.reason).join("; ")}`
-            : "No eligible recipients for this cert type.",
+          error:
+            elig.exclusions.length > 0
+              ? `No eligible recipients. Reasons: ${elig.exclusions.map((e) => e.reason).join("; ")}`
+              : recipientIds
+                ? "None of the selected recipients are eligible (already issued, or not in the eligible pool for this category)."
+                : "No eligible recipients for this cert category.",
           code: "NO_ELIGIBLE_RECIPIENTS",
           exclusions: elig.exclusions,
         },
@@ -131,23 +142,37 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Create the run + items in one transaction. Items carry the
-    // snapshot of recipient name + email so the UI list is stable even
-    // if the underlying Registration/Speaker is later modified.
-    const eventIdLocked = eventId;  // narrow undefined-able for the transaction closure
-    const run = await db.$transaction(async (tx) => {
+    // Concurrent-run guard + create — INSIDE a single transaction so two
+    // fast-clicks across two tabs (or via MCP race) can't both pass the
+    // findFirst before either inserts. Returns null on race so the
+    // caller can branch on it cleanly.
+    const eventIdLocked = eventId;
+    const userIdLocked = session.user.id;
+    const txResult = await db.$transaction(async (tx) => {
+      const existing = await tx.certificateIssueRun.findFirst({
+        where: {
+          eventId: eventIdLocked,
+          type: template.category,
+          status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
+        },
+        select: { id: true, status: true, certificateTemplate: { select: { name: true } } },
+      });
+      if (existing) {
+        return { kind: "exists" as const, existing };
+      }
       const created = await tx.certificateIssueRun.create({
         data: {
           eventId: eventIdLocked,
-          type,
+          type: template.category,
+          certificateTemplateId: template.id,
           status: "PENDING",
-          totalCount: elig.eligible.length,
-          triggeredByUserId: session.user.id,
+          totalCount: eligible.length,
+          triggeredByUserId: userIdLocked,
         },
         select: { id: true },
       });
       await tx.certificateIssueRunItem.createMany({
-        data: elig.eligible.map((r) => ({
+        data: eligible.map((r) => ({
           runId: created.id,
           registrationId: r.registrationId,
           speakerId: r.speakerId,
@@ -155,8 +180,30 @@ export async function POST(req: Request, { params }: RouteParams) {
           recipientEmail: r.recipientEmail,
         })),
       });
-      return created;
+      return { kind: "created" as const, created };
     });
+
+    if (txResult.kind === "exists") {
+      const templateLabel = txResult.existing.certificateTemplate?.name ?? template.category;
+      apiLogger.warn({
+        msg: "cert-issue:run-already-in-progress",
+        eventId,
+        userId: session.user.id,
+        templateId: template.id,
+        existingRunId: txResult.existing.id,
+        existingStatus: txResult.existing.status,
+      });
+      return NextResponse.json(
+        {
+          error: `A ${template.category} issue run is already in progress for "${templateLabel}" (status: ${txResult.existing.status}). Wait for it to complete or cancel it first.`,
+          code: "RUN_IN_PROGRESS",
+          runId: txResult.existing.id,
+        },
+        { status: 409 },
+      );
+    }
+
+    const run = txResult.created;
 
     db.auditLog
       .create({
@@ -167,8 +214,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           entityType: "CertificateIssueRun",
           entityId: run.id,
           changes: {
-            type,
-            totalCount: elig.eligible.length,
+            type: template.category,
+            templateId: template.id,
+            templateName: template.name,
+            totalCount: eligible.length,
+            narrowedByRecipientIds: !!recipientIds,
             source: "dashboard",
           },
         },
@@ -179,16 +229,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       msg: "cert-issue:run-created",
       eventId,
       runId: run.id,
-      type,
-      totalCount: elig.eligible.length,
+      templateId: template.id,
+      templateName: template.name,
+      category: template.category,
+      totalCount: eligible.length,
       userId: session.user.id,
     });
 
     return NextResponse.json(
       {
         runId: run.id,
-        totalCount: elig.eligible.length,
+        totalCount: eligible.length,
         status: "PENDING",
+        templateId: template.id,
         nextStep: "Cron worker picks up PENDING runs within 60 seconds. Poll GET /runs/{runId} for status.",
       },
       { status: 201 },
@@ -197,12 +250,4 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.error({ err: error, msg: "cert-issue:failed", eventId });
     return NextResponse.json({ error: "Failed to start certificate issue run" }, { status: 500 });
   }
-}
-
-function readCmeSettings(raw: Prisma.JsonValue): { designApprovedBy?: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const obj = raw as Record<string, Prisma.JsonValue>;
-  const cme = obj.cme;
-  if (!cme || typeof cme !== "object" || Array.isArray(cme)) return {};
-  return cme as { designApprovedBy?: string };
 }

@@ -8,6 +8,16 @@ const CONTENT_TYPES: Record<string, string> = {
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
+  // PDFs land here after the 2026-06-02 cert-background upload landed.
+  // Without the entry, direct GET of /uploads/certificates/.../*.pdf
+  // returns application/octet-stream and the browser downloads instead
+  // of inline-viewing. pdfjs-dist (canvas editor) doesn't care about
+  // MIME, and the issue worker reads from disk via fs/promises — but
+  // anyone sharing or visiting the URL directly expects an inline view.
+  pdf: "application/pdf",
+  // Pre-existing /uploads/agreements/{eventId}/*.docx (mail-merge templates)
+  // — also was falling through to octet-stream until now.
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
 interface RouteParams {

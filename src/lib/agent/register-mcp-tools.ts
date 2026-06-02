@@ -305,7 +305,7 @@ export function registerAllMcpTools(
     { name: "get_speaker_agreement_template", description: "Get the uploaded .docx template metadata for speaker agreement mail-merge.", params: {} },
     { name: "list_promo_codes", description: "List all promo codes for the event with usage counts, validity, and linked ticket types.", params: {} },
     { name: "list_scheduled_emails", description: "List scheduled bulk emails (PENDING/PROCESSING/SENT/FAILED/CANCELLED) with schedule time, recipient type, and send stats.", params: {} },
-    { name: "list_certificate_templates", description: "Read both certificate templates (ATTENDANCE / APPRECIATION) for the event plus event-level CME hours, accreditations, and design-approval state. Each template is the v3 PDF-overlay shape — backgroundPdfUrl (uploaded finished cert PDF from the designer) + textBoxes[] (positioned overlays with {{tokens}}). Collapsed from 4 to 2 cert types on 2026-06-02 — APPRECIATION absorbed the old PRESENTER / POSTER / CME slots; CME hours render via tokens on either type.", params: {} },
+    { name: "list_certificate_templates", description: "List all CertificateTemplate rows for the event (both ATTENDANCE and APPRECIATION categories) plus event-level CME hours and accreditations. v3 multi-template model (2026-06-02) — N templates per category, each with its own backgroundPdfUrl + textBoxes[] with {{tokens}}. Use the returned template ids with update_certificate_template / delete_certificate_template.", params: {} },
     // ─── Accommodation reads ───
     { name: "list_room_types", description: "List active room types for this event (or filter by hotelId). Returns capacity, price per night, and availability (totalRooms - bookedRooms).", params: {
       hotelId: z.string().optional(),
@@ -542,16 +542,17 @@ export function registerAllMcpTools(
       scheduledEmailId: z.string(),
     }},
     // ─── Certificate template writes ───
-    { name: "update_certificate_template", description: "Patch ONE cert type's template (ATTENDANCE or APPRECIATION). v3 PDF-overlay shape — set the backgroundPdfUrl (uploaded finished cert PDF from the designer; upload via POST /api/upload/pdf first to get a /uploads/... path) and/or the textBoxes array (positioned overlays with {{tokens}} that resolve per recipient at issue time). Partial — only the fields you include get updated; existing fields are preserved. The two cert types are independent; you can use the same PDF or two different PDFs.", params: {
-      type: z.enum(["ATTENDANCE", "APPRECIATION"]),
+    { name: "create_certificate_template", description: "Create a new CertificateTemplate row. v3 multi-template model — an event can have N templates per category (e.g. 'Standard Attendance', 'VIP Attendance', 'Chairman Appreciation'). backgroundPdfUrl + textBoxes are optional at create; typically uploaded + dragged via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first to get a usable /uploads/... URL.", params: {
+      name: z.string().min(1).max(120),
+      category: z.enum(["ATTENDANCE", "APPRECIATION"]),
       backgroundPdfUrl: z.string().nullable().optional(),
       textBoxes: z.array(z.object({
         id: z.string().min(1).max(64),
         content: z.string().max(500),
-        x: z.number().min(0).max(2000),
-        y: z.number().min(0).max(2000),
-        width: z.number().min(1).max(2000),
-        height: z.number().min(1).max(2000),
+        x: z.number().min(0).max(20000),
+        y: z.number().min(0).max(20000),
+        width: z.number().min(1).max(20000),
+        height: z.number().min(1).max(20000),
         font: z.enum([
           "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
           "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
@@ -561,6 +562,31 @@ export function registerAllMcpTools(
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         align: z.enum(["left", "center", "right"]),
       })).max(40).optional(),
+    }},
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, or sortOrder. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+      templateId: z.string().min(1),
+      name: z.string().min(1).max(120).optional(),
+      backgroundPdfUrl: z.string().nullable().optional(),
+      textBoxes: z.array(z.object({
+        id: z.string().min(1).max(64),
+        content: z.string().max(500),
+        x: z.number().min(0).max(20000),
+        y: z.number().min(0).max(20000),
+        width: z.number().min(1).max(20000),
+        height: z.number().min(1).max(20000),
+        font: z.enum([
+          "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+          "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+          "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+        ]),
+        size: z.number().min(4).max(120),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+        align: z.enum(["left", "center", "right"]),
+      })).max(40).optional(),
+      sortOrder: z.number().int().min(0).max(9999).optional(),
+    }},
+    { name: "delete_certificate_template", description: "Delete a CertificateTemplate by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references it — audit trail must stay intact. Rename the template instead to mark as retired.", params: {
+      templateId: z.string().min(1),
     }},
     { name: "update_cme_settings", description: "Patch event-level CME hours + accrediting bodies. Event-level data consumed via {{cmeHours}} / {{accreditationBody}} / {{accreditationReference}} tokens on either cert type's text boxes (not a separate cert type any more — collapsed 2026-06-02). Provide at least one of cmeHours or accreditations.", params: {
       cmeHours: z.number().min(0).max(999.9).nullable().optional(),

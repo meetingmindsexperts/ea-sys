@@ -1,23 +1,20 @@
 /**
- * GET /api/events/[eventId]/certificates/preview?type=ATTENDANCE|APPRECIATION
+ * GET /api/events/[eventId]/certificates/preview?templateId={id}
  *
- * Returns a draft PDF of the requested certificate type for the event,
- * using the event's REAL data (name, dates, venue, organization, CME
- * hours, accreditations) and a synthetic recipient ("Dr. Sample
+ * Returns a draft PDF of the requested certificate template for the
+ * event, using the event's REAL data (name, dates, venue, organization,
+ * CME hours, accreditations) and a synthetic recipient ("Dr. Sample
  * Attendee"). No DB writes, no email, no audit log, no serial allocation.
  * The cert's serial reads "PREVIEW-DRAFT-{TYPE}" so it can never be
  * mistaken for an issued cert if printed/shared.
  *
- * Purpose: Phase A of the certificates v1 build — gives the CEO/MD
- * something concrete to react to before we wire up the issuing pipeline.
+ * v3 multi-template (2026-06-02): templateId binds the preview to a
+ * specific template row. Category is derived from the template.
  *
  * Auth: ADMIN / ORGANIZER / SUPER_ADMIN. denyReviewer also blocks
- * REVIEWER / SUBMITTER / REGISTRANT / MEMBER — MEMBER never sees this
- * route because it's not a finance surface but it IS a write-grade
- * operator action UI-wise.
+ * REVIEWER / SUBMITTER / REGISTRANT / MEMBER.
  *
- * Rate limit: 30/hr per user — same envelope as the speaker-agreement
- * template preview path, generous enough for design iteration.
+ * Rate limit: 30/hr per user — design iteration is the use case.
  */
 
 import { NextResponse } from "next/server";
@@ -28,13 +25,11 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "@/lib/certificates/render";
 import { buildPreviewCertificate } from "@/lib/certificates/sample-data";
-import type { CertificateType } from "@/lib/certificates/types";
+import type { CertificateTemplate } from "@/lib/certificates/types";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
-
-const VALID_TYPES: CertificateType[] = ["ATTENDANCE", "APPRECIATION"];
 
 export async function GET(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
@@ -53,26 +48,20 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const url = new URL(req.url);
-    const typeRaw = url.searchParams.get("type");
-    if (!typeRaw || !VALID_TYPES.includes(typeRaw as CertificateType)) {
+    const templateId = url.searchParams.get("templateId");
+    if (!templateId) {
       apiLogger.warn({
-        msg: "cert-preview:invalid-type",
+        msg: "cert-preview:missing-template-id",
         eventId,
         userId: session.user.id,
-        typeRaw,
       });
       return NextResponse.json(
-        {
-          error: `Invalid type. Must be one of: ${VALID_TYPES.join(", ")}`,
-          code: "INVALID_TYPE",
-        },
+        { error: "templateId query parameter is required", code: "MISSING_TEMPLATE_ID" },
         { status: 400 },
       );
     }
-    const type = typeRaw as CertificateType;
 
-    // Per-user rate limit — 30/hr matches speaker-agreement-template upload
-    // which is the closest analogous "operator design iteration" surface.
+    // Per-user rate limit — 30/hr matches speaker-agreement-template upload.
     const rl = checkRateLimit({
       key: `cert-preview:${session.user.id}`,
       limit: 30,
@@ -100,61 +89,58 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+    // Combined org-bound lookup — template must live in an event in the
+    // user's org, AND the URL eventId must match (defense against id
+    // mismatch). 404 on either fail to avoid existence enumeration.
+    const template = await db.certificateTemplate.findFirst({
+      where: {
+        id: templateId,
+        event: { organizationId: session.user.organizationId },
+      },
       select: {
         id: true,
+        eventId: true,
+        category: true,
         name: true,
-        startDate: true,
-        endDate: true,
-        venue: true,
-        city: true,
-        country: true,
-        cmeHours: true,
-        settings: true,
-        organization: { select: { name: true, logo: true } },
+        backgroundPdfUrl: true,
+        textBoxes: true,
+        event: {
+          select: {
+            id: true,
+            name: true,
+            startDate: true,
+            endDate: true,
+            venue: true,
+            city: true,
+            country: true,
+            cmeHours: true,
+            settings: true,
+            organization: { select: { name: true, logo: true } },
+          },
+        },
       },
     });
-    if (!event) {
+    if (!template || template.eventId !== eventId) {
       apiLogger.warn({
-        msg: "cert-preview:event-not-found",
+        msg: "cert-preview:template-not-found",
         eventId,
         userId: session.user.id,
+        templateId,
       });
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    // Pull the per-type organizer template out of Event.settings.
-    // Storage shape: `Event.settings.certificateTemplates[type]`.
-    // Backward compat: if the legacy singular `certificateTemplate`
-    // exists, use it as a fallback for any type that doesn't have its
-    // own configured slot yet.
-    const settings =
-      event.settings && typeof event.settings === "object" && !Array.isArray(event.settings)
-        ? (event.settings as Record<string, unknown>)
-        : {};
-    const templatesMap =
-      settings.certificateTemplates &&
-      typeof settings.certificateTemplates === "object" &&
-      !Array.isArray(settings.certificateTemplates)
-        ? (settings.certificateTemplates as Record<string, unknown>)
-        : {};
-    const legacy =
-      settings.certificateTemplate &&
-      typeof settings.certificateTemplate === "object" &&
-      !Array.isArray(settings.certificateTemplate)
-        ? (settings.certificateTemplate as Record<string, unknown>)
-        : {};
-    const slot = templatesMap[type];
-    const template =
-      slot && typeof slot === "object" && !Array.isArray(slot)
-        ? (slot as Record<string, unknown>)
-        : legacy;
+    const previewTemplate: CertificateTemplate = {
+      backgroundPdfUrl: template.backgroundPdfUrl,
+      // Prisma's JsonValue can't structurally narrow to CertificateTextBox[]
+      // — the column was Zod-validated at write time, so we cast via unknown.
+      textBoxes: template.textBoxes as unknown as CertificateTemplate["textBoxes"],
+    };
 
     const data = buildPreviewCertificate({
-      type,
-      event,
-      template: template as Parameters<typeof buildPreviewCertificate>[0]["template"],
+      type: template.category,
+      event: template.event,
+      template: previewTemplate,
     });
     const pdf = await renderCertificate(data);
 
@@ -162,7 +148,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       msg: "cert-preview:rendered",
       eventId,
       userId: session.user.id,
-      type,
+      templateId: template.id,
+      templateName: template.name,
+      category: template.category,
       bytes: pdf.byteLength,
       ip: getClientIp(req),
     });
@@ -171,17 +159,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        // Inline so the dashboard's <iframe> renders it directly. Cache
-        // bust on every request — design iteration means stale caches
-        // would actively mislead the CEO/MD.
-        "Content-Disposition": `inline; filename="preview-${type.toLowerCase()}.pdf"`,
+        "Content-Disposition": `inline; filename="preview-${template.category.toLowerCase()}-${template.id}.pdf"`,
         "Cache-Control": "private, max-age=0, no-store",
-        // Override the global X-Frame-Options for THIS response so the
-        // dashboard iframe can render it. Same-origin framing only —
-        // matches the global default after the 2026-06-01 hardening.
-        // Belt-and-suspenders explicit because the cost of getting this
-        // wrong is "preview doesn't render, no server-side log
-        // explains why" — exactly the failure mode we just fixed.
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": "frame-ancestors 'self'",
       },

@@ -31,7 +31,13 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { denyReviewer } from "@/lib/auth-guards";
 import { uploadCertificatePdf } from "@/lib/storage";
+import { db } from "@/lib/db";
 import { PDFDocument } from "pdf-lib";
+
+// cuid shape — Prisma's default id generator. Restrict eventId to this
+// pattern BEFORE touching the filesystem so "../../media" style traversal
+// attempts can't get past the front gate.
+const CUID_RE = /^[a-z0-9]{20,40}$/i;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (raised from 5MB to cover full-res PNG designs)
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
@@ -121,16 +127,63 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof Blob)) {
+      apiLogger.warn({
+        msg: "cert-upload:missing-file",
+        userId: session.user.id,
+      });
       return NextResponse.json({ error: "Missing 'file' field" }, { status: 400 });
     }
     if (file.size > MAX_FILE_SIZE) {
+      apiLogger.warn({
+        msg: "cert-upload:file-too-large",
+        userId: session.user.id,
+        size: file.size,
+        max: MAX_FILE_SIZE,
+      });
       return NextResponse.json(
         { error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` },
         { status: 400 },
       );
     }
-    // Optional eventId for storage path scoping — uses "shared" if absent.
-    const eventId = (form.get("eventId") as string) || "shared";
+
+    // eventId is REQUIRED — drives the storage subdir + org-membership
+    // check. Reject anything outside the cuid shape BEFORE touching the
+    // filesystem (defense-in-depth against `eventId=../../media` style
+    // traversal even though the cuid regex would already reject it).
+    // Then verify the event belongs to the caller's org — otherwise an
+    // authenticated ORGANIZER in org A could dump PDFs into org B's
+    // certificate directory tree.
+    const eventIdRaw = form.get("eventId");
+    const eventId = typeof eventIdRaw === "string" ? eventIdRaw : "";
+    if (!eventId || !CUID_RE.test(eventId)) {
+      apiLogger.warn({
+        msg: "cert-upload:invalid-eventid",
+        userId: session.user.id,
+        eventIdRaw: typeof eventIdRaw === "string" ? eventIdRaw.slice(0, 40) : null,
+      });
+      return NextResponse.json(
+        { error: "eventId is required and must be a valid event id", code: "INVALID_EVENT_ID" },
+        { status: 400 },
+      );
+    }
+    if (!session.user.organizationId) {
+      apiLogger.warn({ msg: "cert-upload:no-org", userId: session.user.id });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId },
+      select: { id: true },
+    });
+    if (!event) {
+      apiLogger.warn({
+        msg: "cert-upload:event-not-found-or-cross-tenant",
+        userId: session.user.id,
+        organizationId: session.user.organizationId,
+        eventId,
+      });
+      // 404 not 403 — avoid leaking event existence across orgs.
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const inputBuffer = Buffer.from(await file.arrayBuffer());
     const format = detectFormat(inputBuffer);

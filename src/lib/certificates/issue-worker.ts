@@ -42,6 +42,19 @@ import { uploadCertificatePdf } from "@/lib/storage";
 import { sendEmail } from "@/lib/email";
 import type { CertificateData, CertificateTemplate, AccreditationEntry } from "./types";
 
+/** Escape user-controlled strings before HTML-interpolating into email
+ *  bodies. Mirrors src/lib/email.ts's private helper — duplicated here
+ *  because email.ts doesn't export it and the cert-delivery email is
+ *  the only consumer in this module. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // Tunables — the math: at 50 renders/tick × 50ms each = 2.5s per tick
 // for the render phase (well under any HTTP timeout). For email at the
 // SES 14/sec hard cap, 25/tick = ~1.8s wall-clock.
@@ -135,6 +148,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
     where: { id: runId },
     select: {
       id: true, eventId: true, type: true, status: true,
+      certificateTemplateId: true,
       totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
       rendererStartedAt: true, errors: true,
     },
@@ -162,7 +176,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
   }
 
   if (run.status === "RENDERING" || run.status === "PENDING") {
-    return processRenderPhase(runId, run.eventId, run.type);
+    return processRenderPhase(runId, run.eventId, run.type, run.certificateTemplateId);
   }
   if (run.status === "SENDING") {
     return processSendPhase(runId, run.eventId);
@@ -176,6 +190,7 @@ async function processRenderPhase(
   runId: string,
   eventId: string,
   type: CertificateType,
+  certificateTemplateId: string | null,
 ): Promise<RunTickResult> {
   // Pull next batch of items needing render.
   const items = await db.certificateIssueRunItem.findMany({
@@ -211,7 +226,46 @@ async function processRenderPhase(
     await failRun(runId, "Event not found");
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
   }
-  const template = readTemplateForType(event.settings, type);
+
+  // Load the specific template row this run was bound to. v3 multi-
+  // template model: runs created post-2026-06-02 always carry a
+  // certificateTemplateId; legacy runs (none exist in prod yet) fall
+  // back to an empty template + the placeholder PDF the renderer
+  // produces.
+  let template: CertificateTemplate = {};
+  if (certificateTemplateId) {
+    const tmpl = await db.certificateTemplate.findUnique({
+      where: { id: certificateTemplateId },
+      select: { backgroundPdfUrl: true, textBoxes: true },
+    });
+    if (tmpl) {
+      template = {
+        backgroundPdfUrl: tmpl.backgroundPdfUrl,
+        // Cast via unknown — Prisma's JsonValue can't structurally
+        // narrow to CertificateTextBox[]; the column is Zod-validated
+        // at write time so the cast is safe.
+        textBoxes: tmpl.textBoxes as unknown as CertificateTemplate["textBoxes"],
+      };
+    } else {
+      // Template was deleted between run-create and render-tick. The
+      // FK cascade is SetNull (preserves audit-trail integrity), so
+      // this run row still exists but has no template to render from.
+      // FAIL the run hard rather than silently producing placeholder
+      // PDFs and shipping them to 300+ attendees — per review H4.
+      apiLogger.error({
+        msg: "cert-issue-worker:template-deleted-mid-run",
+        runId,
+        eventId,
+        certificateTemplateId,
+        remainingItems: items.length,
+      });
+      await failRun(
+        runId,
+        `Template ${certificateTemplateId} was deleted while this run was in progress. Re-create the template + start a new run.`,
+      );
+      return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
+    }
+  }
 
   let rendered = 0;
   for (const item of items) {
@@ -221,6 +275,7 @@ async function processRenderPhase(
         runId,
         eventId,
         type,
+        certificateTemplateId,
         event,
         template,
       });
@@ -262,10 +317,11 @@ async function renderAndStoreItem(args: {
   runId: string;
   eventId: string;
   type: CertificateType;
+  certificateTemplateId: string | null;
   event: EventContext;
   template: CertificateTemplate;
 }): Promise<string> {
-  const { item, eventId, type, event, template } = args;
+  const { item, eventId, type, certificateTemplateId, event, template } = args;
 
   // Resolve recipient details (title, email, affiliation) for the
   // recipientSnapshot + render data. We have recipientName + email
@@ -277,8 +333,11 @@ async function renderAndStoreItem(args: {
 
   // Build cert-type-specific extras. Post enum collapse (2 types, 2026-06-02)
   // APPRECIATION rolls up the old PRESENTER / POSTER / CME buckets:
-  //   - poster authors carry the abstract title (rendered via a
-  //     dedicated `{{abstractTitle}}` text box if the organizer adds one);
+  //   - poster authors carry the abstract title in extras for future
+  //     use (not currently wired into a {{token}} — `resolveTokens` in
+  //     template.ts owns the token map and doesn't expose abstractTitle
+  //     today; tracked as M12 in the audit, add `{{abstractTitle}}` to
+  //     `resolveTokens` if/when an organizer asks for it);
   //   - everyone else gets an empty extras payload so the template's
   //     tokens drive the visible variation.
   let extras: CertificateData["extras"];
@@ -313,6 +372,7 @@ async function renderAndStoreItem(args: {
         registrationId: item.registrationId,
         speakerId: item.speakerId,
         type,
+        certificateTemplateId,
         serial: certData.serial,
         issuedByUserId: await getRunTriggerUserId(args.runId),
         recipientSnapshot: recipientData as unknown as Prisma.InputJsonValue,
@@ -423,10 +483,18 @@ async function processSendPhase(
       }
       const pdfBuffer = await loadPdfBytes(cert.pdfUrl);
 
+      // Recipient names + event name are user-controlled (attendee
+      // self-registers, organizer types the event name). Escape every
+      // user-controlled string before interpolating into the HTML body
+      // — otherwise a registrant named `<img src=x onerror=...>` ships
+      // arbitrary HTML into every attendee's inbox.
+      const safeRecipient = escapeHtml(item.recipientName);
+      const safeEventName = escapeHtml(event.name);
+      const safeOrgName = escapeHtml(event.organization.name);
       const result = await sendEmail({
         to: [{ email: item.recipientEmail, name: item.recipientName }],
         subject: `Your certificate — ${event.name}`,
-        htmlContent: `<p>Dear ${item.recipientName},</p><p>Please find your certificate for <strong>${event.name}</strong> attached.</p><p>Best regards,<br>${event.organization.name}</p>`,
+        htmlContent: `<p>Dear ${safeRecipient},</p><p>Please find your certificate for <strong>${safeEventName}</strong> attached.</p><p>Best regards,<br>${safeOrgName}</p>`,
         textContent: `Dear ${item.recipientName},\n\nPlease find your certificate for ${event.name} attached.\n\nBest regards,\n${event.organization.name}`,
         from: event.emailFromAddress
           ? { email: event.emailFromAddress, name: event.emailFromName ?? event.organization.name }
@@ -522,21 +590,9 @@ async function loadEventContext(eventId: string): Promise<EventContext | null> {
   };
 }
 
-function readTemplateForType(settings: unknown, type: CertificateType): CertificateTemplate {
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
-  const obj = settings as Record<string, unknown>;
-  const templates = obj.certificateTemplates;
-  if (templates && typeof templates === "object" && !Array.isArray(templates)) {
-    const t = (templates as Record<string, unknown>)[type];
-    if (t && typeof t === "object" && !Array.isArray(t)) return t as CertificateTemplate;
-  }
-  // Backward compat with the singular shape.
-  const legacy = obj.certificateTemplate;
-  if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-    return legacy as CertificateTemplate;
-  }
-  return {};
-}
+// readTemplateForType (settings JSON lookup) deleted on 2026-06-02 —
+// templates moved to the CertificateTemplate table; the run carries the
+// templateId directly.
 
 async function loadRecipient(
   registrationId: string | null,

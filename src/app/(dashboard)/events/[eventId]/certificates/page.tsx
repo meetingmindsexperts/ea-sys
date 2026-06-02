@@ -1,32 +1,35 @@
 "use client";
 
 /**
- * Certificates page — four tabs (v3 PDF-overlay model, 2026-06-02):
+ * Certificates page — v3 multi-template model (2026-06-02).
  *
- *   1. Template       — organizer uploads the finished cert PDF from
- *                       their designer (banner / borders / signatures /
- *                       footer logos all baked in) and drags text boxes
- *                       on top containing `{{tokens}}`. One template per
- *                       cert type (Attendance / Presenter / Poster / CME).
- *                       The canvas drag-and-drop editor lands in the
- *                       next commit — this tab currently shows a
- *                       placeholder with the architecture rationale.
- *   2. CME / CPD      — per-event hours awarded + accrediting bodies
- *                       (DHA/EACCME/etc) for CME certs. Independent of
- *                       the template; tokens render conditionally.
- *   3. Preview        — render any of the four cert types as PDF in
- *                       an iframe with background fetch probe so server
- *                       errors are visible. SUPER_ADMIN design-approval
- *                       gate lives here (it's the cert-design sign-off
- *                       step, naturally adjacent to the preview).
- *   4. Issue          — eligibility list + run progress (Phase C).
+ * Four tabs:
+ *
+ *   1. Templates  — list of CertificateTemplate rows per category
+ *                   (ATTENDANCE | APPRECIATION). Each row has its own
+ *                   uploaded background PDF + positioned text boxes.
+ *                   Add / Edit / Delete; editing opens the canvas
+ *                   drag-and-drop editor inline.
+ *   2. CME / CPD  — event-level hours + accrediting bodies (read by
+ *                   the `{{cmeHours}}` / `{{accreditationBody}}` tokens
+ *                   on either category of template).
+ *   3. Preview    — pick a template, render a draft PDF with synthetic
+ *                   recipient data.
+ *   4. Issue      — pick a template, see the eligible recipient list,
+ *                   trigger a CertificateIssueRun. Cron worker drains
+ *                   PENDING runs every minute. Run-status polling
+ *                   shows render + email progress.
+ *
+ * Design-approval gate removed 2026-06-02 — any ADMIN/ORGANIZER can
+ * issue. The PDF-overlay model makes the design tangible enough (canvas
+ * + preview) that a separate sign-off step is unwarranted.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import dynamic from "next/dynamic";
 import {
   Card,
   CardContent,
@@ -39,7 +42,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -47,29 +49,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import dynamic from "next/dynamic";
 import {
   GraduationCap,
   Plus,
   Trash2,
-  Save,
   Eye,
   Info,
-  Lock,
-  CheckCircle2,
-  FileText,
-  PenLine,
-  Send,
   Mail,
-  XCircle,
+  Send,
+  PenLine,
+  FileText,
   Loader2,
+  CheckCircle2,
+  XCircle,
+  Pencil,
+  Save,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 
-// Lazy-load the canvas editor so pdfjs-dist (~400KB) + react-rnd
-// stay out of the dashboard's first-paint critical path. Same pattern
-// as TiptapEditor was using before the v2→v3 flip.
+// Lazy-load the canvas editor — pdfjs-dist + react-rnd stay off the
+// dashboard's first-paint critical path until the operator opens the
+// editor panel for a specific template.
 const CertificateCanvasEditor = dynamic(
   () =>
     import("@/components/certificates/certificate-canvas-editor").then(
@@ -85,71 +94,46 @@ const CertificateCanvasEditor = dynamic(
   },
 );
 
-type CertType = "ATTENDANCE" | "APPRECIATION";
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type CertCategory = "ATTENDANCE" | "APPRECIATION";
+
+const CERT_CATEGORIES: Array<{ key: CertCategory; label: string }> = [
+  { key: "ATTENDANCE", label: "Certificate of Attendance" },
+  { key: "APPRECIATION", label: "Certificate of Appreciation" },
+];
+
+interface CertificateTemplate {
+  id: string;
+  eventId: string;
+  name: string;
+  category: CertCategory;
+  backgroundPdfUrl: string | null;
+  textBoxes: CertificateTextBox[];
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { issuedCertificates: number; issueRuns: number };
+}
 
 const ACCREDITOR_BODIES = ["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"] as const;
 type AccreditorBody = (typeof ACCREDITOR_BODIES)[number];
+type AccreditorBodyOrEmpty = AccreditorBody | "";
 
 interface AccreditationRow {
-  body: AccreditatorBodyOrEmpty;
+  body: AccreditorBodyOrEmpty;
   reference: string;
   hours?: number;
   officialStatement?: string;
 }
-type AccreditatorBodyOrEmpty = AccreditorBody | "";
-
-/**
- * v3 PDF-overlay template state (2026-06-02). The organizer uploads a
- * finished cert PDF and positions text boxes on top with `{{tokens}}`.
- * The canvas drag-and-drop editor lands in the next commit — for now
- * the Template tab is a placeholder, but the state shape + persistence
- * round-trip is wired so the eventual editor just plugs in.
- *
- * `textBoxes` is intentionally typed loose here; the editor commit will
- * import the strict `CertificateTextBox` shape from
- * `src/lib/certificates/types.ts` and tighten this.
- */
-interface TemplateState {
-  backgroundPdfUrl: string | null;
-  textBoxes: unknown[];
-}
-
-// Collapsed from 4 to 2 cert types on 2026-06-02 — designers hand
-// the organizer two physical PDFs (Attendance + Appreciation) and the
-// organizer modifies per-recipient text via {{tokens}} on overlaid
-// text boxes. APPRECIATION absorbed the old PRESENTER + POSTER + CME
-// slots; CME hours stay on the event row and render via tokens.
-const CERT_TYPES = [
-  { key: "ATTENDANCE", label: "Certificate of Attendance" },
-  { key: "APPRECIATION", label: "Certificate of Appreciation" },
-] as const;
-type CertTypeKey = (typeof CERT_TYPES)[number]["key"];
-
-type TemplatesByType = Record<CertTypeKey, TemplateState>;
 
 interface SettingsResponse {
   cmeHours: number | null;
   accreditations: AccreditationRow[];
-  designApprovedBy: string | null;
-  designApprovedAt: string | null;
-  templates: TemplatesByType;
 }
 
-const EMPTY_TEMPLATE: TemplateState = {
-  backgroundPdfUrl: null,
-  textBoxes: [],
-};
-
-function makeEmptyTemplates(): TemplatesByType {
-  return {
-    ATTENDANCE: { ...EMPTY_TEMPLATE },
-    APPRECIATION: { ...EMPTY_TEMPLATE },
-  };
-}
-
-// ── Issue tab API response shapes ─────────────────────────────────────────
 interface EligibilityResp {
-  type: CertTypeKey;
+  type: CertCategory;
   eligibleCount: number;
   eligible: Array<{
     kind: "registration" | "speaker";
@@ -163,7 +147,7 @@ interface EligibilityResp {
 
 interface RunResp {
   runId: string;
-  type: CertTypeKey;
+  type: CertCategory;
   status:
     | "PENDING"
     | "RENDERING"
@@ -194,56 +178,223 @@ interface RunResp {
   }>;
 }
 
+// ── Page component ───────────────────────────────────────────────────────────
+
 export default function CertificatesPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const queryClient = useQueryClient();
-  const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
 
-  const [draft, setDraft] = useState<SettingsResponse | null>(null);
-  // Which cert type's template is currently being edited in the Template
-  // tab — switched via the inner sub-tabs. State scope is page-level so
-  // the selection survives switching between outer tabs (Template / CME /
-  // Preview).
-  const [activeTemplateType, setActiveTemplateType] = useState<CertTypeKey>("ATTENDANCE");
-  // Per-type selector inside the Issue tab — independent of activeTemplateType
-  // so the operator can be editing one type's template while reviewing
-  // another type's run. Both default to ATTENDANCE.
-  const [activeIssueType, setActiveIssueType] = useState<CertTypeKey>("ATTENDANCE");
-  // Cached active runId per cert type — set when an issue is started or
-  // when polling returns one. Lets the UI persist across tab switches
-  // and survive a page reload (re-fetched via eligibility endpoint
-  // returning the in-progress run).
-  const [activeRunIds, setActiveRunIds] = useState<Partial<Record<CertTypeKey, string>>>({});
-  const [previewType, setPreviewType] = useState<CertType>("ATTENDANCE");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [createDialog, setCreateDialog] = useState<{ open: boolean; category: CertCategory }>({
+    open: false,
+    category: "ATTENDANCE",
+  });
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [previewBust, setPreviewBust] = useState(0);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewProbe, setPreviewProbe] = useState<
-    | { kind: "idle" }
-    | { kind: "probing" }
-    | { kind: "ok"; bytes: number }
-    | { kind: "http-error"; status: number; body: string }
-    | { kind: "network-error"; message: string }
-  >({ kind: "idle" });
+  const [issueTemplateId, setIssueTemplateId] = useState<string | null>(null);
+  const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
 
-  // ── Issue tab queries + mutations ─────────────────────────────────
-  // Eligibility for the active Issue type — query refetches when the
-  // type changes. Returns count + sample names + exclusion reasons.
+  // ── Settings (CME) ────────────────────────────────────────────────────────
+  const settingsQuery = useQuery<SettingsResponse>({
+    queryKey: ["cert-settings", eventId],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/certificates/settings`);
+      if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
+      return (await res.json()) as SettingsResponse;
+    },
+  });
+
+  // React 19 "store info from previous renders" pattern: track the
+  // server data we last seeded draft from. Compare by structural
+  // equality (JSON.stringify) NOT object reference — React Query's
+  // refetchOnWindowFocus returns a fresh object on every refetch even
+  // when JSON content is identical. Comparing by reference would blow
+  // away an organizer's unsaved CME edits the moment they tab back to
+  // the page.
+  const [draftSettings, setDraftSettings] = useState<SettingsResponse | null>(null);
+  const [seedSerialized, setSeedSerialized] = useState<string | null>(null);
+  if (settingsQuery.data) {
+    const nextSerialized = JSON.stringify(settingsQuery.data);
+    if (nextSerialized !== seedSerialized) {
+      setSeedSerialized(nextSerialized);
+      // Only overwrite the draft on the FIRST load (no prior seed) or
+      // when the user explicitly saved (the save mutation's onSuccess
+      // sets draft + cache + we'll see a fresh serialization on next
+      // render but draft already matches). If the user has unsaved
+      // edits AND the server data drifts (rare — concurrent edit),
+      // preserve the draft to avoid silent data loss.
+      if (seedSerialized === null || draftSettings === null) {
+        setDraftSettings(settingsQuery.data);
+      }
+    }
+  }
+  const editableSettings = draftSettings ?? settingsQuery.data ?? null;
+  const settingsDirty = useMemo(() => {
+    if (!draftSettings || !settingsQuery.data) return false;
+    return JSON.stringify(draftSettings) !== JSON.stringify(settingsQuery.data);
+  }, [draftSettings, settingsQuery.data]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (body: SettingsResponse) => {
+      const res = await fetch(`/api/events/${eventId}/certificates/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cmeHours: body.cmeHours,
+          accreditations: body.accreditations
+            .filter((a) => a.body !== "" && a.reference.trim().length > 0)
+            .map((a) => ({
+              body: a.body as AccreditorBody,
+              reference: a.reference.trim(),
+              hours: a.hours,
+              officialStatement: a.officialStatement?.trim() || undefined,
+            })),
+        }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || `Save failed (${res.status})`);
+      }
+      return (await res.json()) as SettingsResponse;
+    },
+    onSuccess: (data) => {
+      setDraftSettings(data);
+      queryClient.setQueryData(["cert-settings", eventId], data);
+      toast.success("CME settings saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function patchDraftSettings(patch: Partial<SettingsResponse>) {
+    setDraftSettings((cur) => ({ ...(cur ?? settingsQuery.data!), ...patch }));
+  }
+
+  // ── Templates ────────────────────────────────────────────────────────────
+  const templatesQuery = useQuery<{ templates: CertificateTemplate[] }>({
+    queryKey: ["cert-templates", eventId],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/certificates/templates`);
+      if (!res.ok) throw new Error(`Failed to load templates (${res.status})`);
+      return (await res.json()) as { templates: CertificateTemplate[] };
+    },
+  });
+  const templates = templatesQuery.data?.templates ?? [];
+  const templatesByCategory: Record<CertCategory, CertificateTemplate[]> = {
+    ATTENDANCE: templates.filter((t) => t.category === "ATTENDANCE"),
+    APPRECIATION: templates.filter((t) => t.category === "APPRECIATION"),
+  };
+
+  const createTemplateMutation = useMutation({
+    mutationFn: async (vars: { name: string; category: CertCategory }) => {
+      const res = await fetch(`/api/events/${eventId}/certificates/templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(vars),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        template?: CertificateTemplate;
+        error?: string;
+      };
+      if (!res.ok || !json.template) throw new Error(json.error ?? `Create failed (${res.status})`);
+      return json.template;
+    },
+    onSuccess: (template) => {
+      queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      setEditingTemplateId(template.id);
+      toast.success(`Created "${template.name}"`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: async (vars: {
+      templateId: string;
+      patch: {
+        name?: string;
+        backgroundPdfUrl?: string | null;
+        textBoxes?: CertificateTextBox[];
+      };
+    }) => {
+      const res = await fetch(
+        `/api/events/${eventId}/certificates/templates/${vars.templateId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(vars.patch),
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        template?: CertificateTemplate;
+        error?: string;
+      };
+      if (!res.ok || !json.template) throw new Error(json.error ?? `Update failed (${res.status})`);
+      return json.template;
+    },
+    onSuccess: (template) => {
+      // Optimistic patch — surgically replace the row in cache so the
+      // canvas state stays in sync without a full refetch + remount.
+      queryClient.setQueryData<{ templates: CertificateTemplate[] }>(
+        ["cert-templates", eventId],
+        (cur) =>
+          cur
+            ? {
+                templates: cur.templates.map((t) =>
+                  t.id === template.id ? { ...t, ...template } : t,
+                ),
+              }
+            : cur,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await fetch(
+        `/api/events/${eventId}/certificates/templates/${templateId}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+          issuedCount?: number;
+          runCount?: number;
+        };
+        if (err.code === "TEMPLATE_HAS_HISTORY") {
+          throw new Error(
+            `Cannot delete — ${err.issuedCount ?? 0} certs issued + ${err.runCount ?? 0} runs reference this template. Audit trail must stay intact.`,
+          );
+        }
+        throw new Error(err.error ?? `Delete failed (${res.status})`);
+      }
+      return templateId;
+    },
+    onSuccess: (templateId) => {
+      queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      if (editingTemplateId === templateId) setEditingTemplateId(null);
+      if (previewTemplateId === templateId) setPreviewTemplateId(null);
+      if (issueTemplateId === templateId) setIssueTemplateId(null);
+      toast.success("Template deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Eligibility + run polling for Issue tab ───────────────────────────────
   const eligibilityQuery = useQuery<EligibilityResp>({
-    queryKey: ["cert-eligibility", eventId, activeIssueType],
+    queryKey: ["cert-eligibility", eventId, issueTemplateId],
     queryFn: async () => {
       const res = await fetch(
-        `/api/events/${eventId}/certificates/eligible?type=${activeIssueType}`,
+        `/api/events/${eventId}/certificates/eligible?templateId=${issueTemplateId}`,
       );
       if (!res.ok) throw new Error(`Eligibility query failed (${res.status})`);
       return (await res.json()) as EligibilityResp;
     },
+    enabled: !!issueTemplateId,
     staleTime: 30_000,
   });
 
-  // Active run poll — fires once activeRunIds[type] is set, polls every
-  // 4 sec while non-terminal so the progress bar tracks in near-real-time.
-  const activeRunId = activeRunIds[activeIssueType] ?? null;
+  const activeRunId = issueTemplateId ? activeRunIds[issueTemplateId] ?? null : null;
   const runQuery = useQuery<RunResp>({
     queryKey: ["cert-run", eventId, activeRunId],
     queryFn: async () => {
@@ -263,11 +414,11 @@ export default function CertificatesPage() {
   });
 
   const issueMutation = useMutation({
-    mutationFn: async (type: CertTypeKey) => {
+    mutationFn: async (templateId: string) => {
       const res = await fetch(`/api/events/${eventId}/certificates/issue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type }),
+        body: JSON.stringify({ templateId }),
       });
       const json = (await res.json().catch(() => ({}))) as {
         runId?: string;
@@ -277,20 +428,20 @@ export default function CertificatesPage() {
       };
       if (!res.ok) {
         const err = new Error(json.error ?? `Issue failed (${res.status})`);
-        // Surface the existing runId on RUN_IN_PROGRESS so the UI can recover.
         (err as Error & { runId?: string }).runId = json.runId;
         throw err;
       }
       return json as { runId: string; totalCount: number };
     },
     onSuccess: (data) => {
-      setActiveRunIds((cur) => ({ ...cur, [activeIssueType]: data.runId }));
+      if (issueTemplateId) {
+        setActiveRunIds((cur) => ({ ...cur, [issueTemplateId]: data.runId }));
+      }
       toast.success(`Issuing ${data.totalCount} certificates — cron will start within 60 seconds.`);
     },
     onError: (e: Error & { runId?: string }) => {
-      if (e.runId) {
-        // Adopt the in-progress run so the UI shows progress instead of an error.
-        setActiveRunIds((cur) => ({ ...cur, [activeIssueType]: e.runId! }));
+      if (e.runId && issueTemplateId) {
+        setActiveRunIds((cur) => ({ ...cur, [issueTemplateId]: e.runId! }));
         toast(e.message);
       } else {
         toast.error(e.message);
@@ -300,10 +451,9 @@ export default function CertificatesPage() {
 
   const sendMutation = useMutation({
     mutationFn: async (runId: string) => {
-      const res = await fetch(
-        `/api/events/${eventId}/certificates/runs/${runId}/send`,
-        { method: "POST" },
-      );
+      const res = await fetch(`/api/events/${eventId}/certificates/runs/${runId}/send`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(json.error ?? `Send failed (${res.status})`);
@@ -319,10 +469,9 @@ export default function CertificatesPage() {
 
   const cancelMutation = useMutation({
     mutationFn: async (runId: string) => {
-      const res = await fetch(
-        `/api/events/${eventId}/certificates/runs/${runId}/cancel`,
-        { method: "POST" },
-      );
+      const res = await fetch(`/api/events/${eventId}/certificates/runs/${runId}/cancel`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(json.error ?? `Cancel failed (${res.status})`);
@@ -336,214 +485,124 @@ export default function CertificatesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const settingsQuery = useQuery<SettingsResponse>({
-    queryKey: ["cert-settings", eventId],
-    queryFn: async () => {
-      const res = await fetch(`/api/events/${eventId}/certificates/settings`);
-      if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
-      const json = (await res.json()) as Partial<SettingsResponse> & {
-        templates?: Partial<Record<CertTypeKey, Partial<TemplateState> | null>>;
-      };
-      // Normalize templates — server returns nulls for unset fields, the
-      // UI's text inputs need strings. Walk all 4 type slots so the UI
-      // always has a fully-populated TemplateState per type.
-      const normalizedTemplates = makeEmptyTemplates();
-      for (const { key } of CERT_TYPES) {
-        const raw = json.templates?.[key] ?? null;
-        normalizedTemplates[key] = {
-          backgroundPdfUrl: raw?.backgroundPdfUrl ?? null,
-          textBoxes: (raw?.textBoxes as unknown[]) ?? [],
-        };
-      }
-      const normalized: SettingsResponse = {
-        cmeHours: json.cmeHours ?? null,
-        accreditations: (json.accreditations as AccreditationRow[]) ?? [],
-        designApprovedBy: json.designApprovedBy ?? null,
-        designApprovedAt: json.designApprovedAt ?? null,
-        templates: normalizedTemplates,
-      };
-      setDraft((current) => current ?? normalized);
-      return normalized;
-    },
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: async (body: Record<string, unknown>) => {
-      const res = await fetch(`/api/events/${eventId}/certificates/settings`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          details?: unknown;
-        };
-        throw new Error(err.error || `Save failed (${res.status})`);
-      }
-      return (await res.json()) as SettingsResponse;
-    },
-    onSuccess: (data) => {
-      setDraft(data);
-      queryClient.setQueryData(["cert-settings", eventId], data);
-      toast.success("Saved");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const dirty = useMemo(() => {
-    if (!draft || !settingsQuery.data) return false;
-    return JSON.stringify(draft) !== JSON.stringify(settingsQuery.data);
-  }, [draft, settingsQuery.data]);
-
-  const editable = draft ?? settingsQuery.data ?? null;
-
-  function updateDraft(patch: Partial<SettingsResponse>) {
-    setDraft((cur) => ({ ...(cur ?? settingsQuery.data!), ...patch }));
-  }
-
-  // The "current template" being edited — whichever type the inner
-  // sub-tabs has active. All template-mutating helpers below scope to
-  // this slot in the templates map.
-  const currentTemplate = editable?.templates[activeTemplateType] ?? EMPTY_TEMPLATE;
-
-  // Called by the canvas editor on every text-box add / move / resize /
-  // edit and on backgroundPdfUrl upload. Scoped to the active cert type
-  // sub-tab (Attendance or Appreciation).
-  function updateCurrentTemplate(patch: Partial<TemplateState>) {
-    if (!editable) return;
-    updateDraft({
-      templates: {
-        ...editable.templates,
-        [activeTemplateType]: { ...currentTemplate, ...patch },
-      },
-    });
-  }
-
-  // Accreditations (single, shared across cert types) ─────────────────
+  // ── Accreditation helpers ─────────────────────────────────────────────────
   function addAccreditation() {
-    if (!editable) return;
-    updateDraft({
-      accreditations: [...editable.accreditations, { body: "", reference: "" }],
+    if (!editableSettings) return;
+    patchDraftSettings({
+      accreditations: [...editableSettings.accreditations, { body: "", reference: "" }],
     });
   }
   function removeAccreditation(idx: number) {
-    if (!editable) return;
-    updateDraft({
-      accreditations: editable.accreditations.filter((_, i) => i !== idx),
+    if (!editableSettings) return;
+    patchDraftSettings({
+      accreditations: editableSettings.accreditations.filter((_, i) => i !== idx),
     });
   }
   function updateAccreditation(idx: number, patch: Partial<AccreditationRow>) {
-    if (!editable) return;
-    updateDraft({
-      accreditations: editable.accreditations.map((a, i) =>
+    if (!editableSettings) return;
+    patchDraftSettings({
+      accreditations: editableSettings.accreditations.map((a, i) =>
         i === idx ? { ...a, ...patch } : a,
       ),
     });
   }
 
-  // v2 signature + footer-logo helpers were dropped in the 2026-06-02
-  // architecture flip — the canvas editor (next commit) owns text-box
-  // CRUD via the `textBoxes` array directly.
+  const editingTemplate = editingTemplateId
+    ? templates.find((t) => t.id === editingTemplateId) ?? null
+    : null;
 
-  async function onSave() {
-    if (!editable) return;
-    const cleanedAccreditations = editable.accreditations
-      .filter((a) => a.body !== "" && a.reference.trim().length > 0)
-      .map((a) => ({
-        body: a.body as AccreditorBody,
-        reference: a.reference.trim(),
-        hours: a.hours,
-        officialStatement: a.officialStatement?.trim() || undefined,
-      }));
+  // Debounced PATCH for the canvas editor. Per the review's B3: the
+  // editor emits onChange on every keystroke / drag pixel / color
+  // picker tick — a 5-character textbox content edit produced 5
+  // PATCHes against a JSON column. Strategy:
+  //   1. Update the React Query cache OPTIMISTICALLY on every onChange
+  //      so the editor visuals stay snappy + the user sees their text
+  //      land instantly.
+  //   2. Coalesce the patch fields into a single pending payload.
+  //   3. Fire ONE PATCH at most every 400ms (or on the next mount of
+  //      a different template / unmount of the editor).
+  const pendingPatchRef = useRef<{
+    backgroundPdfUrl?: string | null;
+    textBoxes?: CertificateTextBox[];
+  } | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Send all 4 type slots in one PATCH. v3 shape is intentionally
-    // small — `backgroundPdfUrl` (the uploaded designer PDF) plus the
-    // text-box array (the canvas editor's output, populated in the
-    // next commit). The server merges each slot independently.
-    const cleanedTemplates: Record<string, unknown> = {};
-    for (const { key } of CERT_TYPES) {
-      const t = editable.templates[key];
-      cleanedTemplates[key] = {
-        backgroundPdfUrl: t.backgroundPdfUrl || null,
-        textBoxes: t.textBoxes,
-      };
-    }
-
-    saveMutation.mutate({
-      cmeHours: editable.cmeHours,
-      accreditations: cleanedAccreditations,
-      templates: cleanedTemplates,
-    });
-  }
-
-  async function toggleApproval(approved: boolean) {
-    if (!isSuperAdmin) return;
-    saveMutation.mutate({ designApproved: approved });
-  }
-
-  async function showPreview() {
-    setPreviewVisible(true);
-    setPreviewBust((b) => b + 1);
-    setPreviewProbe({ kind: "probing" });
-    try {
-      const res = await fetch(
-        `/api/events/${eventId}/certificates/preview?type=${previewType}&t=${Date.now()}`,
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => "(no body)");
-        setPreviewProbe({ kind: "http-error", status: res.status, body });
-        toast.error(`Preview failed: HTTP ${res.status}. Check /logs.`);
-        console.error("[cert-preview] HTTP error", { status: res.status, body });
-        return;
+  const flushPatch = useCallback(
+    (templateId: string) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
-      const buf = await res.arrayBuffer();
-      setPreviewProbe({ kind: "ok", bytes: buf.byteLength });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setPreviewProbe({ kind: "network-error", message });
-      toast.error(`Preview network failure: ${message}`);
-      console.error("[cert-preview] Network error", e);
-    }
-  }
+      const pending = pendingPatchRef.current;
+      pendingPatchRef.current = null;
+      if (pending && (pending.backgroundPdfUrl !== undefined || pending.textBoxes !== undefined)) {
+        updateTemplateMutation.mutate({ templateId, patch: pending });
+      }
+    },
+    [updateTemplateMutation],
+  );
 
-  const previewSrc = `/api/events/${eventId}/certificates/preview?type=${previewType}&t=${previewBust}`;
+  const queueCanvasPatch = useCallback(
+    (
+      templateId: string,
+      patch: { backgroundPdfUrl?: string | null; textBoxes?: CertificateTextBox[] },
+    ) => {
+      // Optimistic local update — keep the UI in sync regardless of
+      // whether the debounced PATCH has fired yet.
+      queryClient.setQueryData<{ templates: CertificateTemplate[] }>(
+        ["cert-templates", eventId],
+        (cur) =>
+          cur
+            ? {
+                templates: cur.templates.map((t) =>
+                  t.id === templateId
+                    ? {
+                        ...t,
+                        ...(patch.backgroundPdfUrl !== undefined && {
+                          backgroundPdfUrl: patch.backgroundPdfUrl,
+                        }),
+                        ...(patch.textBoxes !== undefined && { textBoxes: patch.textBoxes }),
+                      }
+                    : t,
+                ),
+              }
+            : cur,
+      );
 
+      // Coalesce into the pending payload so a rapid sequence (e.g.
+      // textBoxes + textBoxes + textBoxes) becomes one server write.
+      pendingPatchRef.current = {
+        ...(pendingPatchRef.current ?? {}),
+        ...patch,
+      };
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => flushPatch(templateId), 400);
+    },
+    [queryClient, eventId, flushPatch],
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 p-6">
-      {/* ── Page header ──────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <GraduationCap className="h-7 w-7 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Certificates</h1>
-            <p className="text-sm text-muted-foreground">
-              Configure how this event&apos;s certificates look — banner, body,
-              signatures, footer logos. Preview before issuing.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">
-            {dirty ? "Unsaved changes" : settingsQuery.data ? "All saved" : "Loading…"}
-          </span>
-          <Button
-            onClick={onSave}
-            disabled={!dirty || saveMutation.isPending}
-            size="sm"
-          >
-            <Save className="h-4 w-4 mr-1" />
-            Save changes
-          </Button>
+      {/* Page header */}
+      <div className="flex items-start gap-3">
+        <GraduationCap className="h-7 w-7 text-primary" />
+        <div>
+          <h1 className="text-2xl font-bold">Certificates</h1>
+          <p className="text-sm text-muted-foreground">
+            Upload designer-finished PDFs (or PNG/JPG — we convert), drop
+            text boxes with{" "}
+            <code className="bg-muted px-1 rounded text-xs">{`{{tokens}}`}</code>,
+            preview, then bulk-issue to all eligible recipients.
+          </p>
         </div>
       </div>
 
-      {/* ── Tabs ─────────────────────────────────────────────────────── */}
-      <Tabs defaultValue="template">
+      <Tabs defaultValue="templates">
         <TabsList>
-          <TabsTrigger value="template">
+          <TabsTrigger value="templates">
             <PenLine className="h-4 w-4 mr-1.5" />
-            Template
+            Templates
           </TabsTrigger>
           <TabsTrigger value="cme">
             <FileText className="h-4 w-4 mr-1.5" />
@@ -559,86 +618,257 @@ export default function CertificatesPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Tab 1: Template editor ───────────────────────────────── */}
-        <TabsContent value="template" className="space-y-6 mt-6">
-          {/* Inner cert-type selector — switches which of the 4 templates
-              (Attendance / Presenter / Poster / CME) the editor below
-              binds to. State persists at page-level so the selection
-              survives switching between outer tabs. */}
-          <Tabs
-            value={activeTemplateType}
-            onValueChange={(v) => setActiveTemplateType(v as CertTypeKey)}
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              {CERT_TYPES.map((t) => (
-                <TabsTrigger key={t.key} value={t.key}>
-                  {t.label}
-                </TabsTrigger>
+        {/* ── TEMPLATES TAB ─────────────────────────────────────────── */}
+        <TabsContent value="templates" className="space-y-6 mt-6">
+          {editingTemplate ? (
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="flex items-center gap-2">
+                      <Pencil className="h-5 w-5" />
+                      <Input
+                        value={editingTemplate.name}
+                        onChange={(e) =>
+                          // Live update via cache + debounced commit on blur.
+                          // For now we commit on blur via onBlur below.
+                          queryClient.setQueryData<{ templates: CertificateTemplate[] }>(
+                            ["cert-templates", eventId],
+                            (cur) =>
+                              cur
+                                ? {
+                                    templates: cur.templates.map((t) =>
+                                      t.id === editingTemplate.id
+                                        ? { ...t, name: e.target.value }
+                                        : t,
+                                    ),
+                                  }
+                                : cur,
+                          )
+                        }
+                        onBlur={(e) => {
+                          if (e.target.value.trim().length === 0) return;
+                          updateTemplateMutation.mutate({
+                            templateId: editingTemplate.id,
+                            patch: { name: e.target.value.trim() },
+                          });
+                        }}
+                        className="font-semibold text-lg max-w-md"
+                      />
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      <Badge variant="secondary">
+                        {CERT_CATEGORIES.find((c) => c.key === editingTemplate.category)?.label}
+                      </Badge>{" "}
+                      · {editingTemplate.textBoxes.length} text boxes
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      // Flush any pending debounced patch before
+                      // closing — otherwise the last few edits stay
+                      // local-only and the next reload reverts them.
+                      flushPatch(editingTemplate.id);
+                      setEditingTemplateId(null);
+                    }}
+                  >
+                    Close editor
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CertificateCanvasEditor
+                  backgroundPdfUrl={editingTemplate.backgroundPdfUrl}
+                  textBoxes={editingTemplate.textBoxes}
+                  eventId={eventId}
+                  onChange={(patch) => queueCanvasPatch(editingTemplate.id, patch)}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2">
+              {CERT_CATEGORIES.map((cat) => (
+                <Card key={cat.key}>
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle>{cat.label}</CardTitle>
+                        <CardDescription>
+                          {templatesByCategory[cat.key].length}{" "}
+                          {templatesByCategory[cat.key].length === 1 ? "template" : "templates"}
+                        </CardDescription>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => setCreateDialog({ open: true, category: cat.key })}
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Add
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {templatesByCategory[cat.key].length === 0 ? (
+                      <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        No {cat.label.toLowerCase()} templates yet. Click{" "}
+                        <strong>+ Add</strong> to upload your first design.
+                      </div>
+                    ) : (
+                      templatesByCategory[cat.key].map((t) => (
+                        <div
+                          key={t.id}
+                          className="flex items-center justify-between gap-2 rounded-md border p-3"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{t.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {t.backgroundPdfUrl ? "Background uploaded" : "No background yet"}
+                              {" · "}
+                              {t.textBoxes.length} text {t.textBoxes.length === 1 ? "box" : "boxes"}
+                              {t._count && t._count.issuedCertificates > 0 && (
+                                <>
+                                  {" · "}
+                                  <span className="text-amber-700">
+                                    {t._count.issuedCertificates} issued
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setEditingTemplateId(t.id)}
+                            >
+                              <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (
+                                  t._count &&
+                                  (t._count.issuedCertificates > 0 || t._count.issueRuns > 0)
+                                ) {
+                                  toast.error(
+                                    `Cannot delete "${t.name}" — ${t._count.issuedCertificates} certs issued.`,
+                                  );
+                                  return;
+                                }
+                                if (confirm(`Delete template "${t.name}"? This cannot be undone.`)) {
+                                  deleteTemplateMutation.mutate(t.id);
+                                }
+                              }}
+                              aria-label="Delete template"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
               ))}
-            </TabsList>
-          </Tabs>
-          <div className="rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-            Editing the{" "}
-            <strong className="text-foreground">
-              {CERT_TYPES.find((t) => t.key === activeTemplateType)?.label}
-            </strong>{" "}
-            template — one slot per cert type.
-          </div>
+            </div>
+          )}
 
-          {/* v3 PDF-overlay canvas editor (Commit 3, 2026-06-02). Lazy-
-              loaded so pdfjs-dist + react-rnd stay out of the dashboard's
-              first-paint critical path. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Background PDF + text boxes
-              </CardTitle>
-              <CardDescription>
-                The certificate design comes from a finished PDF you upload
-                (banner, borders, signatures, footer logos all baked in by
-                your designer), with positioned text boxes overlaid on top
-                containing{" "}
-                <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
-                that resolve per recipient at issue time. Drag boxes to
-                reposition, pull a corner to resize.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <CertificateCanvasEditor
-                backgroundPdfUrl={currentTemplate.backgroundPdfUrl}
-                textBoxes={currentTemplate.textBoxes as CertificateTextBox[]}
-                onChange={(patch) => {
-                  // Coerce to the loose TemplateState shape held by the
-                  // page; the editor emits the strict CertificateTextBox[]
-                  // type which is structurally compatible.
-                  const next: Partial<TemplateState> = {};
-                  if (patch.backgroundPdfUrl !== undefined) {
-                    next.backgroundPdfUrl = patch.backgroundPdfUrl;
+          {/* Create dialog */}
+          <Dialog
+            open={createDialog.open}
+            onOpenChange={(o) => setCreateDialog((cur) => ({ ...cur, open: o }))}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  New {CERT_CATEGORIES.find((c) => c.key === createDialog.category)?.label}{" "}
+                  template
+                </DialogTitle>
+                <DialogDescription>
+                  Give the template a name (e.g. &quot;Standard&quot;, &quot;VIP&quot;, &quot;Chairman&quot;).
+                  You&apos;ll upload the background PDF + position text boxes in the next step.
+                </DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const name = String(fd.get("name") ?? "").trim();
+                  if (!name) {
+                    toast.error("Name is required");
+                    return;
                   }
-                  if (patch.textBoxes !== undefined) {
-                    next.textBoxes = patch.textBoxes;
-                  }
-                  updateCurrentTemplate(next);
+                  createTemplateMutation.mutate(
+                    { name, category: createDialog.category },
+                    {
+                      onSuccess: () => setCreateDialog((cur) => ({ ...cur, open: false })),
+                    },
+                  );
                 }}
-              />
-            </CardContent>
-          </Card>
-
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="new-template-name">Name</Label>
+                  <Input
+                    id="new-template-name"
+                    name="name"
+                    placeholder={
+                      createDialog.category === "ATTENDANCE"
+                        ? "Standard Attendance"
+                        : "Speaker Appreciation"
+                    }
+                    autoFocus
+                    required
+                    maxLength={120}
+                  />
+                </div>
+                <DialogFooter className="mt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCreateDialog((cur) => ({ ...cur, open: false }))}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createTemplateMutation.isPending}>
+                    {createTemplateMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-1" />
+                    )}
+                    Create
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
-        {/* ── Tab 2: CME / CPD config ──────────────────────────────── */}
+        {/* ── CME / CPD TAB ─────────────────────────────────────────── */}
         <TabsContent value="cme" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>CME / CPD configuration</CardTitle>
-              <CardDescription>
-                Per-event hours awarded and accrediting bodies. The CME body
-                tokens (
-                <code className="bg-muted px-1 rounded">{`{{accreditationBody}}`}</code>
-                , <code className="bg-muted px-1 rounded">{`{{cmeHours}}`}</code>
-                ) read from here.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle>CME / CPD configuration</CardTitle>
+                  <CardDescription>
+                    Per-event hours awarded + accrediting bodies. Rendered into cert
+                    templates via the{" "}
+                    <code className="bg-muted px-1 rounded text-xs">{`{{cmeHours}}`}</code>{" "}
+                    and{" "}
+                    <code className="bg-muted px-1 rounded text-xs">{`{{accreditationBody}}`}</code>{" "}
+                    tokens.
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => editableSettings && saveSettingsMutation.mutate(editableSettings)}
+                  disabled={!settingsDirty || saveSettingsMutation.isPending}
+                >
+                  <Save className="h-4 w-4 mr-1" />
+                  Save
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-2 max-w-xs">
@@ -650,10 +880,10 @@ export default function CertificatesPage() {
                   min="0"
                   max="999.9"
                   placeholder="e.g. 18.0"
-                  value={editable?.cmeHours ?? ""}
+                  value={editableSettings?.cmeHours ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
-                    updateDraft({ cmeHours: v === "" ? null : Number(v) });
+                    patchDraftSettings({ cmeHours: v === "" ? null : Number(v) });
                   }}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -673,17 +903,17 @@ export default function CertificatesPage() {
                     size="sm"
                     variant="outline"
                     onClick={addAccreditation}
-                    disabled={!editable}
+                    disabled={!editableSettings}
                   >
                     <Plus className="h-4 w-4 mr-1" /> Add accreditation
                   </Button>
                 </div>
-                {editable?.accreditations.length === 0 && (
+                {editableSettings?.accreditations.length === 0 && (
                   <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                     No accreditations yet.
                   </div>
                 )}
-                {editable?.accreditations.map((row, idx) => (
+                {editableSettings?.accreditations.map((row, idx) => (
                   <div
                     key={idx}
                     className="grid gap-3 rounded-md border p-3 md:grid-cols-[180px_1fr_120px_auto]"
@@ -713,9 +943,7 @@ export default function CertificatesPage() {
                       <Input
                         placeholder="e.g. DHA-CPD-2026-0142"
                         value={row.reference}
-                        onChange={(e) =>
-                          updateAccreditation(idx, { reference: e.target.value })
-                        }
+                        onChange={(e) => updateAccreditation(idx, { reference: e.target.value })}
                       />
                     </div>
                     <div>
@@ -727,8 +955,7 @@ export default function CertificatesPage() {
                         value={row.hours ?? ""}
                         onChange={(e) =>
                           updateAccreditation(idx, {
-                            hours:
-                              e.target.value === "" ? undefined : Number(e.target.value),
+                            hours: e.target.value === "" ? undefined : Number(e.target.value),
                           })
                         }
                       />
@@ -744,8 +971,8 @@ export default function CertificatesPage() {
                     </div>
                     <div className="md:col-span-4">
                       <Label className="text-xs">
-                        Official statement (override) — only if the accreditor
-                        requires verbatim wording
+                        Official statement (override) — only if the accreditor requires verbatim
+                        wording
                       </Label>
                       <Textarea
                         rows={2}
@@ -765,7 +992,7 @@ export default function CertificatesPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab 3: Preview + design approval ─────────────────────── */}
+        {/* ── PREVIEW TAB ─────────────────────────────────────────── */}
         <TabsContent value="preview" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
@@ -774,263 +1001,220 @@ export default function CertificatesPage() {
                 Preview
               </CardTitle>
               <CardDescription>
-                Renders a draft PDF using <strong>real event data</strong> + a
-                synthetic recipient (&quot;Dr. Sample Attendee&quot;). No
-                certificate is created, no email is sent, no audit row is
-                written.
+                Renders a draft PDF using the event&apos;s real data + a synthetic
+                recipient (&quot;Dr. Sample Attendee&quot;). No certificate is created,
+                no email is sent.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="grid gap-2 min-w-[220px]">
-                  <Label>Certificate type</Label>
-                  <Select
-                    value={previewType}
-                    onValueChange={(v) => setPreviewType(v as CertType)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ATTENDANCE">Certificate of Attendance</SelectItem>
-                      <SelectItem value="APPRECIATION">Certificate of Appreciation</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {templates.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Create a template in the <strong>Templates</strong> tab first.
                 </div>
-                <Button onClick={showPreview}>
-                  <Eye className="h-4 w-4 mr-1" />
-                  Generate preview
-                </Button>
-                {previewVisible && (
-                  <a
-                    href={previewSrc}
-                    download={`preview-${previewType.toLowerCase()}.pdf`}
-                    className="text-sm text-primary hover:underline"
-                  >
-                    Download PDF
-                  </a>
-                )}
-                {dirty && (
-                  <Badge variant="outline" className="ml-auto">
-                    Save changes before preview to see them
-                  </Badge>
-                )}
-              </div>
-              {previewVisible ? (
+              ) : (
                 <>
-                  {previewProbe.kind === "probing" && (
-                    <div className="rounded-md border bg-muted px-3 py-2 text-xs text-muted-foreground">
-                      Probing server response…
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="grid gap-2 min-w-[280px]">
+                      <Label>Template</Label>
+                      <Select
+                        value={previewTemplateId ?? ""}
+                        onValueChange={(v) => setPreviewTemplateId(v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pick a template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CERT_CATEGORIES.map((cat) => {
+                            const tpls = templatesByCategory[cat.key];
+                            if (tpls.length === 0) return null;
+                            return tpls.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {cat.label} — {t.name}
+                              </SelectItem>
+                            ));
+                          })}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  )}
-                  {previewProbe.kind === "ok" && (
-                    <div className="rounded-md border bg-green-50 px-3 py-2 text-xs text-green-700 dark:bg-green-950/30 dark:text-green-400">
-                      Server returned {previewProbe.bytes.toLocaleString()} bytes
-                      of PDF.
-                    </div>
-                  )}
-                  {previewProbe.kind === "http-error" && (
-                    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
-                      <div className="font-semibold mb-1">
-                        HTTP {previewProbe.status} from preview endpoint
-                      </div>
-                      <pre className="mt-1 whitespace-pre-wrap break-all bg-red-100/50 p-2 rounded font-mono dark:bg-red-900/40">
-                        {previewProbe.body.slice(0, 800)}
-                      </pre>
-                    </div>
-                  )}
-                  {previewProbe.kind === "network-error" && (
-                    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
-                      <div className="font-semibold mb-1">Network failure</div>
-                      <div>{previewProbe.message}</div>
-                    </div>
-                  )}
-                  <div className="rounded-md border overflow-hidden bg-muted">
+                    <Button
+                      onClick={() => setPreviewBust((b) => b + 1)}
+                      disabled={!previewTemplateId}
+                    >
+                      <Eye className="h-4 w-4 mr-1" />
+                      Render preview
+                    </Button>
+                  </div>
+                  {previewTemplateId && previewBust > 0 && (
                     <iframe
                       key={previewBust}
-                      src={previewSrc}
-                      className="w-full"
-                      style={{ height: "800px" }}
+                      src={`/api/events/${eventId}/certificates/preview?templateId=${previewTemplateId}&t=${previewBust}`}
+                      className="w-full h-[800px] rounded border"
                       title="Certificate preview"
                     />
-                  </div>
+                  )}
                 </>
-              ) : (
-                <div className="rounded-md border border-dashed p-12 text-center text-sm text-muted-foreground">
-                  Click <strong>Generate preview</strong> above to render a draft.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Design approval */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="h-4 w-4" />
-                Design approval
-              </CardTitle>
-              <CardDescription>
-                Once the CEO/MD has signed off the cert design, flip this. The
-                flag is required to enable the Issue button in Phase C.{" "}
-                <strong>SUPER_ADMIN only.</strong>
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {editable?.designApprovedBy ? (
-                <div className="flex items-center justify-between rounded-md border bg-green-50 p-3 text-sm dark:bg-green-950/40">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    <span>
-                      Approved on{" "}
-                      <strong>
-                        {new Date(editable.designApprovedAt!).toLocaleString()}
-                      </strong>
-                    </span>
-                  </div>
-                  {isSuperAdmin && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggleApproval(false)}
-                      disabled={saveMutation.isPending}
-                    >
-                      Revoke approval
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/40">
-                  <div className="flex items-center gap-2">
-                    <Info className="h-4 w-4 text-amber-600" />
-                    <span>
-                      Design not yet approved — Issue button stays locked.
-                    </span>
-                  </div>
-                  {isSuperAdmin ? (
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="approve"
-                        onCheckedChange={(c) => toggleApproval(c === true)}
-                        disabled={saveMutation.isPending}
-                      />
-                      <Label htmlFor="approve" className="cursor-pointer">
-                        Mark design approved
-                      </Label>
-                    </div>
-                  ) : (
-                    <Badge variant="outline">SUPER_ADMIN only</Badge>
-                  )}
-                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── Tab 4: Issue ─────────────────────────────────────────── */}
+        {/* ── ISSUE TAB ─────────────────────────────────────────── */}
         <TabsContent value="issue" className="space-y-6 mt-6">
-          <Tabs
-            value={activeIssueType}
-            onValueChange={(v) => setActiveIssueType(v as CertTypeKey)}
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              {CERT_TYPES.map((t) => (
-                <TabsTrigger key={t.key} value={t.key}>
-                  {t.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-
-          {/* Active run panel (shown if there's an in-flight run for this
-              cert type) — takes precedence over the "Issue" CTA so the
-              operator focuses on the live thing. */}
-          {runQuery.data && runQuery.data.status !== "CANCELLED" && (
-            <RunProgressCard
-              run={runQuery.data}
-              onSend={() => sendMutation.mutate(runQuery.data!.runId)}
-              onCancel={() => cancelMutation.mutate(runQuery.data!.runId)}
-              sending={sendMutation.isPending}
-              cancelling={cancelMutation.isPending}
-            />
-          )}
-
-          {/* Eligibility + Issue CTA — visible always, even when a run
-              is in progress, so the operator sees the current cohort.
-              The Issue button is disabled if a non-terminal run is
-              already live for this type (server returns 409 + we re-
-              adopt the runId). */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Send className="h-5 w-5" />
-                Eligible recipients
+                Issue certificates
               </CardTitle>
               <CardDescription>
-                {eligibilityQuery.isLoading
-                  ? "Loading eligibility…"
-                  : eligibilityQuery.data
-                    ? `${eligibilityQuery.data.eligibleCount} recipient${eligibilityQuery.data.eligibleCount === 1 ? "" : "s"} not yet issued a ${CERT_TYPES.find((t) => t.key === activeIssueType)?.label} certificate.`
-                    : "Failed to load eligibility."}
+                Pick a template, review the eligible recipient list, then click Issue.
+                The cron worker renders + emails in the background.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {eligibilityQuery.data?.exclusions.length ? (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 text-sm dark:bg-amber-950/30">
-                  <div className="font-semibold mb-1 flex items-center gap-2">
-                    <Info className="h-4 w-4 text-amber-600" />
-                    Blocking conditions
-                  </div>
-                  <ul className="list-disc pl-5 space-y-1 text-amber-900 dark:text-amber-300">
-                    {eligibilityQuery.data.exclusions.map((e, i) => (
-                      <li key={i}>{e.reason}</li>
-                    ))}
-                  </ul>
+              {templates.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Create a template first.
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  <div className="grid gap-2 max-w-md">
+                    <Label>Template</Label>
+                    <Select
+                      value={issueTemplateId ?? ""}
+                      onValueChange={(v) => setIssueTemplateId(v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pick a template to issue from" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CERT_CATEGORIES.map((cat) => {
+                          const tpls = templatesByCategory[cat.key];
+                          if (tpls.length === 0) return null;
+                          return tpls.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {cat.label} — {t.name}
+                            </SelectItem>
+                          ));
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {eligibilityQuery.data && eligibilityQuery.data.eligibleCount > 0 ? (
-                <details className="rounded-md border bg-muted/30 p-3 text-sm">
-                  <summary className="cursor-pointer font-medium">
-                    Sample recipients ({Math.min(eligibilityQuery.data.eligible.length, 20)}{" "}
-                    of {eligibilityQuery.data.eligibleCount})
-                  </summary>
-                  <ul className="mt-3 space-y-1 max-h-60 overflow-y-auto">
-                    {eligibilityQuery.data.eligible.slice(0, 20).map((r, i) => (
-                      <li key={i} className="text-xs grid grid-cols-[1fr_auto] gap-2 py-0.5">
-                        <span>{r.recipientName}</span>
-                        <span className="text-muted-foreground font-mono">
-                          {r.recipientEmail ?? "(no email)"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ) : null}
+                  {issueTemplateId && (
+                    <>
+                      {eligibilityQuery.isLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Computing eligible recipients…
+                        </div>
+                      ) : eligibilityQuery.data ? (
+                        <div className="space-y-3">
+                          <div className="rounded-md border bg-primary/5 p-3">
+                            <p className="font-medium">
+                              {eligibilityQuery.data.eligibleCount} eligible recipient
+                              {eligibilityQuery.data.eligibleCount === 1 ? "" : "s"}
+                            </p>
+                            {eligibilityQuery.data.exclusions.length > 0 && (
+                              <div className="mt-2 text-xs text-amber-700">
+                                <Info className="h-3.5 w-3.5 inline mr-1" />
+                                Exclusions:{" "}
+                                {eligibilityQuery.data.exclusions.map((x) => x.reason).join("; ")}
+                              </div>
+                            )}
+                          </div>
+                          {eligibilityQuery.data.eligible.length > 0 && (
+                            <div className="rounded-md border p-3 max-h-64 overflow-y-auto text-sm">
+                              {eligibilityQuery.data.eligible.slice(0, 30).map((r, i) => (
+                                <div
+                                  key={i}
+                                  className="flex items-center justify-between py-1 border-b last:border-b-0"
+                                >
+                                  <span className="truncate">{r.recipientName}</span>
+                                  <span className="text-xs text-muted-foreground truncate ml-2">
+                                    {r.recipientEmail}
+                                  </span>
+                                </div>
+                              ))}
+                              {eligibilityQuery.data.eligibleCount > 30 && (
+                                <div className="text-xs text-muted-foreground pt-2 text-center">
+                                  + {eligibilityQuery.data.eligibleCount - 30} more…
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <Button
+                            onClick={() =>
+                              issueTemplateId && issueMutation.mutate(issueTemplateId)
+                            }
+                            disabled={
+                              eligibilityQuery.data.eligibleCount === 0 ||
+                              issueMutation.isPending ||
+                              !!activeRunId
+                            }
+                          >
+                            {issueMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4 mr-1" />
+                            )}
+                            Issue {eligibilityQuery.data.eligibleCount} certificates
+                          </Button>
+                        </div>
+                      ) : null}
 
-              <div className="flex items-center justify-between border-t pt-4">
-                <p className="text-xs text-muted-foreground max-w-md">
-                  Two-phase issue — PDFs render first (cron picks up within
-                  60s), then you review them in the AWAITING_REVIEW gate
-                  before emails go out.
-                </p>
-                <Button
-                  onClick={() => issueMutation.mutate(activeIssueType)}
-                  disabled={
-                    issueMutation.isPending ||
-                    !eligibilityQuery.data ||
-                    eligibilityQuery.data.eligibleCount === 0 ||
-                    !!runQuery.data
-                  }
-                >
-                  {issueMutation.isPending && (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      {/* Active run panel */}
+                      {activeRunId && runQuery.data && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-base flex items-center justify-between">
+                              <span>Run {runQuery.data.runId.slice(0, 8)}</span>
+                              <RunStatusBadge status={runQuery.data.status} />
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3 text-sm">
+                            <div className="flex flex-wrap gap-x-6 gap-y-1">
+                              <span>Total: {runQuery.data.totalCount}</span>
+                              <span>Rendered: {runQuery.data.renderedCount}</span>
+                              <span>Emailed: {runQuery.data.emailedCount}</span>
+                              <span className="text-red-600">Failed: {runQuery.data.failedCount}</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full bg-primary transition-all"
+                                style={{ width: `${runQuery.data.progressPct}%` }}
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              {runQuery.data.status === "AWAITING_REVIEW" && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => sendMutation.mutate(runQuery.data!.runId)}
+                                  disabled={sendMutation.isPending}
+                                >
+                                  <Mail className="h-4 w-4 mr-1" />
+                                  Send emails
+                                </Button>
+                              )}
+                              {["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"].includes(
+                                runQuery.data.status,
+                              ) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => cancelMutation.mutate(runQuery.data!.runId)}
+                                  disabled={cancelMutation.isPending}
+                                >
+                                  Cancel
+                                </Button>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </>
                   )}
-                  <Send className="h-4 w-4 mr-1" />
-                  Issue {eligibilityQuery.data?.eligibleCount ?? 0} certificate
-                  {eligibilityQuery.data?.eligibleCount === 1 ? "" : "s"}
-                </Button>
-              </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1039,159 +1223,24 @@ export default function CertificatesPage() {
   );
 }
 
-// ── RunProgressCard — the live progress UI for an in-flight run ─────────────
-//
-// Renders the run's progress bar, current phase, sample items, and the
-// stage-appropriate action buttons (Send when AWAITING_REVIEW, Cancel
-// when not terminal). Polling is handled by the parent's runQuery so
-// this component is a pure render of the latest snapshot.
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function RunProgressCard({
-  run,
-  onSend,
-  onCancel,
-  sending,
-  cancelling,
-}: {
-  run: RunResp;
-  onSend: () => void;
-  onCancel: () => void;
-  sending: boolean;
-  cancelling: boolean;
-}) {
-  const isTerminal = ["COMPLETED", "FAILED", "CANCELLED"].includes(run.status);
-  const phaseLabel: Record<RunResp["status"], string> = {
-    PENDING: "Queued — cron will start rendering within 60 seconds",
-    RENDERING: `Rendering PDFs (${run.renderedCount} / ${run.totalCount})`,
-    AWAITING_REVIEW: "All PDFs rendered — review then send emails",
-    SENDING: `Sending emails (${run.emailedCount} / ${run.totalCount})`,
-    COMPLETED: "Run complete",
-    FAILED: "Run failed",
-    CANCELLED: "Run cancelled",
+function RunStatusBadge({ status }: { status: RunResp["status"] }) {
+  const config: Record<RunResp["status"], { label: string; cls: string; icon: React.ReactNode }> = {
+    PENDING: { label: "Pending", cls: "bg-gray-100 text-gray-800", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
+    RENDERING: { label: "Rendering", cls: "bg-blue-100 text-blue-800", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
+    AWAITING_REVIEW: { label: "Awaiting review", cls: "bg-amber-100 text-amber-800", icon: <Eye className="h-3 w-3" /> },
+    SENDING: { label: "Sending", cls: "bg-blue-100 text-blue-800", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
+    COMPLETED: { label: "Completed", cls: "bg-emerald-100 text-emerald-800", icon: <CheckCircle2 className="h-3 w-3" /> },
+    FAILED: { label: "Failed", cls: "bg-red-100 text-red-800", icon: <XCircle className="h-3 w-3" /> },
+    CANCELLED: { label: "Cancelled", cls: "bg-gray-100 text-gray-600", icon: <XCircle className="h-3 w-3" /> },
   };
-  const statusColor: Record<RunResp["status"], string> = {
-    PENDING: "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/30 dark:text-blue-300",
-    RENDERING: "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/30 dark:text-blue-300",
-    AWAITING_REVIEW: "bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/30 dark:text-amber-300",
-    SENDING: "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/30 dark:text-blue-300",
-    COMPLETED: "bg-green-50 border-green-200 text-green-900 dark:bg-green-950/30 dark:text-green-300",
-    FAILED: "bg-red-50 border-red-200 text-red-900 dark:bg-red-950/30 dark:text-red-300",
-    CANCELLED: "bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-950/30 dark:text-gray-400",
-  };
-
+  const c = config[status];
   return (
-    <Card className={`border ${statusColor[run.status]}`}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {run.status === "AWAITING_REVIEW" ? (
-            <Mail className="h-5 w-5" />
-          ) : run.status === "COMPLETED" ? (
-            <CheckCircle2 className="h-5 w-5" />
-          ) : run.status === "FAILED" || run.status === "CANCELLED" ? (
-            <XCircle className="h-5 w-5" />
-          ) : (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          )}
-          {phaseLabel[run.status]}
-        </CardTitle>
-        <CardDescription>
-          Run ID: <code className="font-mono">{run.runId.slice(-8)}</code>
-          {run.lastTickAt && (
-            <>
-              {" · "}Last cron tick: {new Date(run.lastTickAt).toLocaleTimeString()}
-            </>
-          )}
-          {run.failedCount > 0 && (
-            <>
-              {" · "}
-              <span className="text-red-700 dark:text-red-400 font-semibold">
-                {run.failedCount} failed
-              </span>
-            </>
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Progress bar */}
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span>
-              {run.renderedCount} rendered · {run.emailedCount} emailed ·{" "}
-              {run.totalCount} total
-            </span>
-            <span className="font-semibold">{run.progressPct}%</span>
-          </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${run.progressPct}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Action buttons by status */}
-        {run.status === "AWAITING_REVIEW" && (
-          <div className="flex gap-2 flex-wrap">
-            <Button onClick={onSend} disabled={sending}>
-              {sending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              <Send className="h-4 w-4 mr-1" />
-              Approve &amp; send {run.totalCount} emails
-            </Button>
-            <Button variant="outline" onClick={onCancel} disabled={cancelling}>
-              <XCircle className="h-4 w-4 mr-1" />
-              Cancel run
-            </Button>
-          </div>
-        )}
-        {!isTerminal && run.status !== "AWAITING_REVIEW" && (
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onCancel} disabled={cancelling}>
-              <XCircle className="h-4 w-4 mr-1" />
-              Cancel run
-            </Button>
-          </div>
-        )}
-        {run.status === "FAILED" && (
-          <div className="text-sm">
-            Re-issue support coming in v1.1. For now, cancel + start a
-            fresh run; the @@unique constraint on IssuedCertificate
-            prevents duplicates for already-issued recipients.
-          </div>
-        )}
-
-        {/* Sample items — first 20 with progress state */}
-        <details className="rounded-md border bg-background p-3 text-sm">
-          <summary className="cursor-pointer font-medium">
-            Sample recipients ({run.sampleItems.length})
-          </summary>
-          <table className="mt-3 w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="text-left font-medium py-1">Recipient</th>
-                <th className="text-left font-medium py-1">Email</th>
-                <th className="text-left font-medium py-1">Rendered</th>
-                <th className="text-left font-medium py-1">Emailed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {run.sampleItems.map((it) => (
-                <tr key={it.id} className="border-t">
-                  <td className="py-1">{it.recipientName}</td>
-                  <td className="py-1 font-mono text-muted-foreground">
-                    {it.recipientEmail ?? "—"}
-                  </td>
-                  <td className="py-1">
-                    {it.renderedAt ? "✓" : it.errorPhase === "render" ? "✗" : "…"}
-                  </td>
-                  <td className="py-1">
-                    {it.emailedAt ? "✓" : it.errorPhase === "email" ? "✗" : "…"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      </CardContent>
-    </Card>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${c.cls}`}
+    >
+      {c.icon} {c.label}
+    </span>
   );
 }

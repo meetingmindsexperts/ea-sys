@@ -118,6 +118,9 @@ export interface CertificateCanvasEditorProps {
   backgroundPdfUrl: string | null;
   /** Current text boxes — controlled, parent owns the array. */
   textBoxes: CertificateTextBox[];
+  /** Required for the upload route — verifies the user belongs to this
+   *  event's org before writing to the filesystem. */
+  eventId: string;
   /** Emitted on any mutation: drag, resize, content edit, add, delete. */
   onChange: (next: {
     backgroundPdfUrl?: string | null;
@@ -128,6 +131,7 @@ export interface CertificateCanvasEditorProps {
 export function CertificateCanvasEditor({
   backgroundPdfUrl,
   textBoxes,
+  eventId,
   onChange,
 }: CertificateCanvasEditorProps) {
   // PDF page dimensions in pdf-lib points — set after rasterization.
@@ -215,7 +219,7 @@ export function CertificateCanvasEditor({
 
   // ── Upload PDF — POSTs to /api/upload/pdf and stores the returned URL
   const handleUpload = useCallback(
-    async (file: File, eventId?: string) => {
+    async (file: File) => {
       if (file.size > 10 * 1024 * 1024) {
         toast.error("File too large — max 10MB.");
         return;
@@ -224,7 +228,7 @@ export function CertificateCanvasEditor({
       try {
         const form = new FormData();
         form.append("file", file);
-        if (eventId) form.append("eventId", eventId);
+        form.append("eventId", eventId);
         const res = await fetch("/api/upload/pdf", { method: "POST", body: form });
         const json = (await res.json().catch(() => ({}))) as {
           url?: string;
@@ -252,7 +256,7 @@ export function CertificateCanvasEditor({
         setUploading(false);
       }
     },
-    [onChange],
+    [onChange, eventId],
   );
 
   // ── Text box mutators ──────────────────────────────────────────────────

@@ -252,6 +252,7 @@ model Event {
   issuedCertificates        IssuedCertificate[]
   certificateSerialCounters CertificateSerialCounter[]
   certificateIssueRuns      CertificateIssueRun[]
+  certificateTemplates      CertificateTemplate[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -279,6 +280,11 @@ enum CertificateType {
 /// (added 2026-05-18). One row per `(eventId, type)`. PK is composite so we
 /// can upsert+increment in a single statement under concurrent issues
 /// without P2002 collisions on `IssuedCertificate.serial`'s unique index.
+///
+/// Serials are CATEGORY-scoped, not template-scoped — a single attendance
+/// numbering sequence covers Standard + VIP + any other Attendance variant
+/// the organizer creates. The category is what reads as the cert's identity
+/// in serial-number registries.
 model CertificateSerialCounter {
   eventId    String
   type       CertificateType
@@ -287,6 +293,41 @@ model CertificateSerialCounter {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@id([eventId, type])
+}
+
+/// User-defined certificate template (2026-06-02 — N templates per event-per-
+/// category, replacing the previous 2-slot JSON on Event.settings). Each
+/// row carries its own background PDF + positioned text boxes; the operator
+/// can have multiple Attendance designs (e.g. "Standard", "VIP", "Sponsor
+/// Guest") and multiple Appreciation designs (e.g. "Speaker", "Moderator",
+/// "Chairman") per event.
+///
+/// `category` derives the eligibility query (Attendance → checked-in
+/// registrants; Appreciation → speakers + poster authors). One cert per
+/// recipient per category — the uniqueness on IssuedCertificate prevents
+/// double-issue even when multiple templates of the same category exist.
+///
+/// Template DELETE is blocked at the application layer when any
+/// IssuedCertificate still references it (FK is SetNull so the row can be
+/// orphaned in extremis, but the API rejects). This preserves issued-cert
+/// audit trail integrity.
+model CertificateTemplate {
+  id               String          @id @default(cuid())
+  eventId          String
+  name             String // organizer-defined, e.g. "VIP Attendance"
+  category         CertificateType // ATTENDANCE | APPRECIATION
+  backgroundPdfUrl String?
+  // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
+  textBoxes        Json            @default("[]")
+  sortOrder        Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  event              Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  issuedCertificates IssuedCertificate[]
+  issueRuns          CertificateIssueRun[]
+
+  @@index([eventId, category, sortOrder])
 }
 
 /// Audit record of a certificate that was actually issued + emailed. One row
@@ -299,18 +340,23 @@ model CertificateSerialCounter {
 /// the immutability strategy `Speaker.agreementTextSnapshot` uses for
 /// legal-text fixity.
 model IssuedCertificate {
-  id               String          @id @default(cuid())
-  eventId          String
-  registrationId   String?
-  speakerId        String?
-  type             CertificateType
-  serial           String          @unique
-  issuedAt         DateTime        @default(now())
-  issuedByUserId   String
-  lastReprintedAt  DateTime?
-  reprintCount     Int             @default(0)
-  revokedAt        DateTime?
-  revocationReason String?
+  id                    String          @id @default(cuid())
+  eventId               String
+  registrationId        String?
+  speakerId             String?
+  type                  CertificateType
+  /// Specific template that rendered this cert. Nullable so legacy rows
+  /// (pre-2026-06-02 multi-template flip) survive; new issues always set it.
+  /// SetNull on template delete — audit trail preserved even if the
+  /// organizer later deletes the template that produced this cert.
+  certificateTemplateId String?
+  serial                String          @unique
+  issuedAt              DateTime        @default(now())
+  issuedByUserId        String
+  lastReprintedAt       DateTime?
+  reprintCount          Int             @default(0)
+  revokedAt             DateTime?
+  revocationReason      String?
 
   // Frozen at issue time. Schema:
   //   { title, firstName, lastName, fullName (formatted),
@@ -325,15 +371,17 @@ model IssuedCertificate {
   // until the render phase completes for this cert.
   pdfUrl String?
 
-  event        Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
-  speaker      Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
-  issuedBy     User                     @relation(fields: [issuedByUserId], references: [id])
-  issueRunItem CertificateIssueRunItem?
+  event               Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration        Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker             Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  issuedBy            User                     @relation(fields: [issuedByUserId], references: [id])
+  certificateTemplate CertificateTemplate?     @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
+  issueRunItem        CertificateIssueRunItem?
 
   @@unique([eventId, type, registrationId])
   @@unique([eventId, type, speakerId])
   @@index([eventId, type])
+  @@index([certificateTemplateId])
   @@index([serial])
 }
 
@@ -348,36 +396,42 @@ model IssuedCertificate {
 /// level guard in POST /issue ensures only one non-terminal run per
 /// (event, type) so concurrent operator clicks don't double-issue.
 model CertificateIssueRun {
-  id                 String             @id @default(cuid())
-  eventId            String
-  type               CertificateType
-  status             CertIssueRunStatus @default(PENDING)
-  totalCount         Int
-  renderedCount      Int                @default(0)
-  emailedCount       Int                @default(0)
-  failedCount        Int                @default(0)
-  triggeredByUserId  String
-  triggeredAt        DateTime           @default(now())
-  rendererStartedAt  DateTime?
-  rendererFinishedAt DateTime?
-  emailerStartedAt   DateTime?
-  emailerFinishedAt  DateTime?
+  id                    String             @id @default(cuid())
+  eventId               String
+  type                  CertificateType
+  /// Which template fired this run. Nullable for legacy rows (pre-flip);
+  /// new runs always set it. SetNull on template delete — the run row
+  /// survives as audit even if the template is later removed.
+  certificateTemplateId String?
+  status                CertIssueRunStatus @default(PENDING)
+  totalCount            Int
+  renderedCount         Int                @default(0)
+  emailedCount          Int                @default(0)
+  failedCount           Int                @default(0)
+  triggeredByUserId     String
+  triggeredAt           DateTime           @default(now())
+  rendererStartedAt     DateTime?
+  rendererFinishedAt    DateTime?
+  emailerStartedAt      DateTime?
+  emailerFinishedAt     DateTime?
   // Heartbeat — cron worker updates on every tick. Stall detector
   // reclaims any IN_PROGRESS run (RENDERING / SENDING) whose lastTickAt
   // is older than 10 minutes back to PENDING / AWAITING_REVIEW so a
   // crashed mid-tick run doesn't get stuck forever.
-  lastTickAt         DateTime?
+  lastTickAt            DateTime?
   // [{ recipientName, phase, code, message }] — capped at last 100 in code.
-  errors             Json?
+  errors                Json?
   // Optional: when SENDING completes, snapshot the sender's cc list so
   // re-runs can replay. Not required for v1.
-  notes              String?
+  notes                 String?
 
-  event       Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  triggeredBy User                      @relation(fields: [triggeredByUserId], references: [id])
-  items       CertificateIssueRunItem[]
+  event               Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  triggeredBy         User                      @relation(fields: [triggeredByUserId], references: [id])
+  certificateTemplate CertificateTemplate?      @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
+  items               CertificateIssueRunItem[]
 
   @@index([eventId, type, status])
+  @@index([certificateTemplateId])
   @@index([status, lastTickAt])
 }
 
