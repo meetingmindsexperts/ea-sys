@@ -368,7 +368,12 @@ export function CertificateCanvasEditor({
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf"
+          // Same accept set as the empty-state upload — PDF/JPG/PNG.
+          // Images get server-converted to PDF in /api/upload/pdf.
+          // Without this, the "Replace background" toolbar button only
+          // showed PDFs in the file picker even though the server
+          // route accepts all three.
+          accept="application/pdf,image/jpeg,image/png"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
