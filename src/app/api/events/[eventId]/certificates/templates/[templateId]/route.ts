@@ -50,6 +50,10 @@ const patchSchema = z.object({
   backgroundPdfUrl: z.string().max(500).nullable().optional(),
   textBoxes: z.array(textBoxSchema).max(40).optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
+  // Per-template default cover email — patches independently of the
+  // visual fields. Pass null to clear (reverts to system default).
+  emailSubject: z.string().min(1).max(200).nullable().optional(),
+  emailBody: z.string().min(1).max(10000).nullable().optional(),
 });
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -104,6 +108,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       data.textBoxes = parsed.data.textBoxes as unknown as Prisma.InputJsonValue;
     }
     if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder;
+    if (parsed.data.emailSubject !== undefined) data.emailSubject = parsed.data.emailSubject;
+    if (parsed.data.emailBody !== undefined) data.emailBody = parsed.data.emailBody;
 
     const updated = await db.certificateTemplate.update({
       where: { id: templateId },

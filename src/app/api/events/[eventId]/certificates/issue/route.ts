@@ -51,6 +51,13 @@ const bodySchema = z.object({
   // category pool carrying that tag get certs. Length cap is generous
   // (matches the longest tag we've seen in prod + headroom).
   tag: z.string().min(1).max(100),
+  // Cover-email content the operator confirmed at Issue time. Stored
+  // as a snapshot on the run row so a later template edit doesn't
+  // change emails for an in-flight run. Both required — the dialog
+  // pre-fills from the template default OR the system default, and
+  // the operator confirms (no empty-confirm path).
+  emailSubject: z.string().min(1).max(200),
+  emailBody: z.string().min(1).max(10000),
 });
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -84,7 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const { templateId, tag } = parsed.data;
+    const { templateId, tag, emailSubject, emailBody } = parsed.data;
 
     // Combined lookup — template must belong to an event in the user's org.
     const template = await db.certificateTemplate.findFirst({
@@ -155,6 +162,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           status: "PENDING",
           totalCount: eligible.length,
           triggeredByUserId: userIdLocked,
+          // Snapshot the operator-confirmed cover-email content. The
+          // send phase reads from here, not from the template, so a
+          // later template edit doesn't change emails for THIS run.
+          emailSubject,
+          emailBody,
         },
         select: { id: true },
       });

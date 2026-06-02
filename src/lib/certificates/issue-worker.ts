@@ -39,7 +39,15 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
 import { uploadCertificatePdf } from "@/lib/storage";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, wrapWithBranding, inlineCss, brandingFrom, type EmailBranding } from "@/lib/email";
+import {
+  resolveCoverEmailTokens,
+  type CoverEmailTokenContext,
+} from "./email-tokens-resolver";
+import {
+  SYSTEM_DEFAULT_SUBJECT,
+  defaultBodyForCategory,
+} from "./email-tokens";
 import type { CertificateData, CertificateTemplate, AccreditationEntry } from "./types";
 
 /** Escape user-controlled strings before HTML-interpolating into email
@@ -424,6 +432,24 @@ async function processSendPhase(
   runId: string,
   eventId: string,
 ): Promise<RunTickResult> {
+  // Load the run row to read the snapshotted email subject + body the
+  // operator confirmed at Issue time. Falls back to system defaults
+  // when missing — covers legacy runs created before the email-
+  // editor feature shipped.
+  const runRow = await db.certificateIssueRun.findUnique({
+    where: { id: runId },
+    select: { type: true, emailSubject: true, emailBody: true },
+  });
+  if (!runRow) {
+    apiLogger.error({ msg: "cert-issue-worker:send-run-not-found", runId });
+    await failRun(runId, "Run row vanished mid-send");
+    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
+  }
+  const emailSubjectTemplate =
+    runRow.emailSubject?.trim().length ? runRow.emailSubject : SYSTEM_DEFAULT_SUBJECT;
+  const emailBodyTemplate =
+    runRow.emailBody?.trim().length ? runRow.emailBody : defaultBodyForCategory(runRow.type);
+
   const items = await db.certificateIssueRunItem.findMany({
     where: {
       runId,
@@ -454,9 +480,12 @@ async function processSendPhase(
   const event = await db.event.findUnique({
     where: { id: eventId },
     select: {
-      id: true, name: true,
+      id: true, name: true, slug: true,
+      startDate: true, endDate: true,
+      venue: true, city: true, country: true,
       emailFromAddress: true, emailFromName: true,
-      organization: { select: { name: true } },
+      emailHeaderImage: true, emailFooterImage: true, emailFooterHtml: true,
+      organization: { select: { name: true, logo: true } },
     },
   });
   if (!event) {
@@ -483,22 +512,74 @@ async function processSendPhase(
       }
       const pdfBuffer = await loadPdfBytes(cert.pdfUrl);
 
-      // Recipient names + event name are user-controlled (attendee
-      // self-registers, organizer types the event name). Escape every
-      // user-controlled string before interpolating into the HTML body
-      // — otherwise a registrant named `<img src=x onerror=...>` ships
-      // arbitrary HTML into every attendee's inbox.
-      const safeRecipient = escapeHtml(item.recipientName);
-      const safeEventName = escapeHtml(event.name);
-      const safeOrgName = escapeHtml(event.organization.name);
+      // Per-recipient token resolution. The run row carries the
+      // organizer-confirmed subject + body; tokens (recipientName,
+      // certificateSerial, abstractTitle, etc.) get substituted per
+      // recipient. Resolver HTML-escapes user-controlled values for
+      // the body's text token slots (B2 fix from the audit), and
+      // logs unknown tokens to /logs at warn level.
+      const tokenCtx: CoverEmailTokenContext = {
+        recipientName: item.recipientName,
+        eventName: event.name,
+        eventStartDate: event.startDate,
+        eventEndDate: event.endDate,
+        venue: event.venue,
+        city: event.city,
+        country: event.country,
+        organizationName: event.organization.name,
+        certificateType: runRow.type,
+        certificateSerial: cert.serial,
+        speakerId: item.speakerId,
+        eventId,
+      };
+      // The HTML body is organizer-authored Tiptap output. Tokens are
+      // interpolated into a USER-LEVEL HTML document so the resolver
+      // escapes the dynamic values; the static HTML around the tokens
+      // is trusted (operator wrote it).
+      const escapedTokenCtx: CoverEmailTokenContext = {
+        ...tokenCtx,
+        recipientName: escapeHtml(tokenCtx.recipientName),
+        eventName: escapeHtml(tokenCtx.eventName),
+        organizationName: escapeHtml(tokenCtx.organizationName),
+        venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
+        city: tokenCtx.city ? escapeHtml(tokenCtx.city) : tokenCtx.city,
+        country: tokenCtx.country ? escapeHtml(tokenCtx.country) : tokenCtx.country,
+      };
+      const subject = (
+        await resolveCoverEmailTokens(emailSubjectTemplate, tokenCtx)
+      ).replace(/\s+/g, " ").trim();
+      const bodyHtml = await resolveCoverEmailTokens(emailBodyTemplate, escapedTokenCtx);
+      const bodyText = await resolveCoverEmailTokens(emailBodyTemplate, tokenCtx)
+        .then((html) =>
+          html
+            .replace(/<\s*br\s*\/?>/gi, "\n")
+            .replace(/<\/p>/gi, "\n\n")
+            .replace(/<[^>]+>/g, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim(),
+        );
+
+      // H1 fix: apply the same branding pipeline every other org email
+      // uses — wrap the resolved body in the event's header image +
+      // footer HTML + footer image, then inline CSS so Outlook etc.
+      // render the styles. Pre this change the cert-delivery email
+      // bypassed the pipeline entirely.
+      const branding: EmailBranding = {
+        emailHeaderImage: event.emailHeaderImage,
+        emailFooterImage: event.emailFooterImage,
+        emailFooterHtml: event.emailFooterHtml,
+        emailFromAddress: event.emailFromAddress,
+        emailFromName: event.emailFromName ?? event.organization.name,
+        eventName: event.name,
+      };
+      const wrappedHtml = inlineCss(wrapWithBranding(bodyHtml, branding));
+
       const result = await sendEmail({
         to: [{ email: item.recipientEmail, name: item.recipientName }],
-        subject: `Your certificate — ${event.name}`,
-        htmlContent: `<p>Dear ${safeRecipient},</p><p>Please find your certificate for <strong>${safeEventName}</strong> attached.</p><p>Best regards,<br>${safeOrgName}</p>`,
-        textContent: `Dear ${item.recipientName},\n\nPlease find your certificate for ${event.name} attached.\n\nBest regards,\n${event.organization.name}`,
-        from: event.emailFromAddress
-          ? { email: event.emailFromAddress, name: event.emailFromName ?? event.organization.name }
-          : undefined,
+        subject,
+        htmlContent: wrappedHtml,
+        textContent: bodyText,
+        from: brandingFrom(branding),
         attachments: [
           {
             name: `${cert.serial}.pdf`,
@@ -508,7 +589,7 @@ async function processSendPhase(
         ],
         emailType: "certificate",
         logContext: {
-          entityType: "REGISTRATION", // best-effort; speaker certs reuse the bucket
+          entityType: item.speakerId ? "SPEAKER" : "REGISTRATION",
           entityId: item.registrationId ?? item.speakerId ?? null,
           eventId,
         },

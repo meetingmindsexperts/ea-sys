@@ -47,6 +47,12 @@ const createSchema = z.object({
   category: z.enum(["ATTENDANCE", "APPRECIATION"]),
   backgroundPdfUrl: z.string().max(500).nullable().optional(),
   textBoxes: z.array(textBoxSchema).max(40).optional(),
+  // Per-template default cover email. Both nullable — when null the
+  // Issue dialog pre-fills with the system default. min(1) when set
+  // so a template doesn't carry an empty string that would render
+  // an empty email on the wire.
+  emailSubject: z.string().min(1).max(200).nullable().optional(),
+  emailBody: z.string().min(1).max(10000).nullable().optional(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -149,6 +155,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           backgroundPdfUrl: data.backgroundPdfUrl ?? null,
           textBoxes: (data.textBoxes ?? []) as unknown as Prisma.InputJsonValue,
           sortOrder: nextOrder,
+          emailSubject: data.emailSubject ?? null,
+          emailBody: data.emailBody ?? null,
         },
       });
     });

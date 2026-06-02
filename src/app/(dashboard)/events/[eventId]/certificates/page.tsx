@@ -75,6 +75,11 @@ import {
   Save,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
+import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
+import {
+  SYSTEM_DEFAULT_SUBJECT,
+  defaultBodyForCategory,
+} from "@/lib/certificates/email-tokens";
 
 // Lazy-load the canvas editor — pdfjs-dist + react-rnd stay off the
 // dashboard's first-paint critical path until the operator opens the
@@ -111,6 +116,11 @@ interface CertificateTemplate {
   backgroundPdfUrl: string | null;
   textBoxes: CertificateTextBox[];
   sortOrder: number;
+  /** Organizer-set default subject/body for the cover email. Null when
+   *  the template hasn't been customized yet — the Issue dialog falls
+   *  back to the per-category system default. */
+  emailSubject: string | null;
+  emailBody: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { issuedCertificates: number; issueRuns: number };
@@ -202,6 +212,14 @@ export default function CertificatesPage() {
   // Issue time — operator picks from the availableTags overview that
   // the eligibility endpoint returns for the picked template.
   const [issueTag, setIssueTag] = useState<string>("");
+  // Email-editor dialog state. The Issue button opens this; on Confirm
+  // the issueMutation fires with the dialog-confirmed subject + body.
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  // Separate dialog state for the per-template "Edit cover email
+  // defaults" button inside the canvas-editor card — saves to the
+  // template's emailSubject / emailBody columns via PATCH instead of
+  // firing an issue run.
+  const [tmplEmailDialogOpen, setTmplEmailDialogOpen] = useState(false);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
 
   // ── Settings (CME) ────────────────────────────────────────────────────────
@@ -323,6 +341,8 @@ export default function CertificatesPage() {
         name?: string;
         backgroundPdfUrl?: string | null;
         textBoxes?: CertificateTextBox[];
+        emailSubject?: string | null;
+        emailBody?: string | null;
       };
     }) => {
       const res = await fetch(
@@ -433,7 +453,12 @@ export default function CertificatesPage() {
   });
 
   const issueMutation = useMutation({
-    mutationFn: async (vars: { templateId: string; tag: string }) => {
+    mutationFn: async (vars: {
+      templateId: string;
+      tag: string;
+      emailSubject: string;
+      emailBody: string;
+    }) => {
       const res = await fetch(`/api/events/${eventId}/certificates/issue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -682,18 +707,27 @@ export default function CertificatesPage() {
                       · {editingTemplate.textBoxes.length} text boxes
                     </CardDescription>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      // Flush any pending debounced patch before
-                      // closing — otherwise the last few edits stay
-                      // local-only and the next reload reverts them.
-                      flushPatch(editingTemplate.id);
-                      setEditingTemplateId(null);
-                    }}
-                  >
-                    Close editor
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setTmplEmailDialogOpen(true)}
+                    >
+                      <Mail className="h-4 w-4 mr-1" />
+                      Cover email
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        // Flush any pending debounced patch before
+                        // closing — otherwise the last few edits stay
+                        // local-only and the next reload reverts them.
+                        flushPatch(editingTemplate.id);
+                        setEditingTemplateId(null);
+                      }}
+                    >
+                      Close editor
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1214,11 +1248,12 @@ export default function CertificatesPage() {
                           )}
                           <Button
                             onClick={() => {
+                              // Issue click opens the email editor.
+                              // The mutation fires from the dialog's
+                              // onSubmit so the operator has a chance
+                              // to review the cover-email content.
                               if (!issueTemplateId || !issueTag) return;
-                              issueMutation.mutate({
-                                templateId: issueTemplateId,
-                                tag: issueTag,
-                              });
+                              setEmailDialogOpen(true);
                             }}
                             disabled={
                               eligibilityQuery.data.eligibleCount === 0 ||
@@ -1293,6 +1328,73 @@ export default function CertificatesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Per-template email-defaults dialog — opens from the canvas
+          editor card's "Cover email" button. PATCHes the template
+          row's emailSubject + emailBody (the Issue dialog later
+          pre-fills from these). */}
+      {editingTemplate && (
+        <CertEmailEditorDialog
+          open={tmplEmailDialogOpen}
+          onOpenChange={setTmplEmailDialogOpen}
+          category={editingTemplate.category}
+          initialSubject={editingTemplate.emailSubject ?? SYSTEM_DEFAULT_SUBJECT}
+          initialBody={
+            editingTemplate.emailBody ?? defaultBodyForCategory(editingTemplate.category)
+          }
+          submitLabel="Save defaults"
+          helperText={`Defaults for the "${editingTemplate.name}" template. These pre-fill the Issue dialog every time you issue from this template. Operators can still tweak per-run.`}
+          submitting={updateTemplateMutation.isPending}
+          onSubmit={({ emailSubject, emailBody }) => {
+            updateTemplateMutation.mutate(
+              {
+                templateId: editingTemplate.id,
+                patch: { emailSubject, emailBody },
+              },
+              { onSuccess: () => setTmplEmailDialogOpen(false) },
+            );
+          }}
+        />
+      )}
+
+      {/* Email-editor dialog for the Issue flow. Mounted at the page
+          level so it's anchored regardless of which tab is active when
+          the operator clicks Issue. */}
+      {(() => {
+        const target = issueTemplateId
+          ? templates.find((t) => t.id === issueTemplateId) ?? null
+          : null;
+        if (!target) return null;
+        const initialSubject = target.emailSubject ?? SYSTEM_DEFAULT_SUBJECT;
+        const initialBody = target.emailBody ?? defaultBodyForCategory(target.category);
+        return (
+          <CertEmailEditorDialog
+            open={emailDialogOpen}
+            onOpenChange={setEmailDialogOpen}
+            category={target.category}
+            initialSubject={initialSubject}
+            initialBody={initialBody}
+            submitLabel="Confirm & issue"
+            recipientCount={eligibilityQuery.data?.eligibleCount}
+            submitting={issueMutation.isPending}
+            helperText={`The cert PDF is attached automatically to each email. Tokens (e.g. {{recipientName}}) resolve per recipient. Below are the default values from the "${target.name}" template — tweak for this batch if needed; the tweaked content is snapshotted on the run row so a later template edit doesn't change in-flight emails.`}
+            onSubmit={({ emailSubject, emailBody }) => {
+              if (!issueTemplateId || !issueTag) return;
+              issueMutation.mutate(
+                {
+                  templateId: issueTemplateId,
+                  tag: issueTag,
+                  emailSubject,
+                  emailBody,
+                },
+                {
+                  onSuccess: () => setEmailDialogOpen(false),
+                },
+              );
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

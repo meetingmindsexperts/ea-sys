@@ -320,6 +320,13 @@ model CertificateTemplate {
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
   textBoxes        Json            @default("[]")
   sortOrder        Int             @default(0)
+  // Per-template default cover email (cert PDF is always attached). Both
+  // nullable — when null the Issue dialog pre-fills the system default.
+  // Tokens supported in body: recipientName, eventName, eventDateRange,
+  // venueLine, organizationName, certificateType, certificateSerial,
+  // plus abstractTitle on APPRECIATION templates.
+  emailSubject     String?
+  emailBody        String?         @db.Text
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -424,6 +431,13 @@ model CertificateIssueRun {
   // Optional: when SENDING completes, snapshot the sender's cc list so
   // re-runs can replay. Not required for v1.
   notes                 String?
+  // Snapshot of the email content the operator confirmed at Issue time
+  // (copied from the template default into the dialog, optionally
+  // tweaked, then frozen onto the run). The send phase reads from here
+  // — NOT from the template — so a template-default-change mid-run
+  // doesn't retroactively alter the in-flight emails.
+  emailSubject          String?
+  emailBody             String?            @db.Text
 
   event               Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   triggeredBy         User                      @relation(fields: [triggeredByUserId], references: [id])
