@@ -46,12 +46,11 @@ interface RouteParams {
 
 const bodySchema = z.object({
   templateId: z.string().min(1),
-  recipientIds: z
-    .object({
-      registrationIds: z.array(z.string()).max(10000).optional(),
-      speakerIds: z.array(z.string()).max(10000).optional(),
-    })
-    .optional(),
+  // Tag-driven manual selection (2026-06-02 evening). Required — the
+  // organizer must pick a tag, and only people in the template's
+  // category pool carrying that tag get certs. Length cap is generous
+  // (matches the longest tag we've seen in prod + headroom).
+  tag: z.string().min(1).max(100),
 });
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -85,7 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const { templateId, recipientIds } = parsed.data;
+    const { templateId, tag } = parsed.data;
 
     // Combined lookup — template must belong to an event in the user's org.
     const template = await db.certificateTemplate.findFirst({
@@ -99,23 +98,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    // Eligibility query — pulls everyone in the category who hasn't
-    // received this category's cert yet. The recipientIds filter (if
-    // supplied) narrows to a subset.
-    const elig = await eligibleForType(template.category, eventId);
-    let eligible = elig.eligible;
-    if (recipientIds) {
-      const regSet = new Set(recipientIds.registrationIds ?? []);
-      const spkSet = new Set(recipientIds.speakerIds ?? []);
-      const hasFilter = regSet.size > 0 || spkSet.size > 0;
-      if (hasFilter) {
-        eligible = eligible.filter((r) =>
-          r.kind === "registration"
-            ? r.registrationId !== null && regSet.has(r.registrationId)
-            : r.speakerId !== null && spkSet.has(r.speakerId),
-        );
-      }
-    }
+    // Eligibility query — pulls recipients in the category pool
+    // carrying the picked tag, minus anyone already holding a cert
+    // OF THIS CATEGORY (the dedup invariant).
+    const elig = await eligibleForType(template.category, eventId, tag);
+    const eligible = elig.eligible;
 
     if (eligible.length === 0) {
       apiLogger.warn({
@@ -124,19 +111,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         userId: session.user.id,
         templateId: template.id,
         category: template.category,
-        exclusionsCount: elig.exclusions.length,
-        narrowedByRecipientIds: !!recipientIds,
+        tag,
+        availableTagsCount: elig.availableTags.length,
       });
+      const knownTag = elig.availableTags.find((t) => t.tag === tag);
+      const hint = knownTag
+        ? `All ${knownTag.count} people tagged "${tag}" in this event already hold an ${template.category} cert.`
+        : `No one in this event has the tag "${tag}" (in the ${template.category.toLowerCase()} pool). Tag people first, or pick a different tag.`;
       return NextResponse.json(
         {
-          error:
-            elig.exclusions.length > 0
-              ? `No eligible recipients. Reasons: ${elig.exclusions.map((e) => e.reason).join("; ")}`
-              : recipientIds
-                ? "None of the selected recipients are eligible (already issued, or not in the eligible pool for this category)."
-                : "No eligible recipients for this cert category.",
+          error: hint,
           code: "NO_ELIGIBLE_RECIPIENTS",
-          exclusions: elig.exclusions,
+          tag,
+          availableTags: elig.availableTags,
         },
         { status: 422 },
       );
@@ -217,8 +204,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             type: template.category,
             templateId: template.id,
             templateName: template.name,
+            tag,
             totalCount: eligible.length,
-            narrowedByRecipientIds: !!recipientIds,
             source: "dashboard",
           },
         },

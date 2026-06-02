@@ -134,6 +134,9 @@ interface SettingsResponse {
 
 interface EligibilityResp {
   type: CertCategory;
+  tag: string | null;
+  availableTags: Array<{ tag: string; count: number }>;
+  untaggedCount: number;
   eligibleCount: number;
   eligible: Array<{
     kind: "registration" | "speaker";
@@ -141,7 +144,10 @@ interface EligibilityResp {
     speakerId: string | null;
     recipientName: string;
     recipientEmail: string | null;
+    tags: string[];
   }>;
+  sampleCap?: number;
+  truncated?: boolean;
   exclusions: Array<{ reason: string; count?: number }>;
 }
 
@@ -192,6 +198,10 @@ export default function CertificatesPage() {
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [previewBust, setPreviewBust] = useState(0);
   const [issueTemplateId, setIssueTemplateId] = useState<string | null>(null);
+  // Tag-driven manual selection (2026-06-02 evening). Required at
+  // Issue time — operator picks from the availableTags overview that
+  // the eligibility endpoint returns for the picked template.
+  const [issueTag, setIssueTag] = useState<string>("");
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
 
   // ── Settings (CME) ────────────────────────────────────────────────────────
@@ -381,11 +391,20 @@ export default function CertificatesPage() {
   });
 
   // ── Eligibility + run polling for Issue tab ───────────────────────────────
+  // The eligibility endpoint serves two roles via the same response:
+  //  (a) tag-only — no `tag` param, returns availableTags overview to
+  //      populate the picker. eligibleCount = 0 (intentional).
+  //  (b) tag + count — when issueTag is set, returns the filtered
+  //      recipient list + sample preview so the operator sees who
+  //      gets the cert before clicking Issue.
+  // Re-fetch when either the template or the tag changes.
   const eligibilityQuery = useQuery<EligibilityResp>({
-    queryKey: ["cert-eligibility", eventId, issueTemplateId],
+    queryKey: ["cert-eligibility", eventId, issueTemplateId, issueTag],
     queryFn: async () => {
+      const params = new URLSearchParams({ templateId: issueTemplateId! });
+      if (issueTag) params.set("tag", issueTag);
       const res = await fetch(
-        `/api/events/${eventId}/certificates/eligible?templateId=${issueTemplateId}`,
+        `/api/events/${eventId}/certificates/eligible?${params.toString()}`,
       );
       if (!res.ok) throw new Error(`Eligibility query failed (${res.status})`);
       return (await res.json()) as EligibilityResp;
@@ -414,11 +433,11 @@ export default function CertificatesPage() {
   });
 
   const issueMutation = useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async (vars: { templateId: string; tag: string }) => {
       const res = await fetch(`/api/events/${eventId}/certificates/issue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId }),
+        body: JSON.stringify(vars),
       });
       const json = (await res.json().catch(() => ({}))) as {
         runId?: string;
@@ -1078,27 +1097,80 @@ export default function CertificatesPage() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-2 max-w-md">
-                    <Label>Template</Label>
-                    <Select
-                      value={issueTemplateId ?? ""}
-                      onValueChange={(v) => setIssueTemplateId(v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Pick a template to issue from" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CERT_CATEGORIES.map((cat) => {
-                          const tpls = templatesByCategory[cat.key];
-                          if (tpls.length === 0) return null;
-                          return tpls.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {cat.label} — {t.name}
+                  <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+                    <div className="grid gap-2">
+                      <Label>Template</Label>
+                      <Select
+                        value={issueTemplateId ?? ""}
+                        onValueChange={(v) => {
+                          setIssueTemplateId(v);
+                          // Tag pool changes per template (registration tags
+                          // for ATTENDANCE, speaker tags for APPRECIATION) —
+                          // reset the selection so the operator picks fresh.
+                          setIssueTag("");
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pick a template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CERT_CATEGORIES.map((cat) => {
+                            const tpls = templatesByCategory[cat.key];
+                            if (tpls.length === 0) return null;
+                            return tpls.map((t) => (
+                              <SelectItem key={t.id} value={t.id}>
+                                {cat.label} — {t.name}
+                              </SelectItem>
+                            ));
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Tag</Label>
+                      <Select
+                        value={issueTag || "__none__"}
+                        onValueChange={(v) => setIssueTag(v === "__none__" ? "" : v)}
+                        disabled={!issueTemplateId || !eligibilityQuery.data}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Pick a tag" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground">Pick a tag…</span>
+                          </SelectItem>
+                          {eligibilityQuery.data?.availableTags.map((t) => (
+                            <SelectItem key={t.tag} value={t.tag}>
+                              {t.tag} ({t.count})
                             </SelectItem>
-                          ));
-                        })}
-                      </SelectContent>
-                    </Select>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {eligibilityQuery.data &&
+                        eligibilityQuery.data.availableTags.length === 0 &&
+                        !eligibilityQuery.isLoading && (
+                          <p className="text-xs text-amber-700">
+                            <Info className="h-3.5 w-3.5 inline mr-1" />
+                            No tags found in this category&apos;s pool. Tag people
+                            from the {issueTemplateId &&
+                              templates.find((t) => t.id === issueTemplateId)?.category ===
+                                "ATTENDANCE"
+                              ? "Registrations"
+                              : "Speakers"}{" "}
+                            page first.
+                          </p>
+                        )}
+                      {eligibilityQuery.data &&
+                        eligibilityQuery.data.untaggedCount > 0 &&
+                        !issueTag && (
+                          <p className="text-xs text-muted-foreground">
+                            {eligibilityQuery.data.untaggedCount} {" "}
+                            {eligibilityQuery.data.untaggedCount === 1 ? "person has" : "people have"}{" "}
+                            no tags — they&apos;ll be skipped by every tag-based issue.
+                          </p>
+                        )}
+                    </div>
                   </div>
 
                   {issueTemplateId && (
@@ -1107,20 +1179,18 @@ export default function CertificatesPage() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" /> Computing eligible recipients…
                         </div>
-                      ) : eligibilityQuery.data ? (
+                      ) : eligibilityQuery.data && issueTag ? (
                         <div className="space-y-3">
                           <div className="rounded-md border bg-primary/5 p-3">
                             <p className="font-medium">
                               {eligibilityQuery.data.eligibleCount} eligible recipient
-                              {eligibilityQuery.data.eligibleCount === 1 ? "" : "s"}
+                              {eligibilityQuery.data.eligibleCount === 1 ? "" : "s"}{" "}
+                              tagged <strong>&quot;{issueTag}&quot;</strong>
                             </p>
-                            {eligibilityQuery.data.exclusions.length > 0 && (
-                              <div className="mt-2 text-xs text-amber-700">
-                                <Info className="h-3.5 w-3.5 inline mr-1" />
-                                Exclusions:{" "}
-                                {eligibilityQuery.data.exclusions.map((x) => x.reason).join("; ")}
-                              </div>
-                            )}
+                            <p className="text-xs text-muted-foreground mt-1">
+                              People who already hold an{" "}
+                              {eligibilityQuery.data.type} cert for this event are excluded.
+                            </p>
                           </div>
                           {eligibilityQuery.data.eligible.length > 0 && (
                             <div className="rounded-md border p-3 max-h-64 overflow-y-auto text-sm">
@@ -1143,9 +1213,13 @@ export default function CertificatesPage() {
                             </div>
                           )}
                           <Button
-                            onClick={() =>
-                              issueTemplateId && issueMutation.mutate(issueTemplateId)
-                            }
+                            onClick={() => {
+                              if (!issueTemplateId || !issueTag) return;
+                              issueMutation.mutate({
+                                templateId: issueTemplateId,
+                                tag: issueTag,
+                              });
+                            }}
                             disabled={
                               eligibilityQuery.data.eligibleCount === 0 ||
                               issueMutation.isPending ||

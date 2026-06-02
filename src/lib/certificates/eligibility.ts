@@ -1,39 +1,30 @@
 /**
  * Eligibility queries — which recipients get which cert type for an event.
  *
- * Rules (collapsed-to-2-types on 2026-06-02):
+ * Tag-driven manual selection (2026-06-02 evening). Per organizer feedback:
+ * no "auto eligibility" based on check-in status / payment / session role /
+ * poster status. The organizer tags people pre-event (existing
+ * Registration.tags + Speaker.tags) and picks a tag at Issue time. The
+ * tag is the only filter; the only sanity rail is category-bound pool
+ * (ATTENDANCE → registrations, APPRECIATION → speakers) + the existing
+ * one-cert-per-recipient-per-category dedup.
  *
- *   ATTENDANCE    — Registration with checkedInAt IS NOT NULL AND
- *                   paymentStatus IN (PAID, COMPLIMENTARY, INCLUSIVE) AND
- *                   status != CANCELLED.
+ * Rules:
  *
- *   APPRECIATION  — Speaker on the event with EITHER at least one
- *                   SessionSpeaker row in a session whose endTime < now
- *                   (the old PRESENTER bucket — role-agnostic across
- *                   SPEAKER / MODERATOR / CHAIRPERSON / PANELIST) OR at
- *                   least one Abstract with presentationType = POSTER
- *                   AND status = ACCEPTED (the old POSTER bucket). The
- *                   union is a single Prisma query with OR clauses —
- *                   speakers who qualify on both paths show up once
- *                   automatically (one row per Speaker.id).
+ *   ATTENDANCE    — Registration in this event with tag present in its
+ *                   `tags` String[] column AND status != CANCELLED AND
+ *                   no existing IssuedCertificate of type ATTENDANCE.
  *
- * CME hours + accrediting bodies are NOT a separate cert type any more —
- * they're event-level attributes consumed via `{{cmeHours}}`,
- * `{{accreditationBody}}`, and `{{accreditationReference}}` tokens
- * inside whichever template (ATTENDANCE or APPRECIATION) references
- * them. The CME / CPD tab on the certificates page still configures
- * those values.
+ *   APPRECIATION  — Speaker in this event with tag present in its
+ *                   `tags` String[] column AND no existing
+ *                   IssuedCertificate of type APPRECIATION.
  *
- * Return shape — array of EligibleRecipient. Caller (the issue-run
- * creator) maps each to a CertificateIssueRunItem with the recipient
- * id field populated and snapshots the name/email at run-creation time.
+ * The Issue API REQUIRES a tag; without one the eligibility query
+ * still works (returns the whole untagged pool — used by the tag
+ * picker overview to surface available tags + their counts) but the
+ * Issue route 400s if `tag` is missing from the request body.
  *
- * Exclusion of already-issued — the deduper relies on
- * IssuedCertificate's @@unique([eventId, type, registrationId|speakerId])
- * constraint to catch concurrent dupes from any path (cron retry, MCP,
- * dashboard). We DO filter known-issued recipients out of the eligible
- * list pre-emptively so the operator sees an accurate "N eligible"
- * count + the run doesn't churn on already-issued items.
+ * Return shape — array of EligibleRecipient + availableTags overview.
  */
 
 import { db } from "@/lib/db";
@@ -42,22 +33,31 @@ import type { CertificateType } from "@prisma/client";
 /**
  * Identifies a recipient via XOR of registrationId / speakerId.
  * Snapshots the name + email at eligibility time — same values land in
- * CertificateIssueRunItem so the UI can display the list without joining
- * + the run survives the underlying record being deleted/renamed.
+ * CertificateIssueRunItem so the UI list is stable even if the
+ * underlying record is later deleted/renamed.
  */
 export interface EligibleRecipient {
   kind: "registration" | "speaker";
   registrationId: string | null;
   speakerId: string | null;
-  recipientName: string;       // formatPersonName output (with title prefix)
+  recipientName: string;
   recipientEmail: string | null;
+  tags: string[];
 }
 
 export interface EligibilityResult {
   type: CertificateType;
+  /** Filter applied to the recipient list. null = no filter (whole pool). */
+  tag: string | null;
   eligible: EligibleRecipient[];
-  /** Why some otherwise-qualifying recipients were excluded — for the
-   *  operator UI banner. Empty array if no exclusion reasons apply. */
+  /** Distinct tags present in the (un-filtered) eligible pool, with the
+   *  count of recipients carrying each tag. Powers the tag picker. */
+  availableTags: Array<{ tag: string; count: number }>;
+  /** Recipients in the pool with NO tags — surfaced so the operator
+   *  knows about them but they're excluded from any tag-based issue. */
+  untaggedCount: number;
+  /** Reasons some otherwise-qualifying recipients were excluded — for
+   *  the operator UI banner. Empty array if no exclusions apply. */
   exclusions: Array<{ reason: string; count?: number }>;
 }
 
@@ -75,30 +75,72 @@ function formatName(opts: { title?: string | null; firstName?: string; lastName?
   return full || "(unnamed)";
 }
 
-// ── ATTENDANCE (checked-in registrations with non-cancelled paid-equivalent status)
+/** Build the tag-count overview from a pool of recipients. */
+function buildTagOverview(
+  pool: Array<{ tags: string[] }>,
+): { availableTags: Array<{ tag: string; count: number }>; untaggedCount: number } {
+  const counts = new Map<string, number>();
+  let untagged = 0;
+  for (const row of pool) {
+    if (!row.tags || row.tags.length === 0) {
+      untagged++;
+      continue;
+    }
+    for (const t of row.tags) {
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+  const availableTags = Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  return { availableTags, untaggedCount: untagged };
+}
 
-export async function eligibleForAttendance(eventId: string): Promise<EligibilityResult> {
-  const rows = await db.registration.findMany({
+// ── ATTENDANCE — Registration pool ───────────────────────────────────────────
+
+export async function eligibleForAttendance(
+  eventId: string,
+  tag: string | null,
+): Promise<EligibilityResult> {
+  // Pool = all non-cancelled registrations in the event that DON'T
+  // already hold an ATTENDANCE cert. Tags live on the linked Attendee
+  // (NOT Registration — confirmed against the Prisma schema: only
+  // Attendee.tags, Speaker.tags, and Contact.tags are String[]
+  // columns). For ATTENDANCE we read the attendee's tags through the
+  // include + filter / count by them in memory.
+  const pool = await db.registration.findMany({
     where: {
       eventId,
-      checkedInAt: { not: null },
-      paymentStatus: { in: ["PAID", "COMPLIMENTARY", "INCLUSIVE"] },
       status: { not: "CANCELLED" },
-      // Exclude registrations that already have an issued ATTENDANCE cert.
       issuedCertificates: { none: { type: "ATTENDANCE" } },
     },
     select: {
       id: true,
       attendee: {
-        select: { title: true, firstName: true, lastName: true, email: true },
+        select: {
+          title: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          tags: true,
+        },
       },
     },
     orderBy: { createdAt: "asc" },
   });
 
+  // Normalize the tags from the linked attendee for the overview helper.
+  const tagOverview = buildTagOverview(
+    pool.map((r) => ({ tags: r.attendee?.tags ?? [] })),
+  );
+
+  const filtered =
+    tag === null ? [] : pool.filter((r) => r.attendee?.tags?.includes(tag));
+
   return {
     type: "ATTENDANCE",
-    eligible: rows.map((r) => ({
+    tag,
+    eligible: filtered.map((r) => ({
       kind: "registration" as const,
       registrationId: r.id,
       speakerId: null,
@@ -108,33 +150,26 @@ export async function eligibleForAttendance(eventId: string): Promise<Eligibilit
         lastName: r.attendee?.lastName,
       }),
       recipientEmail: r.attendee?.email ?? null,
+      tags: r.attendee?.tags ?? [],
     })),
+    availableTags: tagOverview.availableTags,
+    untaggedCount: tagOverview.untaggedCount,
     exclusions: [],
   };
 }
 
-// ── APPRECIATION — speakers with a finished session role OR an accepted poster
+// ── APPRECIATION — Speaker pool ──────────────────────────────────────────────
 
-export async function eligibleForAppreciation(eventId: string): Promise<EligibilityResult> {
-  const now = new Date();
-
-  // Single Prisma query unions the two old buckets (PRESENTER + POSTER)
-  // via an OR. A speaker qualifying on both paths returns one row —
-  // dedup is implicit because we're selecting from `Speaker`, not
-  // joining a multi-row right side. We post-filter "issued" on Speaker
-  // to skip anyone who already has an APPRECIATION cert this event.
-  const rows = await db.speaker.findMany({
+export async function eligibleForAppreciation(
+  eventId: string,
+  tag: string | null,
+): Promise<EligibilityResult> {
+  // Pool = all speakers in the event that DON'T already hold an
+  // APPRECIATION cert. No session-role / poster-accepted gate; tag
+  // is the only filter.
+  const pool = await db.speaker.findMany({
     where: {
       eventId,
-      OR: [
-        // Faculty / moderator / chair / panelist who actually took the
-        // stage in a session that has already ended.
-        { sessions: { some: { session: { endTime: { lt: now } } } } },
-        // Poster presenter whose abstract was accepted (presentation
-        // happens in the poster hall; we don't gate on a session
-        // endTime because posters often don't have one tied to them).
-        { abstracts: { some: { presentationType: "POSTER", status: "ACCEPTED" } } },
-      ],
       issuedCertificates: { none: { type: "APPRECIATION" } },
     },
     select: {
@@ -143,13 +178,19 @@ export async function eligibleForAppreciation(eventId: string): Promise<Eligibil
       firstName: true,
       lastName: true,
       email: true,
+      tags: true,
     },
     orderBy: { lastName: "asc" },
   });
 
+  const tagOverview = buildTagOverview(pool);
+
+  const filtered = tag === null ? [] : pool.filter((s) => s.tags?.includes(tag));
+
   return {
     type: "APPRECIATION",
-    eligible: rows.map((s) => ({
+    tag,
+    eligible: filtered.map((s) => ({
       kind: "speaker" as const,
       registrationId: null,
       speakerId: s.id,
@@ -159,21 +200,31 @@ export async function eligibleForAppreciation(eventId: string): Promise<Eligibil
         lastName: s.lastName,
       }),
       recipientEmail: s.email,
+      tags: s.tags ?? [],
     })),
+    availableTags: tagOverview.availableTags,
+    untaggedCount: tagOverview.untaggedCount,
     exclusions: [],
   };
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
+/**
+ * Returns the tag overview + (optionally) the filtered recipient list.
+ * Pass `tag: null` to fetch JUST the overview (for the picker UI);
+ * pass a tag string to fetch the filtered list (used by the Issue
+ * route just before creating the run).
+ */
 export async function eligibleForType(
   type: CertificateType,
   eventId: string,
+  tag: string | null,
 ): Promise<EligibilityResult> {
   switch (type) {
     case "ATTENDANCE":
-      return eligibleForAttendance(eventId);
+      return eligibleForAttendance(eventId, tag);
     case "APPRECIATION":
-      return eligibleForAppreciation(eventId);
+      return eligibleForAppreciation(eventId, tag);
   }
 }

@@ -1,15 +1,22 @@
 /**
- * GET /api/events/[eventId]/certificates/eligible?type=ATTENDANCE|APPRECIATION
- *                                                 [&templateId=...]
+ * GET /api/events/[eventId]/certificates/eligible?templateId={id}[&tag={tag}]
  *
- * Returns the eligible recipient list + exclusion reasons. Read-only.
+ * Tag-driven manual selection (2026-06-02 evening).
  *
- * Eligibility is category-scoped (one cert per recipient per category)
- * so the answer doesn't change between two templates of the same
- * category — the operator sees the same eligible pool whether they
- * picked "Standard Attendance" or "VIP Attendance" first. templateId
- * is accepted as a convenience: if provided, the route looks up the
- * template's category and runs the eligibility query against that.
+ *   - With templateId only: returns the available-tag overview for the
+ *     template's category pool (each tag + count of people carrying it,
+ *     plus untaggedCount). The UI uses this to populate the tag picker.
+ *
+ *   - With templateId + tag: ALSO returns the filtered recipient list
+ *     (first SAMPLE_CAP rows shown as a preview before the operator
+ *     clicks Issue).
+ *
+ * Either way the response carries `availableTags` so the UI can keep
+ * the picker populated as the operator switches tags.
+ *
+ * Eligibility = category pool (ATTENDANCE → registrations; APPRECIATION
+ * → speakers) MINUS recipients already holding a cert of this category.
+ * No check-in / payment / session-role / poster gate.
  */
 
 import { NextResponse } from "next/server";
@@ -18,13 +25,12 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { eligibleForType } from "@/lib/certificates/eligibility";
-import type { CertificateType } from "@prisma/client";
-
-const VALID: CertificateType[] = ["ATTENDANCE", "APPRECIATION"];
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
+
+const SAMPLE_CAP = 100;
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
@@ -40,73 +46,47 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const url = new URL(req.url);
-    const typeRaw = url.searchParams.get("type");
     const templateId = url.searchParams.get("templateId");
+    const tag = url.searchParams.get("tag");
 
-    // Resolve category — from templateId if provided (one DB lookup
-    // that doubles as the org-bound check on both event + template),
-    // otherwise from the type param.
-    let type: CertificateType;
-    if (templateId) {
-      const tmpl = await db.certificateTemplate.findFirst({
-        where: {
-          id: templateId,
-          event: { organizationId: session.user.organizationId },
-        },
-        select: { eventId: true, category: true },
+    if (!templateId) {
+      apiLogger.warn({
+        msg: "cert-eligible:missing-template-id",
+        eventId,
+        userId: session.user.id,
       });
-      if (!tmpl || tmpl.eventId !== eventId) {
-        apiLogger.warn({
-          msg: "cert-eligible:template-not-found",
-          eventId,
-          userId: session.user.id,
-          templateId,
-        });
-        return NextResponse.json({ error: "Template not found" }, { status: 404 });
-      }
-      type = tmpl.category;
-    } else {
-      if (!typeRaw || !VALID.includes(typeRaw as CertificateType)) {
-        apiLogger.warn({
-          msg: "cert-eligible:invalid-type",
-          eventId,
-          userId: session.user.id,
-          typeRaw,
-        });
-        return NextResponse.json(
-          {
-            error: `Provide either templateId or type. Type must be one of: ${VALID.join(", ")}`,
-            code: "INVALID_TYPE",
-          },
-          { status: 400 },
-        );
-      }
-      type = typeRaw as CertificateType;
-
-      const event = await db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId },
-        select: { id: true },
-      });
-      if (!event) {
-        apiLogger.warn({
-          msg: "cert-eligible:event-not-found",
-          eventId,
-          userId: session.user.id,
-        });
-        return NextResponse.json({ error: "Event not found" }, { status: 404 });
-      }
+      return NextResponse.json(
+        { error: "templateId query parameter is required", code: "MISSING_TEMPLATE_ID" },
+        { status: 400 },
+      );
     }
 
-    const result = await eligibleForType(type, eventId);
-    // Response cap exists to keep the JSON small on huge events (5000+
-    // attendees). The Issue POST route accepts up to 10000 recipientIds
-    // (subset narrowing) so this 100-row preview is intentionally a UI
-    // sample, not a bulk-select surface. If the UI needs to render the
-    // full list for selection it should paginate / virtualize via a
-    // separate endpoint — flagged for v1.1.
-    const SAMPLE_CAP = 100;
+    const tmpl = await db.certificateTemplate.findFirst({
+      where: {
+        id: templateId,
+        event: { organizationId: session.user.organizationId },
+      },
+      select: { eventId: true, category: true },
+    });
+    if (!tmpl || tmpl.eventId !== eventId) {
+      apiLogger.warn({
+        msg: "cert-eligible:template-not-found",
+        eventId,
+        userId: session.user.id,
+        templateId,
+      });
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
+
+    const result = await eligibleForType(tmpl.category, eventId, tag);
+
     return NextResponse.json({
       type: result.type,
+      tag: result.tag,
+      availableTags: result.availableTags,
+      untaggedCount: result.untaggedCount,
+      // When tag isn't supplied, the recipient list is intentionally
+      // empty — the UI uses availableTags to drive the picker first.
       eligibleCount: result.eligible.length,
       eligible: result.eligible.slice(0, SAMPLE_CAP),
       sampleCap: SAMPLE_CAP,
