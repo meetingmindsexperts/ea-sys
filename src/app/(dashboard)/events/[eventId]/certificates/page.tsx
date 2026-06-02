@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import dynamic from "next/dynamic";
 import {
   GraduationCap,
   Plus,
@@ -64,6 +65,25 @@ import {
   XCircle,
   Loader2,
 } from "lucide-react";
+import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
+
+// Lazy-load the canvas editor so pdfjs-dist (~400KB) + react-rnd
+// stay out of the dashboard's first-paint critical path. Same pattern
+// as TiptapEditor was using before the v2→v3 flip.
+const CertificateCanvasEditor = dynamic(
+  () =>
+    import("@/components/certificates/certificate-canvas-editor").then(
+      (m) => m.CertificateCanvasEditor,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-96 rounded border bg-muted/30 animate-pulse flex items-center justify-center text-sm text-muted-foreground">
+        Loading canvas editor…
+      </div>
+    ),
+  },
+);
 
 type CertType = "ATTENDANCE" | "APPRECIATION";
 
@@ -387,12 +407,9 @@ export default function CertificatesPage() {
   // this slot in the templates map.
   const currentTemplate = editable?.templates[activeTemplateType] ?? EMPTY_TEMPLATE;
 
-  // Wired but unused in this commit — the gutted Template tab only
-  // reads from `currentTemplate`. The canvas editor (next commit)
-  // calls this on every text-box add / move / resize / edit and on
-  // `backgroundPdfUrl` upload. Keeping it here so the editor commit
-  // doesn't have to re-introduce the same helper.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Called by the canvas editor on every text-box add / move / resize /
+  // edit and on backgroundPdfUrl upload. Scoped to the active cert type
+  // sub-tab (Attendance or Appreciation).
   function updateCurrentTemplate(patch: Partial<TemplateState>) {
     if (!editable) return;
     updateDraft({
@@ -568,57 +585,43 @@ export default function CertificatesPage() {
             template — one slot per cert type.
           </div>
 
-          {/* v3 PDF-overlay placeholder. The canvas drag-and-drop editor
-              lands in the next commit. State + persistence round-trip is
-              already wired so the eventual editor plugs straight in. */}
+          {/* v3 PDF-overlay canvas editor (Commit 3, 2026-06-02). Lazy-
+              loaded so pdfjs-dist + react-rnd stay out of the dashboard's
+              first-paint critical path. */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Background PDF + text boxes (v3, 2026-06-02)
+                Background PDF + text boxes
               </CardTitle>
               <CardDescription>
-                The certificate design now comes from a finished PDF you
-                upload (banner, borders, signatures, footer logos all baked
-                in by your designer), with positioned text boxes overlaid
-                on top containing <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
-                that resolve per recipient at issue time.
+                The certificate design comes from a finished PDF you upload
+                (banner, borders, signatures, footer logos all baked in by
+                your designer), with positioned text boxes overlaid on top
+                containing{" "}
+                <code className="bg-muted px-1 rounded">{`{{tokens}}`}</code>{" "}
+                that resolve per recipient at issue time. Drag boxes to
+                reposition, pull a corner to resize.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm">
-                <div className="flex items-start gap-2">
-                  <Info className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-                  <div className="space-y-2">
-                    <p className="font-medium text-amber-900">
-                      Canvas editor coming in the next commit.
-                    </p>
-                    <p className="text-amber-800">
-                      The page-level state shape, PATCH round-trip, server
-                      Zod schema, upload endpoint{" "}
-                      <code className="bg-amber-100 px-1 rounded">POST /api/upload/pdf</code>,
-                      and pdf-lib overlay renderer are all wired and live.
-                      The drag-and-drop UI for positioning boxes on the
-                      uploaded PDF ships next — until then the renderer
-                      falls back to the &quot;upload a background PDF&quot;
-                      placeholder PDF you&apos;ll see in the Preview tab.
-                    </p>
-                    <p className="text-amber-800">
-                      Current state for{" "}
-                      <strong>
-                        {CERT_TYPES.find((t) => t.key === activeTemplateType)?.label}
-                      </strong>
-                      :{" "}
-                      {currentTemplate.backgroundPdfUrl ? (
-                        <>background PDF uploaded ({currentTemplate.textBoxes.length} text boxes)</>
-                      ) : (
-                        <>no background PDF uploaded yet, {currentTemplate.textBoxes.length} text boxes</>
-                      )}
-                      .
-                    </p>
-                  </div>
-                </div>
-              </div>
+            <CardContent>
+              <CertificateCanvasEditor
+                backgroundPdfUrl={currentTemplate.backgroundPdfUrl}
+                textBoxes={currentTemplate.textBoxes as CertificateTextBox[]}
+                onChange={(patch) => {
+                  // Coerce to the loose TemplateState shape held by the
+                  // page; the editor emits the strict CertificateTextBox[]
+                  // type which is structurally compatible.
+                  const next: Partial<TemplateState> = {};
+                  if (patch.backgroundPdfUrl !== undefined) {
+                    next.backgroundPdfUrl = patch.backgroundPdfUrl;
+                  }
+                  if (patch.textBoxes !== undefined) {
+                    next.textBoxes = patch.textBoxes;
+                  }
+                  updateCurrentTemplate(next);
+                }}
+              />
             </CardContent>
           </Card>
 

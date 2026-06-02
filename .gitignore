@@ -84,3 +84,8 @@ playwright-report/
 # Playwright local-verification scratch screenshots (not in repo)
 cert-*.png
 .playwright-mcp/
+
+# pdfjs-dist worker — copied into public/pdfjs/ by scripts/copy-pdfjs-worker.mjs
+# (runs from postinstall). Don't commit the binary; it's regenerated on every
+# install + build, so stays in lockstep with the installed pdfjs-dist version.
+/public/pdfjs/pdf.worker.min.mjs

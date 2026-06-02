@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // pdfjs-dist worker — 1.3MB minified third-party bundle copied into
+    // public/pdfjs/ by scripts/copy-pdfjs-worker.mjs at postinstall.
+    // Linting third-party minified code is noise; skip the folder.
+    "public/pdfjs/**",
   ]),
 ]);
 
