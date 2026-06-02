@@ -51,9 +51,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     // Sample recipients for the operator preview — the first 20 items
-    // with their progress state. Capped here so the polling response
-    // stays small.
-    const sampleItems = await db.certificateIssueRunItem.findMany({
+    // with their progress state. Joined with IssuedCertificate so the
+    // UI can offer a 'View rendered PDF' link at AWAITING_REVIEW (the
+    // human-review gate exists precisely to spot-check the PDFs before
+    // emails fan out; without surfacing pdfUrl + serial here the
+    // operator would have to dig through the filesystem). Capped at 20
+    // so the polling response stays small even on multi-thousand
+    // recipient runs.
+    const sampleItemsRaw = await db.certificateIssueRunItem.findMany({
       where: { runId },
       orderBy: { recipientName: "asc" },
       take: 20,
@@ -62,8 +67,23 @@ export async function GET(_req: Request, { params }: RouteParams) {
         renderedAt: true, emailedAt: true,
         errorPhase: true, errorMessage: true,
         issuedCertificateId: true,
+        issuedCertificate: { select: { pdfUrl: true, serial: true } },
       },
     });
+    const sampleItems = sampleItemsRaw.map((r) => ({
+      id: r.id,
+      recipientName: r.recipientName,
+      recipientEmail: r.recipientEmail,
+      renderedAt: r.renderedAt,
+      emailedAt: r.emailedAt,
+      errorPhase: r.errorPhase,
+      errorMessage: r.errorMessage,
+      issuedCertificateId: r.issuedCertificateId,
+      // Surface the rendered PDF URL + serial at the top level for the
+      // UI. Null until the item completes the RENDER phase.
+      pdfUrl: r.issuedCertificate?.pdfUrl ?? null,
+      serial: r.issuedCertificate?.serial ?? null,
+    }));
 
     // ALL failed items (not just the sample). The operator needs the
     // full failures list to decide whether to retry or accept the

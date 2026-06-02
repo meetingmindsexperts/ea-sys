@@ -191,6 +191,13 @@ interface RunResp {
     errorPhase: string | null;
     errorMessage: string | null;
     issuedCertificateId: string | null;
+    /** URL to the rendered PDF — populated once the item passes RENDER.
+     *  Click-to-view opens it inline in a new tab (the /uploads/[...path]
+     *  route now serves application/pdf MIME so it inlines instead of
+     *  downloading). */
+    pdfUrl: string | null;
+    /** Cert serial — useful as a stable label next to View. */
+    serial: string | null;
   }>;
   /** ALL failed items on this run (not capped). Operator uses this to
    *  decide whether to retry or accept the partial run. */
@@ -1415,6 +1422,67 @@ export default function CertificatesPage() {
                                   )}
                               </div>
                             )}
+
+                            {/* Spot-check rendered certificates — the
+                                AWAITING_REVIEW gate's whole point is to
+                                let the operator verify the PDFs LOOK
+                                RIGHT before emails fan out. We surface
+                                a clickable link per rendered item that
+                                opens the PDF inline in a new tab.
+                                Visible at AWAITING_REVIEW (the gate
+                                itself), SENDING (in case the operator
+                                wants to spot-check while emails are
+                                going out), and COMPLETED (post-hoc
+                                verification). Capped at the first 20
+                                via the API's sampleItems take. */}
+                            {["AWAITING_REVIEW", "SENDING", "COMPLETED"].includes(
+                              runQuery.data.status,
+                            ) &&
+                              runQuery.data.sampleItems.some((s) => s.pdfUrl) && (
+                                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-sm font-medium text-amber-900">
+                                      <Eye className="h-4 w-4 inline mr-1.5" />
+                                      {runQuery.data.status === "AWAITING_REVIEW"
+                                        ? "Spot-check before sending"
+                                        : "Rendered certificates"}
+                                    </p>
+                                    <span className="text-xs text-amber-700">
+                                      {runQuery.data.sampleItems.filter((s) => s.pdfUrl).length}{" "}
+                                      shown
+                                      {runQuery.data.renderedCount > 20 &&
+                                        ` of ${runQuery.data.renderedCount}`}
+                                    </span>
+                                  </div>
+                                  {runQuery.data.status === "AWAITING_REVIEW" && (
+                                    <p className="text-xs text-amber-800 mb-2">
+                                      Click a recipient to open their rendered cert PDF.
+                                      Verify the design + text positions look right before
+                                      clicking <strong>Send emails</strong>.
+                                    </p>
+                                  )}
+                                  <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                                    {runQuery.data.sampleItems
+                                      .filter((s) => s.pdfUrl)
+                                      .map((s) => (
+                                        <a
+                                          key={s.id}
+                                          href={s.pdfUrl!}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-white px-2 py-1.5 text-xs hover:bg-amber-100 transition-colors"
+                                        >
+                                          <span className="font-medium truncate">
+                                            {s.recipientName}
+                                          </span>
+                                          <span className="text-amber-700 shrink-0 font-mono text-[10px]">
+                                            {s.serial ?? "—"}
+                                          </span>
+                                        </a>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
 
                             <div className="flex gap-2">
                               {runQuery.data.status === "AWAITING_REVIEW" && (
