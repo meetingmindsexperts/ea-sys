@@ -169,6 +169,29 @@ export async function deleteMedia(url: string): Promise<void> {
 }
 
 /**
+ * Uploads a rendered certificate PDF. Stored under `certificates/{eventId}/`
+ * to keep one event's certs separable for retention / cleanup. Filename
+ * is the IssuedCertificate id with `.pdf` so the URL is stable across
+ * re-downloads. Returns the public URL.
+ *
+ * S3 cross-region backup is deferred to a separate cron in v1.1 — that
+ * cron will read IssuedCertificate rows where pdfUrl is set + a backup
+ * URL field is null, fetch from Supabase, upload to S3, persist the
+ * second URL. Decouples the cert-issue critical path from backup work.
+ */
+export async function uploadCertificatePdf(
+  buffer: Buffer,
+  filename: string,
+  eventId: string
+): Promise<string> {
+  const subdir = `certificates/${eventId}`;
+  if (PROVIDER === "supabase") {
+    return uploadSupabase(buffer, filename, "application/pdf", subdir);
+  }
+  return uploadLocal(buffer, filename, subdir);
+}
+
+/**
  * Downloads an external photo URL and re-hosts it in our storage.
  * Returns the local/Supabase URL on success, or null on failure.
  * Skips URLs that are already hosted by us.

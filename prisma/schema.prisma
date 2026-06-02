@@ -77,6 +77,7 @@ model User {
   triggeredEmailLogs        EmailLog[]
   attachedBillingAccounts   EventBillingAccount[]
   issuedCertificates        IssuedCertificate[]
+  triggeredCertificateRuns  CertificateIssueRun[]
 
   @@index([organizationId])
   @@index([email])
@@ -250,6 +251,7 @@ model Event {
   emailLogs                 EmailLog[]
   issuedCertificates        IssuedCertificate[]
   certificateSerialCounters CertificateSerialCounter[]
+  certificateIssueRuns      CertificateIssueRun[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -310,15 +312,109 @@ model IssuedCertificate {
   recipientSnapshot Json
   cmeHoursSnapshot  Decimal? @db.Decimal(4, 1)
 
-  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
-  speaker      Speaker?      @relation(fields: [speakerId], references: [id], onDelete: SetNull)
-  issuedBy     User          @relation(fields: [issuedByUserId], references: [id])
+  // URL to the rendered PDF — populated by the issue cron during the
+  // RENDERING phase. Path convention: /uploads/certificates/{eventId}/{certId}.pdf
+  // (local) or certificates/{eventId}/{certId}.pdf (Supabase storage).
+  // Reused for re-download + email attachment so we don't re-render. NULL
+  // until the render phase completes for this cert.
+  pdfUrl String?
+
+  event        Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker      Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  issuedBy     User                     @relation(fields: [issuedByUserId], references: [id])
+  issueRunItem CertificateIssueRunItem?
 
   @@unique([eventId, type, registrationId])
   @@unique([eventId, type, speakerId])
   @@index([eventId, type])
   @@index([serial])
+}
+
+/// Bulk certificate-issuing run. One row per "issue all certificates of
+/// type X" operator action. Drives a two-phase pipeline:
+///   PENDING → RENDERING → AWAITING_REVIEW → SENDING → COMPLETED
+/// The AWAITING_REVIEW gate is the operator preview — they can verify
+/// the rendered PDFs look right before emails go out.
+///
+/// The cron worker /api/cron/certificate-issues picks up runs in
+/// non-terminal states and drains them in batches of 50 per tick. App-
+/// level guard in POST /issue ensures only one non-terminal run per
+/// (event, type) so concurrent operator clicks don't double-issue.
+model CertificateIssueRun {
+  id                 String             @id @default(cuid())
+  eventId            String
+  type               CertificateType
+  status             CertIssueRunStatus @default(PENDING)
+  totalCount         Int
+  renderedCount      Int                @default(0)
+  emailedCount       Int                @default(0)
+  failedCount        Int                @default(0)
+  triggeredByUserId  String
+  triggeredAt        DateTime           @default(now())
+  rendererStartedAt  DateTime?
+  rendererFinishedAt DateTime?
+  emailerStartedAt   DateTime?
+  emailerFinishedAt  DateTime?
+  // Heartbeat — cron worker updates on every tick. Stall detector
+  // reclaims any IN_PROGRESS run (RENDERING / SENDING) whose lastTickAt
+  // is older than 10 minutes back to PENDING / AWAITING_REVIEW so a
+  // crashed mid-tick run doesn't get stuck forever.
+  lastTickAt         DateTime?
+  // [{ recipientName, phase, code, message }] — capped at last 100 in code.
+  errors             Json?
+  // Optional: when SENDING completes, snapshot the sender's cc list so
+  // re-runs can replay. Not required for v1.
+  notes              String?
+
+  event       Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  triggeredBy User                      @relation(fields: [triggeredByUserId], references: [id])
+  items       CertificateIssueRunItem[]
+
+  @@index([eventId, type, status])
+  @@index([status, lastTickAt])
+}
+
+enum CertIssueRunStatus {
+  PENDING
+  RENDERING
+  AWAITING_REVIEW
+  SENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// One row per (run, recipient) — the unit of work the cron drains.
+/// Disambiguated by registrationId XOR speakerId. Carries per-item
+/// progress (renderedAt, issuedCertificateId, emailedAt, error*) so
+/// the cron can resume mid-batch + re-issue-failed-only is trivial.
+model CertificateIssueRunItem {
+  id                  String    @id @default(cuid())
+  runId               String
+  registrationId      String?
+  speakerId           String?
+  // Snapshot at run-creation time — used to display the recipient list
+  // in the UI without joining + handles the case where the underlying
+  // Registration/Speaker is later cancelled (we still want to show
+  // who was on the run).
+  recipientName       String
+  recipientEmail      String?
+  renderedAt          DateTime?
+  issuedCertificateId String?   @unique
+  emailedAt           DateTime?
+  errorPhase          String? // "render" | "email"
+  errorMessage        String?
+
+  run               CertificateIssueRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  registration      Registration?       @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker           Speaker?            @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  issuedCertificate IssuedCertificate?  @relation(fields: [issuedCertificateId], references: [id])
+
+  @@unique([runId, registrationId])
+  @@unique([runId, speakerId])
+  @@index([runId, renderedAt])
+  @@index([runId, emailedAt])
 }
 
 enum EventStatus {
@@ -490,19 +586,20 @@ model Registration {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  event              Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  ticketType         TicketType?          @relation(fields: [ticketTypeId], references: [id])
-  pricingTier        PricingTier?         @relation(fields: [pricingTierId], references: [id])
-  attendee           Attendee             @relation(fields: [attendeeId], references: [id])
-  user               User?                @relation(fields: [userId], references: [id])
-  promoCode          PromoCode?           @relation(fields: [promoCodeId], references: [id])
-  billingAccount     BillingAccount?      @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
-  payments           Payment[]
-  accommodation      Accommodation?
-  invoices           Invoice[]
-  promoRedemption    PromoCodeRedemption?
-  zoomAttendances    ZoomAttendance[]
-  issuedCertificates IssuedCertificate[]
+  event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketType               TicketType?               @relation(fields: [ticketTypeId], references: [id])
+  pricingTier              PricingTier?              @relation(fields: [pricingTierId], references: [id])
+  attendee                 Attendee                  @relation(fields: [attendeeId], references: [id])
+  user                     User?                     @relation(fields: [userId], references: [id])
+  promoCode                PromoCode?                @relation(fields: [promoCodeId], references: [id])
+  billingAccount           BillingAccount?           @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  payments                 Payment[]
+  accommodation            Accommodation?
+  invoices                 Invoice[]
+  promoRedemption          PromoCodeRedemption?
+  zoomAttendances          ZoomAttendance[]
+  issuedCertificates       IssuedCertificate[]
+  certificateIssueRunItems CertificateIssueRunItem[]
 
   @@unique([eventId, serialId])
   @@index([sponsorId])
@@ -604,13 +701,14 @@ model Speaker {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
-  event              Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user               User?               @relation(fields: [userId], references: [id])
-  sessions           SessionSpeaker[]
-  topicSpeakers      TopicSpeaker[]
-  abstracts          Abstract[]
-  accommodation      Accommodation?
-  issuedCertificates IssuedCertificate[]
+  event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user                     User?                     @relation(fields: [userId], references: [id])
+  sessions                 SessionSpeaker[]
+  topicSpeakers            TopicSpeaker[]
+  abstracts                Abstract[]
+  accommodation            Accommodation?
+  issuedCertificates       IssuedCertificate[]
+  certificateIssueRunItems CertificateIssueRunItem[]
 
   @@unique([eventId, email])
   @@index([eventId])
