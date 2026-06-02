@@ -1461,6 +1461,42 @@ export default function CertificatesPage() {
                                       clicking <strong>Send emails</strong>.
                                     </p>
                                   )}
+                                  {/* For large runs, explain that the
+                                      sample is 20 random recipients
+                                      and full visual inspection isn't
+                                      expected — rendering is
+                                      deterministic so a 5-row sample
+                                      validates the whole batch. */}
+                                  {runQuery.data.renderedCount > 20 && (
+                                    <p className="text-xs text-amber-800 mb-2 italic">
+                                      Showing 20 of {runQuery.data.renderedCount} rendered
+                                      certs. Rendering is deterministic per recipient — if
+                                      these samples look correct, the rest will too. Edge
+                                      cases (long names, special characters) that DO break
+                                      are caught by the Failures panel above.
+                                    </p>
+                                  )}
+                                  {/* Dev-mode hint: in local dev pointing
+                                      at the prod Supabase DB, the cert
+                                      may have been rendered on EC2's
+                                      disk — meaning the local server
+                                      can't serve it. Tells the operator
+                                      WHY a 404 might happen + what to
+                                      do about it. NODE_ENV check keeps
+                                      this off the prod UI. */}
+                                  {typeof window !== "undefined" &&
+                                    window.location.hostname === "localhost" && (
+                                      <p className="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded p-2 mb-2">
+                                        <strong>Dev mode tip:</strong> if a link 404s
+                                        in local dev, the cert was likely rendered by
+                                        the prod EC2 cron (which shares your Supabase
+                                        DB but writes to its own disk). For local UAT,
+                                        disable the prod cron OR test on prod
+                                        (events.meetingmindsgroup.com) directly. The
+                                        PDF exists on EC2 even if your local server
+                                        can&apos;t reach it.
+                                      </p>
+                                    )}
                                   <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
                                     {runQuery.data.sampleItems
                                       .filter((s) => s.pdfUrl)
