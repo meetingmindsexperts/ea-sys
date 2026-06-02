@@ -1593,6 +1593,215 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
     <div class="divider"></div>
 
+    <!-- S18: CERTIFICATES -->
+    <div class="section" id="s18">
+      <div class="sec-hd"><div class="sec-num">18</div><div class="sec-meta">
+        <div class="sec-title">Certificates</div>
+        <div class="sec-desc">Design once, issue to hundreds &mdash; PDF-overlay templates, tag-driven selection, customisable cover emails.</div>
+        <span class="sec-badge b-event">Post-event &middot; Admin / Organizer</span>
+      </div></div>
+
+      <div class="sub" id="s18-1">
+        <div class="sub-title">How certificates work in EA-SYS</div>
+        <p>The certificate system is built around the <strong>PDF-overlay model</strong>: your designer hands you a finished cert visual (PDF, JPG, or PNG &mdash; banner, borders, signatures, footer logos all baked in), you upload it, and then drag text boxes onto a canvas where the recipient name + event details + serial number get printed at issue time.</p>
+
+        <p>There are two cert categories:</p>
+        <ul>
+          <li><strong>Certificate of Attendance</strong> &mdash; for registrations (people who attended).</li>
+          <li><strong>Certificate of Appreciation</strong> &mdash; for speakers, moderators, chairpersons, and abstract / poster submitters.</li>
+        </ul>
+
+        <p>Within each category you can have <strong>multiple templates</strong> &mdash; e.g. &ldquo;Standard Attendance&rdquo; for general attendees, &ldquo;VIP Attendance&rdquo; for sponsor guests, &ldquo;Chairman Appreciation&rdquo; for the conference chair. Each template has its own background + its own text-box layout + its own cover-email defaults.</p>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">One cert per recipient per category</div><div class="c-text">A single person can hold at most one Attendance cert + one Appreciation cert per event. So if Dr. Smith gets the VIP Attendance, the Standard Attendance run skips her automatically. Audit trail integrity is preserved &mdash; you can&rsquo;t accidentally double-issue the same category.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-2">
+        <div class="sub-title">Setting up a template</div>
+        <p>Open any event &rarr; <strong>Certificates</strong> in the sidebar &rarr; <strong>Templates</strong> tab. You&rsquo;ll see two cards, one per category, each with its templates listed.</p>
+
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>+ Add</strong> on the category card (Attendance or Appreciation)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Give the template a name (e.g. &ldquo;Standard Attendance&rdquo;, &ldquo;VIP&rdquo;, &ldquo;Chairman Appreciation&rdquo;)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Create</strong> &mdash; the canvas editor opens</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Choose file</strong> to upload your designer&rsquo;s finished cert &mdash; PDF, JPG, or PNG up to 10 MB</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>+ Add text box</strong>, drag boxes onto the canvas where you want the recipient name, event name, serial, etc.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click a box to edit its <strong>content</strong> (with <code>{{tokens}}</code>), font, size, color, alignment, and exact X/Y/W/H</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Close editor</strong> when done &mdash; changes are saved continuously as you edit</div></div>
+        </div>
+
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Designer gave you a PNG/JPG, not a PDF?</div><div class="c-text">No problem &mdash; the upload accepts all three formats. Images get server-converted to a single-page PDF automatically, with the image filling the page edge-to-edge at the original resolution. No quality loss, no re-export required from the designer.</div></div></div>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Coordinates are in points</div><div class="c-text">Font size + box dimensions are stored in PDF points (1 pt = 1/72&Prime;). The canvas displays a scaled preview &mdash; what you see is what prints. If your designer works in pixels at 300 DPI, divide by ~4.17 to convert.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-3">
+        <div class="sub-title">Tokens you can use in text boxes</div>
+        <p>Every text-box content field supports <code>{{token}}</code> placeholders that resolve per recipient at issue time. Available tokens:</p>
+        <ul>
+          <li><code>{{recipientName}}</code> &mdash; the attendee or speaker&rsquo;s name with title prefix (&ldquo;Dr.&rdquo; / &ldquo;Prof.&rdquo; etc.)</li>
+          <li><code>{{eventName}}</code> &mdash; your event&rsquo;s name</li>
+          <li><code>{{eventDateRange}}</code> &mdash; formatted nicely, e.g. &ldquo;5th &ndash; 7th December 2025&rdquo;</li>
+          <li><code>{{venueLine}}</code> &mdash; venue + city + country, prefixed with &ldquo;at&rdquo;</li>
+          <li><code>{{accreditationBody}}</code> &mdash; first accreditor&rsquo;s friendly name (e.g. &ldquo;Dubai Health Authority (DHA)&rdquo;)</li>
+          <li><code>{{accreditationReference}}</code> &mdash; first accreditor&rsquo;s reference number</li>
+          <li><code>{{cmeHours}}</code> &mdash; CME / CPD hours awarded</li>
+        </ul>
+        <p>A typo&rsquo;d token (e.g. <code>{{recipientNme}}</code>) just resolves to an empty string on the printed cert &mdash; we log the typo to <strong>Logs</strong> so you can fix it without a botched run.</p>
+      </div>
+
+      <div class="sub" id="s18-4">
+        <div class="sub-title">CME / CPD configuration</div>
+        <p>If your event is CME / CPD accredited, configure the hours + accrediting bodies in the <strong>CME / CPD</strong> tab. These feed the <code>{{cmeHours}}</code>, <code>{{accreditationBody}}</code>, and <code>{{accreditationReference}}</code> tokens. Tokens render empty when these aren&rsquo;t set, so a template that uses them just shows blanks &mdash; no crash.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Enter <strong>Total CME / CPD hours awarded</strong> (decimal, e.g. 18.5). Leave empty if not accredited.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>+ Add accreditation</strong> to add a body &mdash; one row per accreditor (DHA, EACCME, etc.). You can have multiple.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">For each row: <strong>Body</strong>, <strong>Reference</strong> (e.g. &ldquo;DHA-CPD-2026-0142&rdquo;), optional <strong>Hours override</strong>, optional <strong>Official statement</strong> (verbatim wording some accreditors require).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save</strong></div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s18-5">
+        <div class="sub-title">Cover email defaults &mdash; per template</div>
+        <p>Every cert delivered by email needs a cover message. You can set a default subject + body per template so the operator who issues doesn&rsquo;t reconfigure each time.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">In the Templates tab, click <strong>Edit</strong> on a template</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click the <strong>Cover email</strong> button next to Close editor (top-right of the editor card)</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Edit the <strong>Subject</strong> and <strong>Body</strong>. The body uses the same rich editor as bulk-email and event content.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click a token from the <strong>Available tokens</strong> list to append to Subject or Body</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save defaults</strong></div></div>
+        </div>
+
+        <p>The cover email has its own token set (in addition to the cert text-box tokens):</p>
+        <ul>
+          <li><code>{{recipientName}}</code>, <code>{{eventName}}</code>, <code>{{eventDateRange}}</code>, <code>{{venueLine}}</code>, <code>{{organizationName}}</code> &mdash; same as the cert</li>
+          <li><code>{{certificateType}}</code> &mdash; expands to &ldquo;Certificate of Attendance&rdquo; or &ldquo;Certificate of Appreciation&rdquo;</li>
+          <li><code>{{certificateSerial}}</code> &mdash; the cert&rsquo;s unique serial number</li>
+          <li><code>{{abstractTitle}}</code> &mdash; <strong>Appreciation only</strong>. The speaker&rsquo;s accepted abstract / paper title (poster preferred when they have multiple). Empty for speakers without accepted abstracts.</li>
+        </ul>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">No defaults? No problem.</div><div class="c-text">If you skip setting cover-email defaults on a template, the Issue dialog falls back to a sensible system default (different wording for Attendance vs Appreciation). You can edit per-run at Issue time.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-6">
+        <div class="sub-title">Previewing before you issue</div>
+        <p>The <strong>Preview</strong> tab renders a draft cert PDF for any template, using your event&rsquo;s real data and a synthetic recipient (&ldquo;Dr. Sample Attendee&rdquo;). No DB writes, no email, no serial allocation &mdash; the preview serial reads <code>PREVIEW-DRAFT-ATTENDANCE</code> so an accidental print can never be mistaken for an issued cert.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Preview tab &rarr; pick a template from the dropdown</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Render preview</strong> &mdash; the PDF loads in an iframe below</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Check your tokens render correctly, your box positions are right, your fonts look right</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Iterate on the template until you&rsquo;re happy &mdash; preview as often as you like (30/hour rate limit per user)</div></div>
+        </div>
+      </div>
+
+      <div class="sub" id="s18-7">
+        <div class="sub-title">Tagging recipients before you issue</div>
+        <p>The Issue flow is <strong>tag-driven manual selection</strong> &mdash; no auto-eligibility based on check-in status or session role. You tag people in advance from the existing Registrations + Speakers pages, then at Issue time you pick which tag gets which template.</p>
+        <p>This puts you in full control: a Chairman cert goes to people tagged &ldquo;Chairman&rdquo;; a Poster Presenter cert goes to people tagged &ldquo;Poster Presenter&rdquo;. Nothing fires until you tell it to, and only the tagged people get certs.</p>
+        <p>Tags live on:</p>
+        <ul>
+          <li><strong>Registrations</strong> &mdash; via the attendee detail sheet&rsquo;s Tags field. Drives Attendance cert eligibility.</li>
+          <li><strong>Speakers</strong> &mdash; via the speaker detail sheet&rsquo;s Tags field. Drives Appreciation cert eligibility for both formal speakers and abstract submitters (submitters are stored as speakers).</li>
+        </ul>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Pre-event tagging is the planning step</div><div class="c-text">Before you start issuing, run through your speaker + registration lists and tag people by what cert they should receive. &ldquo;Speaker&rdquo;, &ldquo;Moderator&rdquo;, &ldquo;Chairperson&rdquo;, &ldquo;VIP&rdquo;, &ldquo;Sponsor Guest&rdquo;, &ldquo;Poster Presenter&rdquo; &mdash; whatever your event needs. The tag value is freeform; you decide what makes sense.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-8">
+        <div class="sub-title">Issuing certificates</div>
+        <p>Once your templates are designed + your people are tagged, issuing is straightforward.</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Issue</strong> tab &rarr; pick a <strong>Template</strong> from the first dropdown</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">The <strong>Tag</strong> dropdown populates with every tag in the template&rsquo;s pool, with the count of people carrying each. Pick one.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Below the dropdowns you see <strong>N eligible recipients tagged &ldquo;X&rdquo;</strong> &mdash; review the names</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Issue N certificates</strong> &mdash; the cover-email editor opens</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Review the Subject + Body (pre-filled from the template&rsquo;s defaults). Tweak for this batch if needed &mdash; the changes apply ONLY to this run.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Confirm &amp; issue</strong></div></div>
+        </div>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Tweaks at Issue are snapshotted</div><div class="c-text">Whatever you confirm in the Issue dialog is frozen onto the run row. If you later edit the template&rsquo;s defaults, it doesn&rsquo;t change the emails for already-issued runs. Re-run for a different cohort and you start fresh from the template defaults again.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-9">
+        <div class="sub-title">The Review gate &mdash; before emails go out</div>
+        <p>Click Confirm &amp; issue and the run starts as <strong>PENDING</strong>. A background worker drains the run in two phases:</p>
+        <ol>
+          <li><strong>RENDERING</strong> &mdash; the worker produces one PDF per recipient, with tokens substituted, and stores them on the server. Roughly 50 certs per minute. For 300 attendees that&rsquo;s ~6 minutes; for 5000 it&rsquo;s ~1.5 hours.</li>
+          <li><strong>AWAITING_REVIEW</strong> &mdash; the worker stops here. NO emails have been sent yet. You can spot-check the rendered PDFs from the Issue tab&rsquo;s run panel before triggering Send.</li>
+        </ol>
+        <p>When you&rsquo;re happy, click <strong>Send emails</strong> on the run panel. The worker enters the <strong>SENDING</strong> phase, fires emails in batches of 25 with the cert PDF attached (compliant with AWS SES&rsquo;s 14/sec ceiling), and transitions to <strong>COMPLETED</strong> when done.</p>
+
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">The review gate exists for a reason</div><div class="c-text">Once you click Send, those emails are out the door. Spot-check a few rendered PDFs at AWAITING_REVIEW. If something&rsquo;s wrong (typo in a token, box in the wrong place, etc.), click <strong>Cancel</strong> instead, fix the template, and re-issue.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-10">
+        <div class="sub-title">Run progress + status panel</div>
+        <p>The Issue tab keeps polling the run every 4 seconds while it&rsquo;s active. You see live counters for total / rendered / emailed / failed plus a progress bar. Status badges:</p>
+        <ul>
+          <li><strong>PENDING</strong> &mdash; queued; the cron worker picks up within 60 seconds.</li>
+          <li><strong>RENDERING</strong> &mdash; producing PDFs.</li>
+          <li><strong>AWAITING_REVIEW</strong> &mdash; PDFs ready, waiting for you to click Send.</li>
+          <li><strong>SENDING</strong> &mdash; emails are going out.</li>
+          <li><strong>COMPLETED</strong> &mdash; done. The run row stays for audit.</li>
+          <li><strong>FAILED</strong> &mdash; something blocked the run. Check <strong>Logs</strong> &mdash; the failure reason is logged.</li>
+          <li><strong>CANCELLED</strong> &mdash; you cancelled before completion. Already-emailed recipients keep their certs; the rest don&rsquo;t fire.</li>
+        </ul>
+      </div>
+
+      <div class="sub" id="s18-11">
+        <div class="sub-title">Re-issuing &amp; the audit trail</div>
+        <p>Every issued cert is captured in an immutable <strong>IssuedCertificate</strong> row with a frozen recipient snapshot, a unique serial, the PDF URL, and a link to the template that produced it. This means:</p>
+        <ul>
+          <li>A reprint months later renders byte-for-byte the same PDF &mdash; the snapshot doesn&rsquo;t drift with the underlying Registration / Speaker / Event records.</li>
+          <li>Deleting a template is BLOCKED if any cert was issued from it. You can rename to mark as retired, but the audit chain stays linked.</li>
+          <li>You can&rsquo;t accidentally double-issue someone the same category &mdash; the eligibility query excludes anyone who already holds a cert of that category.</li>
+        </ul>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Need to issue a duplicate? Use the dashboard reprint flow</div><div class="c-text">If a recipient asks for a re-send (lost the email, wrong address, etc.), open their detail sheet, find their issued cert in the history, and use the reprint action there &mdash; preserves the serial. A second Issue run won&rsquo;t fire for them because they already hold a cert of that category.</div></div></div>
+      </div>
+
+      <div class="sub" id="s18-12">
+        <div class="sub-title">Common patterns</div>
+        <p><strong>Conference with 300 attendees + 30 speakers</strong></p>
+        <ul>
+          <li>Two templates: &ldquo;Attendance&rdquo; (with your designer&rsquo;s attendance PDF) + &ldquo;Speaker Appreciation&rdquo; (with the appreciation PDF).</li>
+          <li>Pre-event: tag every registration with &ldquo;Attendee&rdquo;; every speaker with &ldquo;Speaker&rdquo;.</li>
+          <li>Issue twice: Attendance + tag &ldquo;Attendee&rdquo; (300 fires), then Appreciation + tag &ldquo;Speaker&rdquo; (30 fires).</li>
+        </ul>
+
+        <p><strong>Event with VIP segmentation</strong></p>
+        <ul>
+          <li>Three templates: &ldquo;Standard Attendance&rdquo;, &ldquo;VIP Attendance&rdquo;, &ldquo;Speaker Appreciation&rdquo;.</li>
+          <li>Tag your VIPs with &ldquo;VIP&rdquo; in addition to &ldquo;Attendee&rdquo;.</li>
+          <li>Issue VIP Attendance + tag &ldquo;VIP&rdquo; FIRST. Then issue Standard Attendance + tag &ldquo;Attendee&rdquo; &mdash; the eligibility query auto-excludes the VIPs (they already hold an Attendance cert), so they don&rsquo;t get the standard one too.</li>
+        </ul>
+
+        <p><strong>CME-accredited event with poster session</strong></p>
+        <ul>
+          <li>Two templates: &ldquo;Attendance (CME)&rdquo; with the <code>{{cmeHours}}</code> + <code>{{accreditationBody}}</code> tokens in its text boxes; &ldquo;Poster Appreciation&rdquo; with <code>{{abstractTitle}}</code> in the cover email body.</li>
+          <li>Set CME hours + accreditations once in the CME / CPD tab.</li>
+          <li>Tag poster presenters with &ldquo;Poster Presenter&rdquo;.</li>
+          <li>Issue Attendance + tag &ldquo;Attendee&rdquo;, then Poster Appreciation + tag &ldquo;Poster Presenter&rdquo;.</li>
+        </ul>
+      </div>
+
+      <div class="sub" id="s18-13">
+        <div class="sub-title">Quick reference</div>
+        <ul>
+          <li><strong>Tabs:</strong> Templates &middot; CME / CPD &middot; Preview &middot; Issue</li>
+          <li><strong>Background formats:</strong> PDF, JPG, PNG (images auto-convert) &mdash; max 10 MB, single page</li>
+          <li><strong>Max text boxes per template:</strong> 40</li>
+          <li><strong>Max templates per event:</strong> no hard cap; in practice 2&ndash;5 per category</li>
+          <li><strong>One cert per recipient per category</strong> &mdash; enforced by the eligibility query</li>
+          <li><strong>Cover email tokens</strong> &mdash; same 7 as the cert body, plus <code>{{abstractTitle}}</code> on Appreciation</li>
+          <li><strong>Throughput</strong> &mdash; render ~50/min, send ~25/min (SES-safe)</li>
+          <li><strong>Review gate</strong> &mdash; runs pause at AWAITING_REVIEW before sending</li>
+          <li><strong>Audit</strong> &mdash; issued certs are immutable; reprint preserves the original serial</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- SCREENSHOT INDEX -->
     <div class="section" id="img-ref">
       <div class="sec-hd"><div class="sec-num">&#x1F5BC;</div><div class="sec-meta">

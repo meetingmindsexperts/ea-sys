@@ -60,18 +60,21 @@ const USER_GUIDE_URL = "/user-guide.html";
 const STARTERS_BY_ROLE: Record<string, string[]> = {
   SUPER_ADMIN: [
     "How do I add a registration?",
+    "How do I issue certificates after the event?",
     "What's the difference between INCLUSIVE and COMPLIMENTARY?",
     "How do I attach a payer to an event?",
     "When would I use an INTERNAL API key?",
   ],
   ADMIN: [
     "How do I add a registration?",
+    "How do I issue certificates after the event?",
     "What's the difference between INCLUSIVE and COMPLIMENTARY?",
     "How do I attach a payer to an event?",
     "How do I send a quote to a registrant?",
   ],
   ORGANIZER: [
     "How do I add a registration?",
+    "How do I issue certificates after the event?",
     "What's the difference between INCLUSIVE and COMPLIMENTARY?",
     "How do I attach a payer to an event?",
     "How do I send a quote to a registrant?",

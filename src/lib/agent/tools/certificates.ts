@@ -195,6 +195,24 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     textBoxes = v;
   }
 
+  // Optional cover-email defaults. Both nullable — when null the Issue
+  // dialog falls back to the per-category system default. min(1) when
+  // set so a template doesn't carry an empty string.
+  let emailSubject: string | null = null;
+  let emailBody: string | null = null;
+  if (input.emailSubject !== undefined && input.emailSubject !== null) {
+    if (typeof input.emailSubject !== "string" || input.emailSubject.length === 0 || input.emailSubject.length > 200) {
+      return { error: "emailSubject must be a non-empty string (max 200 chars)", code: "INVALID_FIELD" };
+    }
+    emailSubject = input.emailSubject;
+  }
+  if (input.emailBody !== undefined && input.emailBody !== null) {
+    if (typeof input.emailBody !== "string" || input.emailBody.length === 0 || input.emailBody.length > 10000) {
+      return { error: "emailBody must be a non-empty string (max 10000 chars; Tiptap HTML output)", code: "INVALID_FIELD" };
+    }
+    emailBody = input.emailBody;
+  }
+
   // Verify event is in caller's org.
   const event = await db.event.findFirst({
     where: { id: ctx.eventId, organizationId: ctx.organizationId },
@@ -222,6 +240,8 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         backgroundPdfUrl,
         textBoxes: textBoxes as unknown as Prisma.InputJsonValue,
         sortOrder,
+        emailSubject,
+        emailBody,
       },
     });
   });
@@ -295,9 +315,32 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     }
     data.sortOrder = input.sortOrder;
   }
+  // Cover-email defaults — pass null to clear back to system default.
+  if (input.emailSubject !== undefined) {
+    if (input.emailSubject === null) {
+      data.emailSubject = null;
+    } else if (typeof input.emailSubject !== "string" || input.emailSubject.length === 0 || input.emailSubject.length > 200) {
+      return { error: "emailSubject must be a non-empty string (max 200 chars) or null", code: "INVALID_FIELD" };
+    } else {
+      data.emailSubject = input.emailSubject;
+    }
+  }
+  if (input.emailBody !== undefined) {
+    if (input.emailBody === null) {
+      data.emailBody = null;
+    } else if (typeof input.emailBody !== "string" || input.emailBody.length === 0 || input.emailBody.length > 10000) {
+      return { error: "emailBody must be a non-empty string (max 10000 chars; Tiptap HTML output) or null", code: "INVALID_FIELD" };
+    } else {
+      data.emailBody = input.emailBody;
+    }
+  }
 
   if (Object.keys(data).length === 0) {
-    return { error: "Nothing to update — provide at least one of name/backgroundPdfUrl/textBoxes/sortOrder", code: "NOTHING_TO_UPDATE" };
+    return {
+      error:
+        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / emailSubject / emailBody",
+      code: "NOTHING_TO_UPDATE",
+    };
   }
 
   const updated = await db.certificateTemplate.update({
@@ -532,7 +575,7 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_certificate_template",
     description:
-      "Create a new certificate template. Organizer-defined name + ATTENDANCE/APPRECIATION category. Returns the new template id. backgroundPdfUrl and textBoxes are optional at create time; the operator typically uploads the PDF + drags boxes via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first.",
+      "Create a new certificate template. Organizer-defined name + ATTENDANCE/APPRECIATION category. Returns the new template id. backgroundPdfUrl and textBoxes are optional at create time; the operator typically uploads the PDF + drags boxes via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first. Optional emailSubject + emailBody define the default cover email — when set, the Issue dialog pre-fills from these; when null the dialog falls back to the per-category system default.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -543,7 +586,7 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
         category: {
           type: "string",
           enum: ["ATTENDANCE", "APPRECIATION"],
-          description: "Base category — drives eligibility (Attendance → checked-in registrants; Appreciation → speakers + poster authors).",
+          description: "Base category. ATTENDANCE pool = registrations; APPRECIATION pool = speakers + abstract submitters. Drives token availability ({{abstractTitle}} is APPRECIATION-only).",
         },
         backgroundPdfUrl: {
           type: ["string", "null"],
@@ -551,8 +594,16 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
         },
         textBoxes: {
           type: "array",
-          description: "Positioned text overlays. Max 40 per template.",
+          description: "Positioned text overlays on the cert. Max 40 per template.",
           items: textBoxSchemaJson,
+        },
+        emailSubject: {
+          type: ["string", "null"],
+          description: "Default cover-email subject. Tokens supported: {{recipientName}}, {{eventName}}, {{eventDateRange}}, {{venueLine}}, {{organizationName}}, {{certificateType}}, {{certificateSerial}}, {{abstractTitle}} (APPRECIATION only). Max 200 chars.",
+        },
+        emailBody: {
+          type: ["string", "null"],
+          description: "Default cover-email body (Tiptap HTML output). Same token set as emailSubject. Max 10000 chars. Snapshotted onto each CertificateIssueRun at Issue time so a later template edit doesn't change in-flight emails.",
         },
       },
       required: ["name", "category"],
@@ -561,7 +612,7 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "update_certificate_template",
     description:
-      "Patch a specific template by id — change name, background PDF, text box positions, or sort order. Partial: only fields you include get updated; others preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows). Find templateIds via list_certificate_templates.",
+      "Patch a specific template by id — change name, background PDF, text box positions, sort order, or cover-email defaults. Partial: only fields you include get updated; others preserved. Pass null for emailSubject or emailBody to clear back to the system default. Category is immutable post-create (would invalidate IssuedCertificate audit rows). Find templateIds via list_certificate_templates.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -579,6 +630,14 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
         sortOrder: {
           type: "number",
           description: "Display order within the category. 0..9999.",
+        },
+        emailSubject: {
+          type: ["string", "null"],
+          description: "Default cover-email subject (max 200 chars). Null clears back to system default.",
+        },
+        emailBody: {
+          type: ["string", "null"],
+          description: "Default cover-email body in Tiptap HTML (max 10000 chars). Null clears back to system default.",
         },
       },
       required: ["templateId"],

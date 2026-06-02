@@ -542,7 +542,7 @@ export function registerAllMcpTools(
       scheduledEmailId: z.string(),
     }},
     // ─── Certificate template writes ───
-    { name: "create_certificate_template", description: "Create a new CertificateTemplate row. v3 multi-template model — an event can have N templates per category (e.g. 'Standard Attendance', 'VIP Attendance', 'Chairman Appreciation'). backgroundPdfUrl + textBoxes are optional at create; typically uploaded + dragged via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first to get a usable /uploads/... URL.", params: {
+    { name: "create_certificate_template", description: "Create a new CertificateTemplate row. v3 multi-template model — an event can have N templates per category (e.g. 'Standard Attendance', 'VIP Attendance', 'Chairman Appreciation'). backgroundPdfUrl + textBoxes are optional at create; typically uploaded + dragged via the dashboard canvas editor afterwards. Upload PDFs via POST /api/upload/pdf first to get a usable /uploads/... URL. Optional emailSubject + emailBody define the default cover email — Issue dialog pre-fills from these.", params: {
       name: z.string().min(1).max(120),
       category: z.enum(["ATTENDANCE", "APPRECIATION"]),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -562,8 +562,14 @@ export function registerAllMcpTools(
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         align: z.enum(["left", "center", "right"]),
       })).max(40).optional(),
+      // Cover-email defaults — tokens: {{recipientName}}, {{eventName}},
+      // {{eventDateRange}}, {{venueLine}}, {{organizationName}},
+      // {{certificateType}}, {{certificateSerial}}, {{abstractTitle}}
+      // (APPRECIATION-only). Snapshotted onto each Run at Issue time.
+      emailSubject: z.string().min(1).max(200).nullable().optional(),
+      emailBody: z.string().min(1).max(10000).nullable().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, or sortOrder. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, or cover-email defaults (emailSubject / emailBody). Pass null on the email fields to clear back to the system default. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -584,6 +590,8 @@ export function registerAllMcpTools(
         align: z.enum(["left", "center", "right"]),
       })).max(40).optional(),
       sortOrder: z.number().int().min(0).max(9999).optional(),
+      emailSubject: z.string().min(1).max(200).nullable().optional(),
+      emailBody: z.string().min(1).max(10000).nullable().optional(),
     }},
     { name: "delete_certificate_template", description: "Delete a CertificateTemplate by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references it — audit trail must stay intact. Rename the template instead to mark as retired.", params: {
       templateId: z.string().min(1),
