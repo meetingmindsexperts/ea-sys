@@ -51,6 +51,7 @@ import {
   Upload,
   Plus,
   Trash2,
+  Copy,
   Info,
   AlignLeft,
   AlignCenter,
@@ -297,6 +298,24 @@ export function CertificateCanvasEditor({
     if (selectedId === id) setSelectedId(null);
   }
 
+  // Clone the box and offset by +20pt diagonally so the duplicate is
+  // visibly separate from the original. The new id is generated so
+  // pdf-lib's renderer treats it as a distinct draw call. We also
+  // re-select the clone — matches the user's mental model of "I just
+  // made this, let me edit it" and is consistent with addBox().
+  function duplicateBox(id: string) {
+    const src = textBoxes.find((b) => b.id === id);
+    if (!src) return;
+    const clone: CertificateTextBox = {
+      ...src,
+      id: newBoxId(),
+      x: Math.min(src.x + 20, Math.max(0, pageWidthPt - src.width)),
+      y: Math.min(src.y + 20, Math.max(0, pageHeightPt - src.height)),
+    };
+    onChange({ textBoxes: [...textBoxes, clone] });
+    setSelectedId(clone.id);
+  }
+
   // Insert a token into the selected box's content at the end (cursor
   // position tracking inside Rnd-wrapped Textareas is fiddly; appending
   // is the simple-good-enough UX, organizer can rearrange).
@@ -522,14 +541,26 @@ export function CertificateCanvasEditor({
             <div className="space-y-4 rounded-md border p-4">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">Text box</Label>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => deleteBox(selectedBox.id)}
-                  aria-label="Delete text box"
-                >
-                  <Trash2 className="h-4 w-4 text-red-500" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => duplicateBox(selectedBox.id)}
+                    aria-label="Duplicate text box"
+                    title="Duplicate text box"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => deleteBox(selectedBox.id)}
+                    aria-label="Delete text box"
+                    title="Delete text box"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-1.5">

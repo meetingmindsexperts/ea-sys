@@ -72,6 +72,7 @@ import {
   CheckCircle2,
   XCircle,
   Pencil,
+  Copy,
   Save,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
@@ -399,6 +400,39 @@ export default function CertificatesPage() {
               }
             : cur,
       );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Duplicate clones the row + copies the background PDF on disk so the
+  // clone is fully independent — editing one doesn't affect the other.
+  // Lands at sortOrder = max+1 within the same category, name appended
+  // with " (copy)". Server returns the new row; we just invalidate the
+  // templates list so the clone shows up at the end of the category
+  // group on the next render.
+  const duplicateTemplateMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await fetch(
+        `/api/events/${eventId}/certificates/templates/${templateId}/duplicate`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        if (err.code === "BACKGROUND_PDF_MISSING") {
+          throw new Error(
+            "Source template's background PDF could not be read (it may be on a different machine). Re-upload the background on the source template before duplicating.",
+          );
+        }
+        throw new Error(err.error ?? `Duplicate failed (${res.status})`);
+      }
+      return (await res.json()) as { template: { id: string; name: string } };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      toast.success(`Duplicated as "${data.template.name}"`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -944,6 +978,19 @@ export default function CertificatesPage() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              onClick={() => duplicateTemplateMutation.mutate(t.id)}
+                              disabled={
+                                duplicateTemplateMutation.isPending &&
+                                duplicateTemplateMutation.variables === t.id
+                              }
+                              aria-label="Duplicate template"
+                              title="Duplicate template"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
                               onClick={() => {
                                 if (
                                   t._count &&
@@ -959,6 +1006,7 @@ export default function CertificatesPage() {
                                 }
                               }}
                               aria-label="Delete template"
+                              title="Delete template"
                             >
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
