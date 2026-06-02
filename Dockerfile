@@ -13,6 +13,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # BuildKit cache: npm download cache persists between builds (~30s → ~5s)
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
+# scripts/copy-pdfjs-worker.mjs runs from `postinstall`, so it must be on
+# disk BEFORE `npm ci`. Only this one script needs to be present pre-install;
+# the rest of `scripts/` (backfills, deploy.sh, etc.) lands with the later
+# `COPY . .` so cache invalidation stays scoped to lockfile + this one file.
+COPY scripts/copy-pdfjs-worker.mjs ./scripts/copy-pdfjs-worker.mjs
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
