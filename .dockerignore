@@ -23,6 +23,10 @@ docs/
 .github/
 deploy/
 scripts/
+# Exception: copy-pdfjs-worker.mjs runs from `postinstall` (see Dockerfile
+# step that COPYs it before `npm ci`). Must be present in the build context
+# even though the rest of scripts/ is excluded.
+!scripts/copy-pdfjs-worker.mjs
 
 # Docker configs (not needed inside the image)
 docker/
