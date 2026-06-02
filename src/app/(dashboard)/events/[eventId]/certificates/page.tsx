@@ -1784,7 +1784,7 @@ export default function CertificatesPage() {
           so Re-render after canvas tweaks always shows fresh output. */}
       {editingTemplate && (
         <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
-          <DialogContent className="sm:max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogContent className="sm:max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Eye className="h-5 w-5" />
@@ -1807,7 +1807,7 @@ export default function CertificatesPage() {
                   // viewer chrome — Re-render/Close already live in the
                   // dialog footer, the duplicate toolbar is just noise.
                   src={`/api/events/${eventId}/certificates/preview?templateId=${editingTemplate.id}&t=${previewBust}#view=Fit&toolbar=0`}
-                  className="w-full h-full"
+                  className="min-h-[550px] w-full h-full"
                   title="Certificate preview"
                 />
               )}
