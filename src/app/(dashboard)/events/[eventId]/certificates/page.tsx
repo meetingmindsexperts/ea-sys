@@ -1800,7 +1800,13 @@ export default function CertificatesPage() {
               {previewBust > 0 && (
                 <iframe
                   key={previewBust}
-                  src={`/api/events/${eventId}/certificates/preview?templateId=${editingTemplate.id}&t=${previewBust}`}
+                  // #view=Fit tells the browser's PDF viewer to scale the
+                  // whole page to fit the iframe (vs the default fit-to-
+                  // width, which clips a portrait cert below the fold on
+                  // a landscape-shaped dialog). #toolbar=0 hides the PDF
+                  // viewer chrome — Re-render/Close already live in the
+                  // dialog footer, the duplicate toolbar is just noise.
+                  src={`/api/events/${eventId}/certificates/preview?templateId=${editingTemplate.id}&t=${previewBust}#view=Fit&toolbar=0`}
                   className="w-full h-full"
                   title="Certificate preview"
                 />
