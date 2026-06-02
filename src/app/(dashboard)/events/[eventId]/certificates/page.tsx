@@ -192,6 +192,18 @@ interface RunResp {
     errorMessage: string | null;
     issuedCertificateId: string | null;
   }>;
+  /** ALL failed items on this run (not capped). Operator uses this to
+   *  decide whether to retry or accept the partial run. */
+  failedItems?: Array<{
+    id: string;
+    recipientName: string;
+    recipientEmail: string | null;
+    errorPhase: string | null;
+    errorMessage: string | null;
+    renderedAt: string | null;
+    emailedAt: string | null;
+    issuedCertificateId: string | null;
+  }>;
 }
 
 // ── Page component ───────────────────────────────────────────────────────────
@@ -528,6 +540,57 @@ export default function CertificatesPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  // Retry failed items. Resets the items + bumps run status back into
+  // the appropriate phase so the cron picks them up next tick. Endpoint
+  // is idempotent + returns the split (render vs email reset counts).
+  const retryFailedMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await fetch(
+        `/api/events/${eventId}/certificates/runs/${runId}/retry-failed`,
+        { method: "POST" },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        retried?: number;
+        renderFailedReset?: number;
+        emailFailedReset?: number;
+        nextStatus?: string;
+        error?: string;
+        code?: string;
+        currentStatus?: string;
+      };
+      if (!res.ok) {
+        if (json.code === "RUN_BUSY") {
+          throw new Error(
+            `Run is currently ${json.currentStatus}. Wait for the active phase to finish before retrying.`,
+          );
+        }
+        throw new Error(json.error ?? `Retry failed (${res.status})`);
+      }
+      return json;
+    },
+    onSuccess: (json) => {
+      const retried = json.retried ?? 0;
+      if (retried === 0) {
+        toast(json.error ?? "No failed items to retry.");
+      } else {
+        const bits: string[] = [];
+        if (json.renderFailedReset) bits.push(`${json.renderFailedReset} render`);
+        if (json.emailFailedReset) bits.push(`${json.emailFailedReset} email`);
+        toast.success(
+          `Retrying ${retried} failed ${retried === 1 ? "item" : "items"}` +
+            (bits.length ? ` (${bits.join(" + ")}) — run resumed at ${json.nextStatus}` : ""),
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["cert-run", eventId, activeRunId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Local UI state — whether the failures detail panel is expanded.
+  // Resets per run so a fresh run opens collapsed.
+  const [failuresExpanded, setFailuresExpanded] = useState(false);
 
   // ── Accreditation helpers ─────────────────────────────────────────────────
   function addAccreditation() {
@@ -1293,6 +1356,66 @@ export default function CertificatesPage() {
                                 style={{ width: `${runQuery.data.progressPct}%` }}
                               />
                             </div>
+
+                            {/* Failures detail — per-recipient errorMessage
+                                so the operator can see WHO failed + WHY
+                                without going to /logs. Expandable to keep
+                                the panel compact when there are none. */}
+                            {runQuery.data.failedCount > 0 && (
+                              <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                                <button
+                                  type="button"
+                                  className="flex items-center justify-between w-full text-left"
+                                  onClick={() => setFailuresExpanded((v) => !v)}
+                                >
+                                  <span className="font-medium text-red-900">
+                                    <XCircle className="h-4 w-4 inline mr-1.5" />
+                                    {runQuery.data.failedCount}{" "}
+                                    {runQuery.data.failedCount === 1
+                                      ? "failure"
+                                      : "failures"}
+                                  </span>
+                                  <span className="text-xs text-red-700">
+                                    {failuresExpanded ? "Hide details" : "Show details"}
+                                  </span>
+                                </button>
+                                {failuresExpanded &&
+                                  runQuery.data.failedItems &&
+                                  runQuery.data.failedItems.length > 0 && (
+                                    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto pr-1">
+                                      {runQuery.data.failedItems.map((f) => (
+                                        <div
+                                          key={f.id}
+                                          className="rounded border border-red-200 bg-white p-2 text-xs"
+                                        >
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <div className="font-medium truncate">
+                                                {f.recipientName}
+                                              </div>
+                                              <div className="text-muted-foreground truncate">
+                                                {f.recipientEmail ?? "(no email)"}
+                                              </div>
+                                            </div>
+                                            <Badge
+                                              variant="outline"
+                                              className="shrink-0 border-red-300 text-red-700"
+                                            >
+                                              {f.errorPhase ?? "?"}
+                                            </Badge>
+                                          </div>
+                                          {f.errorMessage && (
+                                            <div className="mt-1 text-red-700 break-words">
+                                              {f.errorMessage}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                              </div>
+                            )}
+
                             <div className="flex gap-2">
                               {runQuery.data.status === "AWAITING_REVIEW" && (
                                 <Button
@@ -1304,6 +1427,27 @@ export default function CertificatesPage() {
                                   Send emails
                                 </Button>
                               )}
+                              {/* Retry failed — only meaningful when there
+                                  ARE failures AND the run is in a status
+                                  the API will accept the retry from. */}
+                              {runQuery.data.failedCount > 0 &&
+                                ["PENDING", "AWAITING_REVIEW", "COMPLETED", "FAILED", "CANCELLED"].includes(
+                                  runQuery.data.status,
+                                ) && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      retryFailedMutation.mutate(runQuery.data!.runId)
+                                    }
+                                    disabled={retryFailedMutation.isPending}
+                                  >
+                                    {retryFailedMutation.isPending ? (
+                                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                    ) : null}
+                                    Retry {runQuery.data.failedCount} failed
+                                  </Button>
+                                )}
                               {["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"].includes(
                                 runQuery.data.status,
                               ) && (

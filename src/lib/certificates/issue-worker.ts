@@ -781,9 +781,26 @@ async function markItemFailed(
   phase: "render" | "email",
   message: string,
 ) {
+  // CRITICAL: set the phase timestamp (renderedAt for render-phase
+  // failures, emailedAt for email-phase failures) so the next cron
+  // tick's `where: { renderedAt: null }` / `where: { emailedAt: null }`
+  // query EXCLUDES this item. Without this, permanently-broken items
+  // (e.g. recipient has no email address, or render template is missing
+  // a referenced asset) would re-enter every tick's batch and the run
+  // would never reach COMPLETED — it would sit in RENDERING / SENDING
+  // forever, eating cron cycles. The errorMessage is what marks the
+  // item as failed; the timestamp marks it as "processed (with
+  // failure)". Retry-failed flips both back.
+  const now = new Date();
+  const itemUpdate: Prisma.CertificateIssueRunItemUpdateInput = {
+    errorPhase: phase,
+    errorMessage: message.slice(0, 1000),
+  };
+  if (phase === "render") itemUpdate.renderedAt = now;
+  if (phase === "email") itemUpdate.emailedAt = now;
   await db.certificateIssueRunItem.update({
     where: { id: itemId },
-    data: { errorPhase: phase, errorMessage: message.slice(0, 1000) },
+    data: itemUpdate,
   });
   // Append to run.errors JSON capped at MAX_RECORDED_ERRORS entries.
   const run = await db.certificateIssueRun.findUnique({

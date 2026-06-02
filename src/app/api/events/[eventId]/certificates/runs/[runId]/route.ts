@@ -51,8 +51,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     // Sample recipients for the operator preview — the first 20 items
-    // with their progress state. Full list available via a follow-up
-    // endpoint if needed; capped here so the polling response stays small.
+    // with their progress state. Capped here so the polling response
+    // stays small.
     const sampleItems = await db.certificateIssueRunItem.findMany({
       where: { runId },
       orderBy: { recipientName: "asc" },
@@ -64,6 +64,30 @@ export async function GET(_req: Request, { params }: RouteParams) {
         issuedCertificateId: true,
       },
     });
+
+    // ALL failed items (not just the sample). The operator needs the
+    // full failures list to decide whether to retry or accept the
+    // partial run. Bounded by `failedCount` on the run row, which is
+    // capped operationally by the recipient pool — for events with
+    // tens of thousands of recipients the worst case is a few hundred
+    // failures, which fits comfortably in a polling response.
+    const failedItems =
+      run.failedCount > 0
+        ? await db.certificateIssueRunItem.findMany({
+            where: { runId, errorMessage: { not: null } },
+            orderBy: { recipientName: "asc" },
+            select: {
+              id: true,
+              recipientName: true,
+              recipientEmail: true,
+              errorPhase: true,
+              errorMessage: true,
+              renderedAt: true,
+              emailedAt: true,
+              issuedCertificateId: true,
+            },
+          })
+        : [];
 
     return NextResponse.json({
       runId: run.id,
@@ -86,6 +110,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       lastTickAt: run.lastTickAt,
       errors: run.errors,
       sampleItems,
+      failedItems,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-run-poll:failed" });
