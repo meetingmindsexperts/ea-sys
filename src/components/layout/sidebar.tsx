@@ -36,6 +36,7 @@ import {
   ClipboardCheck,
   HelpCircle,
   BarChart3,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
   { name: "Activity",  href: "/activity",  icon: Activity, superAdminOnly: true },
+  { name: "Docs",      href: "/admin/docs", icon: BookOpen, superAdminOnly: true },
 ];
 
 // Event nav split into sections for visual grouping
