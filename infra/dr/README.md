@@ -379,8 +379,19 @@ sudo -u ubuntu aws s3api copy-object \
 
 The twice-daily Postgres backup writes `*.dump` files to
 `s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`. Each
-file is a `pg_dump -Fc` (custom format) — compressed, restorable as a
-whole or one table at a time.
+file is a `pg_dump -Fc --schema=public` (custom format, application
+schema only) — compressed, restorable as a whole or one table at a
+time, and portable to any vanilla PG 17 cluster (RDS, Crunchy, a new
+Supabase project, the local Docker drill).
+
+The dump intentionally excludes Supabase platform schemas (`auth`,
+`storage`, `realtime`, `graphql_public`, `vault`, `pgsodium`,
+`_realtime`, `extensions`) — EA-SYS uses none of those features
+(NextAuth not Supabase Auth, `STORAGE_PROVIDER=local` not Supabase
+Storage, no Realtime/GraphQL/Vault). Restoring to a new Supabase
+project is still the recommended DR target: Supabase recreates the
+platform schemas at project creation and our `public` dump layers on
+top.
 
 Two scenarios — full DB rebuild vs surgical row/table recovery:
 

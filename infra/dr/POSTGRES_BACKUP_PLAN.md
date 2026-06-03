@@ -36,7 +36,7 @@ the Singapore bucket becomes a one-stop recovery target.
 |---|---|---|---|
 | Q1 | Retention | **Flat 30-day** from time of each backup | Simple lifecycle rule; Supabase platform daily backups remain the floor beyond 30d |
 | Q2 | Alerting | **Log file + SES email on failure** | Log for routine checks; email so silent failure can't hide. Skip CloudWatch alarm for v1 |
-| Q3 | Scope | **Full dump, every table** | Including `SystemLog` + `EmailLog`. Revisit at 6-month mark if dumps exceed 1 GB |
+| Q3 | Scope | **All tables in `public` schema** | Including `SystemLog` + `EmailLog`. Excludes Supabase platform schemas (`auth`, `storage`, `realtime`, `vault`, etc.) which reference proprietary extensions unavailable on vanilla PG 17 — see "First-run refinement" below. Revisit at 6-month mark if dumps exceed 1 GB |
 
 ### RPO/RTO targets
 
@@ -451,3 +451,38 @@ Things we explicitly chose NOT to do in v1:
 
 Plan accepted by Krishna 2026-06-03. Implementation can begin against
 the §6 checklist when scheduled.
+
+---
+
+## 11. First-run refinement (2026-06-03 same day)
+
+Implementation revealed one detail not anticipated in the plan: the
+first `pg_dump` against the actual Supabase project included Supabase
+platform schemas (`auth`, `storage`, `realtime`, `graphql_public`,
+`vault`, `pgsodium`, `_realtime`, `extensions`) which reference
+proprietary extensions (`supabase_vault`, `pgsodium`, ...). The
+restore drill failed with `extension "supabase_vault" is not
+available` because vanilla `postgres:17` doesn't ship those.
+
+**Resolution**: added `--schema=public` to the `pg_dump` invocation
+in `scripts/dr-pg-dump.sh`. EA-SYS uses none of the Supabase platform
+features (NextAuth not Supabase Auth, `STORAGE_PROVIDER=local` not
+Supabase Storage, no Realtime/GraphQL/Vault) so the public schema is
+all the application data we have.
+
+**DR posture impact**: net positive.
+- Smaller, faster dumps (1.29 MB on first run vs ~3-5 MB had we
+  included platform schemas)
+- **Portable**: restores to ANY vanilla PG 17 (RDS, Crunchy, Aiven,
+  Postgres in Docker), not just Supabase. Real disaster scenarios
+  where Supabase itself is unreachable now have a non-Supabase fail-
+  over path.
+- Real DR flow unchanged: restoring to a new Supabase project still
+  works — Supabase recreates the platform schemas on project
+  creation, our `public` dump layers on top.
+
+**Re-evaluation trigger**: if EA-SYS ever adopts Supabase Auth, Supabase
+Storage, or Realtime, revisit. Either (a) widen the dump scope and use
+the `supabase/postgres:17` image in the drill, or (b) treat those
+features as ephemeral and rebuild on disaster (often acceptable for
+Realtime / GraphQL state).

@@ -123,10 +123,28 @@ log "dr-pg-dump:start ts=${TS_UTC} target=${S3_URI}"
 pg_dump \
   "${DIRECT_URL}" \
   --format=custom \
+  --schema=public \
   --no-owner \
   --no-acl \
   --no-password \
   --file="${LOCAL_DUMP}"
+
+# Why --schema=public:
+# Supabase auto-creates platform schemas (auth, storage, realtime,
+# graphql_public, vault, pgsodium, _realtime, extensions) with their
+# own proprietary extensions (supabase_vault, pgsodium, etc.) that
+# don't exist on vanilla postgres:17 — restore would fail with
+# `extension "supabase_vault" is not available`.
+#
+# EA-SYS uses none of those features (NextAuth not Supabase Auth,
+# STORAGE_PROVIDER=local not Supabase Storage, no Realtime, no
+# GraphQL, no Vault). All app data is in `public`, so dumping only
+# that gives us a portable dump that restores cleanly to any vanilla
+# PG 17 (RDS, Crunchy, fresh Supabase, the drill's Docker container).
+#
+# Real disaster recovery flow stays the same: pg_restore into a new
+# Supabase project; Supabase recreates its own platform schemas on
+# project creation, our public-schema dump layers on top.
 
 DUMP_BYTES=$(stat -c %s "${LOCAL_DUMP}")
 log "dr-pg-dump:dump-complete size_bytes=${DUMP_BYTES}"
