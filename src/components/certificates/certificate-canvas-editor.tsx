@@ -57,6 +57,8 @@ import {
   AlignCenter,
   AlignRight,
   Loader2,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -268,6 +270,7 @@ export function CertificateCanvasEditor({
   );
 
   function addBox() {
+    pushUndoSnapshot();
     // Drop the new box near the top of the page, centered horizontally.
     // 200pt wide × 32pt tall is a comfortable single-line default at
     // 16pt body text. Coords are top-left origin in pdf-lib points.
@@ -294,9 +297,131 @@ export function CertificateCanvasEditor({
   }
 
   function deleteBox(id: string) {
+    pushUndoSnapshot();
     onChange({ textBoxes: textBoxes.filter((b) => b.id !== id) });
     if (selectedId === id) setSelectedId(null);
   }
+
+  // ── Undo / Redo ───────────────────────────────────────────────────────
+  // Commit-point granularity (decided in the operator-feedback planning
+  // round): one undo step per drag-end, resize-end, add, delete,
+  // duplicate, side-panel input commit, or coalesced arrow-nudge burst.
+  // Stack depth capped at 30 — covers every realistic "I just did
+  // something wrong, take it back" workflow without unbounded memory.
+  //
+  // Snapshots store the BEFORE state of textBoxes (i.e., what to
+  // restore TO on undo). Redo stack stores AFTER states pushed during
+  // an undo operation, so a redo replays the action.
+  //
+  // textBoxes is a prop, so the snapshot captures the value at the
+  // moment of the call — that's why the helpers are called BEFORE the
+  // onChange that applies the new value.
+  const UNDO_STACK_MAX = 30;
+  const [undoStack, setUndoStack] = useState<CertificateTextBox[][]>([]);
+  const [redoStack, setRedoStack] = useState<CertificateTextBox[][]>([]);
+
+  const pushUndoSnapshot = useCallback(() => {
+    setUndoStack((stack) => {
+      const next = [...stack, textBoxes];
+      return next.length > UNDO_STACK_MAX ? next.slice(next.length - UNDO_STACK_MAX) : next;
+    });
+    setRedoStack([]);
+  }, [textBoxes]);
+
+  const undo = useCallback(() => {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const prev = stack[stack.length - 1];
+      setRedoStack((redo) => [...redo, textBoxes]);
+      onChange({ textBoxes: prev });
+      return stack.slice(0, -1);
+    });
+  }, [textBoxes, onChange]);
+
+  const redo = useCallback(() => {
+    setRedoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const next = stack[stack.length - 1];
+      setUndoStack((undo) => [...undo, textBoxes]);
+      onChange({ textBoxes: next });
+      return stack.slice(0, -1);
+    });
+  }, [textBoxes, onChange]);
+
+  // Arrow nudge: 1pt per press, Shift+arrow = 10pt. Consecutive presses
+  // within 500ms coalesce into a single undo step (holding the key
+  // shouldn't burn through 30 snapshots). Y-axis only per the
+  // organizer's request — Left/Right intentionally do nothing.
+  const lastNudgeAtRef = useRef(0);
+  const handleNudgeY = useCallback(
+    (direction: -1 | 1, big: boolean) => {
+      if (!selectedId) return;
+      const box = textBoxes.find((b) => b.id === selectedId);
+      if (!box) return;
+      const delta = (big ? 10 : 1) * direction;
+      const minY = 0;
+      const maxY = Math.max(0, pageHeightPt - box.height);
+      const newY = Math.max(minY, Math.min(maxY, box.y + delta));
+      if (newY === box.y) return; // already at boundary
+      const now = Date.now();
+      if (now - lastNudgeAtRef.current > 500) {
+        // New nudge burst — start a fresh undo step.
+        pushUndoSnapshot();
+      }
+      lastNudgeAtRef.current = now;
+      onChange({
+        textBoxes: textBoxes.map((b) => (b.id === box.id ? { ...b, y: newY } : b)),
+      });
+    },
+    [selectedId, textBoxes, pageHeightPt, pushUndoSnapshot, onChange],
+  );
+
+  // Keyboard handler — attached to the editor wrapper div, so arrow
+  // keys / shortcuts only fire when focus is inside the editor (not
+  // anywhere else in the dashboard). Bails out if focus is inside a
+  // textarea / input so typing in the side panel keeps working.
+  const handleEditorKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const tag = target.tagName;
+      const editable = target.isContentEditable;
+      const inField = tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || editable;
+
+      const isMeta = e.metaKey || e.ctrlKey;
+      // Cmd/Ctrl+Z = undo. Cmd/Ctrl+Shift+Z OR Cmd/Ctrl+Y = redo.
+      // Allow these even in textareas? No — would conflict with the
+      // browser's built-in textarea undo. Editor-level undo is for
+      // canvas mutations; textarea has its own.
+      if (!inField && isMeta && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (
+        !inField
+        && isMeta
+        && ((e.shiftKey && (e.key === "z" || e.key === "Z")) || e.key === "y" || e.key === "Y")
+      ) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
+      // Arrow nudge — only when a box is selected, focus is on the
+      // canvas (not a text input), and there's no meta modifier (so
+      // Cmd+ArrowUp browser navigation isn't hijacked).
+      if (!inField && !isMeta && selectedId) {
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          handleNudgeY(-1, e.shiftKey);
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          handleNudgeY(1, e.shiftKey);
+        }
+      }
+    },
+    [undo, redo, selectedId, handleNudgeY],
+  );
 
   // Clone the box and offset by +20pt diagonally so the duplicate is
   // visibly separate from the original. The new id is generated so
@@ -306,6 +431,7 @@ export function CertificateCanvasEditor({
   function duplicateBox(id: string) {
     const src = textBoxes.find((b) => b.id === id);
     if (!src) return;
+    pushUndoSnapshot();
     const clone: CertificateTextBox = {
       ...src,
       id: newBoxId(),
@@ -381,7 +507,15 @@ export function CertificateCanvasEditor({
   }
 
   return (
-    <div className="space-y-4">
+    // tabIndex makes the wrapper focusable so arrow keys / Cmd+Z fire
+    // even when no input is focused. outline-none keeps the focus ring
+    // off the whole editor — react-rnd boxes show their own selected
+    // outline, which is the real focus affordance.
+    <div
+      className="space-y-4 outline-none"
+      tabIndex={0}
+      onKeyDown={handleEditorKeyDown}
+    >
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
         <input
@@ -416,6 +550,28 @@ export function CertificateCanvasEditor({
         <Button size="sm" onClick={addBox}>
           <Plus className="h-4 w-4 mr-1" />
           Add text box
+        </Button>
+        {/* Undo / redo — buttons mirror the Cmd/Ctrl+Z + Cmd/Ctrl+Shift+Z
+            shortcuts that work on the canvas wrapper. Both disable
+            when their stack is empty so the operator gets visual
+            feedback that there's nothing to undo/redo. */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={undo}
+          disabled={undoStack.length === 0}
+          title="Undo (Cmd/Ctrl+Z)"
+        >
+          <Undo2 className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={redo}
+          disabled={redoStack.length === 0}
+          title="Redo (Cmd/Ctrl+Shift+Z)"
+        >
+          <Redo2 className="h-4 w-4" />
         </Button>
         <span className="ml-auto text-xs text-muted-foreground">
           {textBoxes.length} text {textBoxes.length === 1 ? "box" : "boxes"} ·{" "}
@@ -471,12 +627,19 @@ export function CertificateCanvasEditor({
                   bounds="parent"
                   onMouseDown={() => setSelectedId(box.id)}
                   onDragStop={(_e, d) => {
+                    // Snapshot pre-drag state so Cmd+Z restores the box
+                    // to where it sat before this drag, not to some
+                    // mid-drag pixel position. Drag-stop is the natural
+                    // commit point — react-rnd doesn't fire onChange
+                    // during the drag itself.
+                    pushUndoSnapshot();
                     updateBox(box.id, {
                       x: Math.max(0, pxToPt(d.x)),
                       y: Math.max(0, pxToPt(d.y)),
                     });
                   }}
                   onResizeStop={(_e, _dir, ref, _delta, position) => {
+                    pushUndoSnapshot();
                     updateBox(box.id, {
                       width: pxToPt(parseFloat(ref.style.width)),
                       height: pxToPt(parseFloat(ref.style.height)),
@@ -571,6 +734,11 @@ export function CertificateCanvasEditor({
                   id="box-content"
                   rows={3}
                   value={selectedBox.content}
+                  // Snapshot once per edit "session" (focus → blur). Each
+                  // keystroke does NOT push a new undo step — that would
+                  // be like a code editor where Cmd+Z deletes one
+                  // character. The whole edit collapses to one undo step.
+                  onFocus={pushUndoSnapshot}
                   onChange={(e) => updateBox(selectedBox.id, { content: e.target.value })}
                   className="font-mono text-sm"
                 />
@@ -581,9 +749,12 @@ export function CertificateCanvasEditor({
                   <Label className="text-xs">Font</Label>
                   <Select
                     value={selectedBox.font}
-                    onValueChange={(v) =>
-                      updateBox(selectedBox.id, { font: v as CertificateFontName })
-                    }
+                    onValueChange={(v) => {
+                      // Select fires once per dropdown commit, so this
+                      // is the natural snapshot point.
+                      pushUndoSnapshot();
+                      updateBox(selectedBox.id, { font: v as CertificateFontName });
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -608,6 +779,7 @@ export function CertificateCanvasEditor({
                     max={120}
                     step={1}
                     value={selectedBox.size}
+                    onFocus={pushUndoSnapshot}
                     onChange={(e) => {
                       const n = Number(e.target.value);
                       if (Number.isFinite(n) && n >= 4 && n <= 120) {
@@ -627,6 +799,11 @@ export function CertificateCanvasEditor({
                     <input
                       type="color"
                       value={selectedBox.color}
+                      // Native <input type=color> can fire onChange many
+                      // times in a single picker session (each color
+                      // swatch hover/click). onFocus is the cleanest
+                      // single-snapshot point per session.
+                      onFocus={pushUndoSnapshot}
                       onChange={(e) =>
                         updateBox(selectedBox.id, { color: e.target.value })
                       }
@@ -637,6 +814,7 @@ export function CertificateCanvasEditor({
                       id="box-color"
                       className="font-mono text-xs"
                       value={selectedBox.color}
+                      onFocus={pushUndoSnapshot}
                       onChange={(e) => {
                         const v = e.target.value;
                         if (/^#[0-9a-fA-F]{6}$/.test(v)) {
@@ -662,7 +840,10 @@ export function CertificateCanvasEditor({
                           type="button"
                           variant={selectedBox.align === a ? "default" : "outline"}
                           size="icon"
-                          onClick={() => updateBox(selectedBox.id, { align: a })}
+                          onClick={() => {
+                            pushUndoSnapshot();
+                            updateBox(selectedBox.id, { align: a });
+                          }}
                           aria-label={`Align ${a}`}
                         >
                           <Icon className="h-4 w-4" />
@@ -673,12 +854,16 @@ export function CertificateCanvasEditor({
                 </div>
               </div>
 
+              {/* X/Y/W/H direct inputs — each snapshot-on-focus so
+                  an entire keyboard edit of a number collapses to one
+                  undo step. */}
               <div className="grid grid-cols-4 gap-2 text-xs">
                 <div>
                   <Label className="text-xs text-muted-foreground">X (pt)</Label>
                   <Input
                     type="number"
                     value={Math.round(selectedBox.x)}
+                    onFocus={pushUndoSnapshot}
                     onChange={(e) =>
                       updateBox(selectedBox.id, { x: Number(e.target.value) || 0 })
                     }
@@ -689,6 +874,7 @@ export function CertificateCanvasEditor({
                   <Input
                     type="number"
                     value={Math.round(selectedBox.y)}
+                    onFocus={pushUndoSnapshot}
                     onChange={(e) =>
                       updateBox(selectedBox.id, { y: Number(e.target.value) || 0 })
                     }
@@ -699,6 +885,7 @@ export function CertificateCanvasEditor({
                   <Input
                     type="number"
                     value={Math.round(selectedBox.width)}
+                    onFocus={pushUndoSnapshot}
                     onChange={(e) =>
                       updateBox(selectedBox.id, {
                         width: Math.max(1, Number(e.target.value) || 1),
@@ -711,6 +898,7 @@ export function CertificateCanvasEditor({
                   <Input
                     type="number"
                     value={Math.round(selectedBox.height)}
+                    onFocus={pushUndoSnapshot}
                     onChange={(e) =>
                       updateBox(selectedBox.id, {
                         height: Math.max(1, Number(e.target.value) || 1),

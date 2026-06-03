@@ -592,6 +592,11 @@ async function processSendPhase(
           entityType: item.speakerId ? "SPEAKER" : "REGISTRATION",
           entityId: item.registrationId ?? item.speakerId ?? null,
           eventId,
+          // templateSlug doubles as a discriminator on the EmailLogCard
+          // — the card renders an amber "Certificate" pill when this
+          // slug is present, so an organizer scanning Email History can
+          // pick out cert sends at a glance without reading each subject.
+          templateSlug: "certificate-delivery",
         },
       });
       if (!result.success) {

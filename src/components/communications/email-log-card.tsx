@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Mail, AlertCircle, Loader2 } from "lucide-react";
+import { Mail, AlertCircle, Loader2, Award } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 type EmailLogEntityType = "REGISTRATION" | "SPEAKER" | "CONTACT" | "USER" | "OTHER";
@@ -80,6 +80,18 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
               </Badge>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
+                  {/* Amber "Certificate" pill for cert-delivery sends.
+                      Both the cron worker (issue-worker.ts) and the
+                      /resend route thread templateSlug="certificate-
+                      delivery" into the EmailLog row, so an organizer
+                      scanning the activity stream can pick out cert
+                      sends without reading every subject line. */}
+                  {log.templateSlug === "certificate-delivery" && (
+                    <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                      <Award className="h-2.5 w-2.5" />
+                      Cert
+                    </span>
+                  )}
                   <p className="text-sm font-medium text-slate-800 truncate">
                     {log.subject}
                   </p>

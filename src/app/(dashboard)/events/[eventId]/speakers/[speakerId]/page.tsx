@@ -62,6 +62,8 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
+import { EmailLogCard } from "@/components/communications/email-log-card";
 import { formatPersonName, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -965,6 +967,22 @@ export default function SpeakerDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Certificates + email history.
+              Speakers receive APPRECIATION certs; the card surfaces
+              the per-row Resend so an organizer can re-fire delivery
+              without leaving this page. EmailLogCard below it picks up
+              the new EmailLog row written by the resend, so the action
+              appears in two places (status row + history row) which
+              is the desired feedback loop. */}
+          <IssuedCertificatesCard
+            eventId={eventId}
+            speakerId={speaker.id}
+            recipientLabel={
+              `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
+            }
+          />
+          <EmailLogCard entityType="SPEAKER" entityId={speaker.id} />
         </div>
       </div>
 

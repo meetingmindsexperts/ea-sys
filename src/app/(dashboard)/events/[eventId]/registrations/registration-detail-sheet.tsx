@@ -76,6 +76,7 @@ import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import { RecordPaymentDialog } from "@/components/payments/record-payment-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
+import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -2109,8 +2110,23 @@ export function RegistrationDetailSheet({
                 </section>
               )}
 
-              {/* ── Email history ─────────────────────────────────────── */}
-              <div className={cn(!isEditing && activeTab !== "activity" && "hidden")}>
+              {/* ── Activity tab: certificates + email history ────────── */}
+              {/* Certificates card mounts above EmailLogCard because the
+                  most common "where are we" question for an attendee is
+                  "did the cert go out?" — putting it above email history
+                  keeps that the first thing the operator sees on the
+                  Activity tab. The card reuses the same registrationId
+                  the rest of the sheet is rendered against. */}
+              <div className={cn("space-y-4", !isEditing && activeTab !== "activity" && "hidden")}>
+                <IssuedCertificatesCard
+                  eventId={eventId}
+                  registrationId={selectedRegistration.id}
+                  recipientLabel={
+                    selectedRegistration.attendee
+                      ? `${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName} <${selectedRegistration.attendee.email}>`
+                      : undefined
+                  }
+                />
                 <EmailLogCard entityType="REGISTRATION" entityId={selectedRegistration.id} />
               </div>
             </div>

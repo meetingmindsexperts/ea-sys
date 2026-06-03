@@ -362,6 +362,14 @@ model IssuedCertificate {
   issuedByUserId        String
   lastReprintedAt       DateTime?
   reprintCount          Int             @default(0)
+  /// Tracks individual-recipient resends from the registration/speaker
+  /// detail sheets (distinct from reprint which re-renders the PDF —
+  /// resend reuses the existing pdfUrl and just re-fires the delivery
+  /// email). Each resend bumps both fields atomically. resendCount=0
+  /// means the cert was sent once via the original CertificateIssueRun
+  /// and never resent.
+  lastResentAt          DateTime?
+  resendCount           Int             @default(0)
   revokedAt             DateTime?
   revocationReason      String?
 

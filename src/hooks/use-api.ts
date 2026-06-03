@@ -88,6 +88,17 @@ export const queryKeys = {
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
+  issuedCertificates: (
+    eventId: string,
+    args: { registrationId?: string; speakerId?: string },
+  ) =>
+    [
+      "events",
+      eventId,
+      "certificates",
+      "issued",
+      args.registrationId ? `r:${args.registrationId}` : `s:${args.speakerId ?? ""}`,
+    ] as const,
 };
 
 // ============ ORGANIZATIONS (SUPER_ADMIN) ============
@@ -1968,6 +1979,87 @@ export function useUpdateSponsors(eventId: string) {
       // normalized sortOrder indices + trimmed strings, so the UI
       // reflects exactly what was persisted without a second roundtrip.
       queryClient.setQueryData(queryKeys.sponsors(eventId), data);
+    },
+  });
+}
+
+// ============ ISSUED CERTIFICATES (per-recipient) ============
+// Backs the IssuedCertificatesCard on registration / speaker detail
+// surfaces. Lists the certs already issued for one recipient + lets
+// the operator resend any individual one.
+
+export interface IssuedCertificateRow {
+  id: string;
+  type: "ATTENDANCE" | "APPRECIATION";
+  serial: string;
+  pdfUrl: string | null;
+  issuedAt: string;
+  lastResentAt: string | null;
+  resendCount: number;
+  revokedAt: string | null;
+  revocationReason: string | null;
+  certificateTemplate: { id: string; name: string } | null;
+  issueRunItem: {
+    emailedAt: string | null;
+    errorPhase: string | null;
+    errorMessage: string | null;
+  } | null;
+}
+
+interface UseIssuedCertificatesArgs {
+  eventId: string;
+  registrationId?: string;
+  speakerId?: string;
+}
+
+export function useIssuedCertificates({
+  eventId,
+  registrationId,
+  speakerId,
+}: UseIssuedCertificatesArgs) {
+  const enabled = !!eventId && (!!registrationId || !!speakerId);
+  // Build the URL query string for whichever id is set. The route
+  // rejects requests that supply both, which would only happen on a
+  // caller bug — we guard by passing exactly one.
+  const qs = registrationId
+    ? `registrationId=${encodeURIComponent(registrationId)}`
+    : `speakerId=${encodeURIComponent(speakerId ?? "")}`;
+  return useQuery({
+    queryKey: queryKeys.issuedCertificates(eventId, { registrationId, speakerId }),
+    queryFn: () =>
+      fetchApi<{ certificates: IssuedCertificateRow[] }>(
+        `/api/events/${eventId}/certificates/issued?${qs}`,
+      ),
+    enabled,
+  });
+}
+
+export function useResendCertificate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (certificateId: string) =>
+      fetchApi<{
+        ok: true;
+        emailMessageId: string;
+        resendCount: number;
+        lastResentAt: string;
+      }>(
+        `/api/events/${eventId}/certificates/issued/${certificateId}/resend`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      // Invalidate everything that touches certs for this event — the
+      // card's row needs new lastResentAt + count, and the EmailLogCard
+      // on the same sheet gets a new row from the email send. The
+      // queryKey prefix invalidation catches both registration- and
+      // speaker-scoped variants without us having to remember which
+      // surface fired the mutation.
+      queryClient.invalidateQueries({
+        queryKey: ["events", eventId, "certificates", "issued"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["email-logs"],
+      });
     },
   });
 }
