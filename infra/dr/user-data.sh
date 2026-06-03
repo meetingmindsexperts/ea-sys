@@ -133,7 +133,7 @@ sudo -u ubuntu aws s3 sync \
   "s3://${dr_bucket_name}/uploads/" \
   /home/ubuntu/ea-sys/public/uploads/ \
   --region "${region}" \
-  --exclude ".gitkeep" || echo "[bootstrap] warn: uploads sync had issues (non-fatal)"
+  --exclude "*/.gitkeep" || echo "[bootstrap] warn: uploads sync had issues (non-fatal)"
 
 # --- 6. First blue-green deploy ---
 cd /home/ubuntu/ea-sys

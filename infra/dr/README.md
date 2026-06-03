@@ -74,7 +74,7 @@ On the Mumbai box (`sudo -iu ubuntu`, then `crontab -e`):
 0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
 
 # Hourly uploads mirror to Singapore DR bucket (covers user-uploaded media)
-0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude ".gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 ```
 
 Both require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
