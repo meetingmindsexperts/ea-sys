@@ -94,6 +94,18 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# Drop the auto-created `public` schema so the dump's own
+# `CREATE SCHEMA public` doesn't collide. pg_dump --schema=public
+# includes the schema definition itself (it's the boundary of what
+# we're dumping); fresh postgres:17 ships with `public` already
+# present; pg_restore --exit-on-error then dies on the very first
+# statement. Dropping it here keeps the dump portable AND the drill
+# strict-mode (we still bail on any real errors during restore).
+log "dropping pre-existing public schema in scratch DB"
+PGPASSWORD="${PG_PASS}" psql \
+  -h localhost -p "${PG_PORT}" -U postgres -d postgres \
+  -c 'DROP SCHEMA public CASCADE;' >/dev/null
+
 # ── 2. Find the latest dump in the bucket ───────────────────────────────
 log "locating latest dump in s3://${DR_BUCKET}/db/"
 LATEST_KEY=$(aws s3 ls "s3://${DR_BUCKET}/db/" --recursive --region "${DR_REGION}" \
