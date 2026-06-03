@@ -96,6 +96,33 @@ dr_kms_key_arn = "arn:aws:kms:ap-southeast-1:123456789012:key/..."
 # All other vars have sensible defaults in variables.tf.
 ```
 
+### 5. Smoke-test the read path (untested backups aren't backups)
+
+After the first cron tick has populated the bucket, prove the Mumbai
+IAM role can actually **read** from it — not just write. A bucket the
+role can write but can't read is a dead-end during recovery, and the
+problem only surfaces when you need it.
+
+```bash
+# On the Mumbai box:
+sudo -u ubuntu aws s3 ls s3://ea-sys-dr-singapore/uploads/ \
+  --region ap-southeast-1 --recursive | head -3
+
+# Pull any one object back and confirm it round-trips:
+KEY=$(sudo -u ubuntu aws s3 ls s3://ea-sys-dr-singapore/uploads/ \
+  --region ap-southeast-1 --recursive \
+  | awk '$3 > 0 {print $4; exit}')
+sudo -u ubuntu aws s3 cp "s3://ea-sys-dr-singapore/$KEY" /tmp/dr-test \
+  --region ap-southeast-1
+file /tmp/dr-test    # expect: JPEG / PDF / PNG image data
+rm /tmp/dr-test
+```
+
+If the `ls` or `cp` fails with `AccessDenied`, the `DRBackupToSingapore`
+inline policy on `ea-sys-mumbai-ec2-role` is missing `s3:GetObject` and/
+or `kms:Decrypt`. Add them — the [surgical recovery section](#surgical-recovery--mumbai-is-up-you-lost-specific-files)
+below depends on this path working.
+
 ## Monthly drill (15th of each month, 5 min)
 
 Validates that the bootstrap still works before you actually need it.
@@ -121,6 +148,135 @@ terraform destroy -auto-approve
 
 If the drill fails, **do not destroy** — debug first. This is exactly the
 moment you want to find problems, not during a real outage.
+
+## Surgical recovery — Mumbai is up, you lost specific files
+
+For the small-blast-radius incidents that don't need a full failover:
+someone `rm`'d the wrong directory, a deploy script clobbered `.env`, an
+operator overwrote a cert background on the wrong template. Mumbai is
+still serving traffic — you just need to pull specific objects back from
+the bucket. Faster than terraform-applying the Singapore box.
+
+All commands run on the Mumbai box (`aws ssm start-session --target
+i-0b51ab1213d084640 --region ap-south-1`). All start with `sudo -u
+ubuntu` so the IAM instance-role credentials are picked up regardless
+of who you're logged in as.
+
+### A. Lost the uploads directory (or part of it)
+
+The full mirror, newest-wins. Use `--dryrun` to preview before letting it
+overwrite anything currently on disk.
+
+```bash
+sudo -u ubuntu aws s3 sync \
+  s3://ea-sys-dr-singapore/uploads/ \
+  /home/ubuntu/ea-sys/public/uploads/ \
+  --region ap-southeast-1 \
+  --exclude "*/.gitkeep" \
+  --dryrun
+
+# Drop --dryrun once the plan looks right.
+```
+
+**RPO**: up to 60 min back (one cron tick). Anything uploaded since the
+last hour's sync is not in the bucket.
+
+### B. Lost or corrupted `.env`
+
+Daily snapshots are keyed by date (`env/2026-06-03.env`). Pull the most
+recent and re-deploy so the containers re-read it.
+
+```bash
+# List recent snapshots, newest last:
+sudo -u ubuntu aws s3 ls s3://ea-sys-dr-singapore/env/ \
+  --region ap-southeast-1 | sort -k1,2 | tail -5
+
+# Restore the latest:
+LATEST=$(sudo -u ubuntu aws s3 ls s3://ea-sys-dr-singapore/env/ \
+  --region ap-southeast-1 | sort -k1,2 | tail -1 | awk '{print $4}')
+sudo -u ubuntu aws s3 cp \
+  "s3://ea-sys-dr-singapore/env/$LATEST" \
+  /home/ubuntu/ea-sys/.env \
+  --region ap-southeast-1
+
+# Re-deploy — docker compose only re-reads env_file on container create:
+sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/deploy.sh
+```
+
+**RPO**: up to 24 hours. If you added a secret today and lost the file
+before the 21:00 UTC snapshot, that secret is gone and has to be
+re-added by hand (and the .env re-snapshotted manually with `aws s3 cp
+.env s3://ea-sys-dr-singapore/env/$(date -u +%F).env --region
+ap-southeast-1` to lock it in).
+
+### C. Lost a specific object (one cert background, one photo, one .docx)
+
+Cheaper than the full sync when you know exactly what's missing — and
+safer, because it can't accidentally overwrite anything else.
+
+```bash
+# Locate it in the bucket (use the same path it had on disk):
+sudo -u ubuntu aws s3 ls \
+  s3://ea-sys-dr-singapore/uploads/certificates/{eventId}/ \
+  --region ap-southeast-1 --recursive
+
+# Pull just that one back:
+sudo -u ubuntu aws s3 cp \
+  s3://ea-sys-dr-singapore/uploads/certificates/{eventId}/{uuid}.pdf \
+  /home/ubuntu/ea-sys/public/uploads/certificates/{eventId}/{uuid}.pdf \
+  --region ap-southeast-1
+```
+
+Common paths:
+- Cert backgrounds — `uploads/certificates/{eventId}/{uuid}.pdf`
+- Issued cert PDFs — `uploads/certificates/issued/{runId}/{certId}.pdf`
+- Speaker agreements — `uploads/agreements/{eventId}/{uuid}.docx`
+- Attendee/speaker photos — `uploads/photos/{YYYY}/{MM}/{uuid}.jpg`
+- Org media — `uploads/media/{YYYY}/{MM}/{uuid}.{ext}`
+
+### D. Restore a previous version of a file (object overwritten today, want yesterday's)
+
+The bucket has versioning enabled (§1 setup). Every overwrite keeps the
+prior version retrievable by version-id — useful when an operator
+uploaded the wrong cert background or a typo'd `.env` got snapshotted.
+
+```bash
+# List every version of the specific key, newest first:
+sudo -u ubuntu aws s3api list-object-versions \
+  --bucket ea-sys-dr-singapore \
+  --prefix uploads/certificates/{eventId}/bg.pdf \
+  --region ap-southeast-1 \
+  --query 'Versions[].[VersionId,LastModified,Size]' \
+  --output table
+
+# Pick a VersionId from the table above and restore it as the current
+# version (server-side copy — doesn't transit your laptop):
+sudo -u ubuntu aws s3api copy-object \
+  --bucket ea-sys-dr-singapore \
+  --copy-source 'ea-sys-dr-singapore/uploads/certificates/{eventId}/bg.pdf?versionId=<OLD-VID>' \
+  --key uploads/certificates/{eventId}/bg.pdf \
+  --region ap-southeast-1
+
+# Then sync that path back to Mumbai (see A or C above).
+```
+
+### What S3 does NOT cover
+
+For honesty:
+
+- **Postgres data** (`Registration`, `IssuedCertificate`, `AuditLog`,
+  `EmailLog`, `McpOAuth*`, settings JSON, …) — not in S3. Recovery is
+  **Supabase dashboard → Database → Backups → Restore** (PITR if Pro
+  tier, else most recent daily snapshot). Tracked as the open gap in
+  `docs/EC2_HARDENING.html` §"Gaps still open" — nightly `pg_dump` to
+  the same DR bucket is the next round.
+- **Uploads written between the last cron tick and the disaster** — up
+  to 60 min of `public/uploads/` is not in the bucket yet. Tighten the
+  cron to `*/5 * * * *` if that's too loose for your event flow.
+- **`.env` changes made today before 21:00 UTC** — same idea, 24h RPO.
+  Run `aws s3 cp .env s3://ea-sys-dr-singapore/env/$(date -u +%F).env
+  --region ap-southeast-1` immediately after rotating a secret to
+  tighten that RPO ad-hoc.
 
 ## Promotion runbook (real outage, Mumbai down)
 
