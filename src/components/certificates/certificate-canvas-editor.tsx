@@ -328,25 +328,30 @@ export function CertificateCanvasEditor({
     setRedoStack([]);
   }, [textBoxes]);
 
+  // H3 fix (review round): setState updaters MUST be pure. The earlier
+  // shape `setUndoStack(stack => { setRedoStack(...); onChange(...); ... })`
+  // mutated other state + called the parent's onChange inside the
+  // updater, which React 18+ StrictMode (default in Next 16) double-
+  // invokes — so under dev's StrictMode the side effects ran twice
+  // per undo, intermittently mis-synchronizing the redo stack and
+  // double-applying onChange in the parent. Restructured to: read
+  // synchronously → set both stacks → call onChange, all in the same
+  // render tick (React batches the two setStates into one re-render).
   const undo = useCallback(() => {
-    setUndoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const prev = stack[stack.length - 1];
-      setRedoStack((redo) => [...redo, textBoxes]);
-      onChange({ textBoxes: prev });
-      return stack.slice(0, -1);
-    });
-  }, [textBoxes, onChange]);
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setUndoStack(undoStack.slice(0, -1));
+    setRedoStack([...redoStack, textBoxes]);
+    onChange({ textBoxes: prev });
+  }, [undoStack, redoStack, textBoxes, onChange]);
 
   const redo = useCallback(() => {
-    setRedoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const next = stack[stack.length - 1];
-      setUndoStack((undo) => [...undo, textBoxes]);
-      onChange({ textBoxes: next });
-      return stack.slice(0, -1);
-    });
-  }, [textBoxes, onChange]);
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(redoStack.slice(0, -1));
+    setUndoStack([...undoStack, textBoxes]);
+    onChange({ textBoxes: next });
+  }, [undoStack, redoStack, textBoxes, onChange]);
 
   // Arrow nudge: 1pt per press, Shift+arrow = 10pt. Consecutive presses
   // within 500ms coalesce into a single undo step (holding the key

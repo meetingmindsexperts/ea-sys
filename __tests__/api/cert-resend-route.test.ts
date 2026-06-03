@@ -27,8 +27,10 @@ const {
     speaker: { findUnique: vi.fn() },
   },
   mockSendEmail: vi.fn(),
-  mockCheckRateLimit: vi.fn(() => ({ allowed: true, remaining: 29, retryAfterSeconds: 3600 })),
-  mockResolveCoverEmailTokens: vi.fn(async (tpl: string) => tpl),
+  // No inline implementation — vi.fn's loose signature accepts any
+  // args at call sites. Default behavior set in beforeEach.
+  mockCheckRateLimit: vi.fn(),
+  mockResolveCoverEmailTokens: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -143,7 +145,10 @@ beforeEach(() => {
     remaining: 29,
     retryAfterSeconds: 3600,
   });
-  mockResolveCoverEmailTokens.mockImplementation(async (tpl: string) => tpl);
+  // Pass-through: return whatever template was passed in.
+  mockResolveCoverEmailTokens.mockImplementation(
+    async (tpl: string) => tpl,
+  );
 });
 
 describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend", () => {
@@ -178,7 +183,9 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
     });
     const res = await POST(makeReq(), params);
     expect(res.status).toBe(429);
-    expect(res.headers["Retry-After"]).toBe("1800");
+    // res.headers in the mocked NextResponse.json is a plain object,
+    // not a Web API Headers instance — cast for the property access.
+    expect((res.headers as unknown as Record<string, string>)["Retry-After"]).toBe("1800");
     const body = (await res.json()) as { code?: string };
     expect(body.code).toBe("RATE_LIMITED");
   });
@@ -192,24 +199,31 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
 
   it("returns 404 on cross-tenant access (non-enumeration)", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
-    // findFirst filters by org via the event relation — when cross-tenant
+    // findFirst filters by (id, eventId, event.org) — when cross-tenant
     // it returns null. The route then 404s rather than 403.
     mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(null);
     const res = await POST(makeReq(), params);
     expect(res.status).toBe(404);
-    // Org-binding is asserted by checking the where clause built up:
+    // H1 fix: primary query now binds all three of (id, eventId,
+    // event.organizationId) atomically.
     const callArgs = mockDb.issuedCertificate.findFirst.mock.calls[0][0];
+    expect(callArgs.where.id).toBe("cert-1");
+    expect(callArgs.where.eventId).toBe("evt-1");
     expect(callArgs.where.event.organizationId).toBe("org-1");
   });
 
-  it("returns 404 when eventId on cert doesn't match URL eventId (defense in depth)", async () => {
+  it("H1: cross-event-within-same-org returns 404 because of primary-query binding", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
-    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce({
-      ...baseCert,
-      eventId: "evt-OTHER",
-    });
+    // Operator in org-1 hits the resend endpoint with an eventId from
+    // org-1 but pasting a cert id that belongs to a DIFFERENT event in
+    // org-1. Prisma's where now filters by both — findFirst returns
+    // null even though the cert id + org would match.
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(null);
     const res = await POST(makeReq(), params);
     expect(res.status).toBe(404);
+    // The primary query enforces this; no secondary JS check exists.
+    const callArgs = mockDb.issuedCertificate.findFirst.mock.calls[0][0];
+    expect(callArgs.where.eventId).toBe("evt-1");
   });
 
   it("returns 409 CERT_REVOKED when the cert is revoked", async () => {
@@ -285,7 +299,7 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
     // Bypass the disk read by routing to a fetchable URL we'll mock.
     const certHttp = {
       ...baseCert,
-      pdfUrl: "https://mock-pdf.example/cert-1.pdf",
+      pdfUrl: "https://test-bucket.supabase.co/storage/v1/object/public/cert-1.pdf",
     };
     mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(certHttp);
     mockDb.registration.findUnique.mockResolvedValueOnce({
@@ -312,7 +326,7 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
     mockAuth.mockResolvedValueOnce(adminSession);
     const certHttp = {
       ...baseCert,
-      pdfUrl: "https://mock-pdf.example/cert-1.pdf",
+      pdfUrl: "https://test-bucket.supabase.co/storage/v1/object/public/cert-1.pdf",
     };
     mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(certHttp);
     mockDb.registration.findUnique.mockResolvedValueOnce({
@@ -371,7 +385,7 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
     mockAuth.mockResolvedValueOnce(adminSession);
     const certNoRun = {
       ...baseCert,
-      pdfUrl: "https://mock-pdf.example/cert-1.pdf",
+      pdfUrl: "https://test-bucket.supabase.co/storage/v1/object/public/cert-1.pdf",
       issueRunItem: null, // pre-cover-email-editor cert
     };
     mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(certNoRun);
@@ -397,6 +411,107 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
     fetchSpy.mockRestore();
   });
 
+  it("H2: rejects pdfUrl that escapes /public/uploads/certificates/", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    // Operator-controlled pdfUrl can't actually do this today (pdfUrl
+    // is system-generated). But the defense-in-depth fix ensures any
+    // future surface that mutates pdfUrl can't break out.
+    const traversalCert = {
+      ...baseCert,
+      pdfUrl: "/uploads/../../etc/passwd",
+    };
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(traversalCert);
+    mockDb.registration.findUnique.mockResolvedValueOnce({
+      attendee: { email: "jane@example.com" },
+    });
+
+    const res = await POST(makeReq(), params);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("PDF_MISSING");
+  });
+
+  it("H2: rejects pdfUrl pointing at /uploads/photos/ (outside certificates/)", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    const wrongDirCert = {
+      ...baseCert,
+      pdfUrl: "/uploads/photos/some-photo.jpg",
+    };
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(wrongDirCert);
+    mockDb.registration.findUnique.mockResolvedValueOnce({
+      attendee: { email: "jane@example.com" },
+    });
+
+    const res = await POST(makeReq(), params);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("PDF_MISSING");
+  });
+
+  it("H2: rejects remote pdfUrl on hosts not in the SSRF allowlist", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    const ssrfCert = {
+      ...baseCert,
+      pdfUrl: "https://evil.example.com/cert.pdf",
+    };
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(ssrfCert);
+    mockDb.registration.findUnique.mockResolvedValueOnce({
+      attendee: { email: "jane@example.com" },
+    });
+    // Crucially: fetch should NOT be called for blocked hosts.
+    const fetchSpy = vi.spyOn(global, "fetch");
+
+    const res = await POST(makeReq(), params);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("PDF_MISSING");
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fetchSpy.mockRestore();
+  });
+
+  it("H2: rejects http:// remote pdfUrl (must be https)", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    const httpCert = {
+      ...baseCert,
+      pdfUrl: "http://my-bucket.supabase.co/cert.pdf", // plaintext, even on allowed host
+    };
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(httpCert);
+    mockDb.registration.findUnique.mockResolvedValueOnce({
+      attendee: { email: "jane@example.com" },
+    });
+
+    const res = await POST(makeReq(), params);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("PDF_MISSING");
+  });
+
+  it("H2: allows remote pdfUrl on *.supabase.co with https", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    const supabaseCert = {
+      ...baseCert,
+      pdfUrl: "https://my-bucket.supabase.co/storage/v1/object/public/certificates/cert.pdf",
+    };
+    mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(supabaseCert);
+    mockDb.registration.findUnique.mockResolvedValueOnce({
+      attendee: { email: "jane@example.com" },
+    });
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce(
+      new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46]), { status: 200 }),
+    );
+    mockDb.issuedCertificate.update.mockResolvedValueOnce({
+      resendCount: 1,
+      lastResentAt: new Date(),
+    });
+
+    const res = await POST(makeReq(), params);
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    fetchSpy.mockRestore();
+  });
+
   it("speaker path: queries speaker.email + sets entityType=SPEAKER", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     const speakerCert = {
@@ -404,7 +519,7 @@ describe("POST /api/events/[eventId]/certificates/issued/[certificateId]/resend"
       type: "APPRECIATION",
       registrationId: null,
       speakerId: "spk-1",
-      pdfUrl: "https://mock-pdf.example/cert-1.pdf",
+      pdfUrl: "https://test-bucket.supabase.co/storage/v1/object/public/cert-1.pdf",
     };
     mockDb.issuedCertificate.findFirst.mockResolvedValueOnce(speakerCert);
     mockDb.speaker.findUnique.mockResolvedValueOnce({

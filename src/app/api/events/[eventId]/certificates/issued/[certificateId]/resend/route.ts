@@ -71,15 +71,103 @@ function escapeHtml(str: string): string {
 
 /** Read PDF bytes from local disk OR remote URL. Mirrors the worker's
  *  loadPdfBytes — local files served directly from public/ on EC2;
- *  Supabase / absolute URLs fetched. */
-async function loadPdfBytes(pdfUrl: string): Promise<Buffer> {
+ *  Supabase / absolute URLs fetched.
+ *
+ *  H2 fix (review round): defense-in-depth against path traversal +
+ *  SSRF. Today pdfUrl is system-generated (uploadCertificatePdf writes
+ *  `${certId}.pdf` under public/uploads/certificates/), so neither
+ *  attack lands today. But the pdfUrl column is now read by two routes
+ *  (worker + resend) and the surface is permanent — any future MCP
+ *  tool, admin endpoint, or migration script that writes pdfUrl
+ *  inherits the safety story. The guard is bounded:
+ *    - local path  → resolve() + assert prefix is public/uploads/cert*
+ *    - remote URL  → must be https + hostname must match the allowlist
+ *  Anything else throws and the route 409s PDF_MISSING. */
+const REMOTE_PDF_HOST_ALLOWLIST = [/\.supabase\.co$/i];
+
+/**
+ * Load PDF bytes from local disk or remote URL with full structured
+ * logging at every rejection point. Each failure reason gets its own
+ * apiLogger.warn msg key so an operator scanning /logs can tell at a
+ * glance whether a 409 PDF_MISSING was:
+ *   pdf-path-traversal   path-traversal probe / regression
+ *   pdf-wrong-prefix     pdfUrl points outside /uploads/certificates/
+ *   pdf-invalid-url      pdfUrl is not a valid URL string
+ *   pdf-non-https        remote pdfUrl uses http (misconfig)
+ *   pdf-host-disallowed  remote host not on SSRF allowlist
+ *   pdf-fetch-failed     fetch round-trip returned non-2xx
+ *
+ * The caller (the resend POST handler) catches whatever this function
+ * throws and 409s — but the per-reason log line is what an engineer
+ * needs to debug, not the catch-all generic.
+ */
+async function loadPdfBytes(
+  pdfUrl: string,
+  logCtx: { eventId: string; certificateId: string; userId: string },
+): Promise<Buffer> {
   if (pdfUrl.startsWith("/uploads/")) {
     const { readFile } = await import("fs/promises");
-    const { join } = await import("path");
-    return readFile(join(process.cwd(), "public", pdfUrl));
+    const { join, resolve, sep } = await import("path");
+    // Allowed prefix = public/uploads/certificates/ (every cert PDF
+    // lives there per uploadCertificatePdf's storage convention). Add
+    // the trailing separator so `/public/uploads/certificates-evil/`
+    // can't slip past the startsWith check by sharing the prefix.
+    const allowedPrefix = resolve(process.cwd(), "public", "uploads", "certificates") + sep;
+    const absPath = resolve(join(process.cwd(), "public", pdfUrl));
+    if (!absPath.startsWith(allowedPrefix)) {
+      apiLogger.warn({
+        msg: "cert-resend:pdf-path-traversal",
+        pdfUrl,
+        absPath,
+        allowedPrefix,
+        ...logCtx,
+      });
+      throw new Error(`PDF path escapes allowed prefix: ${pdfUrl}`);
+    }
+    return readFile(absPath);
   }
+
+  // Remote — must be https + on the host allowlist. The list is short
+  // by design: Supabase Storage is the only non-local pdfUrl producer
+  // today. Adding a host means adding a regex here.
+  let url: URL;
+  try {
+    url = new URL(pdfUrl);
+  } catch {
+    apiLogger.warn({
+      msg: "cert-resend:pdf-invalid-url",
+      pdfUrl,
+      ...logCtx,
+    });
+    throw new Error(`Invalid pdfUrl (not a valid URL): ${pdfUrl}`);
+  }
+  if (url.protocol !== "https:") {
+    apiLogger.warn({
+      msg: "cert-resend:pdf-non-https",
+      pdfUrl,
+      protocol: url.protocol,
+      ...logCtx,
+    });
+    throw new Error(`Remote pdfUrl must use https: ${pdfUrl}`);
+  }
+  if (!REMOTE_PDF_HOST_ALLOWLIST.some((re) => re.test(url.hostname))) {
+    apiLogger.warn({
+      msg: "cert-resend:pdf-host-disallowed",
+      pdfUrl,
+      hostname: url.hostname,
+      ...logCtx,
+    });
+    throw new Error(`Remote pdfUrl host not on allowlist: ${url.hostname}`);
+  }
+
   const res = await fetch(pdfUrl);
   if (!res.ok) {
+    apiLogger.warn({
+      msg: "cert-resend:pdf-fetch-failed",
+      pdfUrl,
+      status: res.status,
+      ...logCtx,
+    });
     throw new Error(`Failed to fetch PDF: HTTP ${res.status} ${pdfUrl}`);
   }
   const arr = await res.arrayBuffer();
@@ -134,12 +222,23 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    // Load cert + run + event in one query each. Bind to org via the
-    // event relation — cross-tenant resolves to 404 not 403 to avoid
-    // resource enumeration.
+    // Load cert + run + event in one query. Primary binding is on
+    // (id, eventId, event.organizationId) — all three must match. The
+    // URL's eventId is asserted by Prisma here, not by a secondary JS
+    // check below, so a future refactor that consolidates this into a
+    // service helper can't silently drop the cross-event guard.
+    //
+    // H1 fix (review round): folding the URL eventId into the where
+    // clause closes the cross-event-within-same-org leak vector. The
+    // GET list route already does this (where: { eventId, ... }) — we
+    // now mirror the same model.
+    //
+    // Cross-tenant resolves to 404 (not 403) to avoid resource
+    // enumeration — same posture as templates/runs/eligible routes.
     const cert = await db.issuedCertificate.findFirst({
       where: {
         id: certificateId,
+        eventId,
         event: { organizationId: session.user.organizationId },
       },
       include: {
@@ -176,7 +275,12 @@ export async function POST(_req: Request, { params }: RouteParams) {
       },
     });
 
-    if (!cert || cert.eventId !== eventId) {
+    if (!cert) {
+      // Primary query already enforces (id, eventId, event.org) — this
+      // 404 covers cert-doesn't-exist, cross-event, AND cross-tenant
+      // in one branch. The secondary `cert.eventId !== eventId` check
+      // that used to live here was removed as part of the H1 fix to
+      // ensure the where-clause is the single source of truth.
       apiLogger.warn({
         msg: "cert-resend:not-found-or-cross-tenant",
         eventId,
@@ -276,7 +380,16 @@ export async function POST(_req: Request, { params }: RouteParams) {
     // re-issue.
     let pdfBuffer: Buffer;
     try {
-      pdfBuffer = await loadPdfBytes(cert.pdfUrl);
+      // loadPdfBytes does its own per-reason warn logging at every
+      // rejection point (path-traversal / non-https / host-disallowed
+      // / fetch-failed). The catch here is the catch-all that maps
+      // any of those to the same 409 the user sees, but the engineer
+      // looking at /logs already has the per-reason msg key.
+      pdfBuffer = await loadPdfBytes(cert.pdfUrl, {
+        eventId: eventId!,
+        certificateId: certificateId!,
+        userId: session.user.id,
+      });
     } catch (e) {
       apiLogger.warn({
         msg: "cert-resend:pdf-load-failed",

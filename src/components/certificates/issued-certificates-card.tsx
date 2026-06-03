@@ -82,8 +82,17 @@ export function IssuedCertificatesCard({
   async function handleResend(cert: IssuedCertificateRow) {
     try {
       const result = await resendMutation.mutateAsync(cert.id);
+      // H4 fix (review round): the previous wording "sent N times" was
+      // ambiguous — N is the resend count, but the cert was also sent
+      // ONCE via the original CertificateIssueRun. So a fresh cert
+      // post-first-resend reads as resendCount=1, and "sent 1 time" is
+      // misleading (it's been sent 2 times total). Spell out both
+      // numbers so the operator can correlate with what they see in
+      // the row and in EmailHistory.
+      const totalSent = result.resendCount + 1; // original + resends
+      const category = cert.type === "ATTENDANCE" ? "attendance" : "appreciation";
       toast.success(
-        `Resent ${cert.type === "ATTENDANCE" ? "attendance" : "appreciation"} certificate · sent ${result.resendCount === 1 ? "1 time" : `${result.resendCount} times`}`,
+        `Resent ${category} certificate · now sent ${totalSent} time${totalSent === 1 ? "" : "s"} total`,
       );
       setConfirmCert(null);
     } catch (e) {
