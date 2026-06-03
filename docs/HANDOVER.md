@@ -1108,6 +1108,44 @@ ALTER TABLE "Attendee" ADD COLUMN "bio" TEXT;
 
 **Another gotcha:** `prisma db push` creates INDEXES, not CONSTRAINTS. Use `CREATE UNIQUE INDEX IF NOT EXISTS`, not `ADD CONSTRAINT ... UNIQUE` (fails with error 42P07).
 
+### Disaster Recovery — Singapore S3 mirrors (June 2026)
+
+EA-SYS has a complete DR posture documented separately. Pointer here so the operator handover doesn't need to dig into `infra/dr/` to find it.
+
+**Three independent backup streams** all land in `s3://ea-sys-dr-singapore/` (customer-managed KMS encryption, S3 versioning on):
+
+| Prefix | Source | Cadence | RPO |
+|---|---|---|---|
+| `uploads/` | `/home/ubuntu/ea-sys/public/uploads/` (photos, media, cert backgrounds, issued PDFs, agreements) | hourly cron | 60 min |
+| `env/{YYYY-MM-DD}.env` | `.env` on Mumbai box | daily 21:00 UTC | 24h |
+| `db/{YYYY}/{MM}/{DD-HH}-mumbai.dump` | `pg_dump -Fc --schema=public` of Supabase | twice-daily 11:00 + 23:00 UTC | 12h |
+
+S3 lifecycle: `db/` expires 30 days from creation; `uploads/` + `env/` kept indefinitely.
+
+**Authoritative documentation lives in the repo** — they're version-controlled and update on every deploy:
+- [infra/dr/README.md](../infra/dr/README.md) — operator runbook (one-time setup §1-§6, monthly drill, surgical recovery §A-§E for partial losses, promotion runbook for full failover, post-incident return-to-Mumbai, known gaps, cost)
+- [infra/dr/POSTGRES_BACKUP_PLAN.md](../infra/dr/POSTGRES_BACKUP_PLAN.md) — design history, decisions Q1-Q3, §11 "First-run refinement" (the `--schema=public` discovery)
+- [infra/dr/main.tf](../infra/dr/main.tf) + [user-data.sh](../infra/dr/user-data.sh) + [variables.tf](../infra/dr/variables.tf) — Terraform module that provisions a replacement Singapore box (~10-min RTO)
+- [scripts/dr-pg-dump.sh](../scripts/dr-pg-dump.sh) — twice-daily Postgres backup
+- [scripts/dr-restore-drill.sh](../scripts/dr-restore-drill.sh) — quarterly restore drill (manual, 15 Jul / Oct / Jan / Apr)
+
+**Three verified gotchas** worth knowing about before touching the DR scripts:
+
+1. **Supabase is on PostgreSQL 17, not 15.** PG 17 isn't in Ubuntu Noble (24.04) default repos — install needs the PGDG repo (`apt.postgresql.org`) first. The scripts default `PG_VERSION=17` and `PG_IMAGE=postgres:17` accordingly, both env-overridable.
+2. **`pg_dump --schema=public` is mandatory.** Supabase auto-creates platform schemas (`auth`, `storage`, `realtime`, `graphql_public`, `vault`, `pgsodium`, `_realtime`, `extensions`) referencing proprietary extensions like `supabase_vault` that vanilla `postgres:17` doesn't have. A full-schema dump fails to restore with `extension "supabase_vault" is not available`. EA-SYS uses none of those platform features (NextAuth not Supabase Auth, `STORAGE_PROVIDER=local` not Supabase Storage), so `--schema=public` captures everything we actually need AND keeps the dump portable to any vanilla PG 17 target — a real DR advantage vs being locked into Supabase as the only restore target.
+3. **Scratch container needs `DROP SCHEMA public CASCADE` before `pg_restore`.** Because `pg_dump --schema=public` includes its own `CREATE SCHEMA public` statement at the top, and fresh `postgres:17` auto-creates `public` at init, they collide on the very first statement. `dr-restore-drill.sh` drops public right after Postgres becomes ready.
+
+**Decisions locked in** (2026-06-03):
+- Q1 retention: 30-day flat from each object's creation date
+- Q2 alerting: log file + SES email on failure (skipping CloudWatch alarm for v1)
+- Q3 scope: all tables in `public` schema (include `SystemLog` + `EmailLog`, revisit at 6-month checkpoint if dumps exceed 1 GB)
+
+**Open deferrals with explicit re-eval triggers** (see `POSTGRES_BACKUP_PLAN.md §7`):
+- Supabase PITR ($25-50/mo for seconds-precision rollback within 7d) — worth it only if business need tightens past the chosen 12h RPO
+- Cross-region read replica for sub-minute DB RTO
+- Tiered retention (30d daily + 12w weekly + 12mo monthly)
+- Auto-run drill in CI (skipped — manual quarterly catches the same issues with zero CI surface)
+
 ---
 
 ## 13. Testing
