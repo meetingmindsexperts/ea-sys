@@ -26,7 +26,7 @@ Supabase**. Today the recovery options are:
 | Supabase as a company disappearing | Nothing |
 
 The gap is real but bounded. Our own dump to **our own bucket in our
-own region** closes the last column AND gives us tighter RPO than the
+own region** closes the last column AND gives us independent RPO from the
 Supabase default. Combined with the existing `uploads/` + `env/` syncs,
 the Singapore bucket becomes a one-stop recovery target.
 
@@ -40,7 +40,7 @@ the Singapore bucket becomes a one-stop recovery target.
 
 ### RPO/RTO targets
 
-- **RPO**: 12 hours (worst case — disaster hits just before the next scheduled dump)
+- **RPO**: 24 hours (worst case — disaster hits just before the nightly 23:00 UTC dump). Tunable up to a tighter window by adding cron entries; scripts are unchanged.
 - **RTO** (full restore): ~30 minutes (download dump + `pg_restore` to a fresh Supabase project or scratch Postgres)
 - **RTO** (single-table or row-level recovery): faster — `pg_restore -t TABLE` is fast
 
@@ -54,7 +54,7 @@ the Singapore bucket becomes a one-stop recovery target.
                                     ┌──────────────────────────────┐
   Mumbai EC2 cron                   │ s3://ea-sys-dr-singapore/    │
   ┌──────────────────────────────┐  │   db/                        │
-  │ 0 11,23 * * *                │  │     2026/                    │
+  │ 0 23 * * *                   │  │     2026/                    │
   │  scripts/dr-pg-dump.sh       │─►│       06/                    │
   │    pg_dump -Fc (via DIRECT)  │  │         03-11-mumbai.dump    │
   │    → /tmp/{date}.dump        │  │         03-23-mumbai.dump    │
@@ -93,7 +93,7 @@ Draft:
 ```bash
 #!/usr/bin/env bash
 # Twice-daily Postgres dump → Singapore DR bucket.
-# Cron: 0 11,23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh \
+# Cron: 0 23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh \
 #         >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 
 set -euo pipefail
@@ -175,13 +175,16 @@ log "dr-pg-dump:ok duration_s=$((END_EPOCH - START_EPOCH)) size_bytes=${DUMP_BYT
 ### 3.2 Cron entry — Mumbai box
 
 ```cron
-# Twice-daily Postgres dump to Singapore DR bucket (RPO 12h)
-0 11,23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+# Daily Postgres dump to Singapore DR bucket (RPO 24h)
+0 23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 ```
 
-**11:00 UTC = 15:00 GST** (post-lunch lull on Mumbai event traffic).
-**23:00 UTC = 03:00 GST** (middle of the night, no event activity).
-12-hour gap. Both timestamps avoid the 09:00-18:00 GST event-day flow.
+**23:00 UTC = 03:00 GST** — middle of the night, no event activity,
+sits in the same nightly maintenance cluster as the `.env` snapshot
+at 21:00 UTC. RPO is 24h worst-case (disaster hits just before the
+next scheduled dump). If we ever need to tighten, change to
+`0 11,23 * * *` (twice-daily, 12h RPO) — scripts and IAM are
+unchanged.
 
 ### 3.3 S3 lifecycle rule
 
@@ -341,7 +344,7 @@ pg_restore --no-owner --no-acl -t "Registration" -d "${PG_DSN}" /tmp/restore.dum
 
 #### Known gaps §3 update
 
-The current README has "Supabase dependency" under Known gaps. Update wording: "Postgres data — covered by twice-daily `pg_dump` to Singapore (12h RPO). Real-time RPO would need Supabase PITR (separate decision, not enabled today)."
+The current README has "Supabase dependency" under Known gaps. Update wording: "Postgres data — covered by daily `pg_dump` to Singapore (24h RPO). Tighter RPO would need a twice-daily cron or Supabase PITR (separate decision, not enabled today)."
 
 ---
 
@@ -379,10 +382,10 @@ Add `ALERT_EMAIL_TO` to `.env.example` documentation so others picking up this r
 | S3 PUT (60/mo) | ~$0.00 |
 | KMS encrypt calls (60/mo) | ~$0.00 |
 | SES emails (typically 0/mo, ~$0.0001 per send if any) | ~$0.00 |
-| CPU + bandwidth on Mumbai box (twice-daily dump) | ~$0.00 (already paying for the box) |
+| CPU + bandwidth on Mumbai box (daily dump) | ~$0.00 (already paying for the box) |
 | **Total incremental** | **~$0.20–0.50/mo** |
 
-Compare to the open alternative (Supabase PITR at ~$25-50/mo): this is **<2% of the cost** for ~75% of the protection. The remaining 25% is the sub-12h RPO precision PITR offers but our 12h tolerance doesn't need.
+Compare to the open alternative (Supabase PITR at ~$25-50/mo): this is **<2% of the cost** for ~75% of the protection. The remaining 25% is the sub-24h RPO precision PITR offers but our 24h tolerance doesn't need.
 
 ---
 
@@ -407,7 +410,7 @@ When ready to implement:
 - [ ] **6.10** Update `infra/dr/README.md` with §6 + §E + Known gaps fix.
 - [ ] **6.11** Commit + push the scripts + README + this plan doc (which becomes design history).
 - [ ] **6.12** Calendar entry: quarterly restore drill (15 Jul, 15 Oct, 15 Jan, 15 Apr).
-- [ ] **6.13** Wait 24h. Confirm both 11:00 UTC and 23:00 UTC ticks fired cleanly. Look at the log + S3 list.
+- [ ] **6.13** Wait 24h. Confirm the 23:00 UTC tick fired cleanly. Look at the log + S3 list.
 
 Estimated effort: ~90 min total (~30 min coding + ~30 min infra + ~30 min docs + manual verification).
 
@@ -423,7 +426,7 @@ Things we explicitly chose NOT to do in v1:
 | Tiered retention (30d daily + 12w weekly + 12mo monthly) | Flat 30d sufficient given Supabase platform daily backups behind us | Compliance requirement, or business-historical reason |
 | CloudWatch metric + alarm | Email + log is enough signal for one operator | When you grow past 1 person on-call |
 | Auto-run quarterly drill | Adds CI surface; catches no new problems | Multi-person team that doesn't trust manual cadence |
-| Supabase PITR | Cost ~$25-50/mo for diminishing return at 12h RPO | Flagship event where 12h of registration/checkin loss is unacceptable |
+| Supabase PITR | Cost ~$25-50/mo for diminishing return at 24h RPO | Flagship event where 24h of registration/checkin loss is unacceptable |
 | Cross-region read replica for true HA | Cost + complexity; warm DB needed only for sub-minute RTO | If "Supabase regional outage" becomes a real business risk |
 | Per-object integrity check (sha256 manifest) | Restore drill catches corruption end-to-end | If S3 object integrity becomes a regulatory concern |
 

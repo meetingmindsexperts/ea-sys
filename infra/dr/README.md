@@ -123,12 +123,14 @@ inline policy on `ea-sys-mumbai-ec2-role` is missing `s3:GetObject` and/
 or `kms:Decrypt`. Add them — the [surgical recovery section](#surgical-recovery--mumbai-is-up-you-lost-specific-files)
 below depends on this path working.
 
-### 6. Set up the Postgres backup cron (12h RPO)
+### 6. Set up the Postgres backup cron (24h RPO)
 
 Closes the database-side DR gap. Without this, the only recovery option
 for Supabase data loss is the Supabase platform's own backups (daily,
-up to 24h old). With this, you have a 12-hour-fresh dump sitting in
-your own bucket in your own region, restorable to any Postgres anywhere.
+up to 24h old). With this, you have an independent daily dump sitting
+in your own bucket in your own region, restorable to any Postgres
+anywhere — protects against Supabase-platform issues, not just Supabase
+operator mistakes.
 
 See [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md) for the design
 rationale; this section is the operator runbook.
@@ -208,16 +210,19 @@ bash /home/ubuntu/ea-sys/scripts/dr-restore-drill.sh
 ```bash
 sudo -u ubuntu crontab -e
 # Append:
-# Twice-daily Postgres dump to Singapore DR bucket (RPO 12h)
-0 11,23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+# Daily Postgres dump to Singapore DR bucket (RPO 24h)
+0 23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 ```
 
-**Timing**: 11:00 UTC = 15:00 GST (post-lunch lull); 23:00 UTC = 03:00 GST (no event traffic). Both avoid the 09:00-18:00 GST event-day flow.
+**Timing**: 23:00 UTC = 03:00 GST — no event traffic, sits in the same
+nightly maintenance cluster as the `.env` snapshot at 21:00 UTC. If
+you ever need to tighten RPO, change to `0 11,23 * * *` (twice-daily,
+12h RPO) or `0 */6 * * *` (every 6h, 6h RPO) — scripts are unchanged.
 
 #### 6.7 Verify the next two scheduled runs
 
 ```bash
-# After 11:00 UTC and 23:00 UTC tomorrow, both should appear:
+# After 23:00 UTC tonight, a new dump should appear:
 aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive \
   --region ap-southeast-1 | tail -5
 
@@ -377,7 +382,7 @@ sudo -u ubuntu aws s3api copy-object \
 
 ### E. Restore the database (or one table) from a `pg_dump`
 
-The twice-daily Postgres backup writes `*.dump` files to
+The daily Postgres backup writes `*.dump` files to
 `s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`. Each
 file is a `pg_dump -Fc --schema=public` (custom format, application
 schema only) — compressed, restorable as a whole or one table at a
@@ -417,7 +422,7 @@ sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/deploy.sh
 ```
 
 **RPO**: up to 12h (the time between the disaster and the last
-scheduled dump at 11:00 or 23:00 UTC).
+scheduled dump at 23:00 UTC).
 
 #### Surgical: restore just one table
 
@@ -468,8 +473,10 @@ For honesty:
   --region ap-southeast-1` immediately after rotating a secret to
   tighten that RPO ad-hoc.
 - **Postgres changes between the last 11:00 or 23:00 UTC dump and the
-  disaster** — up to 12h RPO. For tighter precision, enable Supabase
-  PITR (~$25-50/mo, seconds-precision rollback within 7d retention).
+  disaster** — up to 24h RPO. For tighter precision, change the cron
+  to twice-daily (`0 11,23 * * *`, 12h RPO) — same script, no other
+  changes — or enable Supabase PITR (~$25-50/mo, seconds-precision
+  rollback within 7d retention).
   Trade-off documented in [POSTGRES_BACKUP_PLAN.md §1](POSTGRES_BACKUP_PLAN.md#decisions-locked-in-2026-06-03).
 
 ## Promotion runbook (real outage, Mumbai down)
@@ -545,7 +552,7 @@ For honesty:
   runbook above sends them back. If you skip that step or `terraform destroy`
   before syncing, those outage-window uploads are lost. Future fix: a reverse
   cron on the DR box that periodically pushes `public/uploads/` back to S3.
-- **Postgres data — 12h RPO** via the twice-daily `pg_dump` to Singapore
+- **Postgres data — 24h RPO** via the daily `pg_dump` to Singapore
   (§6 / [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md)). Tighter RPO
   would need Supabase PITR (~$25-50/mo). Not enabled today by explicit
   trade-off — the cron + daily Supabase platform backup is sufficient

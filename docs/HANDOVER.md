@@ -1118,7 +1118,7 @@ EA-SYS has a complete DR posture documented separately. Pointer here so the oper
 |---|---|---|---|
 | `uploads/` | `/home/ubuntu/ea-sys/public/uploads/` (photos, media, cert backgrounds, issued PDFs, agreements) | hourly cron | 60 min |
 | `env/{YYYY-MM-DD}.env` | `.env` on Mumbai box | daily 21:00 UTC | 24h |
-| `db/{YYYY}/{MM}/{DD-HH}-mumbai.dump` | `pg_dump -Fc --schema=public` of Supabase | twice-daily 11:00 + 23:00 UTC | 12h |
+| `db/{YYYY}/{MM}/{DD-HH}-mumbai.dump` | `pg_dump -Fc --schema=public` of Supabase | daily 23:00 UTC | 24h |
 
 S3 lifecycle: `db/` expires 30 days from creation; `uploads/` + `env/` kept indefinitely.
 
@@ -1126,7 +1126,7 @@ S3 lifecycle: `db/` expires 30 days from creation; `uploads/` + `env/` kept inde
 - [infra/dr/README.md](../infra/dr/README.md) — operator runbook (one-time setup §1-§6, monthly drill, surgical recovery §A-§E for partial losses, promotion runbook for full failover, post-incident return-to-Mumbai, known gaps, cost)
 - [infra/dr/POSTGRES_BACKUP_PLAN.md](../infra/dr/POSTGRES_BACKUP_PLAN.md) — design history, decisions Q1-Q3, §11 "First-run refinement" (the `--schema=public` discovery)
 - [infra/dr/main.tf](../infra/dr/main.tf) + [user-data.sh](../infra/dr/user-data.sh) + [variables.tf](../infra/dr/variables.tf) — Terraform module that provisions a replacement Singapore box (~10-min RTO)
-- [scripts/dr-pg-dump.sh](../scripts/dr-pg-dump.sh) — twice-daily Postgres backup
+- [scripts/dr-pg-dump.sh](../scripts/dr-pg-dump.sh) — daily Postgres backup
 - [scripts/dr-restore-drill.sh](../scripts/dr-restore-drill.sh) — quarterly restore drill (manual, 15 Jul / Oct / Jan / Apr)
 
 **Three verified gotchas** worth knowing about before touching the DR scripts:
@@ -1141,7 +1141,7 @@ S3 lifecycle: `db/` expires 30 days from creation; `uploads/` + `env/` kept inde
 - Q3 scope: all tables in `public` schema (include `SystemLog` + `EmailLog`, revisit at 6-month checkpoint if dumps exceed 1 GB)
 
 **Open deferrals with explicit re-eval triggers** (see `POSTGRES_BACKUP_PLAN.md §7`):
-- Supabase PITR ($25-50/mo for seconds-precision rollback within 7d) — worth it only if business need tightens past the chosen 12h RPO
+- Supabase PITR ($25-50/mo for seconds-precision rollback within 7d) — worth it only if business need tightens past the chosen 24h RPO. Cheaper intermediate step: add a midday cron entry (`0 11,23 * * *`) for 12h RPO.
 - Cross-region read replica for sub-minute DB RTO
 - Tiered retention (30d daily + 12w weekly + 12mo monthly)
 - Auto-run drill in CI (skipped — manual quarterly catches the same issues with zero CI surface)
