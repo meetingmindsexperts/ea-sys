@@ -277,7 +277,7 @@ PG_PASS="drillpass"
 # 1. Spin up scratch Postgres
 docker run --rm -d --name "${CONTAINER}" \
   -e POSTGRES_PASSWORD="${PG_PASS}" \
-  -p 55432:5432 postgres:15
+  -p 55432:5432 postgres:17
 sleep 5
 
 # 2. Pull latest dump
@@ -396,7 +396,7 @@ When ready to implement:
 - [ ] **6.4** Write `scripts/dr-restore-drill.sh` from the §3.5 draft.
 - [ ] **6.5** Update IAM policy `DRBackupToSingapore` per §3.4. Verify with `aws iam get-role-policy` after.
 - [ ] **6.6** Apply S3 lifecycle rule (§3.3 command).
-- [ ] **6.7** On Mumbai box: `sudo apt-get install -y postgresql-client-15` (or whatever version).
+- [ ] **6.7** On Mumbai box: `sudo apt-get install -y postgresql-client-17` (Supabase verified at PG 17 on 2026-06-03).
 - [ ] **6.8** On Mumbai box: place `scripts/dr-pg-dump.sh` and run **once manually** end-to-end. Verify:
   - Exits 0
   - Log file has the structured success line

@@ -140,8 +140,8 @@ rationale; this section is the operator runbook.
 # it explicitly here makes the version pinning visible.
 sudo -iu ubuntu
 sudo apt-get update -qq
-sudo apt-get install -y postgresql-client-15   # match Supabase's PG version
-pg_dump --version    # expect: pg_dump (PostgreSQL) 15.x
+sudo apt-get install -y postgresql-client-17   # match Supabase's PG version (verified 2026-06-03)
+pg_dump --version    # expect: pg_dump (PostgreSQL) 17.x
 ```
 
 If Supabase moves to PG 16+, bump both the apt package and the
@@ -396,7 +396,7 @@ LATEST=$(aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive --region ap-southeas
   | sort -k1,2 | tail -1 | awk '{print $4}')
 aws s3 cp "s3://ea-sys-dr-singapore/${LATEST}" /tmp/restore.dump --region ap-southeast-1
 
-# 3. Restore into a NEW Supabase project (or any PG 15+ cluster):
+# 3. Restore into a NEW Supabase project (or any PG 17+ cluster):
 PG_DSN="postgresql://postgres:PASSWORD@NEW-DB-HOST:5432/postgres"
 pg_restore --no-owner --no-acl --jobs=4 -d "${PG_DSN}" /tmp/restore.dump
 
@@ -425,9 +425,9 @@ than a whole-table loss, restore the dump to a scratch DB and SELECT
 from it — then re-insert into prod via a small SQL patch.
 
 ```bash
-# Stand up a scratch PG 15 in Docker (same as the restore drill does):
+# Stand up a scratch PG 17 in Docker (same as the restore drill does):
 docker run --rm -d --name pg-scratch -e POSTGRES_PASSWORD=temp \
-  -p 55432:5432 postgres:15
+  -p 55432:5432 postgres:17
 sleep 5
 
 # Restore into it:

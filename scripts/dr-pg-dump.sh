@@ -36,7 +36,7 @@ set -euo pipefail
 ENV_FILE="${ENV_FILE:-/home/ubuntu/ea-sys/.env}"
 DR_BUCKET="${DR_BUCKET:-ea-sys-dr-singapore}"
 DR_REGION="${DR_REGION:-ap-southeast-1}"
-PG_VERSION="${PG_VERSION:-15}"  # Match Supabase server major version; verify per checklist §6.1
+PG_VERSION="${PG_VERSION:-17}"  # Match Supabase server major version; verify per checklist §6.1
 ALERT_EMAIL_FROM="${ALERT_EMAIL_FROM:-alerts@meetingmindsexperts.com}"
 ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-krishna@meetingmindsdubai.com}"
 SES_REGION="${SES_REGION:-ap-south-1}"

@@ -29,7 +29,7 @@ DR_REGION="${DR_REGION:-ap-southeast-1}"
 CONTAINER="${CONTAINER:-ea-sys-dr-drill}"
 PG_PASS="${PG_PASS:-drillpass}"
 PG_PORT="${PG_PORT:-55432}"  # non-standard port so it can't clash with a local Postgres
-PG_IMAGE="${PG_IMAGE:-postgres:15}"
+PG_IMAGE="${PG_IMAGE:-postgres:17}"  # Match the dumping pg_dump version (Supabase = PG 17)
 WORK_DIR="${WORK_DIR:-/tmp}"
 DRILL_DUMP="${WORK_DIR}/dr-drill-restore.dump"
 
