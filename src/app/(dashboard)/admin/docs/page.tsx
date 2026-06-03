@@ -455,7 +455,7 @@ function FileViewer({
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {file.type === "markdown" ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none p-6 prose-headings:scroll-mt-4 prose-pre:text-xs prose-code:text-xs prose-code:bg-transparent prose-code:text-foreground prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-table:text-xs">
+          <div className="prose prose-sm dark:prose-invert max-w-none p-6 prose-headings:scroll-mt-4 prose-pre:text-xs prose-code:text-xs prose-code:bg-transparent prose-code:text-white prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-table:text-xs">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {file.content}
             </ReactMarkdown>

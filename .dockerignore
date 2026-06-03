@@ -15,9 +15,14 @@ node_modules
 logs/
 npm-debug.log*
 
-# Documentation (not needed in image)
-docs/
-*.md
+# Documentation — INCLUDED in image (was previously excluded). The
+# in-dashboard docs viewer at /admin/docs walks the filesystem at
+# runtime and needs these files present. The image-size cost is small
+# (~1-2 MB) and the docs are SUPER_ADMIN-gated so they're not exposed
+# to end users. If you ever drop the /admin/docs route, restore these
+# lines:
+#   docs/
+#   *.md
 
 # CI/CD & deploy scripts (not needed in image)
 .github/

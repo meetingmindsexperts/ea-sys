@@ -68,6 +68,19 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
 
+# Documentation files — read by the /admin/docs viewer at runtime.
+# Each COPY is wrapped in a wildcard form so a missing file (e.g.
+# someone deletes CHANGELOG.md) doesn't break the build. Glob expands
+# to nothing → no-op rather than ERROR. The runtime walker prunes
+# anything it can't surface.
+COPY --from=builder /app/CLAUDE.md* ./
+COPY --from=builder /app/README.md* ./
+COPY --from=builder /app/CHANGELOG.md* ./
+COPY --from=builder /app/security_audit_report.md* ./
+COPY --from=builder /app/human_user_guide_v3.html* ./
+COPY --from=builder /app/docs ./docs
+COPY --from=builder /app/infra ./infra
+
 # Create logs and Next.js cache directories writable by nextjs user
 RUN mkdir -p /app/logs /app/.next/cache && chown -R nextjs:nodejs /app/logs /app/.next/cache
 
