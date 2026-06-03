@@ -359,6 +359,38 @@ trigger fires:
 for a clean H), then H if needed, then F is moot. Skipping straight to H
 without G is possible but doubles the diff size of the single PR.
 
+### Certificates — operator-feedback round, deferred review findings (June 3, 2026)
+
+The June 3 operator-feedback round shipped 4 features (canvas undo,
+Y-axis nudge, per-recipient resend, EmailLog "Cert" pill) across
+commits `0c56c9a` (implementation) → `1e9801a` (24 unit + 8 e2e cases)
+→ `58168b4` (4 HIGHs from the independent review pass: H1 atomic
+cross-event binding, H2 path-traversal + SSRF allowlist with
+per-rejection structured logs, H3 setState updater purity in undo/redo,
+H4 toast wording fidelity). The items below are **MEDIUM/LOW findings
+the review surfaced and we consciously deferred** — none blocks the
+deploy, each is independently shippable, pick up first whenever an
+operator hits a related issue.
+
+| Severity | Item | Risk & recommended direction |
+|---|---|---|
+| MEDIUM | **`abstractTitle` token not HTML-escaped in cert delivery email body** | `src/lib/certificates/email-tokens-resolver.ts` (~131-154) — speaker-authored abstract titles interpolate raw into the HTML body for APPRECIATION certs. A speaker submitting `<script>alert(1)</script>` as their abstract title would inject that into the recipient's email. **Pre-existing**, NOT introduced by this round, but the resend route is now the second call site. Trigger to pick up: any organizer report of "weird symbols in cert email" OR proactive when next touching the resolver. Fix: add an `escaped` discriminator on `CoverEmailTokenContext` and route abstractTitle through `escapeHtml()` when the escaped variant is requested. ~5 LOC + a parity test. |
+| MEDIUM | **Confirm dialog leaks state on mid-mutation Escape / click-outside** | `src/components/certificates/issued-certificates-card.tsx` (~151, 86-94) — operator clicks Resend, dialog opens, SES round-trip starts (~1-2s). Escape or click-outside in those 2s closes the dialog; opening a new resend dialog right after means the in-flight toast from #1 lands while dialog #2 is open. Trigger: operator complaint of "ghost toasts" or visible state inconsistency. Fix: `onInteractOutside` + `onEscapeKeyDown` no-op while `resendMutation.isPending`. ~3 LOC. |
+| MEDIUM | **`handleNudgeY` re-allocates closure ~30×/sec while holding ArrowDown** | `src/components/certificates/certificate-canvas-editor.tsx` (~355-377) — `useCallback` deps include `textBoxes`. Each nudge mutates it → new closure → new keyDown handler → … On templates with many text boxes on a slow box, measurable allocation churn. Trigger: noticeable input lag during fast-positioning. Fix: read `textBoxes` from a ref inside `handleNudgeY` (already exists for `lastNudgeAtRef`). ~5 LOC. |
+| MEDIUM | **`loadPdfBytes` + `escapeHtml` duplicated across worker + route** | `src/lib/certificates/issue-worker.ts` (57-64, 769-781) vs `src/app/api/events/.../resend/route.ts` (similar helpers). Comment in resend route flags it as intentional v1 debt to avoid touching the worker mid-feature. Trigger: next sweep of cert-email code OR any divergence (e.g., new XSS pattern added to one but not the other). Fix: extract `src/lib/certificates/cert-email-helpers.ts`, import from both. |
+| MEDIUM | **EmailLogCard "Cert" pill baseline misaligned vs subject text** | `src/components/communications/email-log-card.tsx` (~82, 89-94) — parent is `items-baseline`, pill is `inline-flex items-center`. Pill renders slightly above the subject's typographic baseline on Chrome/Firefox/Safari. Cosmetic only. Fix: `align-self-center` on the pill OR `items-center` on the parent flex. 1 LOC. |
+| MEDIUM | **Defensive `recipientEmail` chain doesn't `?.` through Attendee** | `src/app/api/events/.../resend/route.ts` (~251) — `reg?.attendee.email ?? null`. `attendee` is a required FK so won't trigger today, but optional-include semantics in Prisma can return null in edge cases. Trigger: 500 error on resend with stack pointing here. Fix: `reg?.attendee?.email ?? null`. 1 LOC. |
+| MEDIUM | **Base64 PDF allocation 2× memory per resend** | resend route + worker — `Buffer.from(arr).toString("base64")` expands ~1.33× in memory. Fine at current 30/hr/user rate; spikes under sustained concurrent resend pressure on small EC2. Trigger: heap growth visible in CloudWatch. Fix: stream SES `RawMessage` attachment (SES v3 SDK supports it). |
+| LOW | **Dev-only sentinel renders to prod** | `IssuedCertificatesCard` shows an amber "pass registrationId OR speakerId" panel when both are absent. Comment says "dev-only" but it ships to prod. Trigger: visible. Fix: gate on `process.env.NODE_ENV === "development"` or return null in prod. |
+| LOW | **`recipientLabel` template parity** | Registration variant doesn't include `title` even when present (`${firstName} ${lastName} <${email}>`); speaker variant does (`[title, firstName, lastName].filter(Boolean).join(" ")`). Cosmetic in the resend confirm dialog. |
+| LOW | **`pluralize` helper would dedupe 3 ternaries** | `${count} time${count === 1 ? "" : "s"}` repeated 3× in `issued-certificates-card.tsx`. Style. |
+| LOW | **`pushUndoSnapshot` on color-picker focus is unreliable on Chrome** | Native `<input type="color">` doesn't always fire `onFocus` (OS-level picker). A color change may skip the undo step. Known-bad UX of native color inputs; consider Tiptap color or react-colorful if/when this matters. |
+| LOW | **`RecipientSnapshot` type inlined rather than imported** | `src/app/api/events/.../resend/route.ts` (~229-234) declares the shape locally; worker has the same shape. Drift risk over time. |
+| LOW | **Legacy cert with no `issueRunItem` shows only "Issued X ago"** | `IssuedCertificatesCard` row hides "· sent X ago" when the run item is null. Operator might misread as "never sent". Only affects pre-feature legacy certs (none in prod today). |
+| LOW | **Comment phrasing on cross-machine pdfUrl error** | `src/app/api/events/.../resend/route.ts` (~273-275) describes the failure mode imprecisely. Tighten to reference the `STORAGE_PROVIDER=local` pattern explicitly so the next reader doesn't need archaeological context. |
+
+**Review verdict at deploy time**: SAFE TO PROCEED. The independent review agent's full report is preserved in this round's git history (review summary at `58168b4`).
+
 ### Medium-Term (2–4 Months)
 
 | Feature | Description |
