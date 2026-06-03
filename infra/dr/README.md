@@ -123,6 +123,121 @@ inline policy on `ea-sys-mumbai-ec2-role` is missing `s3:GetObject` and/
 or `kms:Decrypt`. Add them — the [surgical recovery section](#surgical-recovery--mumbai-is-up-you-lost-specific-files)
 below depends on this path working.
 
+### 6. Set up the Postgres backup cron (12h RPO)
+
+Closes the database-side DR gap. Without this, the only recovery option
+for Supabase data loss is the Supabase platform's own backups (daily,
+up to 24h old). With this, you have a 12-hour-fresh dump sitting in
+your own bucket in your own region, restorable to any Postgres anywhere.
+
+See [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md) for the design
+rationale; this section is the operator runbook.
+
+#### 6.1 Install the Postgres client matching Supabase's server version
+
+```bash
+# On the Mumbai box. The script auto-installs on first run, but doing
+# it explicitly here makes the version pinning visible.
+sudo -iu ubuntu
+sudo apt-get update -qq
+sudo apt-get install -y postgresql-client-15   # match Supabase's PG version
+pg_dump --version    # expect: pg_dump (PostgreSQL) 15.x
+```
+
+If Supabase moves to PG 16+, bump both the apt package and the
+`PG_VERSION` default in [scripts/dr-pg-dump.sh](../../scripts/dr-pg-dump.sh).
+
+#### 6.2 Verify SES sender domain
+
+Failure alerts go out via `alerts@meetingmindsexperts.com` to
+`krishna@meetingmindsdubai.com`. The sender domain must be verified in
+SES in `ap-south-1`.
+
+```bash
+aws ses get-identity-verification-attributes \
+  --identities meetingmindsexperts.com \
+  --region ap-south-1
+# Expect: VerificationStatus: Success
+```
+
+If not verified, add the domain in the SES console (5 min, one TXT
+record at the registrar).
+
+#### 6.3 Widen the IAM policy + add SES permission
+
+The existing `DRBackupToSingapore` inline policy on `ea-sys-mumbai-ec2-role`
+needs two updates: (a) add `db/*` to the write Resource list, (b) add a
+new statement allowing `ses:SendEmail` for the alerts sender. Full
+policy JSON is in [POSTGRES_BACKUP_PLAN.md §3.4](POSTGRES_BACKUP_PLAN.md#34-iam-policy-update).
+
+#### 6.4 Apply the 30-day lifecycle rule on `db/` prefix
+
+```bash
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket ea-sys-dr-singapore \
+  --region ap-southeast-1 \
+  --lifecycle-configuration '{
+    "Rules": [{
+      "ID": "db-30-day-expiry",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "db/" },
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+    }]
+  }'
+```
+
+#### 6.5 Run the dump once manually + verify end-to-end
+
+```bash
+sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh
+# Watch the structured JSON log lines fly by — expect a final
+# {"msg":"dr-pg-dump:ok ..."} line.
+
+# Confirm the object landed in Singapore:
+aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive \
+  --region ap-southeast-1 | tail -3
+
+# Run the restore drill to prove the dump is actually restorable:
+bash /home/ubuntu/ea-sys/scripts/dr-restore-drill.sh
+# Expect: "✓ DR RESTORE DRILL PASSED" at the bottom.
+```
+
+#### 6.6 Install the cron line
+
+```bash
+sudo -u ubuntu crontab -e
+# Append:
+# Twice-daily Postgres dump to Singapore DR bucket (RPO 12h)
+0 11,23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+```
+
+**Timing**: 11:00 UTC = 15:00 GST (post-lunch lull); 23:00 UTC = 03:00 GST (no event traffic). Both avoid the 09:00-18:00 GST event-day flow.
+
+#### 6.7 Verify the next two scheduled runs
+
+```bash
+# After 11:00 UTC and 23:00 UTC tomorrow, both should appear:
+aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive \
+  --region ap-southeast-1 | tail -5
+
+# Check the log file for any error lines:
+sudo -u ubuntu tail -50 /home/ubuntu/cron-dr-db-backup.log
+```
+
+If a run silently failed, the SES email should have arrived in
+`krishna@meetingmindsdubai.com` (check spam folder for the first one;
+auto-whitelist after).
+
+#### 6.8 Calendar entry — quarterly restore drill
+
+15th of every quarter (Jul, Oct, Jan, Apr) run:
+```bash
+bash /home/ubuntu/ea-sys/scripts/dr-restore-drill.sh
+```
+Takes ~3-5 min. Either passes cleanly or surfaces drift between the
+dump format and the restore process before a real disaster needs it.
+
 ## Monthly drill (15th of each month, 5 min)
 
 Validates that the bootstrap still works before you actually need it.
@@ -260,16 +375,80 @@ sudo -u ubuntu aws s3api copy-object \
 # Then sync that path back to Mumbai (see A or C above).
 ```
 
+### E. Restore the database (or one table) from a `pg_dump`
+
+The twice-daily Postgres backup writes `*.dump` files to
+`s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`. Each
+file is a `pg_dump -Fc` (custom format) — compressed, restorable as a
+whole or one table at a time.
+
+Two scenarios — full DB rebuild vs surgical row/table recovery:
+
+#### Full DB rebuild (Supabase data loss, fresh target)
+
+```bash
+# 1. Locate the dump you want (newest by default):
+aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive --region ap-southeast-1 \
+  | sort -k1,2 | tail -5
+
+# 2. Pull it locally or to a scratch box:
+LATEST=$(aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive --region ap-southeast-1 \
+  | sort -k1,2 | tail -1 | awk '{print $4}')
+aws s3 cp "s3://ea-sys-dr-singapore/${LATEST}" /tmp/restore.dump --region ap-southeast-1
+
+# 3. Restore into a NEW Supabase project (or any PG 15+ cluster):
+PG_DSN="postgresql://postgres:PASSWORD@NEW-DB-HOST:5432/postgres"
+pg_restore --no-owner --no-acl --jobs=4 -d "${PG_DSN}" /tmp/restore.dump
+
+# 4. Update .env DATABASE_URL + DIRECT_URL on Mumbai box, redeploy:
+sudo -u ubuntu vim /home/ubuntu/ea-sys/.env
+sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/deploy.sh
+```
+
+**RPO**: up to 12h (the time between the disaster and the last
+scheduled dump at 11:00 or 23:00 UTC).
+
+#### Surgical: restore just one table
+
+```bash
+# Same first two steps as above, then restore a specific table only.
+# Useful when you accidentally dropped or corrupted one table and
+# everything else is fine.
+PG_DSN="postgresql://postgres:PASS@SCRATCH-HOST:5432/postgres"
+pg_restore --no-owner --no-acl -t "Registration" -d "${PG_DSN}" /tmp/restore.dump
+```
+
+#### Surgical: extract specific rows without touching prod
+
+When the disaster is "operator deleted 3 specific registrations" rather
+than a whole-table loss, restore the dump to a scratch DB and SELECT
+from it — then re-insert into prod via a small SQL patch.
+
+```bash
+# Stand up a scratch PG 15 in Docker (same as the restore drill does):
+docker run --rm -d --name pg-scratch -e POSTGRES_PASSWORD=temp \
+  -p 55432:5432 postgres:15
+sleep 5
+
+# Restore into it:
+PGPASSWORD=temp pg_restore -h localhost -p 55432 -U postgres -d postgres \
+  --no-owner --no-acl --jobs=4 /tmp/restore.dump
+
+# Query for the rows you need:
+PGPASSWORD=temp psql -h localhost -p 55432 -U postgres -d postgres \
+  -c 'SELECT * FROM "Registration" WHERE id IN (...)'
+
+# Generate INSERT statements and apply to prod manually.
+docker stop pg-scratch
+```
+
+The `scripts/dr-restore-drill.sh` script exercises exactly this scratch-
+DB flow each quarter to keep it warm — copy its approach when needed.
+
 ### What S3 does NOT cover
 
 For honesty:
 
-- **Postgres data** (`Registration`, `IssuedCertificate`, `AuditLog`,
-  `EmailLog`, `McpOAuth*`, settings JSON, …) — not in S3. Recovery is
-  **Supabase dashboard → Database → Backups → Restore** (PITR if Pro
-  tier, else most recent daily snapshot). Tracked as the open gap in
-  `docs/EC2_HARDENING.html` §"Gaps still open" — nightly `pg_dump` to
-  the same DR bucket is the next round.
 - **Uploads written between the last cron tick and the disaster** — up
   to 60 min of `public/uploads/` is not in the bucket yet. Tighten the
   cron to `*/5 * * * *` if that's too loose for your event flow.
@@ -277,6 +456,10 @@ For honesty:
   Run `aws s3 cp .env s3://ea-sys-dr-singapore/env/$(date -u +%F).env
   --region ap-southeast-1` immediately after rotating a secret to
   tighten that RPO ad-hoc.
+- **Postgres changes between the last 11:00 or 23:00 UTC dump and the
+  disaster** — up to 12h RPO. For tighter precision, enable Supabase
+  PITR (~$25-50/mo, seconds-precision rollback within 7d retention).
+  Trade-off documented in [POSTGRES_BACKUP_PLAN.md §1](POSTGRES_BACKUP_PLAN.md#decisions-locked-in-2026-06-03).
 
 ## Promotion runbook (real outage, Mumbai down)
 
@@ -351,8 +534,15 @@ For honesty:
   runbook above sends them back. If you skip that step or `terraform destroy`
   before syncing, those outage-window uploads are lost. Future fix: a reverse
   cron on the DR box that periodically pushes `public/uploads/` back to S3.
-- **Supabase dependency.** If Supabase itself is down, this DR plan doesn't
-  help — we only fail over compute, not the DB. That's a separate round.
+- **Postgres data — 12h RPO** via the twice-daily `pg_dump` to Singapore
+  (§6 / [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md)). Tighter RPO
+  would need Supabase PITR (~$25-50/mo). Not enabled today by explicit
+  trade-off — the cron + daily Supabase platform backup is sufficient
+  for our stated 12h tolerance.
+- **Supabase compute downtime.** If Supabase itself is unreachable (vs
+  data-lost), the Singapore DR box still can't serve. Fail-over here
+  means restoring the latest `pg_dump` to a NEW Supabase project + DNS
+  swap on the DB URL. See [Surgical Recovery §E](#e-restore-the-database-or-one-table-from-a-pg_dump).
 - **10-minute RTO includes a Docker build.** `scripts/deploy.sh` does
   `docker compose build` on first run. If the build time balloons, the
   RTO balloons with it.
