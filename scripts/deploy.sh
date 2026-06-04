@@ -56,9 +56,12 @@ docker image prune -f > /dev/null 2>&1 &
 PRUNE_PID=$!
 
 # ── Build inactive slot with BuildKit ─────────────────────────────────────────
-echo "==> Building ea-sys-$INACTIVE..."
-DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE"
-phase_done "Build ea-sys-$INACTIVE"
+# Build web slot + worker in parallel — the worker image is independent of the
+# blue/green swap (it has no traffic to fail over) so we can rebuild both at
+# the same time. BuildKit caches each Dockerfile's layers independently.
+echo "==> Building ea-sys-$INACTIVE + ea-sys-worker..."
+DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE" ea-sys-worker
+phase_done "Build ea-sys-$INACTIVE + ea-sys-worker"
 
 # Collect background prune (already finished by now, just reap the process)
 wait $PRUNE_PID 2>/dev/null || true
@@ -160,6 +163,45 @@ echo "$INACTIVE" > "$SLOT_FILE"
 echo "==> Stopping old ea-sys-$ACTIVE..."
 $COMPOSE stop "ea-sys-$ACTIVE"
 phase_done "Stop old slot"
+
+# ── Restart worker container with the new image ───────────────────────────────
+# The worker doesn't participate in blue/green (no traffic to fail over).
+# We restart it AFTER the web swap so:
+#   - nginx is already pointing at the new web slot
+#   - a brief gap in the worker is safe (job state in Postgres survives;
+#     advisory locks are session-scoped so the dying process releases
+#     them automatically at connection close)
+#
+# `up -d` is idempotent — if the worker is already running with an older
+# image, compose recreates the container against the new image. If the
+# worker has never been started before (first deploy with worker support),
+# it boots cleanly.
+echo "==> (Re)starting ea-sys-worker..."
+$COMPOSE up -d ea-sys-worker
+
+# Quick health check — give it 30s to boot (Prisma client load + node-cron
+# bootstrap + health server up) then poll /health from inside the container.
+echo "==> Waiting for worker /health..."
+WORKER_ATTEMPTS=0
+until docker exec ea-sys-worker curl -sf http://localhost:3099/health > /dev/null 2>&1; do
+  WORKER_ATTEMPTS=$((WORKER_ATTEMPTS + 1))
+  if [ "$WORKER_ATTEMPTS" -ge 30 ]; then
+    # Soft failure — don't roll back the web deploy because the worker
+    # tier is independent. Log it loudly and continue; the operator can
+    # follow up with `docker logs ea-sys-worker`. Phase 3 dual-write means
+    # the legacy /api/cron/* routes will still drain queues while we
+    # debug.
+    echo "⚠ Worker /health did not respond within ${WORKER_ATTEMPTS}s."
+    echo "  Web deploy continues; investigate with:"
+    echo "    docker logs ea-sys-worker --since 2m"
+    break
+  fi
+  sleep 1
+done
+if [ "$WORKER_ATTEMPTS" -lt 30 ]; then
+  echo "✓ Worker /health responding (took ${WORKER_ATTEMPTS}s)"
+  phase_done "Start ea-sys-worker"
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
