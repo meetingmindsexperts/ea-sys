@@ -139,24 +139,58 @@ worker stop + new container start is fine because:
 
 ### Healthcheck
 
-`docker-compose.prod.yml` configures Docker to hit
-`http://localhost:3099/health` every 30s inside the container. After
-3 consecutive failures the container restarts. The endpoint is NOT
-proxied through nginx — operators inspect via:
+Three ways to inspect, in increasing convenience:
 
-```bash
-docker exec ea-sys-worker curl -fs http://localhost:3099/health
-```
+1. **Public Next.js proxy** (no SSH required):
+   ```
+   https://events.meetingmindsgroup.com/worker/health
+   ```
+   The Next.js container proxies through to the worker container
+   via Docker DNS (`ea-sys-worker:3099`). Same JSON shape as the
+   raw `/health` endpoint; 503 when worker is unreachable or
+   shutting down. Sister endpoint `/health` covers the web tier.
+
+2. **`docker exec` inside the box** (good for first-line debugging):
+   ```bash
+   docker exec ea-sys-worker curl -fs http://localhost:3099/health
+   ```
+
+3. **Docker's own healthcheck**:
+   `docker-compose.prod.yml` polls `localhost:3099/health` inside
+   the container every 30s. After 3 consecutive failures the
+   container restarts. Last status visible via:
+   ```bash
+   docker inspect --format '{{.State.Health.Status}}' ea-sys-worker
+   ```
 
 ### Logs
 
-```bash
-docker logs ea-sys-worker --since 10m --tail 100
-```
+Three views, all from the same Pino stream:
 
-OR via the `/admin/docs` viewer's logs panel — the worker writes
-through the same Pino logger as the web app, so SystemLog DB rows
-show up alongside the dashboard's logs.
+1. **In-dashboard log viewer** (no SSH required) — open
+   [`/logs`](https://events.meetingmindsgroup.com/logs) with a
+   SUPER_ADMIN session. Pick `source=database`, then search for
+   `worker:` to see only worker output. The worker writes through
+   the same Pino logger as the web app, so its SystemLog DB rows
+   appear alongside the dashboard's logs — no separate viewer.
+
+2. **`docker logs`** (SSH):
+   ```bash
+   docker logs ea-sys-worker --since 10m --tail 100
+   # Only worker keys:
+   docker logs ea-sys-worker --since 1h | grep '"msg":"worker:'
+   ```
+
+3. **File logs** on the host (SSH; backup if DB or stdout is
+   unavailable):
+   ```bash
+   tail -f /home/ubuntu/ea-sys/logs/app.log
+   # Filter to worker only:
+   tail -f /home/ubuntu/ea-sys/logs/app.log | grep '"msg":"worker:'
+   ```
+   Note: the worker and web containers both mount the same host
+   `./logs` directory, so this file is interleaved with web output.
+   The `worker:` prefix is your filter.
 
 Search for `msg:"worker:"` to see only worker output:
 
