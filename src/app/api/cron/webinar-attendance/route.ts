@@ -1,19 +1,15 @@
+/**
+ * Thin HTTP shim around `runWebinarAttendanceTick()`.
+ *
+ * Authenticates the incoming cron request (Bearer CRON_SECRET) and
+ * delegates the actual work to the shared worker library. See
+ * docs/WORKER_EXTRACTION_PLAN.md for the Phase 1 refactor context.
+ * The legacy crontab line stays untouched during this phase.
+ */
+
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import {
-  syncWebinarAttendance,
-  ATTENDANCE_FETCH_MIN_DELAY_MS,
-  ATTENDANCE_FETCH_WINDOW_MS,
-} from "@/lib/webinar-attendance";
-import { syncWebinarEngagement } from "@/lib/webinar-engagement";
-
-const MAX_PER_TICK = 10;
-const SERIAL_DELAY_MS = 500;
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
+import { runWebinarAttendanceTick } from "@/lib/webinar-attendance-worker";
 
 async function handleCron(req: Request) {
   const startedAt = Date.now();
@@ -30,163 +26,17 @@ async function handleCron(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const now = Date.now();
-    const minEndedBefore = new Date(now - ATTENDANCE_FETCH_MIN_DELAY_MS);
-    const maxEndedAfter = new Date(now - ATTENDANCE_FETCH_WINDOW_MS);
-    // Hourly re-sync is only allowed within 24h of session end — that's the
-    // window where late-joining participant records still show up in Zoom's
-    // report. After 24h, one successful sync is enough; the row stays out
-    // of the cron's sight until an admin explicitly hits "Sync now".
-    const recentEndCutoff = new Date(now - 24 * 60 * 60 * 1000);
-    const oneHourAgo = new Date(now - 60 * 60 * 1000);
+    const report = await runWebinarAttendanceTick();
 
-    // Candidates: webinar-type ZoomMeetings whose session ended between
-    // 30 min and 30 days ago. Either:
-    //   (a) never synced (catches every eligible row regardless of age), or
-    //   (b) last synced >1h ago AND session ended <24h ago (late-reconcile).
-    const candidates = await db.zoomMeeting.findMany({
-      where: {
-        AND: [
-          {
-            meetingType: { in: ["WEBINAR", "WEBINAR_SERIES"] },
-            session: {
-              endTime: {
-                lt: minEndedBefore,
-                gt: maxEndedAfter,
-              },
-            },
-          },
-          {
-            OR: [
-              { lastAttendanceSyncAt: null },
-              {
-                AND: [
-                  { lastAttendanceSyncAt: { lt: oneHourAgo } },
-                  { session: { endTime: { gt: recentEndCutoff } } },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      orderBy: [{ lastAttendanceSyncAt: { sort: "asc", nulls: "first" } }],
-      take: MAX_PER_TICK,
-      select: { id: true },
-    });
-
-    if (candidates.length === 0) {
-      apiLogger.debug({
-        msg: "webinar-attendance:tick-empty",
-        durationMs: Date.now() - startedAt,
-      });
-      return NextResponse.json({ processed: 0, results: [] });
-    }
-
-    apiLogger.info({
-      msg: "webinar-attendance:tick-start",
-      count: candidates.length,
-    });
-
-    // Serial processing with delay between rows when batch >3 to respect Zoom
-    // rate limits. Per-row try/catch so one bad row can't kill the tick.
-    // Each row runs attendance sync first, then engagement sync (polls + Q&A)
-    // piggybacked on the same tick — two extra Zoom API calls per row.
-    const results: Array<{
-      id: string;
-      status: string;
-      fetched?: number;
-      upserted?: number;
-      matched?: number;
-      engagement?: {
-        status: string;
-        pollsPersisted?: number;
-        pollResponsesPersisted?: number;
-        questionsPersisted?: number;
-      };
-      reason?: string;
-    }> = [];
-
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i];
-      try {
-        const result = await syncWebinarAttendance(candidate.id);
-        const resultRow: (typeof results)[number] = {
-          id: candidate.id,
-          status: result.status,
-          fetched: "fetched" in result ? result.fetched : undefined,
-          upserted: "upserted" in result ? result.upserted : undefined,
-          matched: "matched" in result ? result.matched : undefined,
-          reason: "reason" in result ? result.reason : undefined,
-        };
-
-        // Piggyback engagement sync onto the same tick. Own try/catch so a
-        // polls/Q&A failure never masks or overrides the attendance result.
-        try {
-          const engagement = await syncWebinarEngagement(candidate.id);
-          resultRow.engagement = {
-            status: engagement.status,
-            pollsPersisted:
-              "pollsPersisted" in engagement ? engagement.pollsPersisted : undefined,
-            pollResponsesPersisted:
-              "pollResponsesPersisted" in engagement
-                ? engagement.pollResponsesPersisted
-                : undefined,
-            questionsPersisted:
-              "questionsPersisted" in engagement ? engagement.questionsPersisted : undefined,
-          };
-        } catch (engagementErr) {
-          apiLogger.error(
-            {
-              err: engagementErr,
-              zoomMeetingDbId: candidate.id,
-              msg: "webinar-attendance:engagement-row-crashed",
-            },
-          );
-          resultRow.engagement = { status: "failed" };
-        }
-
-        results.push(resultRow);
-      } catch (rowErr) {
-        apiLogger.error(
-          {
-            err: rowErr,
-            zoomMeetingDbId: candidate.id,
-            msg: "webinar-attendance:row-crashed",
-          },
-        );
-        results.push({
-          id: candidate.id,
-          status: "failed",
-          reason: rowErr instanceof Error ? rowErr.message : "unexpected row crash",
-        });
-      }
-      if (i < candidates.length - 1 && candidates.length > 3) {
-        await sleep(SERIAL_DELAY_MS);
-      }
-    }
-
-    const syncedCount = results.filter((r) => r.status === "synced").length;
-    const pendingCount = results.filter((r) => r.status === "pending").length;
-    const failedCount = results.filter((r) => r.status === "failed").length;
-    const totalUpserted = results.reduce((sum, r) => sum + (r.upserted ?? 0), 0);
-
-    apiLogger.info({
-      msg: "webinar-attendance:tick-complete",
-      processed: results.length,
-      synced: syncedCount,
-      pending: pendingCount,
-      failed: failedCount,
-      totalUpserted,
-      durationMs: Date.now() - startedAt,
-    });
-
+    // Response envelope matches the pre-refactor shape so callers see
+    // no observable change during the dual-write window.
     return NextResponse.json({
-      processed: results.length,
-      synced: syncedCount,
-      pending: pendingCount,
-      failed: failedCount,
-      totalUpserted,
-      results,
+      processed: report.processed,
+      synced: report.synced,
+      pending: report.pending,
+      failed: report.failed,
+      totalUpserted: report.totalUpserted,
+      results: report.results,
     });
   } catch (err) {
     apiLogger.error({

@@ -1,21 +1,17 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { apiLogger } from "@/lib/logger";
-
 /**
- * Hourly cleanup cron for MCP OAuth state.
+ * Thin HTTP shim around `runMcpOAuthCleanupTick()`.
  *
- * Deletes:
- *  - Expired authorization codes (TTL = 10 min, leaked on abandoned flows)
- *  - Access tokens that expired over 7 days ago (grace period for refresh)
- *
- * Reuses the same Bearer $CRON_SECRET pattern as /api/cron/scheduled-emails
- * and /api/cron/webinar-*. EC2 crontab entry:
+ * Authenticates the incoming cron request (Bearer CRON_SECRET) and
+ * delegates the actual work to the shared worker library. See
+ * docs/WORKER_EXTRACTION_PLAN.md for the Phase 1 refactor context.
+ * The legacy crontab line stays untouched during this phase:
  *   0 * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" \
  *     https://events.meetingmindsgroup.com/api/cron/mcp-oauth-cleanup
  */
 
-const TOKEN_GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+import { NextResponse } from "next/server";
+import { apiLogger } from "@/lib/logger";
+import { runMcpOAuthCleanupTick } from "@/lib/mcp-oauth-cleanup-worker";
 
 async function handleCron(req: Request) {
   const startedAt = Date.now();
@@ -31,25 +27,14 @@ async function handleCron(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const now = new Date();
-    const tokenCutoff = new Date(now.getTime() - TOKEN_GRACE_PERIOD_MS);
+    const report = await runMcpOAuthCleanupTick();
 
-    const [codes, tokens] = await Promise.all([
-      db.mcpOAuthAuthCode.deleteMany({ where: { expiresAt: { lt: now } } }),
-      db.mcpOAuthAccessToken.deleteMany({ where: { expiresAt: { lt: tokenCutoff } } }),
-    ]);
-
-    apiLogger.info({
-      msg: "mcp-oauth-cleanup:tick-complete",
-      expiredCodes: codes.count,
-      expiredTokens: tokens.count,
-      durationMs: Date.now() - startedAt,
-    });
-
+    // Response envelope matches the pre-refactor shape so callers see
+    // no observable change during the dual-write window.
     return NextResponse.json({
-      expiredCodes: codes.count,
-      expiredTokens: tokens.count,
-      durationMs: Date.now() - startedAt,
+      expiredCodes: report.expiredCodes,
+      expiredTokens: report.expiredTokens,
+      durationMs: report.durationMs,
     });
   } catch (err) {
     apiLogger.error({
