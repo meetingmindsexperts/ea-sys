@@ -1,0 +1,102 @@
+# syntax=docker/dockerfile:1
+#
+# EA-SYS background worker — runs the cron-driven jobs (cert renderer,
+# scheduled emails, webinar recordings + attendance, MCP OAuth cleanup)
+# as a long-running Node process, separate from the Next.js web tier.
+#
+# Sibling to Dockerfile (the web image). Shares the same package.json,
+# same Prisma client, same .env. Runs alongside ea-sys-green in
+# docker-compose.yml on the same EC2 box.
+#
+# Smaller than the web image because no .next standalone output is
+# needed — the worker only uses src/lib/* (worker libs + shared
+# helpers) + the prisma client. No public/, no .next/, no static
+# assets.
+#
+# Uses tsx to run TypeScript directly at runtime (no separate compile
+# step). tsx was moved to dependencies in package.json for this
+# reason; the production install includes it.
+
+# ── Stage 1: Build (run prisma generate + install deps) ──────────────
+FROM node:24-slim AS builder
+WORKDIR /app
+
+# Prisma needs openssl on Debian slim for its client binary detection.
+# BuildKit apt cache keeps subsequent builds fast.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && apt-get install -y openssl
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma/
+# scripts/copy-pdfjs-worker.mjs runs from `postinstall`; the worker
+# doesn't render PDFs in the browser so the pdfjs worker isn't
+# functionally needed, but the postinstall hook tries to find this
+# file and would fail without it. Same pattern as Dockerfile (web).
+COPY scripts/copy-pdfjs-worker.mjs ./scripts/copy-pdfjs-worker.mjs
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+ENV NODE_ENV=production
+
+# Generate the Prisma client. Skipped at runtime so the runner stage
+# is lean — node_modules/.prisma is copied across.
+RUN npx prisma generate
+
+# ── Stage 2: Runner (production worker) ──────────────────────────────
+FROM node:24-slim AS runner
+WORKDIR /app
+
+# curl is needed for the Docker HEALTHCHECK (hits localhost:3099/health).
+# openssl is needed by Prisma's libssl detection.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && \
+    apt-get install -y openssl curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Non-root user, same uid/gid scheme as the web image so logs and
+# bind-mounted directories are interoperable.
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 worker
+
+# Bring across the node_modules tree (includes tsx + node-cron +
+# prisma generated client) and the source the worker needs at
+# runtime.
+#
+# Why we copy `src/` wholesale instead of cherry-picking `src/lib/`:
+# the worker imports @/lib/* which resolves via tsconfig paths to
+# src/lib/*, and several lib files transitively import other parts
+# of src/ (e.g., src/types/*, src/services/*). Copying src wholesale
+# costs maybe an extra 20MB in the image but avoids whack-a-mole
+# missing-module errors at runtime.
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/src ./src
+COPY worker ./worker
+
+# Writable directory for any file-based logging Pino might do — same
+# semantics as the web container (logs flow primarily through
+# stdout + SystemLog DB writes; the file output is a backup).
+RUN mkdir -p /app/logs && chown -R worker:nodejs /app/logs
+
+USER worker
+
+# Health endpoint — docker-compose.yml's healthcheck hits this.
+EXPOSE 3099
+ENV WORKER_HEALTH_PORT=3099
+
+# `--max-old-space-size=2048` matches the web container; bursts of
+# cert renders + bulk email passes can briefly use ~1GB RAM each.
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+
+# tsx runs the TypeScript entry point directly — no compile step.
+# `--no-warnings` suppresses experimental-feature noise from Node's
+# loader (tsx uses the new module hooks API).
+CMD ["npx", "tsx", "worker/index.ts"]

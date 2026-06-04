@@ -56,6 +56,57 @@ services:
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
 
+  # ── Background worker tier ───────────────────────────────────────────────────
+  # Runs the 5 cron-driven jobs (cert renderer, scheduled emails, webinar
+  # recordings + attendance, MCP OAuth cleanup) on a node-cron scheduler in
+  # its own process. Sibling of the blue/green web containers; shares the
+  # same .env, same uploads volume, same logs volume, same network so it
+  # can reach Postgres through the same connection string. See
+  # docs/WORKER_EXTRACTION_PLAN.md for the architecture.
+  #
+  # Phase 2 (dual-write window): both the legacy /api/cron/* routes AND
+  # this worker run the same shared runTick() functions. Postgres advisory
+  # locks (worker/lib/advisory-lock.ts) serialize them so we never
+  # double-process a row.
+  #
+  # Healthcheck hits localhost:3099/health inside the container — no port
+  # is published externally, the endpoint is for Docker only.
+  ea-sys-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: ea-sys-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - WORKER_HEALTH_PORT=3099
+    networks:
+      - web
+    volumes:
+      # Same uploads mount as the web containers — the cert renderer
+      # reads template background PDFs from public/uploads/certificates/
+      # and writes issued PDFs back to the same tree. The mount must
+      # match the web containers exactly or PDFs end up in two
+      # different "public/uploads/" directories that don't sync.
+      - ./public/uploads:/app/public/uploads
+      # Shared log directory so the file logger has a writable target
+      # AND the existing /logs viewer can read worker output.
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3099/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        tag: "{{.Name}}/{{.ID}}"
+
   # ── RTMP → HLS live streaming server ─────────────────────────────────────────
   mediamtx:
     image: bluenviron/mediamtx:latest
