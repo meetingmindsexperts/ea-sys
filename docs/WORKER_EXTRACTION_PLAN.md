@@ -6,7 +6,9 @@
 > Node worker process running in its own Docker container on the same
 > EC2 box.
 >
-> **Status**: planned 2026-06-03, not yet implemented.
+> **Status**: Phases 1 + 2 shipped 2026-06-04. Phase 3 (dual-write
+> watch window) in progress. Phase 4 (cut-over) scheduled for
+> ~2026-06-11.
 > **Owner**: Krishna.
 > **Sister docs**: [POSTGRES_BACKUP_PLAN.md](../infra/dr/POSTGRES_BACKUP_PLAN.md)
 > for the design-doc convention; [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -584,3 +586,101 @@ renders) is well worth it.
 
 Plan accepted by Krishna 2026-06-03. Implementation can begin against
 the §10 checklist when scheduled.
+
+---
+
+## 15. Implementation log (live updates)
+
+Tracked here so the plan doc doubles as the historical record. Each
+entry references the commit hash for git-bisect later.
+
+### Phase 1 — `dcadc44` (2026-06-04)
+
+Extracted the bodies of 4 `/api/cron/*` route handlers into shared
+`runTick()` functions under `src/lib/`. The route handlers became
+thin shims (auth + delegate). Behavior unchanged; this is the
+single-source-of-truth seam both the route AND the worker will
+call.
+
+- `src/lib/scheduled-emails-worker.ts` ← was in route handler
+- `src/lib/webinar-recordings-worker.ts` ← was in route handler
+- `src/lib/webinar-attendance-worker.ts` ← was in route handler
+- `src/lib/mcp-oauth-cleanup-worker.ts` ← was in route handler
+- `src/lib/certificates/issue-worker.ts` already had `tickAllRuns()` —
+  no work needed; the route was already a shim
+
+Verified: tsc + lint + 1357/1357 vitest + build clean.
+
+### Phase 2 — `0350592` (2026-06-04)
+
+Built the Node worker process. 15 new files (+1101 LOC).
+
+- `worker/index.ts` — node-cron scheduler bootstrap, health server,
+  shutdown handler installation
+- `worker/jobs/*.ts` × 5 — ~20-line shims wrapping each `runTick()` in
+  `withJobLock(jobId, name, fn)` + try/catch
+- `worker/lib/job-ids.ts` — numeric advisory-lock IDs (1001-1005)
+- `worker/lib/advisory-lock.ts` — `pg_try_advisory_lock` wrapper
+- `worker/lib/health-server.ts` — `GET /health` on port 3099
+- `worker/lib/shutdown.ts` — SIGTERM/SIGINT graceful drain (25s
+  timeout, then exit; Docker has 30s before SIGKILL)
+- `Dockerfile.worker` — multi-stage, `node:24-slim` base, runs
+  `npx tsx worker/index.ts`
+- `docker-compose.prod.yml` — new `ea-sys-worker` service alongside
+  blue/green/mediamtx
+- `worker/README.md` — operator-facing quick reference
+- `package.json` — added `node-cron`, moved `tsx` to deps for runtime,
+  added `worker:dev` + `worker:start` scripts
+
+Smoke-tested locally end-to-end: `npx tsx worker/index.ts` boots,
+registers all 5 schedules, health server responds, SIGTERM triggers
+graceful shutdown. Verified: tsc + lint + 1357/1357 vitest + build
+clean.
+
+### Phase 2.5 — `8672b4f` (2026-06-04)
+
+Added public-facing health endpoints alongside the existing
+`/api/health`:
+
+- `src/app/health/route.ts` → `/health` — shorter URL alias for
+  `/api/health` (re-exports the same GET handler)
+- `src/app/worker/health/route.ts` → `/worker/health` — Next.js-side
+  proxy to the worker container's internal `:3099/health` via Docker
+  DNS (`ea-sys-worker:3099`). The worker container does NOT publish
+  3099 externally; this proxy is the only public surface for worker
+  state. 503 on unreachable/timeout/shutting-down. 2s timeout
+  ceiling.
+- `WORKER_HEALTH_URL` env override for local dev when not running in
+  Docker (default: `http://ea-sys-worker:3099/health`).
+- `worker/README.md` updated:
+  - Healthcheck section now lists 3 ways (public proxy, docker exec,
+    docker inspect) in order of operator convenience
+  - Logs section corrects the dashboard link (`/logs`, not
+    `/admin/docs`) and adds the `worker:` grep filter for searching
+    among mixed web+worker output
+
+### Phase 3 — in progress (started 2026-06-04)
+
+Watch window. Both legacy `/api/cron/*` routes AND the worker drain
+the same job queues; advisory locks (worker/lib/advisory-lock.ts)
+serialize them. What "healthy" looks like:
+
+- `/logs?search=worker:tick-end` shows entries at the expected
+  cadences (every 1 min for cert-issue + scheduled-emails, every 5
+  min for webinar-recordings, every 10 min for webinar-attendance,
+  every hour at :00 for oauth-cleanup)
+- `/logs?search=worker:skip-tick-locked` shows occasional entries
+  (the legacy cron path beat the worker to the lock once in a while)
+- `/worker/health` returns 200 with `lastTickAt` timestamps updating
+  per cadence
+- Dashboard request latency unchanged from before (cert renders no
+  longer compete with web responses)
+- No `worker:tick-uncaught` or `worker:uncaught-exception` keys (or
+  if any, investigate before Phase 4)
+
+### Phase 4 — planned ~2026-06-11
+
+After ~1 week of clean dual-write operation, cut over: remove the 5
+cron lines from Mumbai's crontab, delete the thin-shim route
+handlers in `src/app/api/cron/`, deploy. Worker is the only path.
+Rollback procedure documented in §11.

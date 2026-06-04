@@ -1046,13 +1046,68 @@ Both connect to the same **Supabase PostgreSQL** database. This means migrations
 
 ### Docker Configuration
 
-**Dockerfile** (multi-stage build):
-1. **Builder:** `node:22-slim` + openssl, npm ci, prisma generate, next build
-2. **Runner:** `node:22-slim` + openssl + curl + Docker CLI, copies standalone output, runs as non-root user (UID 1001)
+**Two containers run on the Mumbai EC2 box** (since June 4, 2026 — see Background Worker Tier below):
 
-**Why standalone output?** Next.js `output: "standalone"` creates a minimal production build (~200MB) that includes only needed dependencies. Much smaller than a full `node_modules` (~500MB+).
+1. `ea-sys-blue` / `ea-sys-green` — the Next.js web tier (blue-green slots)
+2. `ea-sys-worker` — the Node background-worker tier (single container; cron-driven jobs)
+3. `ea-sys-mediamtx` — the RTMP→HLS live-streaming sidecar (mediamtx image)
 
-**Why Docker CLI in runner?** The log viewer API can read Docker container logs via `docker logs` command. The Docker socket is mounted read-only.
+All three are managed by [docker-compose.prod.yml](../docker-compose.prod.yml). They share the `web` Docker network, the same `.env`, and the same `./public/uploads` + `./logs` host-mounted volumes.
+
+**Dockerfile** (web, multi-stage build):
+1. **Builder:** `node:24-slim` + openssl, npm ci, prisma generate, next build
+2. **Runner:** `node:24-slim` + openssl + curl + Docker CLI, copies standalone output, runs as non-root user (UID 1001)
+
+**Dockerfile.worker** (worker, multi-stage build — added June 4, 2026):
+1. **Builder:** `node:24-slim` + openssl, npm ci, prisma generate
+2. **Runner:** `node:24-slim` + openssl + curl, copies node_modules + tsconfig + prisma + `src/` + `worker/`, runs as non-root user `worker` (UID 1001). CMD: `npx tsx worker/index.ts`
+
+**Why standalone output for web?** Next.js `output: "standalone"` creates a minimal production build (~200MB) that includes only needed dependencies. Much smaller than a full `node_modules` (~500MB+).
+
+**Why no standalone for worker?** The worker isn't a Next.js app — it's a plain Node process. tsx handles tsconfig paths (`@/lib/*` → `./src/lib/*`) at runtime, so no separate compile step is needed.
+
+**Why Docker CLI in web runner?** The log viewer API can read Docker container logs via `docker logs` command (now including the worker container's). The Docker socket is mounted read-only.
+
+### Background Worker Tier (June 4, 2026)
+
+Five cron-driven jobs (cert renderer, scheduled emails, webinar recordings, webinar attendance + engagement, MCP OAuth cleanup) run in a dedicated **`ea-sys-worker`** container alongside the web blue/green containers on the same EC2 box.
+
+**Not microservices** — same Postgres, same `.env`, same `public/uploads` + `logs` volumes, same Docker network. The split is **process-level decomposition** (web tier vs worker tier), the same shape Rails+Sidekiq / Django+Celery / Node+BullMQ apps use.
+
+**Authoritative documentation lives in the repo**:
+- [docs/WORKER_EXTRACTION_PLAN.md](WORKER_EXTRACTION_PLAN.md) — full architecture + 4-phase migration plan + implementation log
+- [worker/README.md](../worker/README.md) — operator quick-reference (boot, healthcheck, log filters, adding a new job)
+
+**Three verified architectural choices** worth knowing about before touching worker code:
+
+1. **Same repo + same `package.json`** (not monorepo workspaces, not separate repo). The worker imports `@/lib/*` via the same tsconfig paths the Next.js app uses, so `runTick()` functions in `src/lib/*-worker.ts` are called from BOTH the web route handlers AND the worker's `worker/jobs/*.ts` shims. Zero code duplication. Easy revert: delete `worker/` + the second Docker service and the web app keeps running.
+
+2. **`node-cron` for scheduling, Postgres for job state** (not Redis + BullMQ). Job state already lives in Postgres tables (`ScheduledEmail`, `CertificateIssueRunItem`, `ZoomMeeting`); the scheduler just fires `runTick()` on a cadence. No new infra dependency.
+
+3. **`pg_try_advisory_lock(jobId)` for singleton enforcement** (not in-process mutex, not Redis lock). Session-scoped — a crashed worker auto-releases at connection close, so we never get stuck "held by ghost" locks. Symmetric — multiple worker instances (Mumbai + Singapore DR + the dual-write web-route path) can all race for the lock; only one does the work, the others log `worker:skip-tick-locked` and politely skip.
+
+**Schedules** (match the legacy crontab cadences exactly so behavior is unchanged):
+
+| Job | Schedule | Advisory lock ID |
+|---|---|---|
+| `cert-issue` | `* * * * *` (every minute) | 1001 |
+| `scheduled-emails` | `* * * * *` (every minute) | 1002 |
+| `webinar-recordings` | `*/5 * * * *` (every 5 min) | 1003 |
+| `webinar-attendance` | `*/10 * * * *` (every 10 min) | 1004 |
+| `oauth-cleanup` | `0 * * * *` (hourly at :00) | 1005 |
+
+**Public health endpoints** (both added June 4, no auth, intended for monitoring tools + load balancer probes):
+
+| URL | Reports on |
+|---|---|
+| `https://events.meetingmindsgroup.com/health` | Web tier (Postgres reachability via `SELECT 1`) |
+| `https://events.meetingmindsgroup.com/worker/health` | Worker tier (Next.js proxies to worker container's internal `:3099/health` via Docker DNS) |
+
+Both return 200 when healthy, 503 when unreachable / timeout / shutting down. `Cache-Control: no-store` so probes always hit live state.
+
+**Worker logs flow through the same Pino logger as the web app** — `apiLogger` writes to stdout (Docker captures) + `/app/logs/app.log` (mounted to `./logs` on host) + `SystemLog` Postgres table (the same table `/logs` dashboard reads). So worker activity is searchable from the dashboard with no SSH: open [`/logs`](https://events.meetingmindsgroup.com/logs) (SUPER_ADMIN only), pick `source=database`, search `worker:` to filter. Useful keys: `worker:started`, `worker:tick-end`, `worker:skip-tick-locked`, `worker:tick-uncaught`, `worker:shutdown-start/complete`.
+
+**Migration status** (as of June 4, 2026): Phases 1 + 2 shipped. Phase 3 (dual-write watch window) in progress until ~June 11; both legacy `/api/cron/*` routes AND the worker drain the same jobs, advisory locks serialize. Phase 4 cut-over (delete routes + crontab lines) is when watch confirms the worker is reliable.
 
 ### Vercel Setup
 
