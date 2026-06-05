@@ -635,11 +635,188 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       errorMessage: errorMessageForLog,
       context: params.logContext,
     });
+    // Fire admin alert (dedup'd, fire-and-forget). Does NOT block the
+    // return path of the original send. Recipient self-guard inside
+    // notifyAdminOfSendFailure prevents recursion if the alert send
+    // itself also fails.
+    void notifyAdminOfSendFailure({
+      message,
+      awsErrorName,
+      awsRequestId,
+      to: primaryTo,
+      subject: params.subject,
+      from: params.from?.email,
+      logContext: params.logContext,
+    });
     return {
       success: false,
       error: message,
     };
   }
+}
+
+// ── Admin alert on send failure ────────────────────────────────────────────────
+
+/**
+ * Configurable via env:
+ *   ALERT_EMAIL_FROM  — verified SES identity to send from
+ *                       (default: alerts@meetingmindsexperts.com,
+ *                       matches the DR script's existing sender)
+ *   ALERT_EMAIL_TO    — comma-separated recipients
+ *                       (default: krishna@meetingmindsdubai.com)
+ *
+ * Dedupe: at most ONE alert per (errorName, recipient-domain, sender)
+ * combo per `ALERT_DEDUP_WINDOW_MS`. A bulk send failing 200 ways with
+ * the same root cause → one alert, not 200. The window is intentionally
+ * an hour: long enough to not flood, short enough that the SECOND batch
+ * of the day re-alerts so the operator notices repeat events.
+ */
+const ALERT_DEDUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const ALERT_DEDUP_MAX_KEYS = 100;
+const alertLastSentAt = new Map<string, number>();
+
+function shouldSendAdminAlert(key: string): boolean {
+  const now = Date.now();
+  const last = alertLastSentAt.get(key);
+  if (last !== undefined && now - last < ALERT_DEDUP_WINDOW_MS) {
+    return false;
+  }
+  // Eviction policy: drop the oldest entry when the map fills up. Bounded
+  // memory; no perf hit for small N (< 100). For something heavier we'd
+  // move this to Redis + sliding-window, but the alert volume here is
+  // tiny — a healthy day = 0 entries.
+  if (alertLastSentAt.size >= ALERT_DEDUP_MAX_KEYS) {
+    const oldestKey = alertLastSentAt.keys().next().value;
+    if (oldestKey !== undefined) alertLastSentAt.delete(oldestKey);
+  }
+  alertLastSentAt.set(key, now);
+  return true;
+}
+
+interface AdminAlertInput {
+  message: string;
+  awsErrorName?: string;
+  awsRequestId?: string;
+  to: string;
+  subject: string;
+  from?: string;
+  logContext?: EmailLogContext;
+}
+
+async function notifyAdminOfSendFailure(input: AdminAlertInput): Promise<void> {
+  try {
+    const alertFrom = (
+      process.env.ALERT_EMAIL_FROM ?? "alerts@meetingmindsexperts.com"
+    ).trim();
+    const alertToRaw = (
+      process.env.ALERT_EMAIL_TO ?? "krishna@meetingmindsdubai.com"
+    ).trim();
+    const alertTo = alertToRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (alertTo.length === 0) return;
+
+    // Recursion guard: if the original failure was the alert email
+    // ITSELF (alert SES identity broken, etc.), do NOT try to fire
+    // another alert about it — that would loop until dedupe kicks in.
+    const recipientDomain = input.to.includes("@")
+      ? input.to.slice(input.to.lastIndexOf("@") + 1).toLowerCase()
+      : input.to.toLowerCase();
+    if (alertTo.some((addr) => addr.toLowerCase() === input.to.toLowerCase())) {
+      apiLogger.warn({
+        msg: "admin-alert:skipped-self",
+        to: input.to,
+      });
+      return;
+    }
+
+    // Dedupe key: same error type + same recipient domain + same sender
+    // origin → considered the same incident for the next hour. Fine
+    // granularity to catch "single sender misconfigured" without
+    // bundling unrelated failures.
+    const dedupKey = [
+      input.awsErrorName ?? "unknown",
+      recipientDomain,
+      input.from ?? "default",
+    ].join("|");
+    if (!shouldSendAdminAlert(dedupKey)) {
+      apiLogger.debug({
+        msg: "admin-alert:deduped",
+        dedupKey,
+      });
+      return;
+    }
+
+    const env = process.env.NODE_ENV === "production" ? "prod" : "dev";
+    const subjectPrefix = `[ea-sys][${env}] Email send failure`;
+    const subject = input.awsErrorName
+      ? `${subjectPrefix}: ${input.awsErrorName}`
+      : subjectPrefix;
+
+    const lines = [
+      "An EA-SYS email send failed in production.",
+      "",
+      `Error:         ${input.message}`,
+      input.awsErrorName ? `AWS code:      ${input.awsErrorName}` : null,
+      input.awsRequestId ? `AWS requestId: ${input.awsRequestId}` : null,
+      `Recipient:     ${input.to}`,
+      `Subject:       ${input.subject}`,
+      input.from ? `From:          ${input.from}` : null,
+      input.logContext?.eventId ? `Event:         ${input.logContext.eventId}` : null,
+      input.logContext?.templateSlug ? `Template:      ${input.logContext.templateSlug}` : null,
+      input.logContext?.entityType
+        ? `Entity:        ${input.logContext.entityType}${
+            input.logContext.entityId ? ` / ${input.logContext.entityId}` : ""
+          }`
+        : null,
+      "",
+      `Further occurrences of this (errorName + recipient-domain + sender) combo within the next hour will NOT trigger another alert — open /logs in the dashboard to see all failures.`,
+      "",
+      `--`,
+      `ea-sys automated alert`,
+    ]
+      .filter((l): l is string => l !== null)
+      .join("\n");
+
+    // Note: we call sendEmail recursively here, but the recipient self-
+    // guard above ensures we never fire an alert about a failed alert.
+    // Pass an explicit verified `from` to avoid picking up any event-
+    // level `emailFromAddress` override that could itself be the cause
+    // of the failure being reported.
+    await sendEmail({
+      to: alertTo.map((email) => ({ email })),
+      from: { email: alertFrom, name: "EA-SYS Alerts" },
+      subject,
+      htmlContent: `<pre style="font-family: ui-monospace, monospace; white-space: pre-wrap; font-size: 13px;">${escapeAlertHtml(lines)}</pre>`,
+      textContent: lines,
+      emailType: "admin_alert",
+      stream: "transactional",
+      // No logContext: this is an out-of-band administrative ping, not
+      // an entity-bound email. Logging the row as "OTHER" with a stale
+      // context would mis-attribute it on the registrant/event detail
+      // sheets. The intentional orphan-warning logged by sendEmail is
+      // the right signal here.
+    });
+  } catch (alertErr) {
+    // Last-resort logging — if even this hits a path we didn't expect,
+    // we still want a row in /logs so the engineer reading "why are
+    // emails failing" sees that the alerting itself broke. Do NOT
+    // re-throw or re-alert from here.
+    apiLogger.error({
+      err: alertErr,
+      msg: "admin-alert:notify-failed",
+    });
+  }
+}
+
+function escapeAlertHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // ── Template variable rendering ────────────────────────────────────────────────
