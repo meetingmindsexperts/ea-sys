@@ -126,6 +126,23 @@ export async function GET(req: Request, { params }: RouteParams) {
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const ticketTypeId = searchParams.get("ticketTypeId");
 
+    // Tag filter — comma-separated list of tag names. Empty entries
+    // dropped, max 20 tags per request (any more is a sign of UI
+    // misuse). Semantics are OR (hasSome): a registration matches if
+    // ANY of its attendee's tags is in the requested list. The UI
+    // surfaces this as multi-select with the implicit message "show
+    // registrations tagged with any of these"; an AND/intersection
+    // mode would surprise operators expecting the typical CRM
+    // behavior.
+    const tagsParam = searchParams.get("tags");
+    const tagsFilter = tagsParam
+      ? tagsParam
+          .split(",")
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0)
+          .slice(0, 20)
+      : [];
+
     // Parallelize event validation and registrations fetch
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
@@ -141,6 +158,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
+          ...(tagsFilter.length > 0 && {
+            attendee: { tags: { hasSome: tagsFilter } },
+          }),
         },
         include: {
           attendee: {

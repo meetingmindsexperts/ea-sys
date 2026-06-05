@@ -88,6 +88,7 @@ export const queryKeys = {
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
+  eventTags: (eventId: string) => ["events", eventId, "tags"] as const,
   issuedCertificates: (
     eventId: string,
     args: { registrationId?: string; speakerId?: string },
@@ -267,6 +268,22 @@ export function useDeletePricingTier(eventId: string, ticketTypeId: string) {
 // ============ REGISTRATIONS ============
 export function useRegistrations(eventId: string, filters?: Record<string, string>) {
   return useEventListQuery<any[]>(eventId, queryKeys.registrations(eventId), "registrations", filters);
+}
+
+/**
+ * Aggregated tag list for an event — used by the searchable filter
+ * dropdown on the registrations list page. Returns
+ * `[{ tag: string, count: number }]` sorted by count desc, then by
+ * tag name. Cached on the same React Query key as bulkTagRegistrations
+ * invalidates, so adding tags via the bulk dialog refreshes the
+ * dropdown options without a manual refetch.
+ */
+export function useEventTags(eventId: string) {
+  return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
+    queryKey: queryKeys.eventTags(eventId),
+    queryFn: () => fetchApi(`/api/events/${eventId}/tags`),
+    enabled: !!eventId,
+  });
 }
 
 // ============ SPEAKERS ============
@@ -643,6 +660,10 @@ export function useBulkTagRegistrations(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      // Also refresh the aggregated tag list — adding a brand-new tag
+      // via the bulk dialog should make it appear in the filter
+      // dropdown without a page reload.
+      queryClient.invalidateQueries({ queryKey: queryKeys.eventTags(eventId) });
     },
   });
 }

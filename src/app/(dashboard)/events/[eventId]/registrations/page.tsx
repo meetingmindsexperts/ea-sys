@@ -46,7 +46,8 @@ import {
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails } from "@/hooks/use-api";
+import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
+import { TagFilter } from "@/components/registrations/tag-filter";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -85,13 +86,27 @@ export default function RegistrationsPage() {
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
 
+  // Tag filter state declared up here so useRegistrations can read it.
+  // Empty array = no filter (URL omits the `tags=` param).
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+
   // React Query hooks
-  const registrationsQuery = useRegistrations(eventId);
+  // NOTE: tags filter is threaded into the URL params here (NOT into
+  // the client-side filteredRegistrations array) because Prisma can do
+  // the tags.hasSome match more efficiently than pulling every row +
+  // filtering in JS. The status/payment/ticket filters stay client-side
+  // for now — refactoring those would invalidate cached pages on every
+  // filter flip.
+  const registrationsQuery = useRegistrations(
+    eventId,
+    tagFilter.length > 0 ? { tags: tagFilter.join(",") } : undefined,
+  );
   const registrations = (registrationsQuery.data ?? []) as Registration[];
   const { isLoading: loading, isFetching, refetch: refetchRegistrations } = registrationsQuery;
   const ticketsQuery = useTickets(eventId);
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
+  const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {
     refetchRegistrations();
@@ -514,6 +529,12 @@ export default function RegistrationsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <TagFilter
+              tags={tagsQuery.data?.tags}
+              isLoading={tagsQuery.isLoading}
+              selected={tagFilter}
+              onChange={(next) => { setTagFilter(next); setPage(1); }}
+            />
             <Button
               variant="ghost"
               size="icon"
