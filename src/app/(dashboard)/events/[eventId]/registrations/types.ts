@@ -107,6 +107,14 @@ export interface Accommodation {
 
 export interface Registration {
   id: string;
+  /**
+   * Linked User account id, set once the registrant signs up + completes
+   * their own details. NULL when the row was created by an admin (CSV
+   * import / dashboard / MCP / import-from-contacts) and the registrant
+   * hasn't yet logged in. The "Send registration form" action is gated
+   * on this — we only show it for unlinked rows.
+   */
+  userId: string | null;
   serialId: number | null;
   status: RegistrationStatus;
   paymentStatus: PaymentStatus;

@@ -70,7 +70,7 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -278,6 +278,8 @@ export function RegistrationDetailSheet({
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
+  const sendCompletionEmails = useSendCompletionEmails(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -1898,6 +1900,20 @@ export function RegistrationDetailSheet({
                       <DropdownMenuItem onClick={() => openEmailDialog("custom")}>
                         Custom Notification
                       </DropdownMenuItem>
+                      {/* Token-gated completion link — only meaningful for
+                          registrations that haven't been linked to a user
+                          yet. The action is hidden once the registrant
+                          completes (and thus has a userId) because the
+                          link they'd get would 410-expire on first access:
+                          the route checks for an existing linked user up
+                          front. */}
+                      {!selectedRegistration.userId && (
+                        <DropdownMenuItem
+                          onClick={() => setSendFormConfirmOpen(true)}
+                        >
+                          Send Registration Form
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   </div>
@@ -2214,6 +2230,66 @@ export function RegistrationDetailSheet({
         subject={previewData.subject}
         htmlContent={previewData.htmlContent}
       />
+    )}
+
+    {/* Token-gated registration-completion link send. Shared rate-limit
+        bucket with the bulk-list-page action (5/hr per org). */}
+    {selectedRegistration && (
+      <Dialog open={sendFormConfirmOpen} onOpenChange={setSendFormConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send registration form</DialogTitle>
+            <DialogDescription>
+              {selectedRegistration.attendee.firstName} will receive an email with
+              a 7-day token link to fill in their own details and create an
+              account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground">
+            Sending to{" "}
+            <span className="font-medium text-foreground">
+              {selectedRegistration.attendee.email}
+            </span>
+            . This counts against the 5-per-hour bulk-send limit.
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSendFormConfirmOpen(false)}
+              disabled={sendCompletionEmails.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const result = await sendCompletionEmails.mutateAsync([
+                    selectedRegistration.id,
+                  ]);
+                  setSendFormConfirmOpen(false);
+                  if (result.sent > 0) {
+                    toast.success(
+                      `Registration form sent to ${selectedRegistration.attendee.email}`,
+                    );
+                  } else if (result.skipped > 0) {
+                    toast.info(
+                      "Skipped — this registrant already has a linked account",
+                    );
+                  } else {
+                    toast.error(result.errors[0] ?? "Send failed");
+                  }
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : "Send failed";
+                  toast.error(msg);
+                }
+              }}
+              disabled={sendCompletionEmails.isPending}
+            >
+              {sendCompletionEmails.isPending ? "Sending..." : "Send"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     )}
 
     {selectedRegistration && (
