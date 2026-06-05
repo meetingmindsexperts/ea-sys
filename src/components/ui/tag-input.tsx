@@ -5,6 +5,46 @@ import { X } from "lucide-react";
 import { Badge } from "./badge";
 import { cn, normalizeTag } from "@/lib/utils";
 
+/**
+ * Filter the suggestions pool against the currently-selected tags + the
+ * user's current input. Pure function — extracted from the component so
+ * the filter behavior is testable without spinning up a DOM environment.
+ *
+ * Rules:
+ *   1. Drop suggestions that match an already-selected tag (case-
+ *      insensitive via normalizeTag, so 'VIP' selected hides 'vip'
+ *      from the dropdown).
+ *   2. Empty input → return the whole pool capped at `cap` (default 8).
+ *   3. Non-empty input → prefix matches first (case-insensitive),
+ *      then substring matches, both stable-ordered within each
+ *      bucket and capped together at `cap` total.
+ */
+export function filterTagSuggestions(
+  suggestions: readonly string[] | undefined,
+  selected: readonly string[],
+  input: string,
+  cap = 8,
+): string[] {
+  if (!suggestions || suggestions.length === 0) return [];
+  const selectedNormalized = new Set(selected.map((t) => normalizeTag(t)));
+  const q = input.trim().toLowerCase();
+
+  const pool = suggestions.filter(
+    (s) => !selectedNormalized.has(normalizeTag(s)),
+  );
+  if (q.length === 0) {
+    return pool.slice(0, cap);
+  }
+  const prefix: string[] = [];
+  const substr: string[] = [];
+  for (const s of pool) {
+    const lower = s.toLowerCase();
+    if (lower.startsWith(q)) prefix.push(s);
+    else if (lower.includes(q)) substr.push(s);
+  }
+  return [...prefix, ...substr].slice(0, cap);
+}
+
 interface TagInputProps {
   value: string[];
   onChange: (tags: string[]) => void;
@@ -54,34 +94,12 @@ export function TagInput({
     onChange(value.filter((t) => t !== tag));
   };
 
-  // Filter suggestions:
-  //   1. drop tags already in `value` (case-insensitive via normalizeTag)
-  //   2. on empty input, show the whole pool (capped at 8)
-  //   3. on non-empty input, show case-insensitive substring matches
-  //      with prefix matches first
-  const filtered = useMemo(() => {
-    if (!suggestions || suggestions.length === 0) return [];
-    const selectedNormalized = new Set(value.map((t) => normalizeTag(t)));
-    const q = input.trim().toLowerCase();
-
-    const pool = suggestions.filter(
-      (s) => !selectedNormalized.has(normalizeTag(s)),
-    );
-    if (q.length === 0) {
-      return pool.slice(0, 8);
-    }
-    // Prefix matches sort first so "vip-2026" comes before "vip-old"
-    // when typing "vip"; substring-only matches follow. Stable within
-    // each bucket (preserves caller's sort, which is count-desc).
-    const prefix: string[] = [];
-    const substr: string[] = [];
-    for (const s of pool) {
-      const lower = s.toLowerCase();
-      if (lower.startsWith(q)) prefix.push(s);
-      else if (lower.includes(q)) substr.push(s);
-    }
-    return [...prefix, ...substr].slice(0, 8);
-  }, [suggestions, value, input]);
+  // Filter suggestions via the pure helper above so the filter
+  // behavior is exhaustively unit-testable without a DOM environment.
+  const filtered = useMemo(
+    () => filterTagSuggestions(suggestions, value, input),
+    [suggestions, value, input],
+  );
 
   // Close dropdown on outside click — without this it stays open when
   // the user dismisses by clicking elsewhere in the form.
