@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useCreateContact } from "@/hooks/use-api";
+import { useCreateContact, useContactTags } from "@/hooks/use-api";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,8 @@ export default function NewContactPage() {
   const router = useRouter();
   const [form, setForm] = useState(emptyForm);
   const createContact = useCreateContact();
+  // Existing org-wide contact tags for the autocomplete dropdown.
+  const contactTagsQuery = useContactTags();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -256,6 +258,7 @@ export default function NewContactPage() {
                   value={form.tags}
                   onChange={(tags) => setForm((f) => ({ ...f, tags }))}
                   placeholder="Type a tag and press Enter or comma"
+                  suggestions={contactTagsQuery.data?.tags ?? []}
                 />
               </FormField>
               <FormField label="Notes">

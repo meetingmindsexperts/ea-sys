@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useContact, useUpdateContact } from "@/hooks/use-api";
+import { useContact, useUpdateContact, useContactTags } from "@/hooks/use-api";
 import Link from "next/link";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,7 @@ const inputCls =
 function EditContactForm({ contactId, contact }: { contactId: string; contact: any }) {
   const router = useRouter();
   const updateContact = useUpdateContact(contactId);
+  const contactTagsQuery = useContactTags();
 
   const [form, setForm] = useState({
     title: contact.title ?? "",
@@ -261,6 +262,7 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                   value={form.tags}
                   onChange={(tags) => setForm((f) => ({ ...f, tags }))}
                   placeholder="Type a tag and press Enter or comma"
+                  suggestions={contactTagsQuery.data?.tags ?? []}
                 />
               </FormField>
               <FormField label="Notes">

@@ -286,6 +286,20 @@ export function useEventTags(eventId: string) {
   });
 }
 
+/**
+ * Same shape as useEventTags but pulled from Speaker.tags. Feeds the
+ * TagInput autocomplete on the speaker detail sheet + Add Speaker form
+ * so operators pick from existing tags instead of typing duplicates
+ * like "VIP" vs "vip".
+ */
+export function useEventSpeakerTags(eventId: string) {
+  return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
+    queryKey: ["events", eventId, "speaker-tags"] as const,
+    queryFn: () => fetchApi(`/api/events/${eventId}/speakers/tags`),
+    enabled: !!eventId,
+  });
+}
+
 // ============ SPEAKERS ============
 export function useSpeakers(eventId: string) {
   return useEventListQuery<any[]>(eventId, queryKeys.speakers(eventId), "speakers");
@@ -695,6 +709,10 @@ export function useBulkTagSpeakers(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
+      // Refresh the aggregated speaker tags so the autocomplete on
+      // detail-sheet / Add Speaker forms picks up new tags
+      // immediately. Symmetric with the registrations bulk-tag hook.
+      queryClient.invalidateQueries({ queryKey: ["events", eventId, "speaker-tags"] });
     },
   });
 }

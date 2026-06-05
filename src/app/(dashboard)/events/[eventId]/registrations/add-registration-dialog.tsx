@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { Plus } from "lucide-react";
-import { queryKeys } from "@/hooks/use-api";
+import { queryKeys, useEventTags } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { TicketType } from "./types";
@@ -70,6 +70,9 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState(initialFormData);
+  // Feed the tag autocomplete dropdown — operator sees existing tags
+  // as they type, picks one to avoid "VIP" vs "vip" duplicates.
+  const tagsQuery = useEventTags(eventId);
 
   const createRegistration = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -226,6 +229,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
               data={formData.personData}
               onChange={(personData) => setFormData({ ...formData, personData })}
               showDietaryReqs={true}
+              tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />
 
             <div className="space-y-2">

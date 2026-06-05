@@ -36,6 +36,17 @@ interface PersonFormFieldsProps {
   showWebsite?: boolean;
   emailDisabled?: boolean;
   isReviewer?: boolean; // For hiding tags field from reviewers
+  /**
+   * Existing tags pool surfaced as an autocomplete dropdown on the
+   * tags field. Prevents operator-typed duplicates ("VIP" vs "vip").
+   * Source depends on the host form:
+   *   - Add Registration form  → useEventTags(eventId).map(t => t.tag)
+   *   - Add Speaker form       → useEventSpeakerTags(eventId)
+   *   - Add Contact form       → useContactTags().data.tags
+   * Pass undefined or [] to disable suggestions; the field then
+   * behaves exactly like the pre-feature version.
+   */
+  tagSuggestions?: string[];
 }
 
 export function PersonFormFields({
@@ -47,6 +58,7 @@ export function PersonFormFields({
   showWebsite = false,
   emailDisabled = false,
   isReviewer = false,
+  tagSuggestions,
 }: PersonFormFieldsProps) {
   const updateField = (field: keyof PersonFormData, value: PersonFormData[keyof PersonFormData]) => {
     onChange({ ...data, [field]: value });
@@ -231,6 +243,7 @@ export function PersonFormFields({
             onChange={(tags) => updateField("tags", tags)}
             placeholder="Type a tag and press Enter or comma"
             disabled={disabled}
+            suggestions={tagSuggestions}
           />
         </div>
       )}

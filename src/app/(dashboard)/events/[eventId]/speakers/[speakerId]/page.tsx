@@ -60,7 +60,7 @@ import { RegistrationTypeSelect } from "@/components/ui/registration-type-select
 import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { usePreviewEmailBySlug } from "@/hooks/use-api";
+import { usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { EmailLogCard } from "@/components/communications/email-log-card";
@@ -175,6 +175,8 @@ export default function SpeakerDetailPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // Existing tags for the in-page edit autocomplete.
+  const speakerTagsQuery = useEventSpeakerTags(eventId);
 
   const handlePreviewEmail = async () => {
     const slugMap: Record<string, string> = {
@@ -611,7 +613,7 @@ export default function SpeakerDetailPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Tags</Label>
-                    <TagInput value={formData.tags} onChange={(tags) => setFormData({ ...formData, tags })} placeholder="Type a tag and press Enter or comma" />
+                    <TagInput value={formData.tags} onChange={(tags) => setFormData({ ...formData, tags })} placeholder="Type a tag and press Enter or comma" suggestions={(speakerTagsQuery.data?.tags ?? []).map((t) => t.tag)} />
                   </div>
                 </div>
               ) : (

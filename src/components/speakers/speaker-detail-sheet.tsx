@@ -58,7 +58,7 @@ import {
   Eye,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { queryKeys, usePreviewEmailBySlug } from "@/hooks/use-api";
+import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { EmailLogCard } from "@/components/communications/email-log-card";
@@ -171,6 +171,8 @@ export function SpeakerDetailSheet({
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // Existing speaker tags for the in-sheet edit autocomplete.
+  const speakerTagsQuery = useEventSpeakerTags(eventId);
 
   const handlePreviewEmail = async () => {
     const slugMap: Record<string, string> = {
@@ -587,7 +589,7 @@ export function SpeakerDetailSheet({
                       </div>
                       <div className="space-y-2">
                         <Label>Tags</Label>
-                        <TagInput value={editData.tags} onChange={(tags) => setEditData({ ...editData, tags })} placeholder="Type a tag and press Enter or comma" />
+                        <TagInput value={editData.tags} onChange={(tags) => setEditData({ ...editData, tags })} placeholder="Type a tag and press Enter or comma" suggestions={(speakerTagsQuery.data?.tags ?? []).map((t) => t.tag)} />
                       </div>
                     </div>
                   ) : (

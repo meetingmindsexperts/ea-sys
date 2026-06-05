@@ -738,11 +738,15 @@ export default function RegistrationsPage() {
         onOpenChange={setTagDialogOpen}
         selectedCount={selectedIds.size}
         entityLabel="registration"
-        existingTags={(() => {
-          const allTags = new Set<string>();
-          registrations.forEach((r) => r.attendee.tags?.forEach((t: string) => allTags.add(t)));
-          return [...allTags].sort();
-        })()}
+        // Use the canonical aggregated list from /api/events/[id]/tags
+        // rather than aggregating in-page over `registrations`. The
+        // in-page approach was correct only for unfiltered views — it
+        // missed tags on registrations that the active status/payment/
+        // tag filters had already excluded, so operators got an
+        // incomplete suggestions pool exactly when they were applying
+        // a narrow filter. The aggregated API is event-wide and
+        // independent of any client-side filter state.
+        existingTags={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
         isPending={bulkTagRegistrations.isPending}
         onSubmit={async (tags, mode) => {
           await bulkTagRegistrations.mutateAsync({

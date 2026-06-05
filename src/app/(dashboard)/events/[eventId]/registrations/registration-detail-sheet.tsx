@@ -70,7 +70,7 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -280,6 +280,10 @@ export function RegistrationDetailSheet({
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
   const sendCompletionEmails = useSendCompletionEmails(eventId);
+  // Existing tags for autocomplete on the in-sheet edit. Cached with
+  // bulkTagRegistrations invalidation so adding a tag here makes it
+  // immediately appear in the dropdown for other sheets.
+  const eventTagsQuery = useEventTags(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -728,6 +732,7 @@ export function RegistrationDetailSheet({
                           value={editData.tags}
                           onChange={(tags) => setEditData({ ...editData, tags })}
                           placeholder="Type a tag and press Enter or comma"
+                          suggestions={(eventTagsQuery.data?.tags ?? []).map((t) => t.tag)}
                         />
                       </div>
                     )}

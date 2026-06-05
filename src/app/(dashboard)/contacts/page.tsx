@@ -811,6 +811,7 @@ export default function ContactsPage() {
                 value={tagDialogValue}
                 onChange={setTagDialogValue}
                 placeholder="Type a tag and press Enter or comma"
+                suggestions={tagsData?.tags ?? []}
               />
             </div>
           </div>

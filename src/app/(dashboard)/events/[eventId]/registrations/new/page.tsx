@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
-import { useTickets, useBillingAccounts } from "@/hooks/use-api";
+import { useTickets, useBillingAccounts, useEventTags } from "@/hooks/use-api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
@@ -51,6 +51,10 @@ export default function NewRegistrationPage() {
   // EventBillingAccount junction appear here. Manage attachments from
   // Settings → Billing → Used in N events.
   const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
+  // Feed the tag autocomplete dropdown — same source as the bulk-tag
+  // dialog and the filter, so the operator sees a consistent set of
+  // existing tags across all entry points.
+  const tagsQuery = useEventTags(eventId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
@@ -434,6 +438,7 @@ export default function NewRegistrationPage() {
               data={formData.personData}
               onChange={(personData) => setFormData({ ...formData, personData })}
               showDietaryReqs={true}
+              tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />
           </CardContent>
         </Card>

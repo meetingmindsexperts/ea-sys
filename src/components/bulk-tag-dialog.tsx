@@ -159,6 +159,15 @@ export function BulkTagDialog({
               value={tags}
               onChange={setTags}
               placeholder="Type a tag and press Enter or comma"
+              // existingTags is the union of tags the caller already
+              // discovered (e.g. via useEventTags) — driving the
+              // autocomplete dropdown so operators pick from the
+              // existing pool instead of typing duplicates like "VIP"
+              // vs "vip". For remove/replace modes this is especially
+              // useful: the operator can only meaningfully act on
+              // tags that ACTUALLY exist on the selected entities,
+              // and the suggestions match that set.
+              suggestions={existingTags}
             />
           </div>
         </div>
