@@ -32,6 +32,7 @@ import {
   ArrowLeft,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -288,6 +289,12 @@ export default function SurveyBuilderPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Link href={`/events/${eventId}/survey/responses`}>
+            <Button variant="outline" size="sm">
+              <BarChart3 className="h-3.5 w-3.5 mr-1.5" />
+              View responses
+            </Button>
+          </Link>
           {previewLink ? (
             <Link
               href={`${previewLink}?token=preview`}
