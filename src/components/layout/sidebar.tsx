@@ -34,6 +34,7 @@ import {
   Award,
   GraduationCap,
   ClipboardCheck,
+  ClipboardList,
   HelpCircle,
   BarChart3,
   BookOpen,
@@ -107,6 +108,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
     label: "Tools",
     items: [
       { name: "Communications", href: "/communications", icon: Mail },
+      { name: "Survey",         href: "/survey",         icon: ClipboardList },
       { name: "Certificates",   href: "/certificates",   icon: GraduationCap },
       { name: "Media",          href: "/media",          icon: ImageIcon },
       { name: "Sponsors",       href: "/sponsors",       icon: Award },

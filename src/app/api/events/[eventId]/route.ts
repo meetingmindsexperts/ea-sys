@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -8,6 +9,7 @@ import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility"
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { surveyConfigSchema } from "@/lib/survey/schema";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -54,6 +56,11 @@ const updateEventSchema = z.object({
   // Dubai (DET/DTCM) compliance toggle — surfaces the per-registration
   // DTCM barcode field for this event only.
   requiresDtcmBarcode: z.boolean().optional(),
+  // Per-event post-event feedback survey definition. Null clears the
+  // survey (subsequent token mints + form loads will 404). See
+  // src/lib/survey/schema.ts for the Zod-validated shape — duplicate
+  // question ids and >50 questions are rejected by the inner schema.
+  surveyConfig: surveyConfigSchema.nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -181,6 +188,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       bankDetails,
       badgeVerticalOffset,
       requiresDtcmBarcode,
+      surveyConfig,
       settings,
     } = validated.data;
 
@@ -252,6 +260,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(bankDetails !== undefined && { bankDetails }),
         ...(badgeVerticalOffset !== undefined && { badgeVerticalOffset }),
         ...(requiresDtcmBarcode !== undefined && { requiresDtcmBarcode }),
+        // surveyConfig: explicit null clears (set to JSON null in DB
+        // via Prisma.JsonNull); array writes verbatim. The Zod schema
+        // above guarantees the array shape is valid before reaching
+        // here, so we cast through unknown to satisfy Prisma's
+        // InputJsonValue (which doesn't model nested literal unions).
+        ...(surveyConfig !== undefined && {
+          surveyConfig:
+            surveyConfig === null
+              ? Prisma.JsonNull
+              : (surveyConfig as unknown as Prisma.InputJsonValue),
+        }),
         settings: updatedSettings,
       },
     });
