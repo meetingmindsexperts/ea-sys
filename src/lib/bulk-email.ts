@@ -1,7 +1,9 @@
 import { PaymentStatus, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
+import crypto from "crypto";
 import { z } from "zod";
 import { db } from "./db";
 import { apiLogger } from "./logger";
+import { hashVerificationToken } from "./security";
 import {
   sendEmail,
   getEventTemplate,
@@ -39,7 +41,15 @@ export type BulkEmailType =
   | "webinar-reminder-24h"
   | "webinar-reminder-1h"
   | "webinar-live-now"
-  | "webinar-thank-you";
+  | "webinar-thank-you"
+  /**
+   * Post-event feedback survey invitation. Per-recipient token mint
+   * (`survey:{regId}`) writes a `VerificationToken` and injects the
+   * raw URL as `{{surveyLink}}`. Restricted to `registrations`
+   * recipient type — speakers/reviewers/abstracts have no
+   * Registration-bound survey.
+   */
+  | "survey-invitation";
 
 export const WEBINAR_EMAIL_TYPES = [
   "webinar-confirmation",
@@ -143,6 +153,7 @@ export const bulkEmailSchema = z.object({
     "webinar-reminder-1h",
     "webinar-live-now",
     "webinar-thank-you",
+    "survey-invitation",
   ]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
@@ -232,6 +243,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     throw new BulkEmailError("Custom emails require subject and message", 400);
   }
 
+  // Survey invitations only make sense for `registrations` — speakers /
+  // reviewers / abstracts have no Registration-bound survey to fill out.
+  // Hoist the check so a misconfigured tile fails fast rather than
+  // sending N broken emails with empty {{surveyLink}} placeholders.
+  if (emailType === "survey-invitation" && recipientType !== "registrations") {
+    throw new BulkEmailError(
+      "Survey invitations can only be sent to registrations",
+      400,
+    );
+  }
+
   // Validate attachment size
   if (attachments?.length) {
     const totalSize = attachments.reduce((sum, a) => sum + a.content.length, 0);
@@ -248,6 +270,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     where: { id: eventId },
     select: {
       id: true,
+      slug: true,
       name: true,
       startDate: true,
       venue: true,
@@ -261,6 +284,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       emailFooterHtml: true,
       speakerAgreementTemplate: true,
       speakerAgreementHtml: true,
+      // surveyConfig — null if no survey is configured. Used by the
+      // "survey-invitation" branch as a precondition (we won't mint
+      // tokens for an event that has no survey for the recipient to
+      // fill out).
+      surveyConfig: true,
     },
   });
   if (!event) {
@@ -280,6 +308,28 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       400,
     );
   }
+
+  // Second survey precondition: the event must actually have a survey
+  // built. We could let the per-recipient public link 404 instead, but
+  // failing the bulk send up-front is friendlier to the operator and
+  // doesn't waste a per-recipient SES quota slice.
+  if (emailType === "survey-invitation") {
+    const sc = event.surveyConfig;
+    if (!Array.isArray(sc) || sc.length === 0) {
+      throw new BulkEmailError(
+        "No survey is configured for this event. Build the survey at Survey first.",
+        400,
+      );
+    }
+  }
+
+  // App URL for building public links — same fallback chain as the
+  // send-completion-emails route so behavior is identical on EC2 +
+  // dev. Used to construct {{surveyLink}} per recipient.
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    "http://localhost:3000";
 
   const eventDate = event.startDate
     ? new Date(event.startDate).toLocaleDateString("en-US", {
@@ -436,6 +486,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     "webinar-reminder-1h": "webinar-reminder-1h",
     "webinar-live-now": "webinar-live-now",
     "webinar-thank-you": "webinar-thank-you",
+    "survey-invitation": "survey-invitation",
   };
   const templateSlug = slugMap[emailType];
   if (!templateSlug) {
@@ -616,6 +667,33 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // hydration of the per-recipient vars.
       vars.subject = customSubject!;
       vars.message = customMessage!;
+    }
+
+    if (emailType === "survey-invitation") {
+      // Per-recipient token mint. Identifier is `survey:{regId}` —
+      // matches the public survey route's prefix check. Old tokens for
+      // the same registration are removed first so a re-send produces
+      // exactly one live link (no resend confusion if the operator
+      // clicks the tile twice on the same audience). 7-day TTL matches
+      // the registration-completion convention.
+      //
+      // We mint INSIDE generateEmailForRecipient so an aborted batch
+      // doesn't leave orphan VerificationToken rows for recipients we
+      // never managed to email. Each per-recipient try/catch keeps
+      // the failure isolated.
+      await db.verificationToken.deleteMany({
+        where: { identifier: `survey:${recipient.id}` },
+      });
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const hashedToken = hashVerificationToken(rawToken);
+      await db.verificationToken.create({
+        data: {
+          identifier: `survey:${recipient.id}`,
+          token: hashedToken,
+          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+      vars.surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
     }
 
     if (webinarEnrichment) {

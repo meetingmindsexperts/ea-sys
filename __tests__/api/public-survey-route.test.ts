@@ -62,7 +62,34 @@ vi.mock("@/lib/security", () => ({
   hashVerificationToken: (t: string) => mockHashToken(t),
 }));
 
-vi.mock("@/lib/email", () => ({ sendEmail: mockSendEmail }));
+vi.mock("@/lib/email", () => ({
+  sendEmail: mockSendEmail,
+  // The route fetches the per-event template override (returns null
+  // here so the route falls back to the default) and renders via
+  // renderAndWrap. Stub all three so the route never reaches an
+  // unmocked import. Render returns the template body verbatim with
+  // {{firstName}} / {{eventName}} substituted — close enough to
+  // exercise the per-recipient send call shape.
+  getEventTemplate: vi.fn().mockResolvedValue(null),
+  getDefaultTemplate: vi.fn().mockReturnValue({
+    slug: "survey-thankyou",
+    name: "Survey Thank You",
+    subject: "Thank you for your feedback — {{eventName}}",
+    htmlContent: "<p>Dear {{firstName}},</p>",
+    textContent: "Dear {{firstName}},",
+  }),
+  renderAndWrap: vi.fn((tpl: { subject: string; htmlContent: string; textContent: string }, vars: Record<string, string | number | undefined>) => {
+    const sub = (str: string) =>
+      str.replace(/\{\{(\w+)\}\}/g, (_, key) => String(vars[key] ?? ""));
+    return {
+      subject: sub(tpl.subject),
+      htmlContent: sub(tpl.htmlContent),
+      textContent: sub(tpl.textContent),
+    };
+  }),
+  brandingFrom: vi.fn(() => undefined),
+  brandingCc: vi.fn(() => undefined),
+}));
 
 // Mock the Prisma namespace so the route's `instanceof
 // Prisma.PrismaClientKnownRequestError` + `Prisma.JsonNull` /

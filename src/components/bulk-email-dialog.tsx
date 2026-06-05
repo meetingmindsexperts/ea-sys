@@ -83,6 +83,11 @@ const reviewerEmailTypes: EmailTypeOption[] = [
 const registrationEmailTypes: EmailTypeOption[] = [
   { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },
   { value: "reminder", label: "Event Reminder", description: "Remind about the upcoming event" },
+  // Survey invitation — per-recipient token mint + {{surveyLink}}.
+  // Body comes from the per-event "Survey Invitation" template
+  // (override in Communications → Email Templates) or the cert-
+  // neutral system default.
+  { value: "survey-invitation", label: "Survey Invitation", description: "Send a unique link to the post-event feedback survey" },
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 

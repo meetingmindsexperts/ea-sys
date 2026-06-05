@@ -60,6 +60,12 @@ const SYSTEM_SLUGS = new Set([
   "abstract-status-update",
   "submitter-welcome",
   "custom-notification",
+  // Survey: invitation sent via bulk-email workflow tile; thank-you
+  // fires from the public POST handler immediately on submit. Both
+  // have cert-neutral default bodies — CME events override here to
+  // add their cert-delivery language.
+  "survey-invitation",
+  "survey-thankyou",
 ]);
 
 export default function EmailTemplateEditorPage() {

@@ -1647,6 +1647,65 @@ Join as panelist: {{joinUrl}}
 
 {{organizerSignature}}`,
   },
+
+  {
+    slug: "survey-invitation",
+    name: "Survey Invitation",
+    // Cert-neutral default — does NOT promise certificate delivery
+    // because the survey is only gated for CME events, not every
+    // ATTENDANCE cert. CME-required events override per-event with
+    // their own cert-delivery language via the template editor.
+    subject: "How was {{eventName}}? Quick feedback survey",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Thank you for attending <strong>{{eventName}}</strong>. We&apos;d love your feedback — it takes about 2–3 minutes and helps us improve future events.</p>
+    {{personalMessage}}
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{surveyLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">Take the survey</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; margin: 0 0 0 0;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{surveyLink}}</span></p>
+    <p style="color: #6b7280; font-size: 13px;">This link expires in 7 days and is for your use only.</p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `How was {{eventName}}?
+
+Dear {{firstName}},
+
+Thank you for attending {{eventName}}. We'd love your feedback — it takes about 2-3 minutes and helps us improve future events.
+
+{{personalMessage}}
+
+Take the survey: {{surveyLink}}
+
+This link expires in 7 days and is for your use only.
+
+Best regards,
+{{organizerName}}
+
+{{organizerSignature}}`,
+  },
+
+  {
+    slug: "survey-thankyou",
+    name: "Survey Thank You",
+    // Sent automatically by the public POST handler immediately on
+    // successful submit. Also cert-neutral by default — CME events
+    // override to add their cert-delivery language.
+    subject: "Thank you for your feedback — {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>Thank you for completing the post-event survey for <strong>{{eventName}}</strong>. Your feedback has been recorded and will help us shape future events.</p>
+    <p style="margin-bottom: 0;">— The {{eventName}} team</p>
+  </div>`,
+    textContent: `Thank you for your feedback — {{eventName}}
+
+Dear {{firstName}},
+
+Thank you for completing the post-event survey for {{eventName}}. Your feedback has been recorded and will help us shape future events.
+
+— The {{eventName}} team`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────

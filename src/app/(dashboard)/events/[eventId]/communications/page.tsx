@@ -35,6 +35,7 @@ import {
   CheckCircle2,
   RotateCcw,
   Clock,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -85,7 +86,11 @@ interface TicketTypeItem {
 // applied, leaving any in-progress advanced composition untouched.
 
 type SpeakerEmailType = "invitation" | "agreement" | "custom";
-type RegistrationEmailType = "confirmation" | "reminder" | "custom";
+type RegistrationEmailType =
+  | "confirmation"
+  | "reminder"
+  | "custom"
+  | "survey-invitation";
 
 interface SpeakerTile {
   id: string;
@@ -220,6 +225,22 @@ const REGISTRATION_TILES: RegistrationTile[] = [
     filters: { status: "CANCELLED" },
     defaultEmailType: "custom",
     matches: (r) => r.status === "CANCELLED",
+  },
+  {
+    // Per-event post-event feedback survey invitation. Pre-selects
+    // CHECKED_IN audience because the survey is for people who
+    // actually showed up; backend mints a per-recipient
+    // `survey:{regId}` token + injects {{surveyLink}}. Organizer
+    // overrides the body via the per-event "Survey Invitation"
+    // template entry (esp. CME events that want to mention cert
+    // delivery — the default body is cert-neutral).
+    id: "send-survey",
+    label: "Send Survey Invitations",
+    description: "Post-event feedback link to checked-in attendees",
+    icon: ClipboardList,
+    filters: { status: "CHECKED_IN" },
+    defaultEmailType: "survey-invitation",
+    matches: (r) => r.status === "CHECKED_IN",
   },
 ];
 

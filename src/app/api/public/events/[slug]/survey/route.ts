@@ -45,7 +45,15 @@ import {
   validateAnswers,
   type SurveyConfig,
 } from "@/lib/survey/schema";
-import { sendEmail } from "@/lib/email";
+import {
+  brandingCc,
+  brandingFrom,
+  getDefaultTemplate,
+  getEventTemplate,
+  renderAndWrap,
+  sendEmail,
+  type EmailBranding,
+} from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -524,40 +532,71 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Fire-and-forget thank-you email. Failure logs but never 500s
     // the user — the response is already in the DB, the thank-you
-    // is a courtesy. The send pipeline + template wiring lands in
-    // commit 3; for now, we send a minimal plain-text confirmation
-    // so the loop is functionally closed.
+    // is a courtesy. Goes through the per-event template registry +
+    // branding pipeline so the body respects whatever the organizer
+    // configured at Communications → Email Templates → Survey Thank
+    // You (CME-required events override the default cert-neutral
+    // body with their cert-delivery language).
     stage = "send-thankyou";
     const recipient = registration.attendee;
     if (recipient.email) {
-      void sendEmail({
-        to: [{ email: recipient.email, name: recipient.firstName ?? undefined }],
-        subject: `Thank you for completing the survey — ${registration.event.name}`,
-        htmlContent:
-          `<p>Hi ${recipient.firstName ?? "there"},</p>` +
-          `<p>Thank you for completing the post-event survey for <strong>${registration.event.name}</strong>. Your feedback has been recorded.</p>` +
-          `<p>— The ${registration.event.name} team</p>`,
-        textContent:
-          `Hi ${recipient.firstName ?? "there"},\n\n` +
-          `Thank you for completing the post-event survey for ${registration.event.name}. Your feedback has been recorded.\n\n` +
-          `— The ${registration.event.name} team`,
-        emailType: "survey_thankyou",
-        stream: "transactional",
-        logContext: {
-          organizationId: registration.event.organizationId,
-          eventId: registration.event.id,
-          entityType: "REGISTRATION",
-          entityId: registration.id,
-          templateSlug: "survey-thankyou",
-        },
-      }).catch((err) => {
-        apiLogger.warn({
-          msg: "survey:thankyou-email-failed",
-          err,
-          eventId,
-          registrationId,
-        });
-      });
+      void (async () => {
+        try {
+          const dbTemplate = await getEventTemplate(
+            registration.event.id,
+            "survey-thankyou",
+          );
+          const fallback = getDefaultTemplate("survey-thankyou");
+          const tpl = dbTemplate ?? fallback;
+          if (!tpl) {
+            apiLogger.error({
+              msg: "survey:thankyou-template-missing",
+              eventId,
+              registrationId,
+            });
+            return;
+          }
+          const branding: EmailBranding = dbTemplate?.branding ?? {
+            eventName: registration.event.name,
+            emailHeaderImage: registration.event.emailHeaderImage,
+            emailFooterImage: registration.event.emailFooterImage,
+            emailFooterHtml: registration.event.emailFooterHtml,
+            emailFromAddress: registration.event.emailFromAddress,
+            emailFromName: registration.event.emailFromName,
+            emailCcAddresses: registration.event.emailCcAddresses,
+          };
+          const vars: Record<string, string | number | undefined> = {
+            firstName: recipient.firstName ?? "there",
+            lastName: "",
+            eventName: registration.event.name,
+          };
+          const rendered = renderAndWrap(tpl, vars, branding);
+          await sendEmail({
+            to: [{ email: recipient.email, name: recipient.firstName ?? undefined }],
+            cc: brandingCc(branding, [{ email: recipient.email }]),
+            from: brandingFrom(branding),
+            subject: rendered.subject,
+            htmlContent: rendered.htmlContent,
+            textContent: rendered.textContent,
+            emailType: "survey_thankyou",
+            stream: "transactional",
+            logContext: {
+              organizationId: registration.event.organizationId,
+              eventId: registration.event.id,
+              entityType: "REGISTRATION",
+              entityId: registration.id,
+              templateSlug: "survey-thankyou",
+            },
+          });
+        } catch (err) {
+          apiLogger.warn({
+            msg: "survey:thankyou-email-failed",
+            err,
+            eventId,
+            registrationId,
+          });
+        }
+      })();
     } else {
       apiLogger.warn({
         msg: "survey:thankyou-no-email",
