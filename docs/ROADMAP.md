@@ -391,6 +391,30 @@ operator hits a related issue.
 
 **Review verdict at deploy time**: SAFE TO PROCEED. The independent review agent's full report is preserved in this round's git history (review summary at `58168b4`).
 
+### Abstraction cleanup backlog (June 5, 2026)
+
+Surfaced during a codebase audit triggered by the question "do we need
+Snowflake? any abstractions we don't need?". Snowflake: zero
+references, not needed. The three items below are real abstractions
+that exist today but are either incomplete extractions or premature
+optionality. None blocks anything; each is independently shippable
+under the "delete dead code" banner.
+
+| Severity | Item | Risk & recommended direction |
+|---|---|---|
+| MEDIUM | **Email provider switch carrying ~150 LOC of dead code** | [src/lib/email.ts](../src/lib/email.ts) declares an `EmailProvider` interface designed for hot-swapping providers. Today there's only one implementation (`sesProvider`); ~150 lines of fully commented-out Brevo + SendGrid + Postmark providers live in the file with the header comment "kept commented for one release cycle in case we need to revert". `getProvider()` is a one-branch switch returning `sesProvider`. **Trigger**: the cleanup is pure delete with zero behavior change — pick up whenever someone touches email code for any reason. Fix: drop the commented Brevo/SendGrid/Postmark blocks (lines ~114-260), inline `sesProvider` into `sendEmail` or drop the `EmailProvider` indirection (one impl no longer warrants it), delete `getProvider()` + `resolveProviderName()` if it only returns `"ses"`, and drop `@getbrevo/brevo` + `@sendgrid/mail` + `postmark` from `package.json` if still listed. ~150-200 LOC removed, safest cleanup on the list. |
+| MEDIUM | **`src/lib/ai/` AiProvider abstraction — incomplete extraction** | [src/lib/ai/](../src/lib/ai/) (3 files, 270 LOC) defines an `AiProvider` interface for "future provider-swap" but the bigger AI consumer ([src/app/api/events/[eventId]/agent/execute/route.ts](../src/app/api/events/%5BeventId%5D/agent/execute/route.ts)) bypasses it and imports `Anthropic` directly. The retrofit was deferred in `docs/HELP_CHATBOT.md` v1.1 and hasn't happened. **Trigger**: next time multi-provider becomes a real requirement (e.g. Ollama fallback for the privacy case the help-chat plan named), commit to the retrofit. Otherwise pick up as cleanup: collapse `getDefaultAiProvider()` + the interface, have help-chat use Anthropic SDK directly like the agent does. Half-extracted abstractions are worse than no abstraction — pick one direction. |
+| MEDIUM | **Vercel-deployment vestiges — premature optionality** | The "would I still pick Next.js" reflection flagged "skip Vercel optionality from day 1" as the #1 hindsight call. The Vercel-conditional surface is still in code: [src/lib/logger.ts:7](../src/lib/logger.ts#L7) picks log destination via `isVercel`, [src/app/api/logs/route.ts:12](../src/app/api/logs/route.ts#L12) defaults log source on Vercel, [src/lib/env.ts:62-73](../src/lib/env.ts#L62) issues Vercel-specific warnings, [vercel.json](../vercel.json) is the full Vercel config, [src/lib/storage.ts](../src/lib/storage.ts) `STORAGE_PROVIDER=supabase` branch exists for Vercel's read-only fs. Production deploys EC2 only; the conditionals always evaluate the same way. **Trigger**: paying down the cognitive cost of "should this work on Vercel too?" every time touching env, storage, or logging code. Fix: delete `vercel.json`, hardcode EC2 paths in logger + env (or drop the warnings entirely), keep `local` storage path + delete `uploadSupabase`/`deleteSupabase` and the `PROVIDER` switch. ~5-10 files touched, each diff small. Bigger sweep than the email cleanup but the optionality cost is real. |
+
+**Confirmed-justified abstractions** worth NOT touching (surfaced in the same audit, listed so a future review doesn't re-flag them):
+- `src/services/` (5 services × 2 callers each — REST + MCP — exact "two callers → extract" rule)
+- `src/lib/agent/tools/` (14 domain files, 7574 LOC — single file would be unmaintainable)
+- `src/lib/certificates/email-tokens.ts` vs `email-tokens-resolver.ts` (client-safe vs server-only split)
+- `STORAGE_PROVIDER=local|supabase` switch (documented DR-gap closer in `docs/EC2_HARDENING.html`)
+- Worker advisory locks + dual-write window (real distributed-systems concern: Singapore DR + Mumbai both up)
+- `src/lib/api-errors.ts` `zodErrorResponse()` (~45 callers, removes silent-failure mode)
+- `src/lib/api-fetch.ts` `ApiError` (only 1 consumer but `STALE_WRITE` 409 → refetch branching is real value; lift inline only if it stays at 1 consumer for 6 more months)
+
 ### Medium-Term (2–4 Months)
 
 | Feature | Description |
