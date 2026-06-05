@@ -200,6 +200,15 @@ model Event {
   registrationConfirmationHtml String?     @db.Text
   speakerAgreementHtml         String?     @db.Text
   speakerAgreementTemplate     Json?
+  /// Per-event post-event evaluation/feedback survey definition. Null
+  /// when no survey is configured. Shape: ordered array of
+  /// SurveyQuestion (discriminated union: single_select / rating_1_to_5
+  /// / text) — see `src/lib/survey/schema.ts` for the Zod-validated
+  /// type. Renderer pulls this at request time on both the admin
+  /// builder + the public form, so changing it mid-collection is
+  /// allowed but care must be taken not to invalidate in-flight
+  /// responses (answer linkage is by question.id, not array index).
+  surveyConfig                 Json?
   taxRate                      Decimal?    @db.Decimal(5, 2)
   taxLabel                     String?     @default("VAT")
   bankDetails                  String?     @db.Text
@@ -253,6 +262,7 @@ model Event {
   certificateSerialCounters CertificateSerialCounter[]
   certificateIssueRuns      CertificateIssueRun[]
   certificateTemplates      CertificateTemplate[]
+  surveyResponses           SurveyResponse[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -513,6 +523,43 @@ enum EventType {
   HYBRID
 }
 
+// ==================== SURVEY ====================
+// Per-event post-event feedback survey. Question definitions live as
+// JSON on `Event.surveyConfig` (see prisma/schema.prisma:~205 and
+// src/lib/survey/schema.ts for the Zod-validated type). Each
+// registration can submit AT MOST one response — the unique
+// (eventId, registrationId) constraint is the dedup gate. The submit
+// handler also writes the "survey-completed" tag onto Attendee.tags,
+// which the cert Issue UI's tag picker filters by (CME certs gate on
+// it; ATTENDANCE certs typically don't). See
+// docs/SURVEYS.md (when added) for the full operator workflow.
+
+model SurveyResponse {
+  id             String   @id @default(cuid())
+  eventId        String
+  /// One response per registration — enforced by `@unique`. The 1:1
+  /// relation requires this on the FK side; conceptually it's also
+  /// the dedup gate (a second POST returns 200 no-op via P2002).
+  registrationId String   @unique
+  submittedAt    DateTime @default(now())
+  /// Hashed (NEXTAUTH_SECRET-peppered) source IP, for abuse triage
+  /// without leaking the raw address. Optional — empty for anonymous
+  /// flows we don't currently support.
+  ipHash         String?
+  /// Frozen answers keyed by question.id from Event.surveyConfig at
+  /// submit time. Values are typed by the question type:
+  ///   single_select → string (one of the configured options)
+  ///   rating_1_to_5 → number 1..5
+  ///   text          → string
+  /// Skipped (optional) questions are absent from the map, NOT null.
+  answers        Json
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, submittedAt])
+}
+
 // ==================== REGISTRATION & TICKETING ====================
 
 model TicketType {
@@ -631,6 +678,13 @@ model Registration {
   // (action BADGE_PRINTED).
   badgePrintedAt      DateTime?
   badgePrintCount     Int                @default(0)
+  /// Set when the registrant submits the post-event feedback survey
+  /// at `/e/[slug]/survey?token=...`. Used by the reporting view +
+  /// audit trail; NOT consumed by the cert eligibility query (the
+  /// cert system filters by `Attendee.tags` containing "survey-
+  /// completed" which the same submit handler writes). Mirrors the
+  /// existing `checkedInAt` / `badgePrintedAt` convention.
+  surveyCompletedAt   DateTime?
   notes               String?            @db.Text
   // Billing details (for invoices/tax)
   taxNumber           String?
@@ -682,6 +736,7 @@ model Registration {
   zoomAttendances          ZoomAttendance[]
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
+  surveyResponse           SurveyResponse?
 
   @@unique([eventId, serialId])
   @@index([sponsorId])
