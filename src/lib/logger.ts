@@ -294,7 +294,150 @@ function withSentryForwarding(child: pino.Logger, module: string): pino.Logger {
   return child;
 }
 
-export const createLogger = (module: string) => withSentryForwarding(logger.child({ module }), module);
+/**
+ * Patterns we DON'T fire admin-alert for, because another code path
+ * already alerts on them with richer context (and we'd otherwise
+ * double-alert per incident).
+ *
+ * Current entries:
+ *   - "Failed to send email" — src/lib/email.ts sendEmail() catch
+ *     already calls notifyAdminOfSendFailure with full AWS context
+ *     (errorName, requestId, recipient, eventId, templateSlug).
+ *     The generic logger hook would otherwise produce a sister
+ *     alert with only module + msg.
+ *   - "admin-alert:notify-failed" — already covered by the recursion
+ *     guard inside admin-alert.ts (console.error, no apiLogger).
+ *     Listed here as belt-and-braces in case the path ever changes.
+ */
+const ADMIN_ALERT_SKIP_PATTERNS: ReadonlyArray<RegExp> = [
+  /^Failed to send email$/i,
+  /^admin-alert:/i,
+];
+
+/**
+ * Forward an error log entry to the admin-alert path. Same lazy-import
+ * pattern as Sentry forwarding to break the email.ts ↔ logger.ts cycle
+ * (admin-alert.ts lazy-imports email.ts internally).
+ *
+ * Dedup key shape: `logger:{module}:{msg-substring}` — keeps the same
+ * (module, msg) combo to one alert per hour. Different modules emitting
+ * the same msg are NOT collapsed (they're typically different root
+ * causes); same module + same msg ARE collapsed because they're
+ * effectively the same error fingerprint.
+ */
+function forwardToAdminAlert(module: string, args: unknown[]): void {
+  if (typeof window !== "undefined") return; // server-only
+
+  void (async () => {
+    try {
+      const first = args[0];
+      let message: string | undefined;
+      let errSignature: string | undefined;
+      let context: Record<string, unknown> = {};
+
+      if (first instanceof Error) {
+        message = typeof args[1] === "string" ? args[1] : first.message;
+        errSignature = first.name && first.name !== "Error" ? first.name : "Error";
+      } else if (typeof first === "object" && first !== null) {
+        const obj = first as Record<string, unknown>;
+        message = typeof obj.msg === "string" ? obj.msg : (typeof args[1] === "string" ? args[1] : undefined);
+        // Extract a stable signature for dedupe — prefer awsErrorName
+        // when present, then err.name, then a generic "error" string.
+        const errInner = obj.err ?? obj.error;
+        if (errInner instanceof Error) {
+          errSignature = errInner.name && errInner.name !== "Error" ? errInner.name : "Error";
+        } else if (typeof obj.awsErrorName === "string") {
+          errSignature = obj.awsErrorName;
+        } else {
+          errSignature = "error";
+        }
+        // Capture the structured-log fields as alert context (redacting
+        // the same sensitive keys Sentry does). Drop the err/error/msg
+        // fields themselves — they're surfaced separately in the body.
+        const REDACTED_KEYS = new Set(["password", "passwordHash", "token", "accessToken", "refreshToken", "authorization", "cookie"]);
+        for (const [k, v] of Object.entries(obj)) {
+          if (k === "err" || k === "error" || k === "msg") continue;
+          if (REDACTED_KEYS.has(k)) continue;
+          context[k] = v;
+        }
+      } else if (typeof first === "string") {
+        message = first;
+        errSignature = "error";
+        context = { args: args.slice(1) };
+      }
+
+      if (!message) return; // nothing to alert about
+
+      // Skip alerts that have their own dedicated path.
+      for (const pattern of ADMIN_ALERT_SKIP_PATTERNS) {
+        if (pattern.test(message)) return;
+      }
+
+      const { notifyAdminAlert } = await import("./admin-alert");
+
+      const dedupKey = `logger:${module}:${message.slice(0, 100)}`;
+      const env = process.env.NODE_ENV === "production" ? "prod" : "dev";
+      const subject = `[ea-sys][${env}] ${module}: ${message.slice(0, 80)}`;
+
+      // Format the context as aligned key/value pairs. Truncate any
+      // value over 500 chars so the email stays scannable (full detail
+      // is still in /logs + Sentry).
+      const contextLines = Object.entries(context)
+        .map(([k, v]) => {
+          let s: string;
+          try {
+            s = typeof v === "string" ? v : JSON.stringify(v);
+          } catch {
+            s = String(v);
+          }
+          if (s.length > 500) s = `${s.slice(0, 500)}…`;
+          return `${k.padEnd(14)} ${s}`;
+        })
+        .slice(0, 20); // cap context fields
+
+      const lines = [
+        "An EA-SYS application error fired.",
+        "",
+        `Module:        ${module}`,
+        `Message:       ${message}`,
+        `Error signature: ${errSignature ?? "(none)"}`,
+        ...(contextLines.length > 0 ? ["", "Context:", ...contextLines] : []),
+        "",
+        `Further occurrences of (${module} + same message prefix) within the next hour will NOT trigger another alert — open /logs in the dashboard or Sentry for the full picture.`,
+        "",
+        `--`,
+        `ea-sys automated alert`,
+      ].join("\n");
+
+      await notifyAdminAlert({ subject, body: lines, dedupKey });
+    } catch {
+      // Last-resort: any failure in this hook must NOT propagate, or
+      // we'd kill the original log call.
+    }
+  })();
+}
+
+/**
+ * Wraps a Pino child logger so that every .error() call also fires an
+ * admin email alert via SES. Same shape as withSentryForwarding — both
+ * are chained at createLogger so each .error() now triggers TWO push
+ * paths (Sentry + admin email) in addition to the local log sinks
+ * (stdout + file + SystemLog DB row).
+ *
+ * Skip patterns (ADMIN_ALERT_SKIP_PATTERNS above) prevent double-fire
+ * with the email-failure path which has its own richer alert.
+ */
+function withAdminAlertForwarding(child: pino.Logger, module: string): pino.Logger {
+  const originalError = child.error.bind(child);
+  child.error = ((...args: unknown[]) => {
+    forwardToAdminAlert(module, args);
+    return (originalError as (...a: unknown[]) => void)(...args);
+  }) as typeof child.error;
+  return child;
+}
+
+export const createLogger = (module: string) =>
+  withAdminAlertForwarding(withSentryForwarding(logger.child({ module }), module), module);
 
 export const dbLogger   = createLogger("database");
 export const authLogger = createLogger("auth");
