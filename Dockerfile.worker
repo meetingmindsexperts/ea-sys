@@ -85,6 +85,12 @@ COPY --from=builder /app/prisma ./prisma
 # cached) and rebuilds become a runner-only stage swap. Matches the
 # `COPY worker ./worker` line below for consistency.
 COPY tsconfig.json ./
+# sentry.server.config.ts is imported by worker/index.ts as the first
+# side-effect import (after dotenv) so Sentry.init runs before any
+# other code path can throw. Without this COPY the worker container
+# starts and crashes at `import "../sentry.server.config"` with
+# MODULE_NOT_FOUND.
+COPY sentry.server.config.ts ./
 COPY src ./src
 COPY worker ./worker
 

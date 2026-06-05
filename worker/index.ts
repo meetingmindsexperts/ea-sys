@@ -31,6 +31,17 @@
  */
 
 import "dotenv/config";
+// Sentry must initialize BEFORE any other code path can throw —
+// otherwise early-boot errors (env validation, Prisma client init,
+// node-cron schedule parsing) won't reach Sentry. This is a side-
+// effect import: sentry.server.config.ts at the project root calls
+// Sentry.init() during module load. The web tier triggers the same
+// file via Next.js's instrumentation hook (src/instrumentation.ts);
+// the worker isn't a Next.js runtime so it has to import directly.
+//
+// SENTRY_DSN env var gates the actual init — when unset, init is a
+// no-op so dev runs aren't noisy.
+import "../sentry.server.config";
 import cron from "node-cron";
 import { apiLogger } from "@/lib/logger";
 
