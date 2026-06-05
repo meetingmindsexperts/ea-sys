@@ -76,9 +76,16 @@ RUN useradd --system --uid 1001 worker
 # missing-module errors at runtime.
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/tsconfig.json ./
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/src ./src
+# tsconfig.json + src/ come directly from the build context (not the
+# builder stage) because they aren't transformed during build — tsx
+# compiles TypeScript at runtime, so there's no intermediate artifact
+# to ship through. Keeping these out of the builder layer means src/
+# changes don't bust the builder cache (deps + prisma generate stay
+# cached) and rebuilds become a runner-only stage swap. Matches the
+# `COPY worker ./worker` line below for consistency.
+COPY tsconfig.json ./
+COPY src ./src
 COPY worker ./worker
 
 # Writable directory for any file-based logging Pino might do — same
