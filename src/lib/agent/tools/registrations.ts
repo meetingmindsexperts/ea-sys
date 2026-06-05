@@ -986,6 +986,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               ticketTypeId: ticketType.id,
               attendeeId: attendee.id,
               serialId,
+              createdSource: "MCP_AGENT",
               status: rawStatus as never,
               qrCode,
             },

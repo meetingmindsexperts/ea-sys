@@ -66,6 +66,28 @@ export async function logEmail(record: EmailLogRecord): Promise<void> {
 /**
  * Read helper — last 50 rows for a given entity, newest first. Caller is
  * responsible for RBAC scoping (org match on the entity record).
+ *
+ * Org-scope filter: historically required `organizationId === <caller's org>`,
+ * which had a silent failure mode — many transactional callers
+ * (sendRegistrationConfirmation, abstract-status notifications, cert
+ * delivery, refund confirmation, payment confirmation, password reset)
+ * write `logContext.organizationId = null`. Those rows were correctly
+ * tagged with entityType + entityId, but the org filter excluded them,
+ * so the Email History card on the registration / speaker / contact
+ * detail sheet appeared empty even when the email DID go out.
+ *
+ * The fix: accept rows whose `organizationId` matches the caller's org
+ * OR is null. The route layer already enforces ownership on the parent
+ * entity (registration.event.organizationId === ctx.org for REGISTRATION,
+ * etc.) so null-org rows for an owned entity belong to that org by
+ * construction — they're only un-tagged because the caller forgot to
+ * thread organizationId through their logContext literal.
+ *
+ * Backward-compatible: existing rows that DO have organizationId set
+ * still match exactly; the OR just stops null-org rows from being
+ * silently filtered. The 8-caller fix (commit B) sets organizationId
+ * properly going forward, but A alone makes ALL historical rows
+ * visible immediately.
  */
 export async function getEmailLogsFor(
   entityType: EmailLogEntityType,
@@ -76,7 +98,9 @@ export async function getEmailLogsFor(
     where: {
       entityType,
       entityId,
-      ...(organizationId ? { organizationId } : {}),
+      ...(organizationId
+        ? { OR: [{ organizationId }, { organizationId: null }] }
+        : {}),
     },
     orderBy: { createdAt: "desc" },
     take: 50,

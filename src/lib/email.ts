@@ -2196,6 +2196,14 @@ export async function sendRegistrationConfirmation(params: {
   serialId?: number | null;
   qrCode: string;
   eventId?: string;
+  /**
+   * Organization that owns the event. Threaded into the EmailLog row's
+   * `organizationId` column so the Email History card on the
+   * registration detail sheet can find it. Without this, the row is
+   * written with organizationId=null and gets filtered out by the
+   * read query (see src/lib/email-log.ts getEmailLogsFor history note).
+   */
+  organizationId?: string | null;
   eventSlug?: string;
   ticketPrice?: number;
   ticketCurrency?: string;
@@ -2416,6 +2424,7 @@ export async function sendRegistrationConfirmation(params: {
     emailType: "registration_confirmation",
     stream: "transactional",
     logContext: {
+      organizationId: params.organizationId ?? null,
       eventId: params.eventId ?? null,
       entityType: "REGISTRATION",
       entityId: params.registrationId,

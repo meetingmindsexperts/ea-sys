@@ -244,6 +244,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             emailType: "abstract_submission_confirmation",
             stream: "transactional",
             logContext: {
+              organizationId: session.user.organizationId ?? null,
               eventId,
               entityType: "SPEAKER",
               entityId: abstract.speaker!.id,

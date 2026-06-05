@@ -600,6 +600,14 @@ export async function createRegistration(
 
       const qrCode = generateBarcode();
       const serialId = await getNextSerialId(tx, eventId);
+      // Map the caller identity (already in service input) to the
+      // RegistrationCreatedSource enum so the detail sheet can
+      // surface "added via dashboard" vs "via MCP agent" at a glance.
+      // The "api" source is reserved for the future external public
+      // REST API (per src/services/README.md). REST callers from the
+      // admin dashboard route → ADMIN_DASHBOARD; MCP → MCP_AGENT.
+      const createdSource =
+        source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD";
       return tx.registration.create({
         data: {
           eventId,
@@ -607,6 +615,7 @@ export async function createRegistration(
           pricingTierId: validPricingTierId,
           attendeeId: attendeeRecord.id,
           serialId,
+          createdSource,
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
           sponsorId,
@@ -745,6 +754,7 @@ export async function createRegistration(
       serialId: registration.serialId,
       qrCode: registration.qrCode || "",
       eventId: event.id,
+      organizationId: event.organizationId,
       eventSlug: event.slug,
       ticketPrice: Number(ticketType.price),
       ticketCurrency: ticketType.currency,

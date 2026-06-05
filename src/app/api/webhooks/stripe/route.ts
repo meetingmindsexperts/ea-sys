@@ -300,7 +300,7 @@ async function sendPaymentConfirmationEmail(
     attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
     ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
-    event: { id: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
+    event: { id: string; organizationId: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
   },
   amount: number,
   currency: string,
@@ -404,6 +404,7 @@ async function sendPaymentConfirmationEmail(
     emailType: "payment_confirmation",
     stream: "transactional",
     logContext: {
+      organizationId: registration.event.organizationId,
       eventId: registration.event.id,
       entityType: "REGISTRATION",
       entityId: registration.id,

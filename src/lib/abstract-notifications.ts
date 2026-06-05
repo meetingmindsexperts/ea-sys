@@ -24,6 +24,15 @@ function escapeHtml(s: string): string {
 
 export interface NotifyAbstractStatusChangeParams {
   eventId: string;
+  /**
+   * Organization that owns the event. Threaded into the EmailLog row's
+   * `organizationId` so the Email History card on the speaker detail
+   * sheet finds it (see src/lib/email-log.ts history note on the
+   * 8-caller missing-organizationId bug). Optional for back-compat
+   * with callers that haven't been updated; null-org rows are still
+   * visible via the relaxed read filter, but tagging is best.
+   */
+  organizationId?: string | null;
   eventName: string;
   eventSlug: string | null;
   abstractId: string;
@@ -60,6 +69,7 @@ export interface NotifyAbstractStatusChangeParams {
 export async function notifyAbstractStatusChange(params: NotifyAbstractStatusChangeParams): Promise<void> {
   const {
     eventId,
+    organizationId,
     eventName,
     eventSlug,
     abstractId,
@@ -123,6 +133,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
           emailType: "abstract_status_update",
           stream: "transactional",
           logContext: {
+            organizationId: organizationId ?? null,
             eventId,
             entityType: speaker.id ? "SPEAKER" : "OTHER",
             entityId: speaker.id ?? null,

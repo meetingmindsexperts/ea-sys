@@ -321,6 +321,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               ticketTypeId: ticketType.id,
               attendeeId: attendee.id,
               serialId,
+              createdSource: "CSV_IMPORT",
               status: rowRegistrationStatus ?? defaultStatus,
               paymentStatus: rowPaymentStatus ?? defaultPaymentStatus,
               sponsorId: rowSponsorId,

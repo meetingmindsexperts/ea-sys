@@ -685,6 +685,11 @@ model Registration {
   /// completed" which the same submit handler writes). Mirrors the
   /// existing `checkedInAt` / `badgePrintedAt` convention.
   surveyCompletedAt   DateTime?
+  /// Which code path created this row — public form vs admin add vs
+  /// MCP agent vs CSV import etc. See enum `RegistrationCreatedSource`
+  /// for the full list. NULL on historical rows that pre-date the
+  /// column; the detail sheet renders "Unknown" for those.
+  createdSource       RegistrationCreatedSource?
   notes               String?            @db.Text
   // Billing details (for invoices/tax)
   taxNumber           String?
@@ -769,6 +774,36 @@ enum PaymentStatus {
   FAILED
   UNASSIGNED
   INCLUSIVE
+}
+
+/// Identifies which entry path created a Registration. Used by the
+/// detail sheet to show "where did this row come from" so an
+/// organizer can tell a self-service public registration from an
+/// admin-entered one at a glance. NULL on historical rows that
+/// pre-date the column.
+enum RegistrationCreatedSource {
+  /// Public registration form `/e/[slug]/register/[category]` — the
+  /// canonical self-service path. Free + paid both land here.
+  PUBLIC_REGISTER
+  /// Public abstract-submitter sign-up at `/e/[slug]/abstract/register`
+  /// — creates a SUBMITTER user + a Registration in one shot.
+  PUBLIC_SUBMITTER
+  /// Token-gated completion form at `/e/[slug]/complete-registration`
+  /// — used after a CSV import where the admin sends "complete your
+  /// registration" emails to imported rows.
+  PUBLIC_COMPLETION_FORM
+  /// Admin "Add Registration" full-page form or dialog on the
+  /// dashboard registrations list. Goes through registration-service.
+  ADMIN_DASHBOARD
+  /// Bulk CSV import via the dashboard CSV importer.
+  CSV_IMPORT
+  /// MCP agent tool — `create_registration` or
+  /// `create_registrations_bulk` called by an external integration
+  /// (n8n, Claude Desktop, claude.ai web).
+  MCP_AGENT
+  /// Catch-all for legacy paths or paths we haven't tagged yet.
+  /// Rows landing here are a signal to extend coverage.
+  OTHER
 }
 
 model Payment {

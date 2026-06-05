@@ -122,7 +122,7 @@ export async function changeAbstractStatus(
       id: true,
       title: true,
       status: true,
-      event: { select: { id: true, name: true, slug: true, settings: true } },
+      event: { select: { id: true, organizationId: true, name: true, slug: true, settings: true } },
       speaker: { select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
     },
   });
@@ -242,6 +242,7 @@ export async function changeAbstractStatus(
       const notifyAggregate = aggregateResult ?? (await computeSubmissionAggregates(abstractId));
       await notifyAbstractStatusChange({
         eventId,
+        organizationId: abstract.event.organizationId,
         eventName: abstract.event.name,
         eventSlug: abstract.event.slug,
         abstractId: abstract.id,

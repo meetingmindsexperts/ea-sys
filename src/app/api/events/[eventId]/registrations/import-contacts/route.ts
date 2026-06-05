@@ -91,6 +91,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               ticketTypeId,
               attendeeId: attendee.id,
               serialId,
+              // "Import from Contacts" is admin-driven — operator
+              // picks a checked subset and imports as registrations.
+              // Not a CSV upload, so ADMIN_DASHBOARD is the right
+              // bucket (organizer manually chose each row).
+              createdSource: "ADMIN_DASHBOARD",
             },
           });
         }

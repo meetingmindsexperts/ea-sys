@@ -485,6 +485,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       ],
       emailType: "certificate",
       logContext: {
+        organizationId: session.user.organizationId ?? null,
         // The EmailLogCard on the registration/speaker detail sheet
         // queries on (entityType, entityId), so threading the right
         // ids here is what makes the resend show up on the same sheet

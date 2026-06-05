@@ -449,6 +449,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         serialId: registration.serialId,
         qrCode: "",
         eventId: registration.event.id,
+        organizationId: registration.event.organizationId,
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,

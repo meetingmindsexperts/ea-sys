@@ -121,6 +121,13 @@ export interface Registration {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  /**
+   * Which entry path created this row (PUBLIC_REGISTER /
+   * ADMIN_DASHBOARD / CSV_IMPORT / MCP_AGENT / ...). NULL on rows
+   * that pre-date the column. Rendered in the Source / Tracking
+   * section of the detail sheet.
+   */
+  createdSource: string | null;
   checkedInAt: string | null;
   notes: string | null;
   // Billing block — optional overrides of the attendee's personal address.

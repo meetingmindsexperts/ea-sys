@@ -445,6 +445,16 @@ async function processSendPhase(
     await failRun(runId, "Run row vanished mid-send");
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
   }
+
+  // Owner org for the EmailLog row's organizationId column — without this
+  // the cert delivery row is written as org-null and gets hidden from the
+  // EmailLogCard on the registration/speaker detail sheet (see
+  // src/lib/email-log.ts history note on the missing-organizationId bug).
+  const eventForOrg = await db.event.findUnique({
+    where: { id: eventId },
+    select: { organizationId: true },
+  });
+  const organizationIdForLog = eventForOrg?.organizationId ?? null;
   const emailSubjectTemplate =
     runRow.emailSubject?.trim().length ? runRow.emailSubject : SYSTEM_DEFAULT_SUBJECT;
   const emailBodyTemplate =
@@ -589,6 +599,7 @@ async function processSendPhase(
         ],
         emailType: "certificate",
         logContext: {
+          organizationId: organizationIdForLog,
           entityType: item.speakerId ? "SPEAKER" : "REGISTRATION",
           entityId: item.registrationId ?? item.speakerId ?? null,
           eventId,

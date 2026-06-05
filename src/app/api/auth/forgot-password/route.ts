@@ -73,6 +73,7 @@ export async function POST(req: Request) {
         email: true,
         firstName: true,
         lastName: true,
+        organizationId: true,
       },
     });
 
@@ -134,6 +135,7 @@ export async function POST(req: Request) {
         emailType: "password_reset",
         stream: "transactional",
         logContext: {
+          organizationId: user.organizationId ?? null,
           entityType: "USER",
           entityId: user.id,
           templateSlug: "password-reset",

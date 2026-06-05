@@ -129,6 +129,34 @@ interface RegistrationDetailSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/**
+ * Human-readable label for the RegistrationCreatedSource enum. The
+ * column is NULL on rows that pre-date this feature — we render
+ * "Unknown" (handled by the null-check at the call site, not here).
+ */
+function formatCreatedSource(source: string): string {
+  switch (source) {
+    case "PUBLIC_REGISTER":
+      return "Public registration form";
+    case "PUBLIC_SUBMITTER":
+      return "Abstract submitter sign-up";
+    case "PUBLIC_COMPLETION_FORM":
+      return "Completion form";
+    case "ADMIN_DASHBOARD":
+      return "Admin dashboard";
+    case "CSV_IMPORT":
+      return "CSV import";
+    case "MCP_AGENT":
+      return "AI agent (MCP)";
+    case "OTHER":
+      return "Other";
+    default:
+      // Future-proof: a new enum value we haven't shipped a label for
+      // still renders as-is so the operator sees SOMETHING.
+      return source;
+  }
+}
+
 export function RegistrationDetailSheet({
   eventId,
   registration,
@@ -2071,8 +2099,10 @@ export function RegistrationDetailSheet({
                   to its edit textarea. The Activity tab no longer carries
                   a duplicate copy. */}
 
-              {/* Source / Tracking */}
-              {(selectedRegistration.referrer || selectedRegistration.utmSource) && (
+              {/* Source / Tracking — entry path is always shown when
+                  known (rows pre-dating the column show "Unknown"
+                  silently by being null), UTM fields are conditional. */}
+              {(selectedRegistration.createdSource || selectedRegistration.referrer || selectedRegistration.utmSource) && (
                 <section className={cn(
                   "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-3",
                   !isEditing && activeTab !== "activity" && "hidden",
@@ -2082,15 +2112,21 @@ export function RegistrationDetailSheet({
                     Source
                   </h3>
                   <div className="space-y-1.5 text-sm">
+                    {selectedRegistration.createdSource && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Entry path</span>
+                        <span className="font-medium">{formatCreatedSource(selectedRegistration.createdSource)}</span>
+                      </div>
+                    )}
                     {selectedRegistration.utmSource && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Source</span>
+                        <span className="text-muted-foreground">UTM source</span>
                         <span className="font-medium">{selectedRegistration.utmSource}</span>
                       </div>
                     )}
                     {selectedRegistration.utmMedium && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Medium</span>
+                        <span className="text-muted-foreground">UTM medium</span>
                         <span className="font-medium">{selectedRegistration.utmMedium}</span>
                       </div>
                     )}

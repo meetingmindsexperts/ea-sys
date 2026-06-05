@@ -42,7 +42,7 @@ export async function POST(
           attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true, title: true } },
           ticketType: { select: { name: true, currency: true } },
           pricingTier: { select: { currency: true } },
-          event: { select: { id: true, name: true, startDate: true } },
+          event: { select: { id: true, organizationId: true, name: true, startDate: true } },
           payments: {
             where: { status: "PAID" },
             orderBy: { createdAt: "desc" },
@@ -160,7 +160,7 @@ async function sendRefundConfirmationEmail(
     serialId: number | null;
     attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
     ticketType: { name: string } | null;
-    event: { id: string; name: string; startDate: Date };
+    event: { id: string; organizationId: string; name: string; startDate: Date };
   },
   formattedAmount: string
 ) {
@@ -211,6 +211,7 @@ async function sendRefundConfirmationEmail(
     emailType: "refund_confirmation",
     stream: "transactional",
     logContext: {
+      organizationId: registration.event.organizationId,
       eventId: registration.event.id,
       entityType: "REGISTRATION",
       entityId: registration.id,

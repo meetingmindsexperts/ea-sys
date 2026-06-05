@@ -160,6 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               ticketTypeId: defaultTicketType.id,
               attendeeId: attendee.id,
               serialId,
+              createdSource: "CSV_IMPORT",
               status: defaultTicketType.requiresApproval ? "PENDING" : "CONFIRMED",
               // Free ticket → COMPLIMENTARY (no payment ever taken), not PAID.
               // Matches the public register + CSV import + service-layer

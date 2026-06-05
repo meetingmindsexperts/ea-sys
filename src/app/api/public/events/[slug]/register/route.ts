@@ -390,6 +390,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           pricingTierId: pricingTier?.id || null,
           attendeeId: attendee.id,
           serialId,
+          createdSource: "PUBLIC_REGISTER",
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           // A zero-price registration (free ticket, or a promo code that
           // discounts to 0) never goes through Stripe, so PAID is the wrong
@@ -593,6 +594,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           serialId: registration.serialId,
           qrCode: registration.qrCode || "",
           eventId: event.id,
+          organizationId: event.organizationId,
           eventSlug: slug,
           ticketPrice: finalPrice,
           ticketCurrency: finalCurrency,
