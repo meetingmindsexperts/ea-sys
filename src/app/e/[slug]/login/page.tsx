@@ -231,7 +231,7 @@ function EventLoginForm() {
                 </Button>
 
                 <div className="text-right">
-                  <Link href="/forgot-password" className="text-sm text-primary hover:underline">
+                  <Link href={`/e/${slug}/forgot-password`} className="text-sm text-primary hover:underline">
                     Forgot password?
                   </Link>
                 </div>

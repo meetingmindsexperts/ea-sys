@@ -8,6 +8,19 @@ import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/securi
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Please provide a valid email address").max(255),
+  /**
+   * Optional event slug. When the request came from the event-scoped
+   * forgot-password page (/e/[slug]/forgot-password), the reset email
+   * link is built with the event-scoped reset path so the user stays
+   * in event context end-to-end. Validated against a strict slug
+   * regex (letters / numbers / hyphens, max 64 chars) before being
+   * interpolated into the email — defense against an attacker
+   * shaping the reset URL via a crafted slug.
+   */
+  eventSlug: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,63}$/i, "Invalid event slug")
+    .optional(),
 });
 
 function getPasswordResetIdentifier(email: string) {
@@ -50,6 +63,54 @@ export async function POST(req: Request) {
     }
 
     const email = validated.data.email.toLowerCase();
+    const eventSlug = validated.data.eventSlug;
+
+    // Verify the event exists before binding the reset link to it.
+    // Soft fallback: if the slug doesn't match any event in the DB,
+    // log a warning + drop back to the generic reset path so the
+    // user gets a working link instead of one that 404s. Defends
+    // against a malicious or buggy client posting an arbitrary slug
+    // string that would produce a broken email.
+    //
+    // We use findUnique (slug is unique on Event) + select only the
+    // slug to keep the query cheap. The DB-canonical slug is what
+    // we use downstream — preserves case + format from the source
+    // of truth.
+    // Note: Event.slug is unique PER organization (compound unique
+    // `organizationId_slug`), not globally. findFirst lets us look
+    // up the slug across all orgs — the multi-org collision case is
+    // theoretical at current single-org scale, but if it ever
+    // happens, falling back to "first match by slug" is safe because
+    // the slug only drives the reset URL's branding path. The
+    // password reset itself is still gated by the email + token,
+    // which are user-bound regardless of which event's branding
+    // appears on the reset page.
+    let verifiedEventSlug: string | undefined;
+    if (eventSlug) {
+      try {
+        const event = await db.event.findFirst({
+          where: { slug: eventSlug },
+          select: { slug: true },
+        });
+        if (event) {
+          verifiedEventSlug = event.slug;
+        } else {
+          apiLogger.warn({
+            msg: "auth/forgot-password:unknown-event-slug",
+            email,
+            eventSlug,
+          });
+        }
+      } catch (err) {
+        // DB lookup failed — don't fail the whole reset flow; just
+        // fall back to the generic link and log so we can investigate.
+        apiLogger.warn({
+          msg: "auth/forgot-password:event-slug-lookup-failed",
+          err,
+          eventSlug,
+        });
+      }
+    }
     const emailRateLimit = checkRateLimit({
       key: `forgot-password:email:${email}`,
       limit: 5,
@@ -116,7 +177,14 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
-    const resetLink = `${appUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+    // Build the reset link with event-scoped path ONLY when the
+    // slug was both Zod-validated AND confirmed to exist in the DB.
+    // Otherwise fall back to the generic /reset-password path so
+    // the email link always works.
+    const resetPath = verifiedEventSlug
+      ? `/e/${encodeURIComponent(verifiedEventSlug)}/reset-password`
+      : `/reset-password`;
+    const resetLink = `${appUrl}${resetPath}?token=${token}&email=${encodeURIComponent(email)}`;
 
     const emailTemplate = emailTemplates.passwordReset({
       recipientName: `${user.firstName} ${user.lastName}`,
