@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   isAlertSelfRecipient,
+  shouldFireInThisEnvironment,
   shouldSendAdminAlert,
 } from "@/lib/admin-alert";
 
@@ -90,5 +91,69 @@ describe("isAlertSelfRecipient", () => {
     vi.stubEnv("ALERT_EMAIL_TO", "alerts@example.com");
     expect(isAlertSelfRecipient("noise@example.com")).toBe(false);
     expect(isAlertSelfRecipient("alerts@other.com")).toBe(false);
+  });
+});
+
+describe("shouldFireInThisEnvironment", () => {
+  // The env gate is the load-bearing fix that stops a dev `npm run
+  // dev` from spamming the prod alert inbox with local Prisma blips,
+  // schema-drift errors, and other dev noise. If this contract
+  // regresses, the dev-spam problem comes back silently.
+
+  it("fires unconditionally when NODE_ENV=production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("fires in production even when ENABLE_ADMIN_ALERTS is missing", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("fires in production even when ENABLE_ADMIN_ALERTS=false (prod is non-overridable)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "false");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("DOES NOT fire when NODE_ENV=development and ENABLE_ADMIN_ALERTS unset", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
+    expect(shouldFireInThisEnvironment()).toBe(false);
+  });
+
+  it("DOES NOT fire when NODE_ENV=test and ENABLE_ADMIN_ALERTS unset", () => {
+    // Vitest sets NODE_ENV=test by default. Make sure the gate
+    // doesn't fire from inside CI when tests run code that calls
+    // apiLogger.error.
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
+    expect(shouldFireInThisEnvironment()).toBe(false);
+  });
+
+  it("fires in dev when ENABLE_ADMIN_ALERTS=true (explicit opt-in)", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "true");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("requires EXACT 'true' string for opt-in (not '1' / 'yes' / 'TRUE')", () => {
+    // Strictness here matters: a typo'd opt-in would silently fail in
+    // a way that wastes a debug cycle. Force operators to use the
+    // documented value.
+    vi.stubEnv("NODE_ENV", "development");
+    for (const val of ["1", "yes", "TRUE", "True", "on", " true ", "true "]) {
+      vi.stubEnv("ENABLE_ADMIN_ALERTS", val);
+      expect(shouldFireInThisEnvironment()).toBe(false);
+    }
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "true");
+    expect(shouldFireInThisEnvironment()).toBe(true);
+  });
+
+  it("DOES NOT fire when NODE_ENV is unset (default-deny posture)", () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("ENABLE_ADMIN_ALERTS", "");
+    expect(shouldFireInThisEnvironment()).toBe(false);
   });
 });

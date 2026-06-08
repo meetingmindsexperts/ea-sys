@@ -711,8 +711,9 @@ async function notifyAdminOfSendFailure(input: SendFailureAlertInput): Promise<v
     : subjectPrefix;
 
   const lines = [
-    "An EA-SYS email send failed in production.",
+    "An EA-SYS email send failed.",
     "",
+    `Environment:   ${env}`,
     `Error:         ${input.message}`,
     input.awsErrorName ? `AWS code:      ${input.awsErrorName}` : null,
     input.awsRequestId ? `AWS requestId: ${input.awsRequestId}` : null,

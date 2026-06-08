@@ -60,6 +60,34 @@ export interface AdminAlertInput {
   body: string;
   /** Stable key used to dedupe. Same key within 1h = no new alert. */
   dedupKey: string;
+  /**
+   * Optional detail line — surfaced as `Detail: ...` in the email body
+   * just below the message. Used by the logger forwarder to carry the
+   * actual underlying error text when the structured `msg` field is a
+   * generic title (e.g. "Prisma error" without classification — the
+   * real error message was previously dropped from the alert body).
+   */
+  detail?: string;
+}
+
+/**
+ * Decide whether this process should fire admin alerts at all.
+ *
+ * Rules (in order):
+ *   1. NODE_ENV=production → ALWAYS fire (the load-bearing case;
+ *      no opt-out, dev never gates the prod alert pipeline)
+ *   2. Otherwise → only fire when ENABLE_ADMIN_ALERTS=true (explicit
+ *      opt-in for dev/staging when an engineer is intentionally
+ *      testing the alert wiring)
+ *   3. Otherwise → skip, no SES call, no console noise
+ *
+ * Closes the dev-spam gap: pre-fix, a Prisma blip on a local
+ * `npm run dev` would email the prod alert inbox because there
+ * was no env gate. Now dev needs to opt in.
+ */
+export function shouldFireInThisEnvironment(): boolean {
+  if (process.env.NODE_ENV === "production") return true;
+  return process.env.ENABLE_ADMIN_ALERTS === "true";
 }
 
 /**
@@ -75,6 +103,16 @@ export interface AdminAlertInput {
  */
 export async function notifyAdminAlert(input: AdminAlertInput): Promise<void> {
   try {
+    // Environment gate — skip silently when in non-production without
+    // explicit opt-in. See shouldFireInThisEnvironment() above for the
+    // policy. Returns BEFORE the dedupe map updates so a dev-mode
+    // run doesn't pollute the dedupe state of a subsequent prod run
+    // (matters when ENABLE_ADMIN_ALERTS gets toggled mid-process,
+    // rare but worth getting right).
+    if (!shouldFireInThisEnvironment()) {
+      return;
+    }
+
     const alertFrom = (
       process.env.ALERT_EMAIL_FROM ?? "alerts@meetingmindsexperts.com"
     ).trim();

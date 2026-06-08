@@ -333,6 +333,7 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
       const first = args[0];
       let message: string | undefined;
       let errSignature: string | undefined;
+      let detail: string | undefined;
       let context: Record<string, unknown> = {};
 
       if (first instanceof Error) {
@@ -351,9 +352,31 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
         } else {
           errSignature = "error";
         }
+
+        // Extract the underlying error TEXT for the email body's Detail
+        // line. Originally we dropped both `err` and `error` from the
+        // context block on the assumption their content was surfaced
+        // elsewhere — turned out to be wrong for the Prisma case where
+        // the structured `msg` field is a generic title ("Prisma error")
+        // and `error: e.message` carries the real driver text. Without
+        // this extraction the operator gets an alert that says "DB
+        // module had an error" with no information about WHAT.
+        //
+        // Priority: err.message > error-as-string > err string form.
+        // Trims + caps at 500 chars to keep the email scannable.
+        if (errInner instanceof Error && errInner.message) {
+          detail = errInner.message;
+        } else if (typeof obj.error === "string" && obj.error.length > 0) {
+          detail = obj.error;
+        } else if (typeof obj.err === "string" && obj.err.length > 0) {
+          detail = obj.err;
+        }
+        if (detail && detail.length > 500) detail = `${detail.slice(0, 500)}…`;
+
         // Capture the structured-log fields as alert context (redacting
         // the same sensitive keys Sentry does). Drop the err/error/msg
-        // fields themselves — they're surfaced separately in the body.
+        // fields themselves — they're surfaced separately in the body
+        // via message + detail + errSignature.
         const REDACTED_KEYS = new Set(["password", "passwordHash", "token", "accessToken", "refreshToken", "authorization", "cookie"]);
         for (const [k, v] of Object.entries(obj)) {
           if (k === "err" || k === "error" || k === "msg") continue;
@@ -377,7 +400,21 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
 
       const dedupKey = `logger:${module}:${message.slice(0, 100)}`;
       const env = process.env.NODE_ENV === "production" ? "prod" : "dev";
-      const subject = `[ea-sys][${env}] ${module}: ${message.slice(0, 80)}`;
+
+      // Build subject. When the caller's msg is a generic title AND we
+      // extracted a real detail message, append a 60-char detail
+      // preview to the subject so the inbox glance reveals the actual
+      // error. Kept short to leave room in mail-client subject truncation.
+      // We only use the preview when the message looks generic — defined
+      // as "ends with 'error'" (Prisma error / sendEmail error /
+      // database error etc.) — otherwise the message itself is already
+      // diagnostic.
+      const looksGeneric = /\berror$/i.test(message.trim());
+      const subjectBase = `[ea-sys][${env}] ${module}: ${message.slice(0, 80)}`;
+      const subject =
+        looksGeneric && detail
+          ? `${subjectBase} — ${detail.replace(/\s+/g, " ").trim().slice(0, 60)}`
+          : subjectBase;
 
       // Format the context as aligned key/value pairs. Truncate any
       // value over 500 chars so the email stays scannable (full detail
@@ -398,8 +435,10 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
       const lines = [
         "An EA-SYS application error fired.",
         "",
+        `Environment:   ${env}`,
         `Module:        ${module}`,
         `Message:       ${message}`,
+        ...(detail ? [`Detail:        ${detail}`] : []),
         `Error signature: ${errSignature ?? "(none)"}`,
         ...(contextLines.length > 0 ? ["", "Context:", ...contextLines] : []),
         "",
@@ -409,7 +448,7 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
         `ea-sys automated alert`,
       ].join("\n");
 
-      await notifyAdminAlert({ subject, body: lines, dedupKey });
+      await notifyAdminAlert({ subject, body: lines, dedupKey, detail });
     } catch {
       // Last-resort: any failure in this hook must NOT propagate, or
       // we'd kill the original log call.
