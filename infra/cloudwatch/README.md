@@ -234,6 +234,28 @@ Common causes:
 - File permissions → `cwagent` user must be able to read `/home/ubuntu/ea-sys/logs/*.log`
 - Egress firewall → port 443 to `logs.ap-south-1.amazonaws.com` must be reachable
 
+**Agent runs but no logs appear in CloudWatch (the most common failure):**
+
+Most likely cause: `cwagent` lacks read access to the log files. Common scenarios:
+- `/home/ubuntu` is mode `0700` or `0750`, blocking traversal for non-ubuntu users (this is the Ubuntu default on some installs)
+- Files have correct mode `0644` but the parent dir blocks access
+
+The setup script now applies ACLs to surgically grant cwagent the access it needs (without loosening permissions on `/home/ubuntu` for other users). If you skipped the setup script or it ran before this fix landed, apply manually:
+
+```bash
+sudo setfacl -m u:cwagent:rx /home/ubuntu
+sudo setfacl -m u:cwagent:rx /home/ubuntu/ea-sys
+sudo setfacl -m u:cwagent:rx /home/ubuntu/ea-sys/logs
+sudo find /home/ubuntu/ea-sys/logs -type f -name "*.log" -exec sudo setfacl -m u:cwagent:r {} \;
+sudo setfacl -d -m u:cwagent:r /home/ubuntu/ea-sys/logs
+sudo systemctl restart amazon-cloudwatch-agent
+
+# Verify:
+sudo -u cwagent test -r /home/ubuntu/ea-sys/logs/app.log && echo "OK" || echo "STILL BROKEN"
+```
+
+The default ACL (`-d`) on the logs dir is critical — without it, new log files created after Pino rotation lose the cwagent access and the agent silently stops shipping new data.
+
 **Logs flowing but not seeing what you expect:**
 - The Pino JSON is shipped as-is. Each line is one log event. The `level` field tells you severity (30=info, 40=warn, 50=error, 60=fatal).
 - CloudWatch Insights queries: use `fields @timestamp, level, msg, module` + `filter level >= 50` to see all errors.

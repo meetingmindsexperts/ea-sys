@@ -75,14 +75,42 @@ log "Installing agent config..."
 sudo install -m 0644 -o root -g root "${AGENT_CONFIG_SRC}" "${AGENT_CONFIG_DST}"
 
 # ─── Permissions on log files ───────────────────────────────────────
-# The cwagent user (created by the package install) needs read access
-# to the Docker-mounted log files. Docker writes them as the container
-# user (typically uid 1000 / "ubuntu" group). Make sure cwagent can
-# read them WITHOUT giving it write access (read-only ACL would be
-# tighter; chmod-the-directory is the pragmatic approach).
-log "Ensuring cwagent can read /home/ubuntu/ea-sys/logs/*.log..."
-sudo chmod 0755 "${REPO_ROOT}/logs"
-sudo find "${REPO_ROOT}/logs" -type f -name "*.log" -exec chmod 0644 {} \;
+# The cwagent user (created by the package install) needs:
+#   1. Read access to each *.log file
+#   2. Execute (traversal) permission on every parent directory in
+#      the path from / down to the logs/ directory
+#
+# Files themselves are usually world-readable (0644), but the home
+# directory on Ubuntu is commonly 0700 or 0750 — meaning even a
+# world-readable file under it is unreachable without explicit
+# traversal permission. chmod-ing /home/ubuntu to 0755 would work
+# but loosens the home dir for ALL system users, which is overkill.
+#
+# Use ACLs instead — surgical, grants cwagent SPECIFICALLY the
+# access it needs without changing anything else. The default ACL on
+# the logs dir ensures new log files inherit the rule (Pino rotates
+# the file, the agent keeps reading).
+log "Granting cwagent read+traversal access via ACLs..."
+
+# Install acl package if missing (Ubuntu base usually has it, but
+# safe to verify on a fresh box)
+if ! command -v setfacl >/dev/null 2>&1; then
+  log "Installing acl package..."
+  sudo apt-get update -qq && sudo apt-get install -y -qq acl || fail "apt install acl failed."
+fi
+
+# Traversal path
+sudo setfacl -m u:cwagent:rx /home/ubuntu
+sudo setfacl -m u:cwagent:rx "${REPO_ROOT}"
+sudo setfacl -m u:cwagent:rx "${REPO_ROOT}/logs"
+
+# Existing log files
+sudo find "${REPO_ROOT}/logs" -type f -name "*.log" -exec setfacl -m u:cwagent:r {} \;
+
+# Future log files (Pino rotates ~daily; without this, new files
+# created post-rotation would lose the ACL and the agent would
+# silently stop receiving fresh data)
+sudo setfacl -d -m u:cwagent:r "${REPO_ROOT}/logs"
 
 # ─── Apply config + start ───────────────────────────────────────────
 log "Applying config + starting agent..."
