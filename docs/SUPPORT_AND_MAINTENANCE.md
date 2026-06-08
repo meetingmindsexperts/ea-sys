@@ -34,7 +34,7 @@ This document is **not** about new features. It's about **what's required to kee
 | **DNS + email reputation** | `events.meetingmindsgroup.com`, `meetingmindsexperts.com` | GoDaddy (registrar), AWS Route 53 (some DNS) | If DNS goes down, nothing is reachable. Email reputation lives with whoever owns the sender domain (currently `meetingmindsexperts.com`). |
 | **Error monitoring** | Real-time error capture | Sentry (cloud SaaS) | Captures every error with stack trace + context. Production safety net. |
 
-**Total infrastructure cost: roughly $200–500 USD/month at current scale.** Detailed cost breakdown in §8.
+**Total infrastructure cost: currently under $100 USD/month at MMG's actual event volume.** Detailed cost breakdown in §8. The figure scales primarily with Anthropic API usage (AI Agent + Help Chat) and AWS storage, not with event count — adding events doesn't materially increase costs until traffic crosses ~10x today's volume.
 
 ---
 
@@ -194,30 +194,31 @@ The "Severity" column reflects current real-world impact, not theoretical risk. 
 
 ---
 
-## 8. Annual operating costs — rough ranges
+## 8. Operating costs — actual
 
-These are the recurring infrastructure costs only. Engineering time (the largest cost) is separate.
+These are the recurring infrastructure costs only. Engineering time (the largest cost) is separate. **Figures reflect actual current MMG event volume — not a generic SaaS-at-this-LOC projection.**
 
-| Category | Monthly cost (USD, approximate) | Annual (USD) | Notes |
+| Category | Monthly cost (USD) | Annual (USD) | Notes |
 |---|---|---|---|
-| AWS EC2 Mumbai (`t3.large`, production) | $60–80 | $720–960 | Single instance, both web + worker containers |
-| AWS EC2 Singapore (DR standby) | $60–80 | $720–960 | Could be turned off when not in drill mode to save ~$700/yr (trade-off: warm vs cold standby) |
-| AWS S3 Singapore (DR mirror only — live files are on the Mumbai instance disk) | $3–15 | $36–180 | Scales with media-upload volume and DR retention policy |
-| AWS SES | $1–10 | $12–120 | $0.10 per 1,000 emails. Even at 100,000 emails/month, ~$10 |
-| Supabase (Postgres managed) | $25–50 | $300–600 | Current plan tier |
-| Anthropic (Claude API) | $50–200 | $600–2,400 | Highly variable based on AI Agent + Help Chat usage |
-| Sentry | $0–26 | $0–312 | Free tier covers current volume; paid tier if usage grows |
-| Domain (GoDaddy) | ~$1 | $12–20 | `meetingmindsgroup.com` + `meetingmindsexperts.com` |
-| GitHub (private repos + Actions) | Included in MMG GitHub plan | — | Already paid via organisational subscription |
-| Stripe | Per-transaction fee | — | Standard ~2.9% + $0.30 per successful transaction; not a fixed cost |
-| **Total infrastructure** | **~$200–500** | **~$2,400–6,000** | At current scale |
+| AWS EC2 Mumbai (`t3.large`, production) | ~$60 | ~$720 | Single instance, both web + worker containers running 24/7 on a Reserved-Instance-equivalent rate. The dominant single line item. |
+| AWS EC2 Singapore (DR standby) | ~$3–5 | ~$36–60 | Instance is provisioned but typically **stopped** when not in DR drill mode — only EBS storage accrues. The full ~$60/mo cost only applies during a live failover (rare). |
+| AWS S3 Singapore (DR mirror only — live files on Mumbai instance disk) | ~$1–3 | ~$12–36 | Small at current upload volume; scales linearly with media-upload growth. |
+| AWS SES | ~$1–2 | ~$12–24 | $0.10 per 1,000 emails. Current event volume = a few thousand emails per event = pennies per send. |
+| Supabase (Postgres managed) | $0–25 | $0–300 | Currently on free / starter tier; would step up to Pro (~$25/mo) when scale demands it. |
+| Anthropic (Claude API) | ~$5–20 | ~$60–240 | Help Chat + AI Agent usage at current volume. Cost scales primarily with operator queries to AI Agent — could rise to $50+/mo if usage grows. |
+| Sentry | $0 | $0 | Free tier covers current error volume comfortably. |
+| Domain (GoDaddy) | ~$1 | ~$12–20 | `meetingmindsgroup.com` + `meetingmindsexperts.com` |
+| GitHub (private repos + Actions) | $0 (incremental) | $0 | Already paid via organisational subscription. |
+| Stripe | Per-transaction fee | — | ~2.9% + $0.30 per successful transaction — not a fixed cost. |
+| **Total infrastructure** | **~$70–115** | **~$840–1,400** | **Currently sub-$100/month most months.** |
 
-**What's not in this number:** engineering time (the dominant cost), one-time setup fees, vendor support contracts (none currently). At MMG's current event volume, this infrastructure stack supports an order of magnitude more events without significant scaling cost.
+**What's not in this number:** engineering time (the dominant cost), one-time setup fees, vendor support contracts (none currently). At MMG's current event volume, this infrastructure stack supports an order of magnitude more events without significant scaling cost — the largest line item (Mumbai EC2) stays flat regardless of registrations until traffic crosses ~10x today's volume.
 
-**Cost optimisation opportunities (not urgent):**
-- Singapore EC2 could be a cold standby instead of always-on (~$700/yr saving)
-- S3 lifecycle policies could move old uploads to Glacier (~$10–30/yr saving)
-- Anthropic spend could be capped if usage spikes unexpectedly
+**Cost growth signals to watch — none urgent today:**
+- **Anthropic spend** — single-most-variable line. If AI Agent / Help Chat usage spikes 10x, this becomes the largest line. Decision §9.6 (monthly cap) addresses this.
+- **Supabase** — when row counts pass the free-tier ceiling (~500MB database / 2GB egress), the Pro tier (~$25/mo) becomes necessary. Today's scale is well within free.
+- **S3** — media uploads accumulate. The $1–3/mo today could reach $10/mo if event count doubles and certificates are issued for every attendee.
+- **Mumbai EC2** — a `t3.large` is comfortable up to ~50 concurrent registrants on the public form. If concurrent traffic outpaces that, step up to `t3.xlarge` (~$120/mo) before adding a second instance.
 
 ---
 
