@@ -23,11 +23,29 @@ const listSessions: ToolExecutor = async (input, ctx) => {
         location: true,
         status: true,
         track: { select: { name: true, color: true } },
+        // Session-level roles. speaker.id lets n8n cross-link to the speaker
+        // record; speaker.title carries the honorific for agenda display.
         speakers: {
           select: {
             role: true,
-            speaker: { select: { firstName: true, lastName: true } },
+            speaker: { select: { id: true, title: true, firstName: true, lastName: true } },
           },
+        },
+        // Agenda items within the session, each with its own per-topic
+        // speakers (TopicSpeaker has no role of its own — just the link).
+        topics: {
+          select: {
+            id: true,
+            title: true,
+            duration: true,
+            sortOrder: true,
+            speakers: {
+              select: {
+                speaker: { select: { id: true, title: true, firstName: true, lastName: true } },
+              },
+            },
+          },
+          orderBy: { sortOrder: "asc" },
         },
       },
       orderBy: { startTime: "asc" },
