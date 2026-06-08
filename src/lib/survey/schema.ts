@@ -26,7 +26,6 @@
  */
 
 import { z } from "zod";
-import { randomUUID } from "crypto";
 
 // ── Question types ───────────────────────────────────────────────────────
 
@@ -199,11 +198,21 @@ export function validateAnswers(
  * Generate a stable question id. The builder MUST call this exactly
  * once per question-create and never re-derive from array index.
  *
- * `crypto.randomUUID()` (Node 18+, built-in) gives 122 bits of
- * entropy in a 36-char string. We strip the dashes purely to keep
- * the surveyConfig JSON compact in the DB; collision resistance is
- * unchanged.
+ * Uses `globalThis.crypto.randomUUID()` (Web Crypto API standard,
+ * available in modern browsers + Node 19+) rather than the Node
+ * `crypto` module — this file is imported by the "use client" survey
+ * builder, where a Node-only import would either fail to bundle or
+ * (worse) bundle as undefined and throw `randomUUID is not a function`
+ * at click time. The error gets swallowed by React's error boundary
+ * and produces the exact "nothing works, no logs" symptom that was
+ * blocking the survey builder.
+ *
+ * 122 bits of entropy in a 36-char string; we strip dashes to keep
+ * the surveyConfig JSON compact in the DB. Collision resistance
+ * unchanged. Web Crypto is supported in all secure-context browsers
+ * (the dashboard is always HTTPS in prod, and localhost is treated
+ * as secure for crypto purposes).
  */
 export function newQuestionId(): string {
-  return randomUUID().replace(/-/g, "");
+  return globalThis.crypto.randomUUID().replace(/-/g, "");
 }

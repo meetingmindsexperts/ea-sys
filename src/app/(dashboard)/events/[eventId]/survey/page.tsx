@@ -146,9 +146,22 @@ export default function SurveyBuilderPage() {
   // ── Mutations (immutable updates) ────────────────────────────────────
 
   const addQuestion = useCallback((type: SurveyQuestion["type"]) => {
-    const q = defaultQuestion(type);
-    setQuestions((prev) => [...prev, q]);
-    setExpanded((prev) => new Set(prev).add(q.id));
+    // Defensive try/catch — if defaultQuestion (which calls
+    // newQuestionId → globalThis.crypto.randomUUID) ever throws,
+    // surface the error in console + toast rather than letting
+    // React's error boundary swallow it silently. This was the
+    // "no logs" failure mode that blocked the builder before the
+    // schema.ts fix removed the Node-only `crypto` import.
+    try {
+      const q = defaultQuestion(type);
+      setQuestions((prev) => [...prev, q]);
+      setExpanded((prev) => new Set(prev).add(q.id));
+    } catch (err) {
+      console.error("survey:add-question-failed", { type, err });
+      toast.error(
+        "Couldn't add the question — open the browser console for details.",
+      );
+    }
   }, []);
 
   const removeQuestion = useCallback((id: string) => {
@@ -214,6 +227,11 @@ export default function SurveyBuilderPage() {
       if (mode === "save") {
         const parsed = surveyConfigSchema.safeParse(questions);
         if (!parsed.success) {
+          // Surface the full flattened error to the console so the
+          // operator (and any future engineer) can see EVERY failing
+          // field, not just the first one in the toast. Matches the
+          // "every failure path must log" rule.
+          console.warn("survey:save-client-validation-failed", parsed.error.flatten());
           const first = parsed.error.issues[0];
           toast.error(
             first ? `${first.path.join(".") || "Survey"}: ${first.message}` : "Please fix the survey before saving.",
