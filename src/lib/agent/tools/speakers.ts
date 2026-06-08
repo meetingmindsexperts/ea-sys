@@ -56,11 +56,15 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
         jobTitle: true,
         specialty: true,
         status: true,
+        // Demographic/professional role (AttendeeRole) for n8n CRM sync.
+        role: true,
         // Publishing fields for the Webflow speaker directory (via n8n):
         // bio + photo are the speaker card content; country for filtering.
         bio: true,
         photo: true,
         country: true,
+        createdAt: true,
+        updatedAt: true,
       },
       take: limit,
       orderBy: { createdAt: "desc" },

@@ -65,6 +65,7 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
         status: true,
         paymentStatus: true,
         createdAt: true,
+        updatedAt: true,
         // Check-in + badge analytics fields so the agent can read who's
         // arrived and whose badge has been printed without a second call.
         checkedInAt: true,
@@ -82,6 +83,12 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
             // Secondary CC inbox the registrant supplied.
             additionalEmail: true,
             organization: true,
+            // Profile fields n8n needs to sync attendees to a CRM.
+            jobTitle: true,
+            country: true,
+            role: true,
+            bio: true,
+            photo: true,
           },
         },
         ticketType: { select: { name: true } },
