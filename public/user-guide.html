@@ -1181,7 +1181,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s9-3">
         <div class="sub-title">Customising a template</div>
-        <p>Each template can be customised per-event without affecting the default. Event Settings &rarr; Email Templates &rarr; pick a template &rarr; edit subject + body using the WYSIWYG editor. Template variables like <code>{{eventName}}</code>, <code>{{attendeeName}}</code>, <code>{{quoteAmount}}</code> are filled in at send time.</p>
+        <p>Each template can be customised per-event without affecting the default. <strong>Event Setup &rarr; Email Templates</strong> (or use the &ldquo;Email Templates&rdquo; card on the Setup hub) &rarr; pick a template &rarr; edit subject + body using the WYSIWYG editor. Template variables like <code>{{eventName}}</code>, <code>{{attendeeName}}</code>, <code>{{quoteAmount}}</code> are filled in at send time.</p>
         <figure class="ss-img">
           <div class="ss-img-head"><span class="ss-img-label">Email Templates Tab</span><span class="ss-img-ref">IMG-023</span></div>
           <img src="user-guide/screenshots/07-settings-event/05-email-templates.png" alt="Email templates list with edit and reset buttons">
@@ -1949,11 +1949,25 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         </ul>
       </div>
 
+      <div class="sub" id="platform-scale-sidebar">
+        <div class="sub-title">Sidebar layout &mdash; what each section is for</div>
+        <p>The event-scoped sidebar is organised around how often you touch each item. Daily-use items live in the main sections; configure-once items live behind the <strong>Setup</strong> entry to keep the sidebar uncluttered for teams that don&rsquo;t need them every day.</p>
+        <ul>
+          <li><strong>Overview</strong> &mdash; Dashboard, plus Webinar Console when the event is a webinar.</li>
+          <li><strong>Manage</strong> &mdash; daily-use items the registration / program / check-in teams use. Registrations, Check-In, Speakers, Agenda, Accommodation.</li>
+          <li><strong>Abstracts</strong> &mdash; Abstracts list + Reviewers. Only relevant for events with a CFP.</li>
+          <li><strong>Tools</strong> &mdash; ongoing operational tools. Communications (sending bulk emails, scheduled sends) and AI Agent.</li>
+          <li><strong>Setup</strong> &mdash; Event Setup hub + Settings. The Event Setup card grid is where you&rsquo;ll find <strong>Registration Types</strong>, <strong>Content</strong>, <strong>Email Templates</strong>, <strong>Sponsors</strong>, <strong>Survey</strong>, <strong>Certificates</strong>, and <strong>Media Library</strong> &mdash; all the items that are configured once per event (or occasionally tweaked) rather than touched daily.</li>
+          <li><strong>Analytics</strong> &mdash; sits at the bottom, visually separated. Different persona (reports viewers / MEMBER role) than the daily operational sections above.</li>
+        </ul>
+        <p class="muted">The Setup hub shows a status pill on each card (&ldquo;Configured&rdquo; / &ldquo;N configured&rdquo; / &ldquo;Not configured&rdquo;) so you can scan event-readiness at a glance. Each card click-throughs to the same page that existed before the reorg &mdash; just relocated, not renamed.</p>
+      </div>
+
       <div class="sub" id="platform-scale-philosophy">
         <div class="sub-title">Why this matters operationally</div>
         <p>The scale numbers above translate into three things that matter day-to-day:</p>
         <ul>
-          <li><strong>No vendor lock-in.</strong> Every feature, every workflow, every email template lives in code we control. When EventsAir or any other vendor changes pricing, deprecates a feature, or has an outage, we're insulated.</li>
+          <li><strong>No vendor lock-in.</strong> Every feature, every workflow, every email template lives in code we control. When EventsAir or any other vendor changes pricing, deprecates a feature, or has an outage, we&rsquo;re insulated.</li>
           <li><strong>Fast iteration.</strong> When you ask &ldquo;can we add a field for X?&rdquo; or &ldquo;can we tweak the certificate layout?&rdquo;, the answer is days &mdash; not vendor support tickets that take weeks.</li>
           <li><strong>Operational visibility.</strong> The activity log, email history, audit trail, and admin-alert pipeline mean problems surface quickly. When something goes wrong, you know &mdash; usually before the registrant does.</li>
         </ul>
