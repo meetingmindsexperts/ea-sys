@@ -10,10 +10,10 @@ import { webinarModuleFilter } from "@/lib/webinar";
 import {
   Home,
   Settings,
-  Ticket,
   Mic,
   Building2,
   LayoutDashboard,
+  LayoutGrid,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -27,14 +27,10 @@ import {
   Activity,
   Mail,
   Bot,
-  PenLine,
   ChevronsUpDown,
   ImageIcon,
   Video,
-  Award,
-  GraduationCap,
   ClipboardCheck,
-  ClipboardList,
   HelpCircle,
   BarChart3,
   BookOpen,
@@ -88,13 +84,17 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
   {
     label: "Manage",
     items: [
-      { name: "Registrations",     href: "/registrations", icon: Users },
-      { name: "Registration Types", href: "/tickets",       icon: Ticket },
-      { name: "Check-In",          href: "/check-in",      icon: ScanBarcode },
-      { name: "Analytics",         href: "/analytics",     icon: BarChart3 },
-      { name: "Speakers",          href: "/speakers",      icon: Mic },
-      { name: "Agenda",            href: "/agenda",        icon: Clock },
-      { name: "Accommodation",     href: "/accommodation", icon: Building2 },
+      // Daily-use items only. Registration Types moved to Setup hub
+      // (see /events/[id]/setup) since it's a configure-once flow that
+      // operators rarely revisit after registration opens. Analytics
+      // moved to its own bottom-of-sidebar Insights section since
+      // it's a different persona (reports viewers / MEMBER role)
+      // than the daily registration/program teams using this section.
+      { name: "Registrations", href: "/registrations", icon: Users },
+      { name: "Check-In",      href: "/check-in",      icon: ScanBarcode },
+      { name: "Speakers",      href: "/speakers",      icon: Mic },
+      { name: "Agenda",        href: "/agenda",        icon: Clock },
+      { name: "Accommodation", href: "/accommodation", icon: Building2 },
     ],
   },
   {
@@ -107,19 +107,41 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
   {
     label: "Tools",
     items: [
+      // Communications stays here — operational, used daily for
+      // sending registration confirmations, scheduled reminders, etc.
+      // AI Agent stays here — power tool, occasionally used but
+      // high-value showcase feature.
+      // Survey + Certificates + Media + Sponsors moved to Setup hub
+      // (see /events/[id]/setup) — configure-once or
+      // post-event-only workflows that don't belong in a daily sidebar.
       { name: "Communications", href: "/communications", icon: Mail },
-      { name: "Survey",         href: "/survey",         icon: ClipboardList },
-      { name: "Certificates",   href: "/certificates",   icon: GraduationCap },
-      { name: "Media",          href: "/media",          icon: ImageIcon },
-      { name: "Sponsors",       href: "/sponsors",       icon: Award },
       { name: "AI Agent",       href: "/agent",          icon: Bot },
     ],
   },
   {
-    label: "Config",
+    label: "Setup",
     items: [
-      { name: "Content",  href: "/content",  icon: PenLine },
-      { name: "Settings", href: "/settings", icon: Settings },
+      // Single hub entry for non-daily items. Lands on
+      // /events/[id]/setup which renders a 6-card grid (Registration
+      // Types, Content, Sponsors, Survey, Certificates, Media) with
+      // status pills. Settings keeps its direct sidebar link below
+      // because admin daily-use overlaps but doesn't equal "event
+      // configuration" — they're different audiences.
+      { name: "Event Setup", href: "/setup",    icon: LayoutGrid },
+      { name: "Settings",    href: "/settings",  icon: Settings },
+    ],
+  },
+  {
+    // Bottom-of-sidebar standalone. Analytics has a different persona
+    // (reports viewers / MEMBER role) than the daily operational
+    // sections above. Empty label = no section header rendered (see
+    // the `{section.label && ...}` guard in the render below), so
+    // Analytics sits visually separate without needing its own
+    // "Insights"/"Reports" group title — single item doesn't justify
+    // the header weight.
+    label: "",
+    items: [
+      { name: "Analytics", href: "/analytics", icon: BarChart3 },
     ],
   },
 ];
