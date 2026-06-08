@@ -415,6 +415,243 @@ under the "delete dead code" banner.
 - `src/lib/api-errors.ts` `zodErrorResponse()` (~45 callers, removes silent-failure mode)
 - `src/lib/api-fetch.ts` `ApiError` (only 1 consumer but `STALE_WRITE` 409 → refetch branching is real value; lift inline only if it stays at 1 consumer for 6 more months)
 
+### Automated security-scanning regime (June 8, 2026)
+
+Drafted in a Claude Code mobile-app planning session over the weekend
+as commit `f555808` ("docs: add comprehensive security scanning
+strategy"). The commit never pushed (mobile-app sandbox session
+ended without `git push`), so the files don't exist in this repo.
+The configuration content is preserved verbatim below so it can be
+adopted whenever the trigger conditions fire — no need to reconstruct
+from scratch.
+
+**Decision: deferred — not overengineering the underlying need, but
+the proposed solution is two sizes too big for solo-dev maturity.**
+Reasoning captured in the trigger criteria below.
+
+**What was drafted:**
+1. `docs/SECURITY_SCANNING.md` (~837 lines, content lost when the
+   mobile session ended without push)
+2. `.zap/rules.tsv` (62 lines, OWASP ZAP rule severity assignments —
+   IGNORE/WARN/FAIL) — preserved below
+3. `.snyk` (43 lines, dependency-scan policy file with quarterly-
+   review discipline + comment-block enforcing reason/expires/
+   approver on every ignore) — preserved below
+4. `.github/workflows/zap-scan.yml` (workflow targeting a
+   non-existent `staging.meetingmindsgroup.com` after a
+   non-existent "Deploy to Staging" workflow) — preserved below
+5. `.github/workflows/snyk.yml` (dep-scan + Snyk Code SAST, daily
+   schedule + push + PR triggers) — preserved below
+
+**Why deferred:**
+- EA-SYS is solo-dev with mid-maturity security posture already (5
+  past audit cycles shipped: `b933fda`, `004510c`, `6aed51b`,
+  `2cb7af7`, `ff3b7e0`; independent code-review-agent process for
+  every non-trivial change; `denyReviewer` + `denyFinance` +
+  `buildEventAccessWhere` centralized guards; Stripe webhook HMAC
+  verification; Sentry + admin-alert pipelines; org-bound queries
+  with cross-tenant IDOR audits already-completed; PDPL-aware data
+  residency via Mumbai S3 + Singapore DR).
+- ZAP workflow targets a staging environment that doesn't exist
+  (per saved feedback `feedback_dev_local_storage_prod_only_uat.md`,
+  explicit "prod-only UAT" decision). Building staging just to run
+  ZAP is 3-5 days of infra work for a tool that mostly catches what
+  React default-escape, Tiptap content-sanitization, and past audits
+  already address.
+- ZAP workflow's `fail_action: false` directly contradicts the
+  `.zap/rules.tsv` FAIL section claim "must block deployment" — one
+  or the other has to change before commit.
+- ZAP workflow rules.tsv has an internal contradiction: rule 10020
+  ignores "X-Frame-Options not set" because "CSP frame-ancestors is
+  used instead", but rule 10038 warns "CSP Header Not Set" — those
+  two can't both be true.
+- Snyk workflow pins `snyk/actions/node@master` (supply-chain risk
+  per OWASP CICD-SEC-8 — should pin to SHA or tagged release).
+- Snyk workflow emits a JSON report (`--json-file-output`) but never
+  uploads it as an artifact — file evaporates at job-end.
+- Snyk workflow doesn't emit SARIF, so findings stay siloed in
+  Snyk's web UI instead of appearing in the repo's Security tab,
+  PR annotations, or alerts feed.
+- Snyk Code (their SAST) duplicates ~70% of what the code-review-
+  agent process already catches contextually.
+- Scanner triage time ≈ feature-development time. Solo dev with a
+  feature backlog the size of EA-SYS's = wrong trade-off until
+  external pressure forces the shift.
+
+**Trigger to pick up — pick when ANY of these fires:**
+1. **Team size > 2** (manual audit doesn't scale; SAST + DAST
+   become real value when no one human reviews everything)
+2. **Customer asks for SOC 2 / ISO 27001 / HITRUST** (auditors
+   want to see scanner reports + suppression policies + cadence
+   documentation; ship the whole thing as proof of due diligence)
+3. **Regulator inquiry about PDPL / GDPR posture** (same)
+4. **Adding ANY new feature that takes user-supplied HTML or
+   markdown beyond what Tiptap already covers** (Tiptap is
+   sanitized; a new content path may not be — worth a targeted
+   ZAP active scan against that endpoint specifically as a
+   one-off, NOT a full scanning regime)
+5. **Stripe webhook handler refactor or any change touching the
+   payment flow that's NOT covered by the existing HMAC + Sentry
+   pipeline** (payment flow changes have outsized blast radius;
+   worth a one-off Burp/ZAP active scan against that endpoint
+   specifically)
+6. **The lighter-weight alternative below ever produces noise
+   the team can't keep up with** (counterintuitive trigger: if
+   `npm audit` + Dependabot + secret scanning ARE catching real
+   things and you're triaging them weekly, you've graduated to
+   needing the heavier-weight regime)
+
+**The lighter-weight alternative — IF you want SOMETHING shipped
+without committing to the full regime (45 min total):**
+- Verify Dependabot security updates are enabled (probably already
+  on by GitHub default — Settings → Code security)
+- Enable GitHub secret scanning + push protection (free for private
+  repos; would have caught the `AWS_ACCESS_KEY_ID` in `.env` from
+  Friday's CloudWatch test)
+- Add `npm audit --audit-level=high` as a one-line CI step in the
+  existing `.github/workflows/deploy.yml` (catches the same CVEs
+  Snyk's free tier catches)
+- Document the existing security posture in
+  `docs/SECURITY_POSTURE.md` (auditors/customers ask for this; you
+  have a sellable narrative already — past audit cycles, centralized
+  guards, signed webhooks, Sentry + admin-alert anomaly detection,
+  data residency, ad-hoc code-review-agent process). The narrative
+  IS the deliverable. Don't conflate "we don't run automated
+  scanners" with "we don't have security" — they're not the same.
+
+**Preserved configuration content (verbatim from the mobile session,
+do not re-engineer from scratch when picking up):**
+
+`.zap/rules.tsv`:
+````
+# OWASP ZAP Rule Configuration for EA-SYS
+# Format: RuleID	Action	Description
+# Actions: IGNORE (suppress), WARN (report but don't fail), FAIL (block deploy)
+
+# IGNORE — False positives or not applicable to EA-SYS
+10096	IGNORE	Timestamp Disclosure - Timestamps in responses are intentional
+10027	IGNORE	Information Disclosure - Suspicious Comments
+10015	IGNORE	Re-examine Cache-control Directives — RECONSIDER: MEMBER finance routes use Cache-Control: no-store deliberately
+10049	IGNORE	Non-Storable Content
+10050	IGNORE	Retrieved from Cache
+10020	IGNORE	X-Frame-Options Header Not Set — RECONSIDER: contradicts 10038 below
+10037	IGNORE	Server Leaks Information via X-Powered-By — RECONSIDER: should fix (next.config.ts poweredByHeader: false)
+90033	IGNORE	Loosely Scoped Cookie
+
+# WARN — Monitor but don't block deploys
+10038	WARN	CSP Header Not Set — RECONSIDER: contradicts 10020 above
+10098	WARN	Cross-Domain Misconfiguration — intentional for /api/mcp/*
+40025	WARN	Proxy Disclosure
+90022	WARN	Application Error Disclosure
+10021	WARN	X-Content-Type-Options Header Missing
+10036	WARN	Server Leaks Version Information
+40026	WARN	HTTP Parameter Pollution
+90034	WARN	Cookie Without SameSite Attribute
+
+# FAIL — Critical issues that should block deployment
+40012	FAIL	Cross Site Scripting (Reflected)
+40014	FAIL	Cross Site Scripting (Persistent)
+40018	FAIL	SQL Injection
+40022	FAIL	SQL Injection - PostgreSQL
+90019	FAIL	Server Side Include
+90020	FAIL	Remote OS Command Injection
+40009	FAIL	Server Side Request Forgery — VERIFY: comment claims "safe-fetch" but no such lib exists in EA-SYS
+40016	FAIL	Directory Traversal
+40017	FAIL	External Redirect
+40034	FAIL	.env Information Leak
+40040	FAIL	CORS Header — Wildcard origin with credentials
+````
+
+`.snyk`:
+````yaml
+# Snyk Policy File for EA-SYS
+# Quarterly review cadence. Every ignore MUST have: reason, expires, approved_by.
+version: v1.25.0
+
+ignore: {}
+patch: {}
+
+language-settings:
+  javascript:
+    excludeDevDependencies: true
+````
+
+`.github/workflows/zap-scan.yml` (DO NOT commit as-is — has 3
+critical issues flagged in the review):
+````yaml
+# Has critical issues: depends on non-existent "Deploy to Staging"
+# workflow; targets non-existent staging.meetingmindsgroup.com;
+# fail_action: false contradicts rules.tsv FAIL section.
+# Fix architecture before adoption (Option A: scheduled scan against
+# prod; Option B: local CI scan with npm run dev; both detailed in
+# the review).
+name: OWASP ZAP Security Scan
+on:
+  workflow_run:
+    workflows: ["Deploy to Staging"]
+    types: [completed]
+jobs:
+  zap-baseline:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'https://staging.meetingmindsgroup.com'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -j -l WARN'
+          fail_action: false
+````
+
+`.github/workflows/snyk.yml` (DO NOT commit as-is — pin `@master`
+to SHA, add artifact upload, add SARIF):
+````yaml
+name: Snyk Security Scan
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 8 * * *'
+jobs:
+  snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - uses: snyk/actions/node@master   # FIX: pin to SHA
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: >-
+            --severity-threshold=high
+            --fail-on=upgradable
+            --json-file-output=snyk-report.json
+      # MISSING: artifact upload of snyk-report.json
+      # MISSING: SARIF emission + upload to GitHub Security tab
+  snyk-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: snyk/actions/node@master   # FIX: pin to SHA + add setup-node
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code test
+          args: --severity-threshold=high
+````
+
+**When picking up the full regime, address the review notes above
+BEFORE first commit. Don't ship the configs with the contradictions
+intact — that produces noise + erodes trust in the scanner output,
+which is the failure mode that kills security regimes in solo-dev
+shops.**
+
 ### Medium-Term (2–4 Months)
 
 | Feature | Description |
