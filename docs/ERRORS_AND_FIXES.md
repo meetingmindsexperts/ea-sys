@@ -2,7 +2,7 @@
 
 A comprehensive record of every significant error, bug, and issue encountered in the project, organized by category. Each entry includes the root cause, the fix applied, and the files affected.
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-06-08
 
 ---
 
@@ -133,6 +133,26 @@ npm install @tiptap/react@^2 @tiptap/starter-kit@^2 @tiptap/core@^2 ... --legacy
 **Fix:** Changed all migrations to use `CREATE UNIQUE INDEX IF NOT EXISTS` instead of `ADD CONSTRAINT ... UNIQUE`.
 
 **Files:** `prisma/migrations/` files
+
+---
+
+### B7 — Node `crypto` import silently breaks Client Component (survey builder, June 8, 2026)
+
+**Error:** Survey builder buttons ("Add rating", "Add single select", "Add free text") looked dead — clicking produced no UI change, no toast, no console log, no network request, no server log. Build/lint/tests all passed; tests covered the schema but not the click path.
+
+**Root cause:** `src/lib/survey/schema.ts` had `import { randomUUID } from "crypto"` — Node.js's built-in crypto module. This file was imported by the `"use client"` survey builder page. In the browser bundle, `randomUUID` resolved as `undefined`. Click handler chain `addQuestion()` → `defaultQuestion()` → `newQuestionId()` → `randomUUID()` threw `TypeError: randomUUID is not a function`, swallowed by React's error boundary. Same shape as B2 but with `crypto` instead of `fs`, and importantly **the build did not fail** — Next.js silently treats unknown Node modules as empty stubs in the client bundle.
+
+**Why every gate passed:** `@types/node` types made `randomUUID` look type-valid; ESLint has no rule for Node-only imports in client bundles; Vitest runs in Node where `crypto` works fine (so the 9 schema unit tests passed without exercising the bug); `next build` silently stubbed the missing module instead of failing.
+
+**Fix:**
+  - `src/lib/survey/schema.ts` — replaced `randomUUID` (Node-only) with `globalThis.crypto.randomUUID()` (Web Crypto API, available in modern browsers + Node 19+). Removed the `import { randomUUID } from "crypto"` line entirely.
+  - `src/app/(dashboard)/events/[eventId]/survey/page.tsx` — added defensive `try/catch + console.error + toast.error` around the add-question handler so a similar future bug surfaces in the browser console immediately instead of being silently swallowed. Added full flattened-error console log to the client-side Zod save-validation failure path.
+
+**Pattern to watch for:** any file imported (directly OR transitively) by a `"use client"` component must not import Node-only modules (`crypto`, `fs`, `path`, `os`, `child_process`, `pino`, server-only SDKs). When a click handler "does nothing" with no logs anywhere, suspect this class of failure — the error throws BEFORE the fetch, so server logs don't capture it.
+
+**Detection rule:** for crypto needs in shared modules (schema files, validators, utilities), prefer `globalThis.crypto.*` (Web Crypto API standard) over the Node `crypto` import. Works in both runtimes; no platform-specific code.
+
+**Files:** `src/lib/survey/schema.ts`, `src/app/(dashboard)/events/[eventId]/survey/page.tsx`
 
 ---
 
