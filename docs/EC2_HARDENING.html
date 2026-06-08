@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EC2 Hardening Runbook — EA-SYS Mumbai</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e6e8ec;
+    --text: #1a1d21;
+    --muted: #6a7381;
+    --accent: #00aade;
+    --accent-soft: #e6f7fc;
+    --code-bg: #f3f4f6;
+    --code-border: #e4e7eb;
+    --green: #0d9e5a;
+    --green-soft: #e3f6ea;
+    --amber: #c48407;
+    --amber-soft: #fff4dc;
+    --red: #c62828;
+    --red-soft: #fdeaea;
+    --blue: #2265cc;
+    --blue-soft: #e7f0fb;
+    --shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    max-width: 1280px;
+    margin: 0 auto;
+    min-height: 100vh;
+  }
+
+  aside {
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    padding: 28px 20px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  aside h2 {
+    margin: 0 0 6px;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+  }
+  aside nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px 0;
+  }
+  aside nav a {
+    display: block;
+    padding: 6px 8px;
+    color: var(--text);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  aside nav a:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  aside nav .sub {
+    margin-left: 14px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  main {
+    padding: 40px 48px;
+    min-width: 0;
+  }
+
+  header.top {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  header.top h1 {
+    margin: 0 0 4px;
+    font-size: 28px;
+    font-weight: 700;
+  }
+  header.top .sub {
+    color: var(--muted);
+    font-size: 15px;
+  }
+  header.top .meta {
+    margin-top: 10px;
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  header.top .meta strong { color: var(--text); }
+
+  section {
+    margin-bottom: 44px;
+    scroll-margin-top: 16px;
+  }
+  section h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  section h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 22px 0 8px;
+  }
+  section h4 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 14px 0 6px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  p { margin: 0 0 12px; }
+
+  code, pre {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--code-border);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    padding: 12px 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+    line-height: 1.5;
+    margin: 10px 0 14px;
+  }
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 13.5px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    vertical-align: middle;
+  }
+  .badge.done { background: var(--green-soft); color: var(--green); }
+  .badge.progress { background: var(--amber-soft); color: var(--amber); }
+  .badge.pending { background: #eceff3; color: var(--muted); }
+  .badge.blocked { background: var(--red-soft); color: var(--red); }
+
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0;
+  }
+  .callout.warn { border-color: var(--amber); background: var(--amber-soft); }
+  .callout.danger { border-color: var(--red); background: var(--red-soft); }
+  .callout.info { border-color: var(--blue); background: var(--blue-soft); }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--muted);
+  }
+  td code { white-space: nowrap; }
+
+  .progress-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 14px 0 6px;
+  }
+  .progress-grid .card {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .progress-grid .card .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .progress-grid .card .title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  ul li, ol li { margin-bottom: 4px; }
+
+  details {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 10px 0;
+    background: var(--panel);
+  }
+  details summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  details[open] summary { margin-bottom: 8px; }
+
+  .kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--panel);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+  }
+
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside>
+  <h2>Overview</h2>
+  <nav>
+    <ul>
+      <li><a href="#overview">What & Why</a></li>
+      <li><a href="#status">Status Dashboard</a></li>
+      <li><a href="#cheatsheet">Cheat Sheet</a></li>
+    </ul>
+  </nav>
+
+  <h2>Steps</h2>
+  <nav>
+    <ul>
+      <li><a href="#step1">Step 1 — EBS Snapshot</a></li>
+      <li><a href="#step2">Step 2 — Cloudflare</a></li>
+      <li><a href="#step3a">Step 3a — SSM Setup</a></li>
+      <li><a href="#step3b">Step 3b — SG Lockdown</a></li>
+      <li><a href="#step4">Step 4 — unattended-upgrades</a></li>
+      <li><a href="#step5">Step 5 — Code Patch</a></li>
+      <li><a href="#step6">Step 6 — DR (Terraform)</a></li>
+    </ul>
+  </nav>
+
+  <h2>Learning</h2>
+  <nav>
+    <ul>
+      <li><a href="#concepts">Key Concepts</a></li>
+      <li><a href="#terraform-101">Terraform 101</a></li>
+      <li><a href="#troubleshoot">Troubleshooting</a></li>
+      <li><a href="#deferred">Deferred / Next</a></li>
+    </ul>
+  </nav>
+</aside>
+
+<main>
+
+<header class="top">
+  <h1>EC2 Hardening Runbook</h1>
+  <div class="sub">A plain-English walkthrough of what we're doing to the Mumbai EC2, why, and how to refresh your memory later.</div>
+  <div class="meta">
+    <span><strong>Target:</strong> events.meetingmindsgroup.com (Mumbai, ap-south-1)</span>
+    <span><strong>Instance:</strong> <code>i-0b51ab1213d084640</code></span>
+    <span><strong>Owner:</strong> Krishna</span>
+    <span><strong>Last updated:</strong> 2026-04-23</span>
+  </div>
+</header>
+
+<!-- ========= OVERVIEW ========= -->
+<section id="overview">
+  <h2>What we're doing and why</h2>
+
+  <p>The Mumbai box today is a <strong>single EC2, directly exposed to the internet</strong>, with port 22 (SSH) open to the whole world and port 443 serving traffic directly from its public IP. There's no CDN/WAF in front, no safety-net snapshot routine, and if this region has an outage (like Dubai did), there's no plan to recover.</p>
+
+  <p>This runbook closes those gaps in 6 small steps. Each step is low-risk on its own, reversible, and adds one layer of protection.</p>
+
+  <h3>Starting state → Target state</h3>
+  <table>
+    <tr><th style="width:40%">Risk / gap</th><th>Before</th><th>After</th></tr>
+    <tr><td>Origin IP exposed</td><td>Public, reachable from any IP</td><td>Hidden behind Cloudflare; SG allows only CF CIDRs</td></tr>
+    <tr><td>SSH reachable from internet</td><td>Port 22 open to <code>0.0.0.0/0</code></td><td>Port 22 <strong>closed</strong>; shell access via AWS SSM</td></tr>
+    <tr><td>OS security patches</td><td>Manual, 31 updates pending</td><td>Auto-installed daily via <code>unattended-upgrades</code></td></tr>
+    <tr><td>DDoS / bot defence</td><td>None</td><td>Cloudflare WAF + Bot Fight Mode (free tier)</td></tr>
+    <tr><td>Client IP in rate limiter</td><td>Reads spoofable <code>X-Forwarded-For</code></td><td>Reads trusted <code>CF-Connecting-IP</code></td></tr>
+    <tr><td>Rollback point</td><td>None</td><td>EBS snapshot baseline + planned AWS Backup schedule</td></tr>
+    <tr><td>Disaster recovery</td><td>None — region outage = downtime until Mumbai recovers</td><td>Terraform module spins up Singapore replacement box in ~10 min</td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Supabase is out of scope for this runbook.</strong> We'll tackle DB redundancy (PITR, cross-region backup, restore drills) as a separate round once this one lands.
+  </div>
+</section>
+
+<!-- ========= STATUS ========= -->
+<section id="status">
+  <h2>Status dashboard</h2>
+  <div class="progress-grid">
+    <div class="card">
+      <div class="label">Step 1</div>
+      <div class="title">EBS snapshot</div>
+      <span class="badge done">Done (manual)</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 2</div>
+      <div class="title">Cloudflare</div>
+      <span class="badge pending">Pending</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 3a</div>
+      <div class="title">SSM setup</div>
+      <span class="badge done">Done</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 3b</div>
+      <div class="title">SG lockdown</div>
+      <span class="badge pending">Reverted — blocked on CI/CD rewrite</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 4</div>
+      <div class="title">unattended-upgrades</div>
+      <span class="badge done">Done</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 5</div>
+      <div class="title">CF-Connecting-IP patch</div>
+      <span class="badge done">Code merged locally</span>
+    </div>
+    <div class="card">
+      <div class="label">Step 6</div>
+      <div class="title">DR (Terraform)</div>
+      <span class="badge done">Drill validated + uploads sync live</span>
+    </div>
+  </div>
+  <p class="sub" style="font-size:13px;color:var(--muted);">Badges reflect a snapshot at the time of writing. Update as you progress through the steps.</p>
+</section>
+
+<!-- ========= CHEAT SHEET ========= -->
+<section id="cheatsheet">
+  <h2>Cheat sheet</h2>
+  <p>The commands you'll use most often after hardening is complete.</p>
+
+  <h3>Access the Mumbai box</h3>
+<pre><code># Old way (will stop working after Step 3b):
+ssh -i your-key.pem ubuntu@&lt;public-ip&gt;
+
+# New way (after Step 3a — already working now):
+aws ssm start-session --target i-0b51ab1213d084640 --region ap-south-1
+# Then become the ubuntu user so your env matches the old SSH:
+sudo -iu ubuntu
+
+# Recommended: add to your ~/.zshrc
+alias prodshell='aws ssm start-session --target i-0b51ab1213d084640 --region ap-south-1'
+# Then just type: prodshell</code></pre>
+
+  <h3>Deploy</h3>
+<pre><code># From inside the box (prodshell → sudo -iu ubuntu)
+cd ~/ea-sys
+git pull
+bash scripts/deploy.sh</code></pre>
+
+  <h3>Check health</h3>
+<pre><code>curl -I https://events.meetingmindsgroup.com/api/health
+# Expect: HTTP/2 200, body: {"status":"ok","database":"connected"}</code></pre>
+
+  <h3>Useful AWS commands</h3>
+<pre><code>aws sts get-caller-identity               # who am I?
+aws ec2 describe-instances --instance-ids i-0b51ab1213d084640 --region ap-south-1
+aws backup list-recovery-points-by-backup-vault --backup-vault-name Default
+aws ssm describe-instance-information --region ap-south-1  # list SSM-registered instances</code></pre>
+
+  <h3>Key URLs</h3>
+  <table>
+    <tr><td><strong>Prod site</strong></td><td><a href="https://events.meetingmindsgroup.com">events.meetingmindsgroup.com</a></td></tr>
+    <tr><td><strong>AWS EC2</strong></td><td><a href="https://ap-south-1.console.aws.amazon.com/ec2/home?region=ap-south-1">Mumbai EC2 console</a></td></tr>
+    <tr><td><strong>AWS SSM Fleet Manager</strong></td><td><a href="https://ap-south-1.console.aws.amazon.com/systems-manager/managed-instances?region=ap-south-1">Fleet Manager</a></td></tr>
+    <tr><td><strong>AWS IAM roles</strong></td><td><a href="https://console.aws.amazon.com/iamv2/home#/roles">IAM roles</a></td></tr>
+    <tr><td><strong>Cloudflare dashboard</strong></td><td><a href="https://dash.cloudflare.com">dash.cloudflare.com</a></td></tr>
+    <tr><td><strong>Cloudflare IPs</strong></td><td><a href="https://www.cloudflare.com/ips-v4">cloudflare.com/ips-v4</a></td></tr>
+  </table>
+</section>
+
+<!-- ========= STEP 1 ========= -->
+<section id="step1">
+  <h2>Step 1 — EBS snapshot baseline <span class="badge done">Done (manual)</span></h2>
+
+  <h4>Goal in one sentence</h4>
+  <p>Take a point-in-time backup of the Mumbai instance's disk so everything we do afterwards is rollback-able.</p>
+
+  <h4>What an EBS snapshot actually is</h4>
+  <p>An EBS volume is the virtual disk attached to your EC2 (like a hard drive). A snapshot is a complete copy of that disk, stored in S3 (hidden behind the scenes). You can later create a new volume from the snapshot — effectively "restore to this point in time." The first snapshot captures every block; later snapshots only capture blocks that changed, so they're fast.</p>
+
+  <div class="callout info">
+    <strong>EBS snapshot vs AMI — quick distinction</strong>
+    An <strong>EBS snapshot</strong> is just the disk contents. An <strong>AMI</strong> (Amazon Machine Image) bundles the snapshot + instance metadata (type, block device mapping, etc.) so you can "launch a new instance exactly like this one" with one click. For our workflow, the snapshot is enough — the DR plan rebuilds from scratch rather than from an AMI.
+  </div>
+
+  <h4>How you did it (manual, one-off)</h4>
+  <ol>
+    <li>AWS Console → EC2 → Volumes.</li>
+    <li>Right-click the Mumbai root volume → <strong>Create snapshot</strong>.</li>
+    <li>First snapshot takes ~15–30 min; subsequent ones are seconds.</li>
+  </ol>
+
+  <h4>What to add later (optional — recurring backup)</h4>
+  <p>For automated daily snapshots with retention, use <strong>AWS Backup</strong>:</p>
+  <ol>
+    <li>AWS Console → AWS Backup → Backup plans → Create plan.</li>
+    <li>Rule: daily at 02:00 IST, 14-day retention.</li>
+    <li>Resource assignment by tag: <code>Environment=production</code>.</li>
+    <li>Tag the root volume accordingly so it's picked up.</li>
+  </ol>
+
+  <h4>Verify</h4>
+  <pre><code>aws ec2 describe-snapshots --owner-ids self --region ap-south-1 --query 'Snapshots[?starts_with(Description,`Created`)].[SnapshotId,State,StartTime]' --output table</code></pre>
+</section>
+
+<!-- ========= STEP 2 ========= -->
+<section id="step2">
+  <h2>Step 2 — Cloudflare in front of the box <span class="badge pending">Pending</span></h2>
+
+  <h4>Goal in one sentence</h4>
+  <p>Route all traffic through Cloudflare so the origin IP is hidden, WAF filters bad requests, and Step 3b can safely lock the SG.</p>
+
+  <h4>What Cloudflare does for us (free tier)</h4>
+  <ul>
+    <li><strong>Hides origin IP</strong> — users resolve the domain to a Cloudflare edge, not your EC2.</li>
+    <li><strong>WAF</strong> — blocks SQL injection, XSS, common exploits before they reach your app.</li>
+    <li><strong>Bot Fight Mode</strong> — challenges bots before they burn your rate limits.</li>
+    <li><strong>DDoS absorption</strong> — Cloudflare soaks L3/L4 floods.</li>
+    <li><strong>Free rate limiting rule</strong> — 1 rule on free tier, backstop to app rate limits.</li>
+  </ul>
+
+  <h4>The 9 sub-steps</h4>
+  <ol>
+    <li><strong>Add site</strong> — dash.cloudflare.com → Add site → <code>meetingmindsgroup.com</code> → Free plan.</li>
+    <li><strong>Audit imported DNS</strong> — Cloudflare pulls current records from your registrar (GoDaddy/etc.). <strong>Critically</strong>, check MX / TXT (SPF, DKIM, DMARC) records — if they're missing, org email dies after nameserver switch. Leave <code>events</code> A record on <strong>DNS-only (gray cloud)</strong> for now.</li>
+    <li><strong>Change nameservers at registrar</strong> — replace current NS with the two Cloudflare-assigned ones. Propagation: 5 min to 24 hr.</li>
+    <li><strong>Wait for Cloudflare to mark site "Active."</strong></li>
+    <li><strong>SSL/TLS → Full (strict)</strong>. The origin (nginx with Let's Encrypt) already has a valid cert.</li>
+    <li><strong>Flip A record to Proxied (orange cloud).</strong> Test that the site still loads; <code>curl -I</code> should show a <code>cf-ray</code> header.</li>
+    <li><strong>WAF → Managed rules</strong> → enable "Cloudflare Managed Ruleset" and "OWASP Core Ruleset" in Block mode.</li>
+    <li><strong>Security settings</strong> → Security Level: Medium, Bot Fight Mode: On, Browser Integrity Check: On.</li>
+    <li><strong>Rules → Rate limiting</strong> → one rule on <code>/api/*</code>, 100 req/min per IP. App-layer rate limits remain authoritative.</li>
+  </ol>
+
+  <div class="callout warn">
+    <strong>Common trap — losing email</strong>
+    If you miss MX records during the NS switch, every email to your org stops delivering. Take a screenshot of the registrar's DNS page before switching, compare it to Cloudflare's imported records, and add anything missing manually before flipping nameservers.
+  </div>
+
+  <h4>Verify</h4>
+  <pre><code># Traffic should now go through Cloudflare
+curl -I https://events.meetingmindsgroup.com
+# Look for: server: cloudflare + cf-ray: ...
+
+# Nameservers should be Cloudflare's
+dig NS meetingmindsgroup.com +short</code></pre>
+</section>
+
+<!-- ========= STEP 3a ========= -->
+<section id="step3a">
+  <h2>Step 3a — AWS SSM Session Manager <span class="badge done">Done</span></h2>
+
+  <h4>Goal in one sentence</h4>
+  <p>Get shell access to the Mumbai box without SSH, so we can safely close port 22 in Step 3b.</p>
+
+  <h4>Why SSM and not just "only allow my IP on 22"</h4>
+  <p>Your laptop's IP changes (ISP reset, travel, mobile hotspot). An allow-list locks you out the moment your IP moves. SSM uses outbound-only HTTPS from the instance to AWS, brokered through IAM credentials — no inbound firewall rule, no IP management, cross-platform (works from any laptop signed into AWS).</p>
+
+  <div class="callout info">
+    <strong>How SSM actually works under the hood</strong>
+    The <code>amazon-ssm-agent</code> on the box makes an outbound WebSocket to AWS's SSM endpoint. When you run <code>aws ssm start-session --target i-xxx</code>, AWS matches your CLI request to the agent's open socket and proxies a bidirectional TTY stream through it. No public ports. Audited in CloudTrail.
+  </div>
+
+  <h4>What we did</h4>
+  <ol>
+    <li>Verified SSM agent was running on the box (<code>snap.amazon-ssm-agent.amazon-ssm-agent.service</code>).</li>
+    <li>Created IAM role <code>ea-sys-mumbai-ec2-role</code> with managed policy <code>AmazonSSMManagedInstanceCore</code>.</li>
+    <li>Attached the role to the instance via EC2 → Actions → Security → Modify IAM role.</li>
+    <li>Installed <code>session-manager-plugin</code> on your Mac: <code>brew install --cask session-manager-plugin</code>.</li>
+    <li>Installed <code>awscli</code> on your Mac: <code>brew install awscli</code>, then <code>aws configure</code>.</li>
+    <li>Tested: <code>aws ssm start-session --target i-0b51ab1213d084640 --region ap-south-1</code> → shell as <code>ssm-user</code> → <code>sudo -iu ubuntu</code> to become the normal user.</li>
+  </ol>
+
+  <h4>Day-to-day usage</h4>
+<pre><code>prodshell                         # alias for the SSM start-session command
+# Now on the box as ssm-user
+sudo -iu ubuntu                   # become ubuntu, same env as old SSH
+cd ~/ea-sys
+# ...do your thing...
+exit                              # leaves ubuntu shell
+exit                              # ends SSM session</code></pre>
+
+  <div class="callout warn">
+    <strong>Security follow-up — rotate off root AWS keys</strong>
+    Your Mac's AWS CLI is configured with <code>root</code> account access keys (per <code>aws sts get-caller-identity</code>). Root keys have unrestricted power over your AWS account. Create a dedicated IAM user for CLI use, attach only the policies you actually need, then delete the root access key. Priority: within a week.
+  </div>
+</section>
+
+<!-- ========= STEP 3b ========= -->
+<section id="step3b">
+  <h2>Step 3b — Security Group lockdown <span class="badge pending">Reverted — needs CI/CD rewrite first</span></h2>
+
+  <div class="callout warn">
+    <strong>What happened on April 23, 2026 (lessons learned)</strong>
+    <ol style="margin:8px 0 0 16px;padding:0;">
+      <li>We revoked the SSH <code>0.0.0.0/0</code> rule via <code>aws ec2 revoke-security-group-ingress</code>. SSH was closed; SSM remained working. Tested both — SSH timed out as expected, SSM shell worked.</li>
+      <li>Then we realized the GitHub Actions deploy workflow (<code>.github/workflows/deploy.yml</code>) uses <code>appleboy/ssh-action</code> on port 22 to reach the box. <strong>Closing port 22 silently broke CI/CD.</strong> Nothing failed immediately because deploys only fire on push to main, but the next push would have failed.</li>
+      <li>We re-opened port 22 with <code>aws ec2 authorize-security-group-ingress</code> to restore the deploy pipeline. We're back to the starting state on SSH exposure.</li>
+    </ol>
+    <p style="margin-top:10px;"><strong>The real fix</strong> is to convert the GitHub Actions workflow from SSH to AWS SSM (<code>aws ssm send-command</code>). Then port 22 can be closed permanently without breaking CI/CD. Tracked as "Option B" in the deferred list.</p>
+    <p style="margin:0;"><strong>Takeaway:</strong> before closing any inbound port on a production box, list every system that connects to it — not just humans. CI runners, monitoring probes, scheduled jobs, other internal services. SSH especially is easy to overlook because the thing connecting isn't a human.</p>
+  </div>
+
+  <h4>Current state</h4>
+  <p>Port 22 is back open to <code>0.0.0.0/0</code>. SSH still works as before. SSM also works. You now have <em>both</em> access paths — the hardening gain is zero on SSH, but SSM is set up for the day we replace the CI/CD SSH dependency.</p>
+
+  <h4>Goal in one sentence</h4>
+  <p>Close port 22 entirely and restrict 80/443 to Cloudflare IP ranges, so the only way to reach the box is via Cloudflare or SSM.</p>
+
+  <div class="callout danger">
+    <strong>Do not run before Step 2 completes</strong>
+    If you lock 443 to Cloudflare CIDRs while the A record is still DNS-only (no Cloudflare proxy), every real user's request gets blocked and the site goes down.
+  </div>
+
+  <h4>What a Security Group is</h4>
+  <p>An AWS SG is a stateful firewall attached to an EC2 (or ENI). It allows/blocks traffic by direction (inbound/outbound), port, protocol, and source (IP range or another SG). "Stateful" means if inbound is allowed, the reply is automatically allowed back out — you configure one direction.</p>
+
+  <h4>The sub-steps</h4>
+  <ol>
+    <li>EC2 → Security Groups → find the SG attached to the Mumbai instance.</li>
+    <li><strong>Inbound rules — replace entirely:</strong>
+      <ul>
+        <li><strong>HTTPS 443</strong>: source = Cloudflare IPv4 CIDRs from <a href="https://www.cloudflare.com/ips-v4">cloudflare.com/ips-v4</a>. One rule per CIDR (~15 rules). Description: <code>Cloudflare-proxy</code>.</li>
+        <li><strong>HTTP 80</strong>: same (for ACME cert renewals and HTTP→HTTPS redirects).</li>
+        <li><strong>SSH 22</strong>: <strong>delete entirely</strong>. SSM provides shell.</li>
+        <li>Delete everything else.</li>
+      </ul>
+    </li>
+    <li><strong>Outbound</strong>: leave fully open. Box needs to reach Supabase, Stripe, Zoom, Brevo, SSM endpoints, GitHub.</li>
+  </ol>
+
+  <h4>Verify</h4>
+<pre><code># From any network — should time out
+curl -I --max-time 5 https://&lt;origin-ec2-public-ip&gt;
+
+# Through Cloudflare — should return 200
+curl -I https://events.meetingmindsgroup.com/api/health
+
+# SSH — should time out from anywhere
+ssh -o ConnectTimeout=5 ubuntu@&lt;origin-ec2-public-ip&gt;
+
+# SSM — should still work
+prodshell</code></pre>
+
+  <h4>Gotcha: Cloudflare IP list drift</h4>
+  <p>Cloudflare occasionally adds new CIDRs (maybe twice a year). When they do, new edge traffic from those CIDRs gets blocked by your SG until you add them. Subscribe to <a href="https://www.cloudflare.com/ips/">cloudflare.com/ips/</a> RSS, or later automate with a Lambda. Not in this round.</p>
+</section>
+
+<!-- ========= STEP 4 ========= -->
+<section id="step4">
+  <h2>Step 4 — Unattended OS security updates <span class="badge pending">Pending</span></h2>
+
+  <h4>Goal in one sentence</h4>
+  <p>Have the box auto-install Ubuntu security patches daily, so you don't have to remember to <code>apt upgrade</code>.</p>
+
+  <h4>What it does</h4>
+  <p><code>unattended-upgrades</code> is a Debian/Ubuntu package that runs <code>apt-get upgrade</code> daily, filtered to packages from the <em>security</em> archive only. It won't pull in potentially breaking feature updates. Kernel updates are applied but the box is not rebooted automatically — you reboot in a maintenance window when <code>/var/run/reboot-required</code> exists.</p>
+
+  <h4>Commands (from inside <code>prodshell → sudo -iu ubuntu</code>)</h4>
+<pre><code>sudo apt update
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades   # answer Yes
+
+sudo tee /etc/apt/apt.conf.d/20auto-upgrades &gt; /dev/null &lt;&lt;'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+sudo systemctl is-active unattended-upgrades    # active
+sudo systemctl is-active fail2ban               # active (already installed)</code></pre>
+
+  <p><code>fail2ban</code> is already on the box — nothing to install.</p>
+
+  <h4>Pending reboot flag</h4>
+  <p>After updates apply, if a kernel patch needs activation the file <code>/var/run/reboot-required</code> exists. Check weekly, reboot during low-traffic hours.</p>
+</section>
+
+<!-- ========= STEP 5 ========= -->
+<section id="step5">
+  <h2>Step 5 — Code patch: trust CF-Connecting-IP <span class="badge done">Done (committed locally)</span></h2>
+
+  <h4>Goal in one sentence</h4>
+  <p>Make the app's rate limiter read the real client IP from Cloudflare's trusted header, not the spoofable <code>X-Forwarded-For</code>.</p>
+
+  <h4>The problem we're fixing</h4>
+  <p>When the origin is directly reachable (like today), an attacker could set <code>X-Forwarded-For: 1.2.3.4</code> on their request. Our <code>getClientIp()</code> trusted the first token, so rate limits would be counted against 1.2.3.4 instead of the attacker. They could burn your entire rate limit, trivially.</p>
+
+  <p>After Cloudflare is in front + SG locked to CF CIDRs, all traffic comes from Cloudflare. Cloudflare sets a header called <code>CF-Connecting-IP</code> containing the true client IP. We trust that first; fall back to the old logic as a safety net.</p>
+
+  <h4>The change</h4>
+  <p>In <code>src/lib/security.ts</code>:</p>
+<pre><code>export function getClientIp(req: Request): string {
+  // Cloudflare sets CF-Connecting-IP to the true client IP. Trustworthy when
+  // the security group only allows 80/443 from Cloudflare ranges — direct
+  // connections can't reach the origin to spoof this header.
+  const cfIp = req.headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp;
+
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+
+  return req.headers.get("x-real-ip") || "unknown";
+}</code></pre>
+
+  <h4>Verify (after deploy)</h4>
+<pre><code># Hit /api/health, check the server logs from inside prodshell
+docker compose logs ea-sys-blue | grep -i ip
+# You should see real client IPs (not Cloudflare edge IPs)</code></pre>
+</section>
+
+<!-- ========= STEP 6 ========= -->
+<section id="step6">
+  <h2>Step 6 — DR (Terraform) <span class="badge done">Drill validated + uploads sync live</span></h2>
+
+  <div class="callout">
+    <strong>State after April 23, 2026 session</strong>
+    <ul style="margin:8px 0 0 16px;padding:0;">
+      <li>Singapore KMS key created (<code>alias/ea-sys-dr</code>).</li>
+      <li>Singapore S3 bucket created (<code>ea-sys-dr-singapore</code>, SSE-KMS, versioning on, public access blocked).</li>
+      <li>Mumbai EC2 role has <code>DRBackupToSingapore</code> inline policy (PutObject + GenerateDataKey).</li>
+      <li>Two Mumbai crons scheduled:
+        <ul>
+          <li><code>.env</code> → S3 daily (21:00 UTC)</li>
+          <li><code>public/uploads/</code> → S3 hourly (incremental <code>aws s3 sync</code>)</li>
+        </ul>
+      </li>
+      <li>GitHub fine-grained PAT added as <code>GITHUB_DR_TOKEN</code> in <code>.env</code>.</li>
+      <li>Full drill completed end-to-end (apply → bootstrap → /api/health 200 → destroy).</li>
+      <li>354 files / 21 MB of historical uploads synced to Singapore S3 as of initial backfill.</li>
+    </ul>
+  </div>
+
+  <h4>Goal in one sentence</h4>
+  <p>When Mumbai dies, one <code>terraform apply</code> spins up a replacement box in Singapore in ~10 minutes.</p>
+
+  <h4>The design</h4>
+  <p>No standing second EC2 (cost $0 when idle). Instead:</p>
+  <ul>
+    <li><strong>Nightly backup</strong>: a cron job on Mumbai copies <code>.env</code> to <code>s3://ea-sys-dr-singapore/env/YYYY-MM-DD.env</code>. Encrypted with a Singapore KMS key (outside Mumbai's blast radius).</li>
+    <li><strong>Terraform module</strong> (<code>infra/dr/</code>): provisions an EC2 + EIP + SG + IAM in Singapore on demand.</li>
+    <li><strong>user-data.sh</strong>: runs on first boot. Installs Docker, fetches the latest <code>.env</code>, clones the repo, runs <code>scripts/deploy.sh</code>.</li>
+    <li><strong>Manual flip</strong>: you update Cloudflare's A record to the new public IP. ~30s DNS propagation.</li>
+  </ul>
+
+  <h4>Files in <code>infra/dr/</code></h4>
+  <table>
+    <tr><th>File</th><th>Purpose</th></tr>
+    <tr><td><code>main.tf</code></td><td>Resources: EC2, SG (80/443 CF-only, no 22), EIP, IAM role with SSM + S3-read.</td></tr>
+    <tr><td><code>user-data.sh</code></td><td>First-boot bootstrap: Docker, nginx, fetch env, clone repo, run deploy.</td></tr>
+    <tr><td><code>variables.tf</code></td><td>Knobs: region, instance type, git_ref, github_repo, dr_bucket, kms_arn.</td></tr>
+    <tr><td><code>outputs.tf</code></td><td>Prints <code>public_ip</code>, <code>instance_id</code>, <code>ssm_session_command</code>.</td></tr>
+    <tr><td><code>README.md</code></td><td>One-time setup, monthly drill, promotion runbook, known gaps.</td></tr>
+    <tr><td><code>.gitignore</code></td><td>Keeps <code>terraform.tfstate</code> and <code>terraform.tfvars</code> out of git.</td></tr>
+  </table>
+
+  <h4>Known gaps (documented; deferred)</h4>
+  <ul>
+    <li><strong>Media isn't replicated.</strong> Files under <code>public/uploads/*</code> are lost if Mumbai dies. Fix: flip <code>STORAGE_PROVIDER=supabase</code> so uploads go to Supabase Storage instead.</li>
+    <li><strong>Supabase is a shared single point of failure.</strong> If Supabase is down, Singapore box still can't serve. Fixed in the Supabase round (PITR + cross-region dump).</li>
+    <li><strong>10-minute RTO includes a Docker build.</strong> If the build time grows, so does the RTO. Could pre-build and push to ECR later.</li>
+  </ul>
+
+  <p>See <a href="../infra/dr/README.md">infra/dr/README.md</a> for the full promotion runbook.</p>
+</section>
+
+<!-- ========= CONCEPTS ========= -->
+<section id="concepts">
+  <h2>Key concepts (plain English)</h2>
+
+  <details open>
+    <summary>Security Group (SG)</summary>
+    <p>A stateful firewall wrapped around your EC2. You say "allow port 443 inbound from these IPs" and AWS blocks everything else. Stateful means replies to allowed inbound are automatically allowed outbound — you don't configure both directions.</p>
+  </details>
+
+  <details>
+    <summary>IAM role vs IAM user</summary>
+    <p><strong>User</strong> = human/application with long-lived access keys. <strong>Role</strong> = a set of permissions that AWS resources (like EC2s) or users can temporarily assume. Roles are short-lived (tokens auto-refresh) — much safer than baking access keys into EC2s. Our <code>ea-sys-mumbai-ec2-role</code> is a role: the EC2 assumes it to talk to SSM, S3, KMS.</p>
+  </details>
+
+  <details>
+    <summary>SSM Session Manager</summary>
+    <p>AWS's service for getting a shell on an EC2 without SSH. The agent on the box makes outbound HTTPS to AWS; your CLI makes outbound HTTPS to AWS; AWS proxies a terminal between them. No inbound firewall rules needed. Every session is logged in CloudTrail.</p>
+  </details>
+
+  <details>
+    <summary>Cloudflare "proxied" (orange cloud)</summary>
+    <p>For a DNS record, "proxied" means Cloudflare owns the public IP that users resolve to. When a user connects, they hit Cloudflare's edge; Cloudflare forwards the request to your origin (over HTTPS). Gray cloud = Cloudflare just serves DNS but doesn't sit in the request path.</p>
+  </details>
+
+  <details>
+    <summary>CF-Connecting-IP header</summary>
+    <p>When Cloudflare forwards a request to your origin, it adds this header containing the real client IP (e.g., a user's home IP). Trustworthy only if your origin is unreachable directly — otherwise an attacker can send a request directly to the origin with a fake <code>CF-Connecting-IP</code>. That's why Step 3b (SG lockdown) is the thing that makes Step 5's header trust actually safe.</p>
+  </details>
+
+  <details>
+    <summary>EBS volume vs snapshot vs AMI</summary>
+    <p><strong>Volume</strong> = the live disk attached to your EC2. <strong>Snapshot</strong> = a point-in-time copy of a volume, stored in S3. <strong>AMI</strong> = a snapshot + metadata (instance type, block device mapping) bundled so you can "launch a new instance just like this." For plain disk-level backup, snapshots are enough.</p>
+  </details>
+
+  <details>
+    <summary>KMS (Key Management Service)</summary>
+    <p>AWS's managed encryption key service. You create a key; AWS stores and manages it; you reference it to encrypt data. For our DR setup, we use a Singapore KMS key to encrypt the <code>.env</code> backup — so even if the Mumbai KMS key is lost in a regional outage, the Singapore backup is still decryptable.</p>
+  </details>
+
+  <details>
+    <summary>RTO vs RPO</summary>
+    <p><strong>RTO</strong> (Recovery Time Objective): how long until the app is back up after a disaster. Our DR plan targets ~10 minutes. <strong>RPO</strong> (Recovery Point Objective): how much data you can lose. Our <code>.env</code> is backed up nightly, so RPO is up to 24 hours of <code>.env</code> changes. Since data lives in Supabase (separate system), actual data RPO is Supabase's, not ours.</p>
+  </details>
+</section>
+
+<!-- ========= TERRAFORM 101 ========= -->
+<section id="terraform-101">
+  <h2>Terraform 101 — what you'll do when you run it</h2>
+
+  <p>Terraform is a CLI tool. You write <code>.tf</code> files describing what you want in AWS. Terraform compares "what you wrote" against "what exists in AWS" and makes AWS match your files.</p>
+
+  <h3>Core commands you'll use</h3>
+  <table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>terraform init</code></td><td>One-time per folder. Downloads the AWS + Cloudflare "providers" (plugins) into <code>.terraform/</code>.</td></tr>
+    <tr><td><code>terraform plan</code></td><td>Reads your <code>.tf</code> files, checks AWS, prints exactly what it will create/modify/destroy. <strong>Nothing changes in AWS yet.</strong></td></tr>
+    <tr><td><code>terraform apply</code></td><td>Same as <code>plan</code> but actually executes. Asks you to type "yes" before touching anything. <em>Or</em> use <code>-auto-approve</code> to skip the prompt.</td></tr>
+    <tr><td><code>terraform destroy</code></td><td>Deletes every resource Terraform created in this folder. Asks for confirmation.</td></tr>
+    <tr><td><code>terraform fmt</code></td><td>Auto-formats your <code>.tf</code> files. Cosmetic.</td></tr>
+    <tr><td><code>terraform output</code></td><td>Prints the <code>output</code> values from your last apply (e.g., the new public IP).</td></tr>
+  </table>
+
+  <h3>The state file</h3>
+  <p>Terraform writes <code>terraform.tfstate</code> after every apply. This file is its memory — what it created, with what IDs. <strong>Never delete or edit it by hand</strong> (Terraform will lose track of your resources). It's in <code>.gitignore</code> for a reason — it can contain secrets.</p>
+
+  <h3>Typical first run flow (when we do Step 6 live)</h3>
+<pre><code>cd infra/dr
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars, paste the real KMS key ARN
+
+terraform init
+# Downloads providers (~30 sec). You'll see "Terraform has been successfully initialized!"
+
+terraform plan
+# Reads everything. Prints ~30 lines showing each resource it will create.
+# We'll read this together carefully.
+
+terraform apply
+# Prints the plan again, asks "Enter a value:"
+# Type: yes
+# Resources get created over ~5 minutes.
+
+terraform output public_ip
+# Prints the new Singapore public IP.</code></pre>
+
+  <h3>What <code>terraform plan</code> output looks like</h3>
+<pre><code>Terraform will perform the following actions:
+
+  # aws_instance.dr will be created
+  + resource "aws_instance" "dr" {
+      + ami                    = "ami-0abc..."
+      + instance_type          = "t3.large"
+      + iam_instance_profile   = "ea-sys-dr-singapore-profile"
+      ...
+    }
+
+Plan: 7 to add, 0 to change, 0 to destroy.</code></pre>
+  <p>Lines starting with <code>+</code> = will be created. <code>~</code> = will be modified in place. <code>-</code> = will be destroyed. <code>-/+</code> = will be destroyed and recreated. Read these carefully — the tool is literal.</p>
+</section>
+
+<!-- ========= TROUBLESHOOTING ========= -->
+<section id="troubleshoot">
+  <h2>Troubleshooting</h2>
+
+  <details>
+    <summary>SSM: "TargetNotConnected"</summary>
+    <p>IAM role isn't propagated yet, or SSM agent isn't talking to AWS. Wait 2 min, retry. If still broken: <code>prodshell</code> won't work, so fall back to SSH, then <code>sudo systemctl restart snap.amazon-ssm-agent.amazon-ssm-agent</code>, wait 60s, retry.</p>
+  </details>
+
+  <details>
+    <summary>SSM: "AccessDeniedException"</summary>
+    <p>Your AWS CLI credentials don't have <code>ssm:StartSession</code> permission. If you're on root keys, this shouldn't happen. If on an IAM user, attach <code>AmazonSSMFullAccess</code> (or a scoped policy).</p>
+  </details>
+
+  <details>
+    <summary>After SG lockdown: site shows Cloudflare error 522 ("origin unreachable")</summary>
+    <p>Means Cloudflare can't reach your origin — SG isn't letting it through. Two common causes: (1) you didn't add all Cloudflare CIDRs (check <a href="https://www.cloudflare.com/ips-v4">list</a>), (2) you still have a conflicting deny rule. Re-check SG → inbound rules.</p>
+  </details>
+
+  <details>
+    <summary>Site returns 526 "invalid SSL cert"</summary>
+    <p>Cloudflare is in Full (strict) mode but origin cert doesn't match. Check that nginx's Let's Encrypt cert for <code>events.meetingmindsgroup.com</code> is valid: <code>sudo certbot certificates</code>. If expired, <code>sudo certbot renew</code>.</p>
+  </details>
+
+  <details>
+    <summary>Rate limiter is blocking legitimate users</summary>
+    <p>After the <code>CF-Connecting-IP</code> patch, the limiter counts each user separately (good). If it's blocking real users, either the limit is too strict or a user is behind a shared proxy with many users on the same IP. Check <code>docker compose logs ea-sys-blue | grep rate</code> for the blocked IP and decide.</p>
+  </details>
+
+  <details>
+    <summary>Cloudflare onboarded but old origin IP still resolving</summary>
+    <p>DNS caches linger. Flush Mac: <code>sudo dscacheutil -flushcache</code>. Check externally: <code>dig events.meetingmindsgroup.com +short</code>. Wait up to a few hours for stubborn resolvers.</p>
+  </details>
+
+  <details>
+    <summary>Terraform: "Error: No valid credential sources"</summary>
+    <p>AWS CLI credentials not configured for the terraform process. Run <code>aws sts get-caller-identity</code> first in the same shell. Terraform picks up the same credentials via <code>~/.aws/credentials</code>.</p>
+  </details>
+
+  <details>
+    <summary>Terraform: cloudflare provider 403 / authentication failed</summary>
+    <p>Cloudflare provider needs a token. Create one at <a href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com/profile/api-tokens</a> with "Zone:Read" and "DNS:Edit" on <code>meetingmindsgroup.com</code>. Then <code>export CLOUDFLARE_API_TOKEN=...</code> in your shell before <code>terraform plan</code>.</p>
+  </details>
+</section>
+
+<!-- ========= DEFERRED ========= -->
+<section id="deferred">
+  <h2>What's deferred (queued for future rounds)</h2>
+
+  <table>
+    <tr><th>Item</th><th>Why deferred</th><th>Priority</th></tr>
+    <tr>
+      <td><strong>Convert GitHub Actions deploy from SSH to SSM</strong> <em>(the "Option B" fix)</em></td>
+      <td>Replace <code>appleboy/ssh-action</code> with <code>aws-actions/configure-aws-credentials</code> + <code>aws ssm send-command</code>. Prerequisites: create IAM user <code>ea-sys-github-deploy</code> with scoped policy (SSM SendCommand on the Mumbai instance only), store access keys as GitHub Actions secrets, rewrite <code>.github/workflows/deploy.yml</code>, delete old SSH secrets after green run.</td>
+      <td><strong>High</strong> — unblocks closing port 22 permanently. ~30 min.</td>
+    </tr>
+    <tr><td>Supabase PITR + <code>pg_dump</code> to S3 + quarterly restore drill</td><td>Next round, separately scoped</td><td>High — biggest remaining data-loss risk</td></tr>
+    <tr><td>Move uploaded media to Supabase Storage (<code>STORAGE_PROVIDER=supabase</code>)</td><td>Code path already exists; just a config flip. Closes the DR media gap.</td><td>Medium</td></tr>
+    <tr><td>Rotate off AWS root access keys → dedicated IAM user</td><td>Discovered mid-setup; not blocking hardening</td><td>High — do within a week</td></tr>
+    <tr><td>Automate Cloudflare CIDR sync to SG (Lambda + EventBridge)</td><td>CF adds CIDRs rarely (~twice/year). Manual update acceptable short-term.</td><td>Low</td></tr>
+    <tr><td>AWS Secrets Manager for .env contents</td><td>Reduces the value of the <code>.env</code> backup (since creds are in Secrets Manager with region replication).</td><td>Medium</td></tr>
+    <tr><td>CloudWatch alarms (CPU, disk, health, SSM agent offline)</td><td>Want the hardening landed first; alarms build on a stable baseline.</td><td>Medium</td></tr>
+    <tr><td>DR automation (Lambda auto-promotes on health check failure)</td><td>Risk of false-positive promotion. Manual runbook first; automate after 6+ clean drill months.</td><td>Low</td></tr>
+  </table>
+</section>
+
+</main>
+</div>
+</body>
+</html>

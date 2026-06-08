@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP OAuth 2.1 — EA-SYS Implementation Guide</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a2e; background: #f8f9fa; }
+    .container { max-width: 920px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 2rem; color: #00aade; margin-bottom: 8px; }
+    h1 span { font-size: 0.9rem; color: #6b7280; font-weight: normal; display: block; margin-top: 4px; }
+    h2 { font-size: 1.4rem; color: #1a1a2e; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #00aade; }
+    h3 { font-size: 1.1rem; color: #374151; margin: 24px 0 12px; }
+    h4 { font-size: 0.95rem; color: #4b5563; margin: 16px 0 8px; }
+    p, li { color: #4b5563; }
+    p { margin: 8px 0; }
+    ul, ol { padding-left: 24px; margin: 12px 0; }
+    li { margin: 6px 0; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: #1f2937; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 0.82em; line-height: 1.55; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-new { background: #d1fae5; color: #047857; }
+    .badge-rfc { background: #dbeafe; color: #1d4ed8; }
+    .badge-existing { background: #e5e7eb; color: #4b5563; }
+    .file-list { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    .file-list h4 { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; }
+    .file-list ul { list-style: none; padding: 0; margin: 0; }
+    .file-list li { padding: 4px 0; font-size: 0.88rem; }
+    .file-list code { font-size: 0.82rem; }
+    .step { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 22px; margin: 12px 0; }
+    .step-number { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: #00aade; color: #fff; border-radius: 50%; font-weight: 700; font-size: 0.85rem; margin-right: 10px; vertical-align: middle; }
+    .note { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .danger { background: #fee2e2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .success { background: #d1fae5; border-left: 4px solid #059669; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.88rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #e5e7eb; color: #1f2937; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .arch-diagram { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 16px 0; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.78rem; line-height: 1.7; white-space: pre; overflow-x: auto; color: #1f2937; }
+    .toc { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px 22px; margin: 18px 0 28px; }
+    .toc h4 { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; }
+    .toc ol { columns: 2; column-gap: 24px; padding-left: 22px; margin: 0; }
+    .toc li { font-size: 0.9rem; margin: 4px 0; break-inside: avoid; }
+    .toc a { color: #00aade; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    a { color: #00aade; }
+    strong { color: #1f2937; }
+    .small { font-size: 0.85rem; color: #6b7280; }
+    hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h1>
+      MCP OAuth 2.1 &mdash; EA-SYS
+      <span>Implementation Guide &bull; April 2026</span>
+    </h1>
+
+    <p>This is the guide to how EA-SYS exposes its Model Context Protocol server to <strong>browser-based</strong> MCP clients &mdash; claude.ai web, the Anthropic Console, and anything that can't send a custom HTTP header. It covers the why, the flow, the wire format, the security model, and the operational bits. For the tools themselves (what <code>list_events</code>, <code>create_speaker</code> etc. do), see <a href="./MCP_REFERENCE.md">MCP_REFERENCE.md</a>.</p>
+
+    <div class="toc">
+      <h4>Contents</h4>
+      <ol>
+        <li><a href="#why">Why this exists</a></li>
+        <li><a href="#big-picture">The big picture</a></li>
+        <li><a href="#files">Files involved</a></li>
+        <li><a href="#data-model">Data model</a></li>
+        <li><a href="#flow">The OAuth flow, step by step</a></li>
+        <li><a href="#discovery">Discovery endpoints</a></li>
+        <li><a href="#dcr">Dynamic Client Registration</a></li>
+        <li><a href="#authorize">Authorization &amp; consent</a></li>
+        <li><a href="#token">Token exchange &amp; refresh</a></li>
+        <li><a href="#revoke">Revocation</a></li>
+        <li><a href="#cors">CORS</a></li>
+        <li><a href="#middleware">Middleware bypass</a></li>
+        <li><a href="#auth-coexistence">API key vs. OAuth: how both work</a></li>
+        <li><a href="#security">Security model</a></li>
+        <li><a href="#rate-limits">Rate limits</a></li>
+        <li><a href="#cleanup">Cleanup cron</a></li>
+        <li><a href="#verify">Manual verification</a></li>
+        <li><a href="#troubleshoot">Troubleshooting</a></li>
+      </ol>
+    </div>
+
+    <h2 id="why">Why this exists</h2>
+
+    <p>Claude Desktop connects to remote MCP servers via <code>mcp-remote</code> &mdash; a Node subprocess that runs on your laptop and can set any HTTP header it wants, including <code>x-api-key: mmg_xxx</code>. Simple.</p>
+
+    <p>Claude.ai <strong>web</strong> runs in a browser sandbox. The connector UI has no "paste your API key here" field, and for good reason: a browser-based app sending a long-lived API key via a header is a security liability. The MCP spec solves this by requiring <strong>OAuth 2.1</strong> for all remote MCP servers that want browser clients to connect.</p>
+
+    <p>Before this feature, hitting our <code>/api/mcp</code> endpoint from claude.ai failed at three places:</p>
+
+    <div class="danger">
+      <ol>
+        <li><code>GET /api/mcp</code> returned <code>401</code> but <strong>no <code>WWW-Authenticate</code></strong> header &mdash; so claude.ai had nothing to discover.</li>
+        <li><code>GET /.well-known/oauth-protected-resource</code> returned <strong>404</strong> &mdash; so even a speculative discovery failed.</li>
+        <li><code>OPTIONS /api/mcp</code> with <code>Origin: https://claude.ai</code> returned <strong>204 with no CORS headers</strong> &mdash; so the browser would have blocked every subsequent request even if auth were solved.</li>
+      </ol>
+    </div>
+
+    <p>All three are now fixed. Claude Desktop's path (<code>x-api-key</code> header via <code>mcp-remote</code>) is 100% unchanged for backward compatibility.</p>
+
+    <h2 id="big-picture">The big picture</h2>
+
+    <p>We implement a spec-compliant OAuth 2.1 authorization server with:</p>
+    <ul>
+      <li><span class="badge badge-rfc">RFC 9728</span> Protected Resource Metadata &mdash; tells clients where to find the authorization server</li>
+      <li><span class="badge badge-rfc">RFC 8414</span> Authorization Server Metadata &mdash; advertises the <code>/authorize</code>, <code>/token</code>, <code>/register</code>, <code>/revoke</code> endpoints</li>
+      <li><span class="badge badge-rfc">RFC 7591</span> Dynamic Client Registration &mdash; new clients register themselves without human intervention</li>
+      <li><span class="badge badge-rfc">RFC 6749 &sect;4.1</span> Authorization Code Grant + <span class="badge badge-rfc">RFC 7636</span> <strong>mandatory</strong> PKCE (S256 only)</li>
+      <li><span class="badge badge-rfc">RFC 6749 &sect;6</span> Refresh Token Grant with refresh rotation</li>
+      <li><span class="badge badge-rfc">RFC 7009</span> Token Revocation</li>
+    </ul>
+
+    <div class="arch-diagram">claude.ai web                    events.meetingmindsgroup.com              User
+    |                                          |                               |
+    |-- GET /api/mcp --------------------------&gt;|                               |
+    |&lt;-- 401 + WWW-Authenticate: resource_metadata="..."                        |
+    |                                          |                               |
+    |-- GET /.well-known/oauth-protected-resource --&gt;|                          |
+    |&lt;-- authorization_servers: [events.meetingmindsgroup.com]                  |
+    |                                          |                               |
+    |-- GET /.well-known/oauth-authorization-server ---&gt;|                       |
+    |&lt;-- authorization_endpoint: /mcp-authorize, token_endpoint: /api/mcp/oauth/token, ...
+    |                                          |                               |
+    |-- POST /api/mcp/oauth/register {redirect_uris}----&gt;|                      |
+    |&lt;-- 201 { client_id }                                                      |
+    |                                          |                               |
+    |   &lt;browser popup&gt;                        |                               |
+    |-- GET /mcp-authorize?client_id=X&amp;redirect_uri=Y&amp;code_challenge=Z&amp;state=W --&gt;|
+    |                                          |&lt;-- NextAuth session check ----|
+    |                                          |                               |
+    |                                          |--&gt; &lt;consent UI render&gt; -------&gt;|
+    |                                          |                               |
+    |                                          |&lt;-- POST /decision approve ----|
+    |                                          |                               |
+    |&lt;-- 302 ${redirect_uri}?code=xxx&amp;state=W --|                               |
+    |                                          |                               |
+    |-- POST /api/mcp/oauth/token ------------&gt;|                               |
+    |   {grant_type: authorization_code,       |                               |
+    |    code, code_verifier, client_id}       |                               |
+    |&lt;-- 200 { access_token, refresh_token } --|                               |
+    |                                          |                               |
+    |-- POST /api/mcp  --------------------------&gt;|                             |
+    |   Authorization: Bearer mcp_at_xxx        |                               |
+    |&lt;-- 200 SSE: tools + data --------------- |                               |
+</div>
+
+    <h2 id="files">Files involved</h2>
+
+    <div class="file-list">
+      <h4>Created</h4>
+      <ul>
+        <li><code>prisma/migrations/20260416000000_add_mcp_oauth_tables/migration.sql</code> &mdash; three new tables</li>
+        <li><code>src/lib/mcp-oauth.ts</code> &mdash; all OAuth business logic (hashing, PKCE, token exchange, validation)</li>
+        <li><code>src/lib/mcp-cors.ts</code> &mdash; CORS helpers (<code>handlePreflight</code>, <code>withCors</code>)</li>
+        <li><code>src/app/.well-known/oauth-protected-resource/route.ts</code> &mdash; RFC 9728 discovery</li>
+        <li><code>src/app/.well-known/oauth-authorization-server/route.ts</code> &mdash; RFC 8414 discovery</li>
+        <li><code>src/app/api/mcp/oauth/register/route.ts</code> &mdash; RFC 7591 DCR</li>
+        <li><code>src/app/api/mcp/oauth/authorize/decision/route.ts</code> &mdash; consent form POST handler</li>
+        <li><code>src/app/api/mcp/oauth/token/route.ts</code> &mdash; token exchange + refresh</li>
+        <li><code>src/app/api/mcp/oauth/revoke/route.ts</code> &mdash; RFC 7009 revocation</li>
+        <li><code>src/app/mcp-authorize/page.tsx</code> &mdash; consent UI (Next.js server component)</li>
+        <li><code>src/app/api/cron/mcp-oauth-cleanup/route.ts</code> &mdash; hourly cleanup cron</li>
+      </ul>
+    </div>
+
+    <div class="file-list">
+      <h4>Modified</h4>
+      <ul>
+        <li><code>prisma/schema.prisma</code> &mdash; three new models + two <code>User</code> relations</li>
+        <li><code>src/app/api/mcp/route.ts</code> &mdash; <code>OPTIONS</code> handler, extended <code>authenticate()</code> with OAuth fallback, <code>WWW-Authenticate</code> challenge on 401, every response wrapped with <code>withCors</code></li>
+        <li><code>src/middleware.ts</code> &mdash; early <code>if (pathname.startsWith("/api/mcp")) return NextResponse.next()</code> to skip the mobile-only CORS interception</li>
+      </ul>
+    </div>
+
+    <h2 id="data-model">Data model</h2>
+
+    <p>Three Prisma models, all with <code>onDelete: Cascade</code> on their parent relations so cleaning up a client or a user cleans up their OAuth state automatically.</p>
+
+    <h3><code>McpOAuthClient</code></h3>
+    <p>One row per DCR registration. Usually one per Claude user per browser, since claude.ai caches the <code>client_id</code> in localStorage.</p>
+    <table>
+      <tr><th>Field</th><th>Purpose</th></tr>
+      <tr><td><code>clientId</code></td><td>Random UUID issued at registration time. Public &mdash; appears in URLs.</td></tr>
+      <tr><td><code>clientSecretHash</code></td><td>SHA-256 hash of the client secret. <code>null</code> for public clients (<code>token_endpoint_auth_method: "none"</code>), which is what claude.ai uses.</td></tr>
+      <tr><td><code>clientName</code></td><td>Free-text display name from the DCR request. Rendered on the consent page.</td></tr>
+      <tr><td><code>redirectUris</code></td><td>Array of exact-match redirect URIs. The consent flow will only ever redirect to one of these.</td></tr>
+      <tr><td><code>grantTypes</code></td><td>Default <code>["authorization_code", "refresh_token"]</code>. We don't implement any other grant types.</td></tr>
+      <tr><td><code>tokenEndpointAuthMethod</code></td><td>Either <code>"none"</code> (public client) or <code>"client_secret_post"</code> (confidential). claude.ai is public.</td></tr>
+    </table>
+
+    <h3><code>McpOAuthAuthCode</code></h3>
+    <p>Short-lived one-time-use authorization code. 10-minute TTL. Stored hashed so a DB leak can't impersonate in-flight flows.</p>
+    <table>
+      <tr><th>Field</th><th>Purpose</th></tr>
+      <tr><td><code>codeHash</code></td><td>SHA-256 of the raw code. Unique index.</td></tr>
+      <tr><td><code>clientId</code></td><td>FK to <code>McpOAuthClient.clientId</code>. The token endpoint verifies the request's <code>client_id</code> matches.</td></tr>
+      <tr><td><code>userId</code>, <code>organizationId</code></td><td>The user who approved the grant and the org it's bound to.</td></tr>
+      <tr><td><code>codeChallenge</code>, <code>codeChallengeMethod</code></td><td>PKCE state. S256 only. The token endpoint hashes the client's <code>code_verifier</code> and compares to <code>codeChallenge</code> with <code>crypto.timingSafeEqual()</code>.</td></tr>
+      <tr><td><code>redirectUri</code></td><td>The <code>redirect_uri</code> from the original authorize request. The token endpoint requires the exchange request to pass the exact same value.</td></tr>
+      <tr><td><code>expiresAt</code></td><td><code>now + 10min</code>. Enforced on exchange; cleaned up by the cron.</td></tr>
+    </table>
+
+    <h3><code>McpOAuthAccessToken</code></h3>
+    <p>The issued Bearer token. Also stores the refresh token in the same row (so refresh rotation can revoke the old row and mint a new one atomically).</p>
+    <table>
+      <tr><th>Field</th><th>Purpose</th></tr>
+      <tr><td><code>tokenHash</code></td><td>SHA-256 of the raw access token. Unique index &mdash; this is the lookup key on every MCP request.</td></tr>
+      <tr><td><code>refreshHash</code></td><td>SHA-256 of the raw refresh token. Nullable, unique when set. Used to locate the row on <code>/token</code> with <code>grant_type=refresh_token</code>.</td></tr>
+      <tr><td><code>clientId</code>, <code>userId</code>, <code>organizationId</code></td><td>Who this token belongs to.</td></tr>
+      <tr><td><code>expiresAt</code></td><td>Access token expiry: <code>now + 30d</code>. Refresh expiry is <code>createdAt + 90d</code>, checked at refresh time.</td></tr>
+      <tr><td><code>revokedAt</code></td><td>Set on rotation (refresh flow), explicit revocation (<code>/revoke</code>), or indirectly when the user is deleted (cascade).</td></tr>
+      <tr><td><code>lastUsedAt</code></td><td>Updated fire-and-forget on every successful access-token validation so we can tell abandoned tokens apart from live ones.</td></tr>
+    </table>
+
+    <div class="warning">
+      <strong>Raw tokens never touch storage or logs.</strong> Every field named <code>*Hash</code> holds only the SHA-256 digest. The raw token exists transiently in RAM during the request that issues or verifies it, and is echoed once to the client. Logs include only the first 10&ndash;12 characters for debugging.
+    </div>
+
+    <h2 id="flow">The OAuth flow, step by step</h2>
+
+    <div class="step">
+      <span class="step-number">1</span>
+      <strong>User tries to add a custom MCP server in claude.ai</strong><br>
+      They paste <code>https://events.meetingmindsgroup.com/api/mcp</code>. claude.ai <code>GET</code>s it without auth to see what it needs.
+    </div>
+
+    <div class="step">
+      <span class="step-number">2</span>
+      <strong>Server responds 401 with <code>WWW-Authenticate</code> challenge</strong><br>
+      The header value is <code>Bearer realm="mcp", resource_metadata="https://events.meetingmindsgroup.com/.well-known/oauth-protected-resource"</code>. This is the single thing that bootstraps the entire flow &mdash; without it, claude.ai just gives up.
+    </div>
+
+    <div class="step">
+      <span class="step-number">3</span>
+      <strong>claude.ai fetches the protected resource metadata</strong><br>
+      <code>GET /.well-known/oauth-protected-resource</code> returns a JSON document listing <code>authorization_servers: ["https://events.meetingmindsgroup.com"]</code> and supported scopes. claude.ai now knows where the auth server lives.
+    </div>
+
+    <div class="step">
+      <span class="step-number">4</span>
+      <strong>claude.ai fetches the authorization server metadata</strong><br>
+      <code>GET /.well-known/oauth-authorization-server</code> returns endpoint URLs: <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>registration_endpoint</code>, <code>revocation_endpoint</code>, plus declared capabilities (S256 PKCE, auth code + refresh grants).
+    </div>
+
+    <div class="step">
+      <span class="step-number">5</span>
+      <strong>claude.ai registers itself via DCR</strong><br>
+      <code>POST /api/mcp/oauth/register</code> with <code>{ client_name: "Claude", redirect_uris: ["https://claude.ai/api/mcp/..."] }</code>. Server creates an <code>McpOAuthClient</code> row and returns a fresh <code>client_id</code>. claude.ai stores it in localStorage for future connections.
+    </div>
+
+    <div class="step">
+      <span class="step-number">6</span>
+      <strong>claude.ai opens the authorize URL in a popup</strong><br>
+      The URL includes <code>client_id</code>, <code>redirect_uri</code> (one of the registered ones), <code>response_type=code</code>, PKCE <code>code_challenge</code>, <code>code_challenge_method=S256</code>, a random <code>state</code>, and optional <code>scope</code>. Points at <code>/mcp-authorize</code> &mdash; our Next.js consent page.
+    </div>
+
+    <div class="step">
+      <span class="step-number">7</span>
+      <strong>User signs in (if needed) and clicks Approve</strong><br>
+      If there's no NextAuth session, the page redirects to <code>/login?callbackUrl=&lt;encoded full authorize URL&gt;</code>. After login, they're bounced back. The consent page enforces <strong>RBAC</strong>: only <code>ADMIN</code>, <code>SUPER_ADMIN</code>, and <code>ORGANIZER</code> roles see Approve/Deny buttons. Reviewers, submitters, and registrants get a permission-denied page.
+    </div>
+
+    <div class="step">
+      <span class="step-number">8</span>
+      <strong>Server issues a one-time auth code</strong><br>
+      The consent form POSTs to <code>/api/mcp/oauth/authorize/decision</code>. The route re-validates client_id + redirect_uri server-side (never trust form fields), issues a code via <code>issueAuthCode()</code>, and <code>302</code>s to <code>${redirect_uri}?code=xxx&amp;state=yyy</code>.
+    </div>
+
+    <div class="step">
+      <span class="step-number">9</span>
+      <strong>claude.ai exchanges the code for tokens</strong><br>
+      <code>POST /api/mcp/oauth/token</code> with <code>grant_type=authorization_code</code>, <code>code</code>, <code>code_verifier</code>, <code>client_id</code>, <code>redirect_uri</code>. Server runs <code>exchangeAuthCode()</code>: verifies PKCE (<code>sha256(verifier) === challenge</code> with <code>timingSafeEqual</code>), verifies <code>redirect_uri</code> matches, verifies <code>client_id</code> matches, verifies not expired, deletes the code row, mints access + refresh tokens. All inside a single transaction so double-use is impossible.
+    </div>
+
+    <div class="step">
+      <span class="step-number">10</span>
+      <strong>claude.ai uses the access token</strong><br>
+      Every subsequent request to <code>/api/mcp</code> carries <code>Authorization: Bearer mcp_at_xxx</code>. Our <code>authenticate()</code> function tries <code>validateApiKey()</code> first (backward compat), then falls back to <code>validateOAuthAccessToken()</code>, which hashes the Bearer and looks up the <code>McpOAuthAccessToken</code> row. On hit, it returns <code>{ organizationId }</code> and the rest of the MCP route proceeds exactly as before.
+    </div>
+
+    <h2 id="discovery">Discovery endpoints</h2>
+
+    <p>Both live under <code>/.well-known/</code> which Next.js serves from <code>src/app/.well-known/*</code>. These routes are public (no auth) and always wrapped with CORS.</p>
+
+    <h3><code>/.well-known/oauth-protected-resource</code></h3>
+    <pre><code>{
+  "resource": "https://events.meetingmindsgroup.com/api/mcp",
+  "authorization_servers": ["https://events.meetingmindsgroup.com"],
+  "scopes_supported": ["mcp"],
+  "bearer_methods_supported": ["header"],
+  "resource_name": "EA-SYS MCP Server",
+  "resource_documentation": "https://events.meetingmindsgroup.com/docs/MCP_REFERENCE.md"
+}</code></pre>
+
+    <h3><code>/.well-known/oauth-authorization-server</code></h3>
+    <pre><code>{
+  "issuer": "https://events.meetingmindsgroup.com",
+  "authorization_endpoint": "https://events.meetingmindsgroup.com/mcp-authorize",
+  "token_endpoint": "https://events.meetingmindsgroup.com/api/mcp/oauth/token",
+  "registration_endpoint": "https://events.meetingmindsgroup.com/api/mcp/oauth/register",
+  "revocation_endpoint": "https://events.meetingmindsgroup.com/api/mcp/oauth/revoke",
+  "scopes_supported": ["mcp"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256"],
+  "token_endpoint_auth_methods_supported": ["none", "client_secret_post"]
+}</code></pre>
+
+    <div class="note">
+      <strong>Why <code>authorization_endpoint</code> is a page, not an API route.</strong> <code>/mcp-authorize</code> is a Next.js server component that needs to render a consent UI with NextAuth session context. Putting it under <code>/api/</code> would force awkward JSX-from-API-route tricks. A plain page is cleaner.
+    </div>
+
+    <h2 id="dcr">Dynamic Client Registration</h2>
+
+    <p><code>POST /api/mcp/oauth/register</code>, no auth, 10 registrations per hour per IP. Accepts a Zod-validated RFC 7591 request body:</p>
+
+    <pre><code>POST /api/mcp/oauth/register
+Content-Type: application/json
+
+{
+  "client_name": "Claude",
+  "redirect_uris": ["https://claude.ai/api/mcp/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "token_endpoint_auth_method": "none",
+  "scope": "mcp"
+}</code></pre>
+
+    <p>Response:</p>
+
+    <pre><code>201 Created
+{
+  "client_id": "b3b4e20f-6a2e-4f18-b3c8-....",
+  "client_id_issued_at": 1744812345,
+  "client_secret_expires_at": 0,
+  "client_name": "Claude",
+  "redirect_uris": ["https://claude.ai/api/mcp/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "token_endpoint_auth_method": "none",
+  "scope": "mcp"
+}</code></pre>
+
+    <p>We default to <strong>public clients</strong> (<code>token_endpoint_auth_method: "none"</code>) because browser-based OAuth flows can't keep a client secret secret. If a confidential client registers with <code>client_secret_post</code>, we mint a secret and return it once in the response; the hash is stored for subsequent <code>/token</code> calls.</p>
+
+    <div class="warning">
+      <strong>We do not restrict <code>redirect_uris</code> to specific hosts.</strong> Claude Desktop legitimately uses <code>http://localhost:xxx</code>, claude.ai web uses <code>https://claude.ai/...</code>, and we want to support other remote MCP clients (n8n, Composio, Warp) without hardcoding hosts. The security comes from exact-match validation at authorize time, not from a host allowlist.
+    </div>
+
+    <h2 id="authorize">Authorization &amp; consent</h2>
+
+    <p>The authorization endpoint is actually two pieces:</p>
+
+    <h3>1. <code>/mcp-authorize</code> &mdash; the consent UI (page.tsx)</h3>
+    <p>Renders server-side, does all the upfront validation:</p>
+    <ul>
+      <li>Validates every OAuth param (<code>client_id</code>, <code>redirect_uri</code>, <code>response_type=code</code>, <code>code_challenge</code>, <code>code_challenge_method=S256</code>).</li>
+      <li>Looks up the client via <code>getClient()</code>. Shows an error page if unknown.</li>
+      <li>Checks <code>client.redirectUris.includes(redirectUri)</code>. <strong>Exact match.</strong> Error if not.</li>
+      <li>Calls <code>auth()</code>. If no session, <code>redirect()</code>s to <code>/login?callbackUrl=&lt;encoded current URL&gt;</code>. NextAuth brings them back after login.</li>
+      <li>Enforces RBAC: <code>ADMIN</code>, <code>SUPER_ADMIN</code>, <code>ORGANIZER</code> only. Other roles see a clean "access denied" page.</li>
+      <li>Loads the user's organization for display, renders the consent card with client name + org name + scope.</li>
+      <li>The form is a plain HTML <code>&lt;form method="POST"&gt;</code> pointing at <code>/api/mcp/oauth/authorize/decision</code> with all OAuth params as hidden inputs plus a <code>decision=approve|deny</code> field.</li>
+    </ul>
+
+    <h3>2. <code>/api/mcp/oauth/authorize/decision</code> &mdash; the form POST handler</h3>
+    <p>Re-validates everything server-side. Never trust form fields.</p>
+    <ul>
+      <li>Re-looks-up the client and re-verifies <code>redirect_uri</code> match.</li>
+      <li>Re-runs the session + RBAC check.</li>
+      <li>On <strong>approve</strong>: calls <code>issueAuthCode()</code> which generates a random token, stores its hash in <code>McpOAuthAuthCode</code> with the PKCE challenge and 10-min TTL, then 302s to <code>${redirect_uri}?code=&lt;raw code&gt;&amp;state=&lt;state&gt;</code>.</li>
+      <li>On <strong>deny</strong>: 302s to <code>${redirect_uri}?error=access_denied&amp;state=&lt;state&gt;</code>.</li>
+      <li>Never logs the raw code &mdash; only the first 12 characters for debugging.</li>
+    </ul>
+
+    <h2 id="token">Token exchange &amp; refresh</h2>
+
+    <p><code>POST /api/mcp/oauth/token</code>. Per OAuth 2.1, the request body should be <code>application/x-www-form-urlencoded</code>. Some clients send JSON &mdash; we accept both.</p>
+
+    <h3>Authorization code grant</h3>
+    <pre><code>POST /api/mcp/oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&amp;code=mcp_ac_xxxxxxxxxxxxx
+&amp;code_verifier=yyyyyyyyyyy
+&amp;client_id=b3b4e20f-6a2e-4f18-b3c8-...
+&amp;redirect_uri=https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fcallback</code></pre>
+
+    <p>The exchange runs inside a single Prisma transaction so a code can never be used twice:</p>
+    <ol>
+      <li>Look up <code>McpOAuthAuthCode</code> by <code>codeHash</code>.</li>
+      <li>Verify not expired, client_id matches, redirect_uri matches, PKCE verifies (via <code>crypto.timingSafeEqual</code>).</li>
+      <li><code>db.$transaction([delete(code), create(accessToken)])</code>.</li>
+      <li>Return the raw access token + refresh token to the client.</li>
+    </ol>
+
+    <p>Response:</p>
+    <pre><code>{
+  "access_token": "mcp_at_xxxxxxxxxxx",
+  "token_type": "Bearer",
+  "expires_in": 2592000,
+  "refresh_token": "mcp_rt_yyyyyyyyyyy",
+  "scope": "mcp"
+}</code></pre>
+
+    <h3>Refresh token grant</h3>
+    <pre><code>POST /api/mcp/oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token
+&amp;refresh_token=mcp_rt_yyyyyyyyyyy
+&amp;client_id=b3b4e20f-6a2e-4f18-b3c8-...</code></pre>
+
+    <p>Refresh rotation:</p>
+    <ol>
+      <li>Look up <code>McpOAuthAccessToken</code> by <code>refreshHash</code>.</li>
+      <li>Verify not revoked, client_id matches, refresh not past the 90-day window.</li>
+      <li><code>db.$transaction([update(old, revokedAt: now), create(new accessToken)])</code>.</li>
+      <li>Return a <strong>fresh</strong> access token + a <strong>new</strong> refresh token.</li>
+    </ol>
+
+    <div class="note">
+      The old refresh token is revoked but not deleted, so a replay can be detected (looks like a revoked row). Cleanup cron removes revoked rows past the grace window.
+    </div>
+
+    <h2 id="revoke">Revocation</h2>
+
+    <p><code>POST /api/mcp/oauth/revoke</code>. Per RFC 7009, this endpoint <strong>always returns 200</strong> regardless of whether the token existed &mdash; this prevents attackers from using the endpoint to enumerate valid tokens.</p>
+
+    <pre><code>POST /api/mcp/oauth/revoke
+Content-Type: application/x-www-form-urlencoded
+
+token=mcp_at_xxxxxxxxxxx
+&amp;token_type_hint=access_token</code></pre>
+
+    <p>The server hashes the token and runs <code>updateMany({ where: { OR: [{tokenHash}, {refreshHash}] }, data: { revokedAt: now } })</code>. Works for both access and refresh tokens with a single call.</p>
+
+    <h2 id="cors">CORS</h2>
+
+    <p>Every OAuth route and the main <code>/api/mcp</code> route has <strong>two</strong> things related to CORS:</p>
+
+    <ol>
+      <li>A dedicated <code>OPTIONS</code> export that calls <code>handlePreflight(req)</code> &mdash; returns 204 with the full set of CORS headers for the request's origin.</li>
+      <li>Every response body is wrapped with <code>withCors(req, res)</code> &mdash; adds the same headers to 200/201/401/429/etc responses.</li>
+    </ol>
+
+    <p>The allowed origins list is tight:</p>
+    <ul>
+      <li><code>https://claude.ai</code> (exact)</li>
+      <li><code>https://console.anthropic.com</code> (exact)</li>
+      <li><code>*.claude.ai</code> (subdomain suffix match)</li>
+      <li><code>*.anthropic.com</code> (subdomain suffix match)</li>
+      <li><code>http://localhost:3000</code> / <code>http://localhost:3001</code> / <code>http://127.0.0.1:3000</code> &mdash; <strong>dev only</strong> (<code>NODE_ENV !== "production"</code>)</li>
+    </ul>
+
+    <p>Requests from any other origin get a response with a bare <code>Vary: Origin</code> header &mdash; no <code>Access-Control-Allow-Origin</code>, so the browser blocks.</p>
+
+    <h2 id="middleware">Middleware bypass</h2>
+
+    <p>The app's <code>src/middleware.ts</code> previously intercepted every <code>OPTIONS /api/*</code> preflight and returned 204 with a mobile-app-only CORS allowlist. That allowlist does not include <code>claude.ai</code>, so the middleware was silently swallowing every browser preflight before our route handlers could run.</p>
+
+    <p>The fix is three lines, very early in the middleware:</p>
+
+    <pre><code>if (pathname.startsWith("/api/mcp")) {
+  return NextResponse.next();
+}</code></pre>
+
+    <p>This lets every <code>/api/mcp/*</code> and <code>/api/mcp/oauth/*</code> request flow through to the route-level handlers, where <code>OPTIONS</code> is exported and <code>handlePreflight()</code> returns the correct headers. The mobile-app CORS is untouched for the rest of the API surface.</p>
+
+    <h2 id="auth-coexistence">API key vs. OAuth: how both work</h2>
+
+    <p>Claude Desktop, n8n, and anything using <code>mcp-remote</code> send a long-lived API key via <code>x-api-key</code> or <code>Authorization: Bearer mmg_xxx</code>. claude.ai web sends a short-lived OAuth Bearer token via <code>Authorization: Bearer mcp_at_xxx</code>. Both need to work.</p>
+
+    <p>The <code>authenticate()</code> function in <code>/api/mcp/route.ts</code> tries both paths:</p>
+
+    <pre><code>async function authenticate(req) {
+  const key = extractToken(req);          // x-api-key OR Authorization: Bearer
+  if (!key) return null;
+
+  // Path 1: existing ApiKey (backward compat)
+  const apiKey = await validateApiKey(key);
+  if (apiKey) return { organizationId: apiKey.organizationId, keyPrefix: key.slice(0, 12) };
+
+  // Path 2: OAuth 2.1 access token (new)
+  const oauth = await validateOAuthAccessToken(key);
+  if (oauth) return { organizationId: oauth.organizationId, keyPrefix: "oauth-" + key.slice(0, 10) };
+
+  return null;
+}</code></pre>
+
+    <p>Both paths return the same <code>{ organizationId, keyPrefix }</code> shape. Downstream MCP tools (<code>list_events</code>, <code>create_speaker</code>, etc.) don't know or care which auth method was used &mdash; they just see an org ID and scope their queries to it.</p>
+
+    <p>Token prefixes make the two distinguishable in logs without exposing the full token:</p>
+    <ul>
+      <li>API key: starts with <code>mmg_</code> (as configured in the existing <code>ApiKey</code> flow)</li>
+      <li>OAuth access token: starts with <code>mcp_at_</code></li>
+      <li>OAuth refresh token: starts with <code>mcp_rt_</code></li>
+      <li>OAuth auth code: starts with <code>mcp_ac_</code></li>
+    </ul>
+
+    <h2 id="security">Security model</h2>
+
+    <table>
+      <tr><th>Threat</th><th>Mitigation</th></tr>
+      <tr><td>Replay of auth code</td><td>One-time use enforced inside a transaction: <code>delete(code)</code> + <code>create(token)</code> run atomically. Second exchange attempt finds nothing.</td></tr>
+      <tr><td>Stolen auth code without code_verifier</td><td>Mandatory PKCE S256. Code can't be exchanged without the verifier.</td></tr>
+      <tr><td>Man-in-the-middle on redirect</td><td>Redirect URI exact-match against registered URIs. No substring or prefix.</td></tr>
+      <tr><td>Token leak via logs</td><td>Never log raw tokens. Only first 10&ndash;12 characters for debugging. Hashed storage means DB dumps don't leak live tokens.</td></tr>
+      <tr><td>Token leak via DB</td><td>SHA-256 hashed storage, unique indexes only on hashes. Raw tokens never persisted.</td></tr>
+      <tr><td>Timing attack on PKCE verifier</td><td><code>crypto.timingSafeEqual()</code>.</td></tr>
+      <tr><td>Timing attack on client secret</td><td><code>crypto.timingSafeEqual()</code> in <code>verifyClientSecret()</code>.</td></tr>
+      <tr><td>Open redirector via <code>redirect_uri</code></td><td>Exact-match validation against the registered URIs on BOTH the authorize page AND the decision route. Never trust form fields.</td></tr>
+      <tr><td>Privilege escalation via consent</td><td>RBAC on the consent page: only <code>ADMIN</code>, <code>SUPER_ADMIN</code>, <code>ORGANIZER</code> can approve. Reviewers, submitters, registrants can't grant MCP access.</td></tr>
+      <tr><td>Cross-org data access</td><td>Tokens are bound to the approving user's <code>organizationId</code>. MCP tools scope all queries to this org via the existing <code>getOrgIdSecure()</code> helper.</td></tr>
+      <tr><td>Refresh token replay</td><td>Rotation on every refresh: old row flipped to <code>revokedAt</code>, new row created. A replay sees the revoked row and fails.</td></tr>
+      <tr><td>Refresh token lifetime abuse</td><td>90-day hard limit from <code>createdAt</code>. After that, user must re-auth.</td></tr>
+      <tr><td>DCR abuse</td><td>10/hr/IP rate limit on <code>/register</code>.</td></tr>
+      <tr><td>Token endpoint abuse</td><td>60/hr/client_id rate limit on <code>/token</code>.</td></tr>
+      <tr><td>Enumeration via revocation</td><td>Revoke always returns 200 regardless of whether the token existed (RFC 7009 compliant).</td></tr>
+    </table>
+
+    <h2 id="rate-limits">Rate limits</h2>
+
+    <table>
+      <tr><th>Endpoint</th><th>Limit</th><th>Key</th></tr>
+      <tr><td><code>/api/mcp/oauth/register</code></td><td>10/hour</td><td>per IP</td></tr>
+      <tr><td><code>/api/mcp/oauth/authorize/decision</code></td><td>30/hour</td><td>per IP</td></tr>
+      <tr><td><code>/api/mcp/oauth/token</code></td><td>60/hour</td><td>per <code>client_id</code></td></tr>
+      <tr><td><code>/api/mcp/oauth/revoke</code></td><td>30/hour</td><td>per IP</td></tr>
+      <tr><td><code>/api/mcp</code> (actual MCP traffic)</td><td>100/hour</td><td>per API-key or OAuth token prefix</td></tr>
+    </table>
+
+    <h2 id="cleanup">Cleanup cron</h2>
+
+    <p><code>GET|POST /api/cron/mcp-oauth-cleanup</code> with <code>Authorization: Bearer $CRON_SECRET</code>. Runs hourly. Deletes:</p>
+    <ul>
+      <li><code>McpOAuthAuthCode</code> rows with <code>expiresAt &lt; now()</code> &mdash; catches abandoned authorize flows.</li>
+      <li><code>McpOAuthAccessToken</code> rows with <code>expiresAt &lt; now() - 7 days</code> &mdash; 7-day grace period so clients can refresh before their row disappears.</li>
+    </ul>
+
+    <p>EC2 crontab entry:</p>
+
+    <pre><code>0 * * * * curl -s -X POST \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  https://events.meetingmindsgroup.com/api/cron/mcp-oauth-cleanup</code></pre>
+
+    <h2 id="verify">Manual verification</h2>
+
+    <h3>1. Discovery endpoints</h3>
+    <pre><code>curl -s https://events.meetingmindsgroup.com/.well-known/oauth-protected-resource | jq
+curl -s https://events.meetingmindsgroup.com/.well-known/oauth-authorization-server | jq</code></pre>
+    <p>Both should return JSON, not 404.</p>
+
+    <h3>2. CORS preflight</h3>
+    <pre><code>curl -sI -X OPTIONS https://events.meetingmindsgroup.com/api/mcp \
+  -H 'Origin: https://claude.ai' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization, content-type'</code></pre>
+    <p>Should return 204 with <code>Access-Control-Allow-Origin: https://claude.ai</code>.</p>
+
+    <h3>3. 401 challenge</h3>
+    <pre><code>curl -sI https://events.meetingmindsgroup.com/api/mcp</code></pre>
+    <p>Should return 401 with <code>WWW-Authenticate: Bearer realm="mcp", resource_metadata="https://events.meetingmindsgroup.com/.well-known/oauth-protected-resource"</code>.</p>
+
+    <h3>4. End-to-end in claude.ai</h3>
+    <ol>
+      <li>Open claude.ai &rarr; Settings &rarr; Integrations &rarr; Add Custom Connector.</li>
+      <li>URL: <code>https://events.meetingmindsgroup.com/api/mcp</code>.</li>
+      <li>A browser popup should open at <code>/mcp-authorize</code>.</li>
+      <li>Sign in to EA-SYS (if not already). Click Approve.</li>
+      <li>Popup closes; claude.ai shows "Connected".</li>
+      <li>In a new chat, ask "list my events". Should invoke <code>list_events</code> and return real data.</li>
+    </ol>
+
+    <h3>5. Claude Desktop regression check</h3>
+    <p>Keep your existing <code>mcp-remote</code> config with <code>x-api-key</code>. Restart Claude Desktop. Confirm tools still load and work &mdash; this path is untouched but verify nothing accidentally broke.</p>
+
+    <h2 id="troubleshoot">Troubleshooting</h2>
+
+    <h3>"Failed to connect" in claude.ai immediately after pasting the URL</h3>
+    <ul>
+      <li>Check <code>GET /.well-known/oauth-protected-resource</code> returns 200 JSON (not 404).</li>
+      <li>Check <code>curl -sI https://events.meetingmindsgroup.com/api/mcp</code> shows the <code>WWW-Authenticate</code> header.</li>
+      <li>Check browser DevTools &rarr; Network for the CORS preflight response; it should have <code>Access-Control-Allow-Origin: https://claude.ai</code>.</li>
+    </ul>
+
+    <h3>The consent popup opens but shows "Unknown client"</h3>
+    <ul>
+      <li>The DCR registration step failed. Check server logs for <code>mcp-oauth:register-failed</code>.</li>
+      <li>Make sure you haven't exceeded 10 registrations/hour from the same IP.</li>
+    </ul>
+
+    <h3>Approve button works but redirect lands on an error page</h3>
+    <ul>
+      <li>Check logs for <code>mcp-oauth:redirect-uri-mismatch</code> &mdash; the client's <code>redirect_uri</code> doesn't exactly match what was registered. This is normal for Claude Desktop's localhost flows (port numbers change) but should never happen for claude.ai web.</li>
+      <li>Check the code_verifier matches the code_challenge. PKCE mismatches log as <code>mcp-oauth:code-exchange-failed</code> with <code>error: invalid_grant</code>.</li>
+    </ul>
+
+    <h3>Tools work once but fail after 30 days</h3>
+    <p>Access token expired. The client should automatically <code>POST /api/mcp/oauth/token</code> with <code>grant_type=refresh_token</code>. If refresh itself fails, the user has to re-authorize. The refresh token has a 90-day hard limit.</p>
+
+    <h3>"Server not initialized" error on curl tests</h3>
+    <p>This is not an OAuth issue &mdash; it's a missing <code>clientInfo</code> in your <code>initialize</code> request body. See <a href="./MCP_REFERENCE.md">MCP_REFERENCE.md</a> for a working curl example.</p>
+
+    <hr>
+    <p class="small">This document is maintained alongside the implementation. If you make changes to any file in the "Files involved" section, update this guide.</p>
+  </div>
+</body>
+</html>

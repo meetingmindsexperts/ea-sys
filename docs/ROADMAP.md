@@ -737,6 +737,7 @@ shops.**
 | [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) | Detailed feature checklist with API endpoints and implementation notes |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, and design decisions |
 | [HANDOVER.md](HANDOVER.md) | Full handover document for new developers |
+| [SUPPORT_AND_MAINTENANCE.md](SUPPORT_AND_MAINTENANCE.md) | Leadership-oriented operational requirements: what's monitored, recurring tasks, vendor risks, decisions needed from management |
 | [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) | Production environment audit and configuration |
 | [SECURITY_AUDIT_FIXES.md](SECURITY_AUDIT_FIXES.md) | Security improvements and fixes applied |
 | [agents.md](agents.md) | AI agent tool documentation |

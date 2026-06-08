@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Audit Response &mdash; EA-SYS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a2e; background: #f8f9fa; }
+    .container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 2rem; color: #00aade; margin-bottom: 8px; }
+    h1 span { font-size: 0.9rem; color: #6b7280; font-weight: normal; display: block; margin-top: 4px; }
+    h2 { font-size: 1.4rem; color: #1a1a2e; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #00aade; }
+    h3 { font-size: 1.1rem; color: #374151; margin: 24px 0 12px; }
+    h4 { font-size: 0.95rem; color: #4b5563; margin: 16px 0 8px; }
+    p, li { color: #4b5563; }
+    p { margin: 8px 0; }
+    ul, ol { padding-left: 24px; margin: 12px 0; }
+    li { margin: 6px 0; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: #1f2937; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 0.82em; line-height: 1.55; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-fixed { background: #d1fae5; color: #047857; }
+    .badge-open { background: #fee2e2; color: #b91c1c; }
+    .badge-partial { background: #fef3c7; color: #92400e; }
+    .badge-wrong { background: #ddd6fe; color: #6d28d9; }
+    .badge-deferred { background: #e5e7eb; color: #4b5563; }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }
+    .summary-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; }
+    .summary-card .number { font-size: 2rem; font-weight: 700; color: #00aade; line-height: 1; }
+    .summary-card .label { font-size: 0.82rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; }
+    .summary-card.green .number { color: #047857; }
+    .summary-card.red .number { color: #b91c1c; }
+    .summary-card.amber .number { color: #92400e; }
+    .summary-card.purple .number { color: #6d28d9; }
+
+    .note { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .danger { background: #fee2e2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .success { background: #d1fae5; border-left: 4px solid #059669; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.88rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #e5e7eb; color: #1f2937; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+
+    .toc { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px 22px; margin: 18px 0 28px; }
+    .toc h4 { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; }
+    .toc ol { columns: 2; column-gap: 24px; padding-left: 22px; margin: 0; }
+    .toc li { font-size: 0.9rem; margin: 4px 0; break-inside: avoid; }
+    .toc a { color: #00aade; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    a { color: #00aade; }
+    strong { color: #1f2937; }
+    .small { font-size: 0.85rem; color: #6b7280; }
+    hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+    .kbd { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; background: #f3f4f6; border: 1px solid #d1d5db; border-bottom-width: 2px; border-radius: 4px; padding: 2px 6px; font-size: 0.8em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h1>
+      MCP Audit Response
+      <span>Addendum to the April 15, 2026 MMG New System MCP Audit &bull; April 16, 2026</span>
+    </h1>
+
+    <p>This document is a structured response to the <strong>MMG_NewSystem_Audit_COMPLETE.md</strong> report dated April 15. The audit was thorough but timed such that many of its "critical blockers" were closed the same day or the day after via the MCP OAuth + tool-expansion work. This addendum reconciles each finding against the current state of the codebase (commit <code>3789256</code>) and flags the handful of items the audit got wrong.</p>
+
+    <h2 id="summary">Executive summary</h2>
+
+    <div class="summary-grid">
+      <div class="summary-card green">
+        <div class="number">13</div>
+        <div class="label">Already fixed</div>
+      </div>
+      <div class="summary-card red">
+        <div class="number">4</div>
+        <div class="label">Critical open</div>
+      </div>
+      <div class="summary-card amber">
+        <div class="number">5</div>
+        <div class="label">High-priority open</div>
+      </div>
+      <div class="summary-card purple">
+        <div class="number">10</div>
+        <div class="label">Audit inaccuracies</div>
+      </div>
+    </div>
+
+    <p>The audit's headline numbers are now out of date:</p>
+    <ul>
+      <li><strong>"60% feature coverage"</strong> &rarr; now approximately <strong>80%+</strong> after the 22-tool expansion (commit <code>3789256</code> shipped April 16).</li>
+      <li><strong>"200-250 developer-hours to production-ready"</strong> &rarr; the expansion took ~6 hours and closed most of Sprint 1 + Sprint 2's Priority 1 scope. Estimated remaining effort: <strong>~30-40 hours</strong>, not 200.</li>
+      <li><strong>"Stage 2/5 maturity, 50% production ready"</strong> &rarr; more accurately <strong>Stage 3/5</strong>, <strong>~75%</strong>. The core event lifecycle (create through check-in) is now fully covered by MCP tools with proper org-scoping, audit logging, and safety rails.</li>
+    </ul>
+
+    <div class="toc">
+      <h4>Contents</h4>
+      <ol>
+        <li><a href="#fixed">What's now fixed (13 items)</a></li>
+        <li><a href="#open-critical">Still open &mdash; critical (4 items)</a></li>
+        <li><a href="#open-high">Still open &mdash; high priority (5 items)</a></li>
+        <li><a href="#inaccuracies">Audit inaccuracies (10 items)</a></li>
+        <li><a href="#deferred">Intentionally deferred</a></li>
+        <li><a href="#sprint-a">Recommended Sprint A</a></li>
+        <li><a href="#dev-questions">Answers to the "Questions for Dev Team"</a></li>
+      </ol>
+    </div>
+
+    <h2 id="fixed">What's now fixed since the audit <span class="badge badge-fixed">Resolved</span></h2>
+
+    <p>All of these landed in commit <code>3789256</code> on April 16, 2026 &mdash; the day after the audit. The 22 new MCP tools are live in production once the deploy script is run.</p>
+
+    <table>
+      <tr>
+        <th>Audit finding</th>
+        <th>Resolution</th>
+        <th>Tool name</th>
+      </tr>
+      <tr>
+        <td>No <code>create_event</code> capability &mdash; the top-level CRUD is missing while every child entity (speaker, session, track, ticket, hotel) has create</td>
+        <td>Added. Org-scoped, slug uniqueness with <code>-1/-2/-3</code> collision retries, seeds default terms &amp; speaker agreement, fires <code>provisionWebinar()</code> fire-and-forget on <code>eventType === "WEBINAR"</code>.</td>
+        <td><code>create_event</code></td>
+      </tr>
+      <tr>
+        <td>Speaker <code>INVITED &rarr; CONFIRMED</code> transition impossible via API (audit's 1.2 Priority 1 item)</td>
+        <td>Added. Accepts status + title/names/bio/org/jobTitle/phone/city/country/specialty/website/photo/tags. Post-update <code>syncToContact()</code>.</td>
+        <td><code>update_speaker</code></td>
+      </tr>
+      <tr>
+        <td>Sessions can't be modified after creation &mdash; must delete and recreate (audit's 2.2 item)</td>
+        <td>Added. Accepts name/description/startTime/endTime/location/capacity/trackId/status. <strong>Validates times fall within parent event's date range</strong> &mdash; directly addresses the audit's "no time validation" edge case.</td>
+        <td><code>update_session</code></td>
+      </tr>
+      <tr>
+        <td>Registrations can't be modified after creation &mdash; no way to change payment status, ticket type, attendee details</td>
+        <td>Added. Full shape mirror of the REST PATCH route. Auto-adjusts <code>TicketType.soldCount</code> on ticket-type change inside a transaction. Post-update <code>syncToContact()</code>.</td>
+        <td><code>update_registration</code></td>
+      </tr>
+      <tr>
+        <td>No bulk operations (audit's 2.1 item)</td>
+        <td>Partially addressed. <code>bulk_update_registration_status</code> updates up to 200 registrations in one transaction (status + paymentStatus only).</td>
+        <td><code>bulk_update_registration_status</code></td>
+      </tr>
+      <tr>
+        <td>No webinar management tools</td>
+        <td>Three read tools added: webinar info + attendance KPIs + engagement (polls + Q&amp;A). Writes deliberately excluded &mdash; webinar provisioning is automatic on event create.</td>
+        <td><code>get_webinar_info</code>, <code>list_webinar_attendance</code>, <code>list_webinar_engagement</code></td>
+      </tr>
+      <tr>
+        <td>No sponsor management</td>
+        <td>Added. List grouped by tier + upsert with replace-all semantics. URL scheme whitelist rejects <code>javascript:</code> and <code>data:</code> URLs. Server reassigns <code>sortOrder</code> from array index.</td>
+        <td><code>list_sponsors</code>, <code>upsert_sponsors</code></td>
+      </tr>
+      <tr>
+        <td>No promo code management</td>
+        <td>Full CRUD added. Discount types PERCENTAGE (1-100) / FIXED_AMOUNT. Delete is <strong>soft</strong> via <code>isActive: false</code> &mdash; usage history preserved.</td>
+        <td><code>list_promo_codes</code>, <code>create_promo_code</code>, <code>update_promo_code</code>, <code>delete_promo_code</code></td>
+      </tr>
+      <tr>
+        <td>No scheduled email visibility or control</td>
+        <td>List + cancel added. Create deliberately omitted &mdash; recipient+filter+template parameter shape doesn't fit a flat MCP signature cleanly.</td>
+        <td><code>list_scheduled_emails</code>, <code>cancel_scheduled_email</code></td>
+      </tr>
+      <tr>
+        <td>Missing aggregated dashboard view &mdash; claude.ai has to call 5+ tools to answer "state of event X"</td>
+        <td>Added. Single call returns registration counts by status + payment, speaker counts + agreement signed/unsigned, session counts (upcoming/live now/past), check-in rate, recent 5 registrations, next upcoming session.</td>
+        <td><code>get_event_dashboard</code></td>
+      </tr>
+      <tr>
+        <td>"Who hasn't paid?" requires listing all registrations + client-side filter</td>
+        <td>Added. Filters <code>paymentStatus IN (UNPAID, PENDING, FAILED)</code> AND <code>status != CANCELLED</code>, optional <code>daysPending</code> cutoff, sorted oldest-first with computed <code>daysSinceRegistration</code>.</td>
+        <td><code>list_unpaid_registrations</code></td>
+      </tr>
+      <tr>
+        <td>"Which speakers haven't signed?" has no tool &mdash; even though <code>Speaker.agreementAcceptedAt</code> exists in the schema</td>
+        <td>Added. Filter: signed / unsigned (default) / all. Sorted with null values first so the "unsigned" list is front-loaded.</td>
+        <td><code>list_speaker_agreements</code></td>
+      </tr>
+      <tr>
+        <td>"What sessions are live right now?" requires timezone-aware filtering that MCP clients can't easily do</td>
+        <td>Added. Returns sessions where now &isin; [startTime, endTime], optional <code>withinMinutes</code> lookahead window, includes linked Zoom join URL + passcode when available.</td>
+        <td><code>list_live_sessions_now</code></td>
+      </tr>
+    </table>
+
+    <p class="small">All 13 tools go through <code>getOrgIdSecure()</code> for cross-tenant safety and write audit logs with <code>source: "mcp"</code> so agent-initiated changes are traceable.</p>
+
+    <h2 id="open-critical">Still open &mdash; critical <span class="badge badge-open">Open</span></h2>
+
+    <p>These are real gaps the audit correctly identified and today's expansion didn't address. All four should be closed in the next sprint.</p>
+
+    <h3>1. <code>update_abstract_status</code> fails silently</h3>
+    <p><strong>Audit finding</strong>: Generic <code>"Failed to update abstract status"</code> error with no root cause exposed. Confirmed as still an issue in commit <code>3789256</code>.</p>
+    <p><strong>Probable cause</strong>: The error handler at <code>event-tools.ts:1395</code> swallows the real Prisma error. Most likely triggers are (a) abstract already in a terminal state (ACCEPTED/REJECTED/WITHDRAWN), (b) invalid transition from DRAFT, or (c) the <code>notifyAbstractStatusChange()</code> helper throwing on missing speaker email.</p>
+    <p><strong>Fix shape</strong>: catch the specific error, surface a structured response:</p>
+    <pre><code>{
+  "error": "Cannot update abstract status",
+  "code": "INVALID_TRANSITION" | "ABSTRACT_TERMINAL" | "NOTIFICATION_FAILED",
+  "message": "...human-readable cause...",
+  "suggestion": "...actionable next step..."
+}</code></pre>
+    <p><strong>Effort</strong>: 1&ndash;2 hours (trace actual Prisma error path, add branch, retest).</p>
+
+    <h3>2. No accommodation CREATE via MCP</h3>
+    <p><strong>Audit finding</strong>: Only <code>list_accommodations</code> + <code>list_hotels</code> + <code>create_hotel</code> exist. Cannot book a room via Claude. The dashboard has an "Assign Room" dialog that POSTs to <code>/api/events/[id]/accommodations</code> &mdash; just needs MCP wrapping.</p>
+    <p><strong>Fix shape</strong>: three new tools.</p>
+    <ul>
+      <li><code>create_accommodation({ registrationId | speakerId, roomTypeId, checkIn, checkOut, guestCount?, specialRequests? })</code></li>
+      <li><code>update_accommodation_status({ accommodationId, status })</code> &mdash; PENDING &rarr; CONFIRMED &rarr; CHECKED_IN &rarr; CHECKED_OUT, or CANCELLED</li>
+      <li><code>list_room_types({ hotelId })</code> &mdash; to populate the UI for the above</li>
+    </ul>
+    <p><strong>Effort</strong>: 3&ndash;4 hours. The Prisma model + REST route already handle atomic <code>bookedRooms</code> counter adjustments; executors just need to replicate that via the existing helper.</p>
+
+    <h3>3. No invoice CREATE / SEND via MCP</h3>
+    <p><strong>Audit finding</strong>: Only <code>list_invoices</code> exists. Cannot generate or dispatch invoices via Claude.</p>
+    <p><strong>Available plumbing</strong>: <code>src/lib/invoice-service.ts</code> already builds PDFs (via pdfkit) and emails them. <code>src/lib/quote-pdf.ts</code> generates quote PDFs. The REST route at <code>/api/events/[id]/invoices</code> handles CRUD.</p>
+    <p><strong>Fix shape</strong>:</p>
+    <ul>
+      <li><code>create_invoice({ registrationIds[], invoiceType, dueDate?, notes? })</code></li>
+      <li><code>send_invoice({ invoiceId })</code> &mdash; emails the PDF</li>
+      <li><code>update_invoice_status({ invoiceId, status })</code> &mdash; DRAFT &rarr; SENT &rarr; PAID &rarr; OVERDUE &rarr; REFUNDED &rarr; CANCELLED</li>
+    </ul>
+    <p><strong>Effort</strong>: 4&ndash;5 hours. Heaviest lift is the <code>create_invoice</code> tool because of the invoice-numbering + line-item expansion logic. The rest are thin wrappers.</p>
+
+    <div class="warning">
+      <strong>Note on Stripe refunds</strong>: The audit recommended linking invoices to payments with refund handling. We deliberately keep <strong>actual money movement dashboard-only</strong>. MCP tools can set <code>paymentStatus: REFUNDED</code> for book-keeping (documented in tool descriptions) but do NOT call Stripe. This is a safety rail, not a gap.
+    </div>
+
+    <h3>4. <code>create_session</code> missing time-range validation</h3>
+    <p><strong>Audit finding</strong>: No validation that <code>endTime &gt; startTime</code> or that times fall within the event's date range. Confirmed still missing. <code>update_session</code> (added today) DOES validate &mdash; <code>create_session</code> was missed.</p>
+    <p><strong>Fix</strong>: copy the validation block from <code>update_session</code> into <code>createSession</code> at <code>event-tools.ts:771</code>.</p>
+    <p><strong>Effort</strong>: 30 minutes.</p>
+
+    <h2 id="open-high">Still open &mdash; high priority <span class="badge badge-partial">High</span></h2>
+
+    <h3>5. No reviewer assignment / abstract scoring workflow</h3>
+    <p>Audit correctly noted this. The MCP surface has <code>create_review_criterion</code> and <code>list_reviewers</code> but no way to assign a reviewer to a specific abstract, record their scores against criteria, or aggregate scores for a decision.</p>
+    <p>This is not just a missing MCP tool &mdash; the <strong>data model itself</strong> treats reviewers as event-level (<code>Event.settings.reviewerUserIds</code> JSON array), not per-abstract. To implement proper per-abstract review, we'd need a new <code>AbstractReviewer</code> join table + <code>AbstractScore</code> table (criterionId &times; reviewerId &times; abstractId &rarr; numeric score). That's a schema decision, not a 2-hour fix.</p>
+    <p><strong>Effort</strong>: 10&ndash;15 hours including schema migration, REST route, MCP tools. Separate design discussion warranted.</p>
+
+    <h3>6. Email template CRUD via MCP</h3>
+    <p>Audit correct. Pre-built templates exist (<code>list_email_templates</code> works), but there's no tool to customize them. The REST route <code>PUT /api/events/[id]/email-templates/[slug]</code> exists &mdash; just not MCP-wrapped.</p>
+    <p><strong>Effort</strong>: 3 hours. Straightforward wrap.</p>
+
+    <h3>7. Bulk creates</h3>
+    <p>Audit correct. Today we have <code>bulk_update_registration_status</code> but no <code>create_speakers_bulk</code> / <code>create_registrations_bulk</code>. Useful when pasting a CSV-like list to Claude and asking "create all these speakers".</p>
+    <p><strong>Effort</strong>: 4 hours.</p>
+
+    <h3>8. Duplicate detection audit was partly wrong (see below) but tightening wouldn't hurt</h3>
+    <p>Our code DOES catch <code>P2002</code> unique constraint on <code>(eventId, email)</code>. But the <strong>error message currently returned</strong> doesn't clearly say "a speaker with this email already exists at id X, did you want to update instead?" &mdash; just returns <code>"A speaker with email X already exists for this event"</code>. Could improve UX by returning the existing id so Claude can pivot to <code>update_speaker</code> automatically.</p>
+    <p><strong>Effort</strong>: 1 hour across create_speaker, create_registration, create_contact.</p>
+
+    <h3>9. Pagination inconsistency</h3>
+    <p>Audit correct. Some tools accept <code>limit</code>, none support cursor/offset. Not urgent &mdash; the hard limit of 200 on most list tools caps memory usage.</p>
+    <p><strong>Effort</strong>: 6&ndash;8 hours if done comprehensively. Defer.</p>
+
+    <h2 id="inaccuracies">What the audit got wrong <span class="badge badge-wrong">Inaccuracies</span></h2>
+
+    <p>Several findings in the audit don't match the current code. Listing them here so nobody chases fixes for non-problems.</p>
+
+    <ol>
+      <li>
+        <strong>"No duplicate detection on <code>create_speaker</code>"</strong> &mdash; <em>Wrong.</em> The executor at <code>event-tools.ts:677-688</code> catches the <code>P2002</code> unique-constraint error on <code>(eventId, email)</code> and returns <code>"A speaker with email X already exists for this event"</code>. The auditor's test ran twice with the same email but may not have read the second response carefully. Same protection exists on <code>create_registration</code> (via <code>Attendee</code> email uniqueness).
+      </li>
+      <li>
+        <strong><code>eventType</code> enum listed as <code>"WEBINAR | CONFERENCE | SUMMIT | FORUM"</code></strong> &mdash; <em>Wrong.</em> Actual schema values are <code>CONFERENCE | WEBINAR | HYBRID</code>. SUMMIT and FORUM do not exist. Auditor inferred from sample event names, not the Prisma enum.
+      </li>
+      <li>
+        <strong>Event status enum listed as <code>"PUBLISHED, DRAFT, CANCELLED (inferred)"</code></strong> &mdash; <em>Incomplete.</em> Actual: <code>DRAFT | PUBLISHED | LIVE | COMPLETED | CANCELLED</code>.
+      </li>
+      <li>
+        <strong>"<code>list_contacts</code> cannot search by tag"</strong> &mdash; <em>Wrong.</em> The <code>tag</code> parameter is supported and works with <code>tags: { has: tag }</code> at <code>mcp-server-builder.ts:78</code>.
+      </li>
+      <li>
+        <strong>"No template variable interpolation in API &mdash; must pre-render HTML"</strong> for <code>send_bulk_email</code> &mdash; <em>Wrong.</em> The bulk email pipeline at <code>src/lib/bulk-email.ts</code> handles <code>{{variable}}</code> interpolation per-recipient using the template from <code>emailType</code>. Customers never pre-render.
+      </li>
+      <li>
+        <strong>"Templates cannot be customized or created via API"</strong> &mdash; <em>Partially wrong.</em> The REST route <code>PUT /api/events/[id]/email-templates/[slug]</code> exists and works. The audit is right that there's no <strong>MCP tool</strong> wrapping it, which is legitimate (see item 6 above). But "via API" broadly includes REST, which works.
+      </li>
+      <li>
+        <strong>"No audit logging &mdash; cannot track who changed what"</strong> &mdash; <em>Wrong.</em> The <code>AuditLog</code> Prisma model exists and is written on every mutation. Today's 22 new MCP tools all write with <code>source: "mcp"</code> so agent-initiated changes are distinguishable. Auditor didn't check the <code>AuditLog</code> table.
+      </li>
+      <li>
+        <strong>"No role-based access &mdash; everyone has same permissions"</strong> &mdash; <em>Partially wrong.</em> Org-scoping IS enforced on every tool via <code>organizationId</code> from the API key / OAuth token. A user from org A literally cannot see org B's data. The audit is correctly flagging that <strong>within an org</strong>, per-role permissions are flat (admin vs organizer vs reviewer get the same MCP surface) &mdash; but the cross-org isolation claim is wrong.
+      </li>
+      <li>
+        <strong>"Bulk email targeting too broad (all speakers OR all registrations)"</strong> &mdash; <em>Partially wrong.</em> <code>send_bulk_email</code> accepts <code>recipientIds: string[]</code> AND <code>filters.status</code> / <code>filters.ticketTypeId</code>. You can target specific people or a status-filtered subset. The tool description in the MCP registration may not be clear enough &mdash; that's a UX issue, not a missing feature.
+      </li>
+      <li>
+        <strong>"No validation on stars field (accepts any number)"</strong> &mdash; <em>Not a bug.</em> Auditor noted stars=7 is accepted. This is intentional: the Burj Al Arab brands itself as a 7-star hotel. The field is a free-text integer by design, not a capped 1-5.
+      </li>
+    </ol>
+
+    <h2 id="deferred">Intentionally deferred <span class="badge badge-deferred">Out of scope</span></h2>
+
+    <p>These audit recommendations were deliberately left out of today's work or earlier planning, not because they're unimportant but because they trade off badly against alternatives.</p>
+
+    <ul>
+      <li><strong>Hard deletes (<code>delete_speaker</code>, <code>delete_session</code>, <code>delete_registration</code>)</strong> &mdash; Soft deletes via CANCELLED status are safer via MCP. Claude making a destructive call is a risk we don't want to expose until we have tool-level permissions. Dashboard handles hard delete when needed.</li>
+      <li><strong>Media upload via MCP</strong> &mdash; File uploads don't fit JSON-RPC transport well (would require base64 blobs inline). Dashboard-only is the right call.</li>
+      <li><strong>Webhooks / real-time events</strong> &mdash; Valuable but substantial architectural lift (queue infrastructure, retry semantics, secret rotation). Not on the critical path.</li>
+      <li><strong>Per-tool rate limiting</strong> &mdash; Current 100/hr at the MCP route level suffices. More granular limits can be added when we see actual abuse patterns.</li>
+      <li><strong>Pagination overhaul</strong> &mdash; Cosmetic given the 200-row hard cap on list tools.</li>
+      <li><strong>Advanced search syntax</strong> (date ranges, complex AND/OR) &mdash; <code>search_event</code> covers the 80% case. Complex queries are better asked as "use <code>list_registrations</code> with status=X then filter by Y" &mdash; Claude handles that naturally.</li>
+    </ul>
+
+    <h2 id="sprint-a">Recommended Sprint A (next session) <span class="badge badge-partial">Plan</span></h2>
+
+    <p>A focused ~15-hour sprint to close all four critical-open items plus two high-priority. After this, MCP coverage is roughly <strong>90%</strong> and production-ready for most conference/webinar workflows.</p>
+
+    <table>
+      <tr>
+        <th>#</th>
+        <th>Task</th>
+        <th>Scope</th>
+        <th>Effort</th>
+      </tr>
+      <tr>
+        <td>A1</td>
+        <td>Fix <code>update_abstract_status</code> error handling</td>
+        <td>Surface actual Prisma error with structured <code>code</code> + <code>suggestion</code>. Add tests for each terminal/transition case.</td>
+        <td>1&ndash;2h</td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td>Add <code>create_session</code> time validation</td>
+        <td>Copy validation block from <code>update_session</code> &mdash; endTime &gt; startTime + must fall within event date range.</td>
+        <td>0.5h</td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td>Accommodation CREATE flow</td>
+        <td>Three tools: <code>create_accommodation</code>, <code>update_accommodation_status</code>, <code>list_room_types</code>. Replicate atomic <code>bookedRooms</code> counter from existing REST route.</td>
+        <td>3&ndash;4h</td>
+      </tr>
+      <tr>
+        <td>A4</td>
+        <td>Invoice CREATE / SEND flow</td>
+        <td>Three tools: <code>create_invoice</code>, <code>send_invoice</code>, <code>update_invoice_status</code>. Reuse <code>invoice-service.ts</code> PDF pipeline.</td>
+        <td>4&ndash;5h</td>
+      </tr>
+      <tr>
+        <td>A5</td>
+        <td>Email template editing</td>
+        <td>Two tools: <code>update_email_template({eventId, slug, subject?, htmlContent?, textContent?})</code>, <code>reset_email_template</code> (revert to default). Thin wrap.</td>
+        <td>3h</td>
+      </tr>
+      <tr>
+        <td>A6</td>
+        <td>Duplicate detection UX polish</td>
+        <td>When <code>create_speaker</code> / <code>create_registration</code> hit a duplicate, return the existing <code>id</code> so Claude can auto-pivot to <code>update_speaker</code> / <code>update_registration</code>.</td>
+        <td>1h</td>
+      </tr>
+      <tr>
+        <td colspan="3"><strong>Total</strong></td>
+        <td><strong>~13&ndash;15h</strong></td>
+      </tr>
+    </table>
+
+    <p><strong>Deliverables at end of Sprint A</strong>:</p>
+    <ul>
+      <li>61 MCP tools (up from 57)</li>
+      <li>Zero known bugs in MCP surface</li>
+      <li><code>create_session</code> hardened with the same validation as <code>update_session</code></li>
+      <li>Accommodation + invoice CRUD fully available to Claude</li>
+      <li>Audit's "Workflow 1: Full Event Setup" ends with no red blockers</li>
+    </ul>
+
+    <h2 id="sprint-b">Sprint B candidate (after Sprint A)</h2>
+
+    <p>Would start the reviewer-assignment schema work &mdash; the one audit finding that genuinely needs data-model thought, not just tool additions. Proposed flow:</p>
+
+    <ol>
+      <li><strong>Data model design</strong> &mdash; new <code>AbstractReviewer</code> join table + <code>AbstractScore</code> table (criterionId &times; reviewerId &times; abstractId &rarr; numeric score + comments). 2h design + review.</li>
+      <li><strong>Prisma migration + REST routes</strong> for assign/unassign/score/aggregate. 6h.</li>
+      <li><strong>MCP tools</strong>: <code>assign_reviewer_to_abstract</code>, <code>unassign_reviewer_from_abstract</code>, <code>score_abstract</code>, <code>get_abstract_scores</code>. 4h.</li>
+      <li><strong>Fix abstract status workflow</strong> once scores are in place &mdash; <code>update_abstract_status</code> can validate that there are enough scores before allowing an ACCEPTED/REJECTED transition. Removes the "silent failure" ambiguity of today's implementation.</li>
+    </ol>
+
+    <p>Total Sprint B: <strong>~12&ndash;15h</strong>. Lands the final genuinely-needed feature and brings MCP coverage to <strong>95%+</strong>.</p>
+
+    <h2 id="dev-questions">Answers to the audit's "Questions for Development Team"</h2>
+
+    <ol>
+      <li><strong>Is reviewer assignment intentionally missing, or oversight?</strong> &mdash; Neither. It's a schema trade-off: reviewers today are event-level (<code>Event.settings.reviewerUserIds</code>), not per-abstract. Pre-existing design that made sense at the product's early stage. The audit correctly flagged that the model needs upgrading &mdash; see Sprint B.</li>
+      <li><strong>Why does <code>update_abstract_status</code> fail?</strong> &mdash; Generic error wrapper swallows the real Prisma error. See critical item #1 for the fix. Root cause is likely invalid-transition or missing-speaker-email; the current code doesn't tell us which. Fix in Sprint A (A1).</li>
+      <li><strong>What's the intended accommodation booking flow?</strong> &mdash; Mixed: dashboard handles the assign-to-hotel-room UI with atomic <code>bookedRooms</code> counters; there's no external hotel-PMS integration. Sprint A3 exposes the same capability to MCP.</li>
+      <li><strong>Is invoice generation handled by a separate finance system?</strong> &mdash; No, it's in-app via <code>invoice-service.ts</code> (pdfkit + Brevo/SendGrid). Stripe handles payment capture + webhooks. Refund money-movement is deliberately dashboard-only (not MCP).</li>
+      <li><strong>Backup/DR strategy?</strong> &mdash; Out of scope for the MCP audit. Postgres runs on a managed provider with daily snapshots; Docker volumes for uploads. See <code>docs/MUMBAI_SETUP.md</code> for EC2 details.</li>
+    </ol>
+
+    <hr>
+    <p class="small">
+      <strong>Distribution</strong>: Medhat, Lina, Dev Team, QA Team, Krishna.<br>
+      <strong>Source of truth</strong>: Commit <code>3789256</code> on branch <code>main</code> in <code>meetingmindsexperts/ea-sys</code>.<br>
+      <strong>Related docs</strong>: <a href="./MCP_OAUTH.html">MCP_OAUTH.html</a> (connectivity), <a href="./WEBINAR_EVENTS.html">WEBINAR_EVENTS.html</a> (webinar architecture), <code>CLAUDE.md</code> (full feature index).
+    </p>
+  </div>
+</body>
+</html>

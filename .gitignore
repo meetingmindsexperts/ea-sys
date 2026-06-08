@@ -57,16 +57,19 @@ next-env.d.ts
 # Uploaded files (persistent storage, not in git)
 /public/uploads/*
 !/public/uploads/.gitkeep
-docs/TECHNICAL_INTERVIEW_QA.md
 .claude/settings.json
-.claude/settings.local.json
-.claude/settings.local.json
-docs/*
-docs/ARCHITECTURE.md
-docs/HANDOVER.md
 .claude/settings.local.json
 .claude/worktrees/
 .mcp.json
+
+# docs/ — track .md / .html documentation; ignore generated screenshots
+# and the interview-prep file. Previously this section had an overly
+# broad `docs/*` rule that silently blocked new docs from being added
+# (the redundant `docs/ARCHITECTURE.md` + `docs/HANDOVER.md` lines were
+# no-op attempts to whitelist back). Replaced with targeted ignores.
+docs/TECHNICAL_INTERVIEW_QA.md
+docs/screenshots/
+docs/screenshots.zip
 
 # Terraform — anywhere in the repo (belt-and-braces; also gitignored in infra/dr/)
 *.tfstate

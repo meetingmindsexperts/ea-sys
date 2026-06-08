@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EA-SYS — Distributed Multi-Agent Architecture Proposal</title>
+<style>
+  :root {
+    --primary: #00aade;
+    --primary-dark: #0088b5;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --purple: #8b5cf6;
+    --red: #ef4444;
+    --sky: #0ea5e9;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  .header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    padding: 56px 0 48px;
+    text-align: center;
+  }
+  .header h1 { font-size: 2.25rem; font-weight: 700; margin-bottom: 8px; }
+  .header p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto; }
+  .header .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    padding: 4px 16px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    margin-top: 16px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+  section { margin: 48px 0; }
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-dark);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--primary);
+    display: inline-block;
+  }
+  h3 { font-size: 1.15rem; font-weight: 600; margin: 20px 0 8px; }
+  p { margin-bottom: 12px; color: var(--text); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .card-accent { border-left: 4px solid var(--primary); }
+  .card-green { border-left: 4px solid var(--green); }
+  .card-purple { border-left: 4px solid var(--purple); }
+  .card-amber { border-left: 4px solid var(--amber); }
+  .card-red { border-left: 4px solid var(--red); }
+  .card-sky { border-left: 4px solid var(--sky); }
+  .card h3 { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg); font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { color: var(--text); }
+  .check { color: var(--green); font-weight: bold; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .phase-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; background: var(--primary); color: white;
+    border-radius: 50%; font-size: 0.8rem; font-weight: 700; margin-right: 8px; flex-shrink: 0;
+  }
+  .phase-title { display: flex; align-items: center; margin-bottom: 8px; }
+  .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600; margin-right: 6px;
+  }
+  .tag-new { background: #dcfce7; color: #166534; }
+  .tag-modify { background: #fef3c7; color: #92400e; }
+  .tag-delete { background: #fee2e2; color: #991b1b; }
+  .tag-mcp { background: #e0e7ff; color: #3730a3; }
+  .tag-api { background: #fce7f3; color: #9d174d; }
+  .agent-card { display: flex; align-items: flex-start; gap: 16px; padding: 20px; }
+  .agent-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; flex-shrink: 0; color: white;
+  }
+  .agent-icon.supervisor { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
+  .agent-icon.registration { background: linear-gradient(135deg, var(--green), #059669); }
+  .agent-icon.speaker { background: linear-gradient(135deg, var(--purple), #7c3aed); }
+  .agent-icon.schedule { background: linear-gradient(135deg, var(--amber), #d97706); }
+  .agent-icon.abstracts { background: linear-gradient(135deg, #ef4444, #dc2626); }
+  .agent-icon.accommodation { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
+  .agent-icon.communications { background: linear-gradient(135deg, #f97316, #ea580c); }
+  ul { margin: 8px 0 12px 20px; }
+  li { margin-bottom: 4px; color: var(--text); }
+  .footer {
+    text-align: center; padding: 32px 0; color: var(--muted); font-size: 0.85rem;
+    border-top: 1px solid var(--border); margin-top: 48px;
+  }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+  @media (max-width: 768px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat { text-align: center; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+  .stat-value { font-size: 1.75rem; font-weight: 700; color: var(--primary); }
+  .stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; font-family: 'SF Mono', 'Fira Code', monospace; }
+  .callout {
+    padding: 16px 20px; border-radius: 10px; margin: 16px 0; font-size: 0.95rem;
+  }
+  .callout-amber { background: #fffbeb; border: 1px solid #fde68a; }
+  .callout-green { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .callout-red { background: #fef2f2; border: 1px solid #fecaca; }
+  .callout-blue { background: #eff6ff; border: 1px solid #bfdbfe; }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  /* SVG diagram */
+  .arch-diagram { margin: 20px 0; text-align: center; overflow-x: auto; }
+  .arch-diagram svg { max-width: 100%; height: auto; }
+
+  /* Cost table highlight */
+  .cost-row-total td { font-weight: 700; border-top: 2px solid var(--primary); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="container">
+    <h1>Distributed Multi-Agent Architecture</h1>
+    <p>Transforming EA-SYS from a single AI assistant into a team of specialized, supervised agents embedded across the platform.</p>
+    <div class="badge">Architecture Proposal &middot; April 2026 &middot; Meeting Minds Group</div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- Overview Stats -->
+<section>
+  <div class="stat-grid">
+    <div class="stat">
+      <div class="stat-value">7</div>
+      <div class="stat-label">AI Agents</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">14</div>
+      <div class="stat-label">Automated Skills</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">6</div>
+      <div class="stat-label">External Integrations</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">11</div>
+      <div class="stat-label">Implementation Phases</div>
+    </div>
+  </div>
+</section>
+
+<!-- Executive Summary -->
+<section>
+  <h2>Executive Summary</h2>
+  <div class="card card-accent">
+    <h3>The Problem</h3>
+    <p>Today's AI agent is a single chatbot on a standalone page. Staff must leave their work, navigate to the agent page, describe their context, and hope the agent picks the right action from 12 generic tools. It doesn't understand domain nuance, can't connect to external services like Google Calendar or Teams, and there's no audit trail of what it does.</p>
+  </div>
+  <div class="card card-green">
+    <h3>The Solution</h3>
+    <p>Replace the single agent with a <strong>supervisor + 6 specialized sub-agents</strong>, each embedded directly where staff work:</p>
+    <ul>
+      <li><strong>Registration Agent</strong> on the Registrations page &mdash; ticketing, payments, attendees</li>
+      <li><strong>Speaker Agent</strong> on the Speakers page &mdash; speaker management, invitations, imports</li>
+      <li><strong>Schedule Agent</strong> on the Schedule page &mdash; sessions, tracks, calendar sync</li>
+      <li><strong>Abstracts Agent</strong> on the Abstracts page &mdash; submissions, reviews, scoring, reviewer assignments</li>
+      <li><strong>Accommodation Agent</strong> on the Accommodation page &mdash; hotels, room types, room allocations</li>
+      <li><strong>Communications Agent</strong> on the Communications page &mdash; email drafting, templates, campaigns</li>
+      <li><strong>Supervisor</strong> in the sidebar &mdash; always accessible, routes cross-domain requests, posts to Teams</li>
+    </ul>
+    <p>Each agent has multi-step <strong>skills</strong> (e.g., "send reminders to all unpaid registrations"), connects to <strong>external services</strong> (Google Calendar, Microsoft Teams, EventsAir), and every action is <strong>logged to a full audit trail</strong> with human approval gates for destructive operations.</p>
+  </div>
+</section>
+
+<!-- Architecture Diagram (SVG) -->
+<section>
+  <h2>Architecture</h2>
+  <div class="arch-diagram">
+    <svg viewBox="0 0 920 740" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#94a3b8"/></marker>
+        <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#00aade"/></marker>
+        <linearGradient id="gSupervisor" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00aade"/><stop offset="100%" stop-color="#0088b5"/></linearGradient>
+        <linearGradient id="gReg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+        <linearGradient id="gSpk" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient>
+        <linearGradient id="gSch" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient>
+        <linearGradient id="gAbs" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#dc2626"/></linearGradient>
+        <linearGradient id="gAcc" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0ea5e9"/><stop offset="100%" stop-color="#0284c7"/></linearGradient>
+        <linearGradient id="gCom" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f97316"/><stop offset="100%" stop-color="#ea580c"/></linearGradient>
+        <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+      </defs>
+
+      <!-- Sidebar area -->
+      <rect x="20" y="20" width="200" height="700" rx="12" fill="#f1f5f9" stroke="#e2e8f0"/>
+      <text x="120" y="50" text-anchor="middle" font-size="12" fill="#64748b" font-weight="600">SIDEBAR</text>
+
+      <!-- Supervisor node -->
+      <rect x="40" y="70" width="160" height="100" rx="10" fill="url(#gSupervisor)" filter="url(#shadow)"/>
+      <text x="120" y="100" text-anchor="middle" fill="white" font-size="22">&#x1F916;</text>
+      <text x="120" y="122" text-anchor="middle" fill="white" font-size="13" font-weight="700">Supervisor</text>
+      <text x="120" y="140" text-anchor="middle" fill="rgba(255,255,255,0.85)" font-size="10">Orchestrates 6 sub-agents</text>
+      <text x="120" y="155" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="10">Posts to MS Teams</text>
+
+      <!-- Delegation arrows from Supervisor -->
+      <line x1="200" y1="100" x2="300" y2="90" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+      <line x1="200" y1="110" x2="300" y2="185" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+      <line x1="200" y1="120" x2="300" y2="280" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+      <line x1="200" y1="130" x2="300" y2="375" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+      <line x1="200" y1="140" x2="300" y2="470" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+      <line x1="200" y1="150" x2="300" y2="565" stroke="#00aade" stroke-width="2" marker-end="url(#arrow-blue)" stroke-dasharray="6,3"/>
+
+      <!-- Main content area -->
+      <rect x="260" y="20" width="640" height="700" rx="12" fill="none" stroke="#e2e8f0" stroke-dasharray="4,4"/>
+      <text x="580" y="50" text-anchor="middle" font-size="12" fill="#64748b" font-weight="600">DASHBOARD PAGES</text>
+
+      <!-- Registration Agent -->
+      <rect x="300" y="65" width="240" height="75" rx="10" fill="url(#gReg)" filter="url(#shadow)"/>
+      <text x="330" y="90" fill="white" font-size="16">&#x1F4CB;</text>
+      <text x="352" y="90" fill="white" font-size="12" font-weight="700">Registration Agent</text>
+      <text x="330" y="107" fill="rgba(255,255,255,0.85)" font-size="9">Registrations &bull; Tickets &bull; Payments</text>
+      <text x="330" y="122" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/registrations page</text>
+
+      <!-- Speaker Agent -->
+      <rect x="300" y="160" width="240" height="75" rx="10" fill="url(#gSpk)" filter="url(#shadow)"/>
+      <text x="330" y="185" fill="white" font-size="16">&#x1F3A4;</text>
+      <text x="352" y="185" fill="white" font-size="12" font-weight="700">Speaker Agent</text>
+      <text x="330" y="202" fill="rgba(255,255,255,0.85)" font-size="9">Speakers &bull; Invitations &bull; Imports</text>
+      <text x="330" y="217" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/speakers page</text>
+
+      <!-- Schedule Agent -->
+      <rect x="300" y="255" width="240" height="75" rx="10" fill="url(#gSch)" filter="url(#shadow)"/>
+      <text x="330" y="280" fill="white" font-size="16">&#x1F4C5;</text>
+      <text x="352" y="280" fill="white" font-size="12" font-weight="700">Schedule Agent</text>
+      <text x="330" y="297" fill="rgba(255,255,255,0.85)" font-size="9">Sessions &bull; Tracks &bull; Calendar Sync</text>
+      <text x="330" y="312" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/schedule page</text>
+
+      <!-- Abstracts Agent -->
+      <rect x="300" y="350" width="240" height="75" rx="10" fill="url(#gAbs)" filter="url(#shadow)"/>
+      <text x="330" y="375" fill="white" font-size="16">&#x1F4DD;</text>
+      <text x="352" y="375" fill="white" font-size="12" font-weight="700">Abstracts Agent</text>
+      <text x="330" y="392" fill="rgba(255,255,255,0.85)" font-size="9">Submissions &bull; Reviews &bull; Scoring</text>
+      <text x="330" y="407" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/abstracts page</text>
+
+      <!-- Accommodation Agent -->
+      <rect x="300" y="445" width="240" height="75" rx="10" fill="url(#gAcc)" filter="url(#shadow)"/>
+      <text x="330" y="470" fill="white" font-size="16">&#x1F3E8;</text>
+      <text x="352" y="470" fill="white" font-size="12" font-weight="700">Accommodation Agent</text>
+      <text x="330" y="487" fill="rgba(255,255,255,0.85)" font-size="9">Hotels &bull; Room Types &bull; Allocations</text>
+      <text x="330" y="502" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/accommodation page</text>
+
+      <!-- Communications Agent -->
+      <rect x="300" y="540" width="240" height="75" rx="10" fill="url(#gCom)" filter="url(#shadow)"/>
+      <text x="330" y="565" fill="white" font-size="16">&#x2709;</text>
+      <text x="352" y="565" fill="white" font-size="12" font-weight="700">Communications Agent</text>
+      <text x="330" y="582" fill="rgba(255,255,255,0.85)" font-size="9">Email Drafting &bull; Templates &bull; Campaigns</text>
+      <text x="330" y="597" fill="rgba(255,255,255,0.7)" font-size="9" font-style="italic">/communications page</text>
+
+      <!-- External services column -->
+      <text x="750" y="50" text-anchor="middle" font-size="12" fill="#64748b" font-weight="600">EXTERNAL</text>
+
+      <!-- MCP: Google Calendar -->
+      <rect x="610" y="255" width="150" height="46" rx="8" fill="#fff" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="685" y="276" text-anchor="middle" fill="#92400e" font-size="10" font-weight="600">&#x1F4C5; Google Calendar</text>
+      <text x="685" y="290" text-anchor="middle" fill="#64748b" font-size="8">MCP Connector</text>
+      <line x1="540" y1="290" x2="608" y2="280" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- MCP: MS Teams -->
+      <rect x="610" y="65" width="150" height="46" rx="8" fill="#fff" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="685" y="86" text-anchor="middle" fill="#5b21b6" font-size="10" font-weight="600">&#x1F4AC; MS Teams</text>
+      <text x="685" y="100" text-anchor="middle" fill="#64748b" font-size="8">MCP Connector</text>
+      <line x1="120" y1="70" x2="608" y2="82" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="4,3"/>
+
+      <!-- Direct API: Stripe -->
+      <rect x="610" y="130" width="150" height="46" rx="8" fill="#fff" stroke="#10b981" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="685" y="151" text-anchor="middle" fill="#059669" font-size="10" font-weight="600">&#x1F4B3; Stripe</text>
+      <text x="685" y="165" text-anchor="middle" fill="#64748b" font-size="8">Direct API (existing)</text>
+      <line x1="540" y1="100" x2="608" y2="148" stroke="#10b981" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="4,3"/>
+
+      <!-- Direct API: EventsAir -->
+      <rect x="610" y="195" width="150" height="46" rx="8" fill="#fff" stroke="#00aade" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="685" y="216" text-anchor="middle" fill="#0088b5" font-size="10" font-weight="600">&#x2708; EventsAir</text>
+      <text x="685" y="230" text-anchor="middle" fill="#64748b" font-size="8">Direct API (existing)</text>
+
+      <!-- Direct API: Brevo/SendGrid -->
+      <rect x="610" y="540" width="150" height="46" rx="8" fill="#fff" stroke="#ef4444" stroke-width="1.5" filter="url(#shadow)"/>
+      <text x="685" y="561" text-anchor="middle" fill="#991b1b" font-size="10" font-weight="600">&#x2709; Email (Brevo)</text>
+      <text x="685" y="575" text-anchor="middle" fill="#64748b" font-size="8">Direct API (existing)</text>
+      <line x1="540" y1="570" x2="608" y2="562" stroke="#ef4444" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="4,3"/>
+
+      <!-- Sidebar controls -->
+      <rect x="40" y="200" width="160" height="55" rx="10" fill="#fef2f2" stroke="#fecaca" filter="url(#shadow)"/>
+      <text x="120" y="223" text-anchor="middle" fill="#991b1b" font-size="10" font-weight="600">&#x1F4DD; Audit Trail</text>
+      <text x="120" y="240" text-anchor="middle" fill="#991b1b" font-size="9">Every action logged</text>
+
+      <rect x="40" y="270" width="160" height="55" rx="10" fill="#eff6ff" stroke="#bfdbfe" filter="url(#shadow)"/>
+      <text x="120" y="293" text-anchor="middle" fill="#1e40af" font-size="10" font-weight="600">&#x1F512; Role-Based Access</text>
+      <text x="120" y="310" text-anchor="middle" fill="#1e40af" font-size="9">Admin / Organizer / Member</text>
+
+      <rect x="40" y="340" width="160" height="55" rx="10" fill="#f0fdf4" stroke="#bbf7d0" filter="url(#shadow)"/>
+      <text x="120" y="363" text-anchor="middle" fill="#166534" font-size="10" font-weight="600">&#x2705; Approval Gates</text>
+      <text x="120" y="380" text-anchor="middle" fill="#166534" font-size="9">Human confirms bulk actions</text>
+
+      <rect x="40" y="410" width="160" height="55" rx="10" fill="#fefce8" stroke="#fde68a" filter="url(#shadow)"/>
+      <text x="120" y="433" text-anchor="middle" fill="#854d0e" font-size="10" font-weight="600">&#x1F4D6; Skills Files</text>
+      <text x="120" y="450" text-anchor="middle" fill="#854d0e" font-size="9">Agents improve over time</text>
+
+      <!-- Legend -->
+      <line x1="40" y1="500" x2="80" y2="500" stroke="#00aade" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="86" y="504" fill="#64748b" font-size="9">Agent delegation</text>
+      <line x1="40" y1="518" x2="80" y2="518" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="86" y="522" fill="#64748b" font-size="9">API / MCP connection</text>
+    </svg>
+  </div>
+</section>
+
+<!-- The 4 Agents -->
+<section>
+  <h2>The 7 Agents</h2>
+
+  <div class="card agent-card">
+    <div class="agent-icon supervisor">&#x1F916;</div>
+    <div>
+      <h3>Supervisor Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Always visible in sidebar</span></h3>
+      <p>The orchestrator. Routes complex, cross-domain requests to the right sub-agent(s), aggregates results, and notifies the team via Microsoft Teams.</p>
+      <ul>
+        <li>Delegates to Registration, Speaker, and Schedule agents</li>
+        <li>Can invoke multiple sub-agents for multi-domain tasks (e.g., "set up the full event")</li>
+        <li>Direct access to event info for quick status checks</li>
+        <li><strong>MCP:</strong> Microsoft Teams &mdash; posts to configured channels on task completion</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon registration">&#x1F4CB;</div>
+    <div>
+      <h3>Registration Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Registrations page</span></h3>
+      <p>Handles all registration, ticketing, and payment operations. Accessible via a floating AI button on the Registrations page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List/create registrations, list/create ticket types</li>
+        <li><strong>Skills:</strong> Send payment reminders, generate event summary, bulk confirm paid registrations</li>
+        <li><strong>Direct API:</strong> Stripe (payment status, refunds), Email (Brevo/SendGrid)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon speaker">&#x1F3A4;</div>
+    <div>
+      <h3>Speaker Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Speakers page</span></h3>
+      <p>Manages speakers and speaker communications. Accessible via a floating AI button on the Speakers page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List/create speakers, send bulk emails</li>
+        <li><strong>Skills:</strong> Send speaker invitations, import speakers from registrations</li>
+        <li><strong>Direct API:</strong> EventsAir (import speaker data), Email (Brevo/SendGrid)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon schedule">&#x1F4C5;</div>
+    <div>
+      <h3>Schedule Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Schedule page</span></h3>
+      <p>Manages sessions, tracks, and the event schedule. Accessible via a floating AI button on the Schedule page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List/create sessions, list/create tracks, list speakers</li>
+        <li><strong>Skills:</strong> Auto-schedule sessions, send schedule updates to attendees</li>
+        <li><strong>MCP:</strong> Google Calendar &mdash; create/update calendar events when sessions are created</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon abstracts">&#x1F4DD;</div>
+    <div>
+      <h3>Abstracts Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Abstracts page</span></h3>
+      <p>Manages the full abstract lifecycle &mdash; submissions, reviews, scoring, and status transitions. Accessible via a floating AI button on the Abstracts page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List abstracts, update abstract status, assign reviewers, list review criteria, list themes</li>
+        <li><strong>Skills:</strong> Bulk assign reviewers by specialty match, send status notifications (accepted/rejected/revision), generate review statistics report, flag overdue reviews</li>
+        <li><strong>Direct API:</strong> Email (Brevo/SendGrid) for status notification emails</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon accommodation">&#x1F3E8;</div>
+    <div>
+      <h3>Accommodation Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Accommodation page</span></h3>
+      <p>Manages hotel bookings, room types, and room allocations for event attendees. Accessible via a floating AI button on the Accommodation page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List hotels, list room types, create/update accommodation bookings, check availability</li>
+        <li><strong>Skills:</strong> Auto-assign rooms by registration type, generate rooming list report, flag overbooking conflicts</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card agent-card">
+    <div class="agent-icon communications">&#x2709;&#xFE0F;</div>
+    <div>
+      <h3>Communications Agent <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">&mdash; Communications page</span></h3>
+      <p>Drafts emails, manages templates, and sends targeted campaigns. Accessible via a floating AI button on the Communications page.</p>
+      <ul>
+        <li><strong>Tools:</strong> List/create email templates, send bulk email, preview email with branding, list recipients by segment</li>
+        <li><strong>Skills:</strong> Draft event announcement email, create targeted campaign by registration status/type, generate post-event thank you emails</li>
+        <li><strong>Direct API:</strong> Brevo/SendGrid for delivery with branding wrapper and CSS inlining</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Human-in-the-Loop -->
+<section>
+  <h2>Human Approval Gates</h2>
+  <p>Agents are powerful &mdash; but irreversible actions at scale require human confirmation before execution. The system enforces approval gates on high-impact operations.</p>
+
+  <div class="callout callout-amber">
+    <strong>&#x26A0;&#xFE0F; How it works:</strong>
+    When an agent is about to perform a bulk or destructive action, it pauses and presents a confirmation prompt to the user:
+    <em>"I'm about to send payment reminders to 147 unpaid registrations. Proceed?"</em>
+    The agent waits for explicit user approval before executing.
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Action</th><th>Gate Type</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Send bulk email (any type)</td><td>Confirmation + recipient count</td><td>Emails are irreversible; wrong blast damages reputation</td></tr>
+      <tr><td>Bulk confirm registrations</td><td>Confirmation + count</td><td>Status change triggers downstream effects (badges, access)</td></tr>
+      <tr><td>Create &gt; 5 records in one request</td><td>Confirmation + summary</td><td>Prevents runaway creation from ambiguous prompts</td></tr>
+      <tr><td>Post to Microsoft Teams</td><td>Preview message before send</td><td>External-facing; wrong message visible to entire channel</td></tr>
+      <tr><td>Send schedule update to attendees</td><td>Confirmation + recipient count</td><td>Mass communication about schedule changes</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>&#x2705; Safe by default:</strong>
+    Read-only operations (listing, searching, generating reports) execute immediately with no confirmation. Only write operations that affect multiple records or reach external systems require approval.
+  </div>
+</section>
+
+<!-- Role-Based Access -->
+<section>
+  <h2>Role-Based Access Control</h2>
+  <p>Not everyone should have the same agent capabilities. Access is controlled by the user's existing EA-SYS role.</p>
+
+  <table>
+    <thead>
+      <tr><th>Role</th><th>Supervisor</th><th>Registration</th><th>Speaker</th><th>Schedule</th><th>Abstracts</th><th>Accommodation</th><th>Communications</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Admin</strong></td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+      </tr>
+      <tr>
+        <td><strong>Organizer</strong></td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+        <td class="check">Full</td>
+      </tr>
+      <tr>
+        <td><strong>Member</strong></td>
+        <td>Read</td>
+        <td>Read</td>
+        <td>Read</td>
+        <td>Read</td>
+        <td>Read</td>
+        <td>Read</td>
+        <td>Read</td>
+      </tr>
+      <tr>
+        <td><strong>Reviewer / Submitter</strong></td>
+        <td colspan="4" style="text-align:center;color:var(--muted);">No agent access</td>
+      </tr>
+      <tr>
+        <td><strong>Registrant</strong></td>
+        <td colspan="4" style="text-align:center;color:var(--muted);">No agent access</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-blue">
+    <strong>&#x1F512; How it's enforced:</strong>
+    The existing <code>denyReviewer()</code> API guard and role whitelist on the agent API route are reused. Members can ask questions and view data through agents, but all write tools return "Forbidden" at the API level. No client-side-only enforcement.
+  </div>
+</section>
+
+<!-- External Integrations -->
+<section>
+  <h2>External Integrations</h2>
+  <p>Agents connect to external services through two mechanisms, each suited to different integration patterns:</p>
+
+  <div class="grid-2" style="margin-bottom:16px;">
+    <div class="callout callout-blue">
+      <strong>MCP Connectors (Model Context Protocol)</strong>
+      Open standard for AI tool integration. The agent discovers available tools dynamically from the MCP server. Best for: services where the AI needs to choose which action to take.
+    </div>
+    <div class="callout callout-amber">
+      <strong>Direct API Integrations</strong>
+      Custom tool executors that call REST/GraphQL APIs directly. Already built into EA-SYS for existing services. Best for: established integrations with known, fixed operations.
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Service</th><th>Type</th><th>Agent</th><th>What It Does</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Google Calendar</strong></td>
+        <td><span class="tag tag-mcp">MCP</span></td>
+        <td>Schedule</td>
+        <td>Create/update calendar events when sessions are created or changed</td>
+        <td><span class="tag tag-new">Phase 1</span></td>
+      </tr>
+      <tr>
+        <td><strong>Microsoft Teams</strong></td>
+        <td><span class="tag tag-mcp">MCP</span></td>
+        <td>Supervisor</td>
+        <td>Post notifications to configured channels (via Graph API)</td>
+        <td><span class="tag tag-new">Phase 1</span></td>
+      </tr>
+      <tr>
+        <td><strong>EventsAir</strong></td>
+        <td><span class="tag tag-api">Direct API</span></td>
+        <td>Registration, Speaker</td>
+        <td>Import events, contacts, and speaker data (GraphQL + OAuth2). Already built.</td>
+        <td>&#x2705; Existing</td>
+      </tr>
+      <tr>
+        <td><strong>Stripe</strong></td>
+        <td><span class="tag tag-api">Direct API</span></td>
+        <td>Registration</td>
+        <td>Check payment status, process refunds, generate checkout sessions. Already built.</td>
+        <td>&#x2705; Existing</td>
+      </tr>
+      <tr>
+        <td><strong>Brevo / SendGrid</strong></td>
+        <td><span class="tag tag-api">Direct API</span></td>
+        <td>All agents</td>
+        <td>Send transactional and bulk emails. Already built with provider auto-detection.</td>
+        <td>&#x2705; Existing</td>
+      </tr>
+      <tr>
+        <td><strong>Supabase Storage</strong></td>
+        <td><span class="tag tag-api">Direct API</span></td>
+        <td>All agents</td>
+        <td>Upload and serve media files (photos, documents). Already built.</td>
+        <td>&#x2705; Existing</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>&#x1F50C; Extensible by design:</strong>
+    New MCP connectors (e.g., Zoom, Mailchimp, BigMarker, n8n) can be added by registering an MCP server config on the relevant sub-agent. No code changes to the core agent loop &mdash; just a config entry with the server command and auth credentials.
+  </div>
+</section>
+
+<!-- Skills -->
+<section>
+  <h2>Skills (Multi-Step Workflows)</h2>
+  <p>Skills are intelligent workflows that chain multiple actions together. Users trigger them with natural language commands like "send reminders to everyone who hasn't paid."</p>
+  <table>
+    <thead>
+      <tr><th>Agent</th><th>Skill</th><th>What It Does</th><th>Approval Gate</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Registration</td><td>Send payment reminders</td><td>Find unpaid registrations &rarr; compose reminder &rarr; send bulk email</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Registration</td><td>Generate event summary</td><td>Count by status, ticket type, payment &rarr; formatted report</td><td>None (read-only)</td></tr>
+      <tr><td>Registration</td><td>Bulk confirm paid</td><td>Find pending + paid registrations &rarr; bulk update to CONFIRMED</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Speaker</td><td>Send speaker invitations</td><td>Find invited speakers &rarr; compose invitation &rarr; send emails</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Speaker</td><td>Import from registrations</td><td>Find confirmed registrations &rarr; create speaker records</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Schedule</td><td>Auto-schedule sessions</td><td>Analyze speakers + tracks &rarr; propose time slots &rarr; create sessions</td><td>&#x26A0; Yes &mdash; preview plan</td></tr>
+      <tr><td>Schedule</td><td>Send schedule update</td><td>Generate schedule summary &rarr; email all confirmed registrations</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Abstracts</td><td>Bulk assign reviewers</td><td>Match unassigned abstracts to reviewers by specialty &rarr; assign</td><td>&#x26A0; Yes &mdash; preview assignments</td></tr>
+      <tr><td>Abstracts</td><td>Send status notifications</td><td>Find abstracts with updated status &rarr; send accept/reject/revision emails</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+      <tr><td>Abstracts</td><td>Generate review statistics</td><td>Aggregate scores by theme, reviewer, status &rarr; formatted report</td><td>None (read-only)</td></tr>
+      <tr><td>Accommodation</td><td>Auto-assign rooms</td><td>Match unassigned registrations to available rooms by type &rarr; create bookings</td><td>&#x26A0; Yes &mdash; preview plan</td></tr>
+      <tr><td>Accommodation</td><td>Generate rooming list</td><td>Export all room assignments with guest details &rarr; formatted report</td><td>None (read-only)</td></tr>
+      <tr><td>Communications</td><td>Draft event announcement</td><td>Pull event details &rarr; generate branded HTML email using template</td><td>None (draft only)</td></tr>
+      <tr><td>Communications</td><td>Targeted campaign</td><td>Segment recipients by status/type &rarr; compose email &rarr; send to segment</td><td>&#x26A0; Yes &mdash; confirm count</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Skills Files & Continuous Improvement -->
+<section>
+  <h2>How Agents Learn &amp; Improve</h2>
+  <p>Each sub-agent has a <strong>skills file</strong> &mdash; a markdown document that defines its personality, domain expertise, prompt templates, and learned behaviors. Admins can edit these files to teach agents new patterns without writing code.</p>
+
+  <h3>Skills File Structure</h3>
+  <div class="card card-accent">
+    <p>Each sub-agent reads a skills file at startup that shapes how it thinks and responds. These live in the codebase as simple markdown:</p>
+    <table>
+      <thead>
+        <tr><th>Agent</th><th>Skills File Path</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Supervisor</td><td><code>src/lib/agent/skills/supervisor.md</code></td></tr>
+        <tr><td>Registration Agent</td><td><code>src/lib/agent/skills/registration.md</code></td></tr>
+        <tr><td>Speaker Agent</td><td><code>src/lib/agent/skills/speaker.md</code></td></tr>
+        <tr><td>Schedule Agent</td><td><code>src/lib/agent/skills/schedule.md</code></td></tr>
+        <tr><td>Abstracts Agent</td><td><code>src/lib/agent/skills/abstracts.md</code></td></tr>
+        <tr><td>Accommodation Agent</td><td><code>src/lib/agent/skills/accommodation.md</code></td></tr>
+        <tr><td>Communications Agent</td><td><code>src/lib/agent/skills/communications.md</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>What Goes in a Skills File</h3>
+  <div class="grid-2">
+    <div class="card card-green">
+      <h3>&#x1F4D6; Domain Knowledge</h3>
+      <p>Business rules the agent should know: "Early Bird pricing closes 30 days before the event." "Speakers from academia get complimentary registration." "The keynote track is always in the Main Hall."</p>
+    </div>
+    <div class="card card-purple">
+      <h3>&#x2709; Prompt Templates</h3>
+      <p>Pre-written email templates for common scenarios: payment reminders, speaker invitations, schedule change notifications. The agent uses these instead of generating from scratch.</p>
+    </div>
+    <div class="card card-amber">
+      <h3>&#x1F6A8; Guardrails &amp; Rules</h3>
+      <p>What the agent should never do: "Never change a CONFIRMED registration to CANCELLED without approval." "Never send more than 500 emails in one batch." "Always include the event name in subject lines."</p>
+    </div>
+    <div class="card card-sky">
+      <h3>&#x1F504; Learned Patterns</h3>
+      <p>Patterns discovered from the audit trail: "When users ask 'who hasn't paid', they usually want a list sorted by registration date." "Session conflicts are most common on Day 1 morning slots."</p>
+    </div>
+  </div>
+
+  <h3>3 Ways Agents Improve Over Time</h3>
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Who Does It</th><th>How It Works</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Manual skill edits</strong></td>
+        <td>Admin / Developer</td>
+        <td>Edit the <code>.md</code> skills file directly. Changes take effect on next agent request &mdash; no deploy needed (files are read at runtime).</td>
+        <td>Add a new email template for "abstract acceptance" to <code>speaker.md</code></td>
+      </tr>
+      <tr>
+        <td><strong>2. Audit trail analysis</strong></td>
+        <td>Admin / Developer</td>
+        <td>Review the Agent Activity log to find common patterns, frequent failures, or repeated corrections. Codify the fix as a new rule in the skills file.</td>
+        <td>Users keep correcting the agent's session duration from 30min to 45min &rarr; add rule: "Default session duration is 45 minutes"</td>
+      </tr>
+      <tr>
+        <td><strong>3. Per-event overrides</strong></td>
+        <td>Organizer</td>
+        <td>Store event-specific agent instructions in the Event settings JSON. These are merged with the base skills file at runtime, allowing per-event customization.</td>
+        <td>For a medical conference: "All speaker titles must use 'Dr.' prefix." For a tech event: "Default track names are Frontend, Backend, DevOps."</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-blue">
+    <strong>&#x1F9E0; Why this matters:</strong>
+    Traditional chatbots are static &mdash; they behave the same way forever. With skills files, agents accumulate organizational knowledge over time. After 6 months of running events, the registration agent will know your pricing patterns, common attendee questions, and preferred email tone &mdash; all captured in a simple markdown file that anyone on the team can read and edit.
+  </div>
+
+  <div class="callout callout-amber">
+    <strong>&#x1F512; Skills files are version-controlled:</strong>
+    Since skills files live in the codebase (<code>src/lib/agent/skills/*.md</code>), every change is tracked in Git with full history. You can see who changed what, when, and roll back if an edit causes problems. Per-event overrides are stored in the database with the same audit trail as other event settings.
+  </div>
+</section>
+
+<!-- Audit Trail -->
+<section>
+  <h2>Audit Trail &amp; Monitoring</h2>
+  <div class="card card-red">
+    <h3>Every Agent Action is Logged</h3>
+    <p>A dedicated <code>AgentAuditLog</code> database table captures every tool execution across all agents, providing full traceability for compliance and troubleshooting:</p>
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Agent</strong></td><td>Which agent executed (supervisor, registration, speaker, schedule)</td></tr>
+        <tr><td><strong>Tool</strong></td><td>Which tool or skill was called</td></tr>
+        <tr><td><strong>Input</strong></td><td>Sanitized input parameters (passwords, tokens, API keys automatically stripped)</td></tr>
+        <tr><td><strong>Output</strong></td><td>Result summary (truncated to 2KB)</td></tr>
+        <tr><td><strong>Success</strong></td><td>Whether the action succeeded or failed</td></tr>
+        <tr><td><strong>Duration</strong></td><td>Execution time in milliseconds</td></tr>
+        <tr><td><strong>Chain</strong></td><td>Links sub-agent actions to supervisor delegations (parent &rarr; child tracing)</td></tr>
+        <tr><td><strong>User</strong></td><td>Who triggered the action</td></tr>
+        <tr><td><strong>Timestamp</strong></td><td>When it happened</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px;">Viewable by admins at <strong>/events/[eventId]/agent-activity</strong> with filters by agent, user, date range, and success/failure. Supervisor &rarr; sub-agent chains are linked for full end-to-end traceability.</p>
+  </div>
+</section>
+
+<!-- Cost Projection -->
+<section>
+  <h2>Cost Projection</h2>
+  <p>AI agent costs are driven by Claude API usage (input + output tokens per request). Here's a realistic estimate based on team size and expected usage patterns:</p>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Value</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Model</td><td>Claude Sonnet 4.6</td><td>$3/M input tokens, $15/M output tokens</td></tr>
+      <tr><td>Avg tokens per agent request</td><td>~4,000 input + ~2,000 output</td><td>Includes system prompt, tools, multi-turn</td></tr>
+      <tr><td>Cost per agent request</td><td><strong>~$0.04</strong></td><td>Per single user message (avg 3 turns)</td></tr>
+      <tr><td>Supervisor delegation (with sub-agent)</td><td><strong>~$0.12</strong></td><td>Supervisor + 1 sub-agent invocation</td></tr>
+      <tr><td>Rate limit</td><td>20 requests / user / hour</td><td>Prevents runaway usage</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Monthly Cost Estimates</h3>
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Users</th><th>Requests/day/user</th><th>Monthly Cost</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Light usage (queries, status checks)</td><td>10</td><td>5</td><td><strong>~$60</strong></td></tr>
+      <tr><td>Moderate usage (daily operations)</td><td>15</td><td>10</td><td><strong>~$180</strong></td></tr>
+      <tr><td>Heavy usage (event setup, bulk ops)</td><td>21</td><td>20</td><td><strong>~$500</strong></td></tr>
+      <tr class="cost-row-total"><td>Estimated typical month</td><td>15 active</td><td>~10 avg</td><td><strong>~$150&ndash;$250</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-green">
+    <strong>&#x1F4B0; Cost controls built in:</strong>
+    Rate limit of 20 requests/user/hour caps worst-case at ~$30/user/month. Sub-agents have turn limits (8 max) preventing expensive runaway loops. MCP connector calls (Google Calendar, Teams) are free &mdash; only Claude API calls cost money.
+  </div>
+</section>
+
+<!-- Implementation Roadmap -->
+<section>
+  <h2>Implementation Roadmap</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">1</span><strong>Extract Core</strong></div>
+      <p>Extract the agentic loop into a reusable module. No behavior change &mdash; pure refactor.</p>
+      <span class="tag tag-new">NEW</span> types.ts, agent-loop.ts
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">2</span><strong>Skills System</strong></div>
+      <p>Build 7 composite workflow tools across the 3 domain agents with approval gates.</p>
+      <span class="tag tag-new">NEW</span> Skill executors
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">3</span><strong>MCP Integration</strong></div>
+      <p>Connect Google Calendar and Microsoft Teams as live MCP connectors.</p>
+      <span class="tag tag-new">NEW</span> mcp-client.ts + 2 connectors
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">4</span><strong>Audit Trail</strong></div>
+      <p>Add AgentAuditLog model and log every tool execution with chain linking.</p>
+      <span class="tag tag-new">NEW</span> agent-audit.ts + DB model
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">5</span><strong>Sub-Agent Configs</strong></div>
+      <p>Define Registration, Speaker, and Schedule agents with tools, skills, and MCP.</p>
+      <span class="tag tag-new">NEW</span> sub-agents/*.ts
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">6</span><strong>Supervisor</strong></div>
+      <p>Build supervisor with delegation tools and Teams notification integration.</p>
+      <span class="tag tag-new">NEW</span> supervisor.ts
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">7</span><strong>API Routing</strong></div>
+      <p>Update the agent API route for multi-agent dispatch via query parameter.</p>
+      <span class="tag tag-modify">MODIFY</span> route.ts
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">8</span><strong>Chat Component</strong></div>
+      <p>Extract the chat UI into a reusable component shared by all agents.</p>
+      <span class="tag tag-new">NEW</span> agent-chat.tsx
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">9</span><strong>Page Sub-Agents</strong></div>
+      <p>Add floating AI button + slide-out panel on Registrations, Speakers, Schedule pages.</p>
+      <span class="tag tag-modify">MODIFY</span> 3 page files
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">10</span><strong>Sidebar Supervisor</strong></div>
+      <p>Add supervisor widget to sidebar with status indicators and slide-out panel.</p>
+      <span class="tag tag-modify">MODIFY</span> sidebar.tsx
+    </div>
+    <div class="card">
+      <div class="phase-title"><span class="phase-num">11</span><strong>Cleanup &amp; Polish</strong></div>
+      <p>Remove old standalone agent page, update navigation, final QA pass.</p>
+      <span class="tag tag-delete">DELETE</span> agent/page.tsx
+    </div>
+  </div>
+</section>
+
+<!-- Resource Budget -->
+<section>
+  <h2>Agent Resource Limits</h2>
+  <table>
+    <thead>
+      <tr><th>Agent</th><th>Max Turns per Request</th><th>Location</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Supervisor</td><td>10</td><td>Sidebar panel</td></tr>
+      <tr><td>Registration Agent</td><td>8</td><td>Registrations page panel</td></tr>
+      <tr><td>Speaker Agent</td><td>8</td><td>Speakers page panel</td></tr>
+      <tr><td>Schedule Agent</td><td>8</td><td>Schedule page panel</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Rate limit:</strong> 20 requests per user per hour (shared across all agents).</p>
+  <p><strong>Depth limit:</strong> Max 1 level of nesting (supervisor &rarr; sub-agent). Sub-agents cannot delegate further &mdash; prevents runaway chains.</p>
+</section>
+
+<!-- Technology -->
+<section>
+  <h2>Technology Stack</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Existing Platform (no changes)</h3>
+      <ul>
+        <li>Next.js (App Router) + TypeScript</li>
+        <li>Anthropic SDK + Claude Sonnet 4.6</li>
+        <li>PostgreSQL + Prisma ORM</li>
+        <li>Server-Sent Events (SSE) for streaming</li>
+        <li>EventsAir, Stripe, Brevo/SendGrid, Supabase</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>New Additions</h3>
+      <ul>
+        <li><strong>MCP SDK</strong> &mdash; Model Context Protocol client for external connectors</li>
+        <li><strong>Google Calendar connector</strong> &mdash; MCP server for calendar sync</li>
+        <li><strong>Microsoft Teams connector</strong> &mdash; MCP server via Graph API</li>
+        <li><strong>AgentAuditLog</strong> &mdash; new database model for audit trail</li>
+        <li><strong>Approval gate system</strong> &mdash; human confirmation for bulk actions</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="footer">
+  <div class="container">
+    EA-SYS &middot; Event Administration System &middot; Multi-Agent Architecture Proposal<br>
+    Meeting Minds Group &middot; April 2026<br>
+    <span style="font-size:0.8rem;margin-top:4px;display:block;">Powered by Anthropic Claude &middot; Model Context Protocol</span>
+  </div>
+</div>
+
+</body>
+</html>

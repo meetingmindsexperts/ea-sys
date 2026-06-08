@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webinar Events — EA-SYS Implementation Guide</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a2e; background: #f8f9fa; }
+    .container { max-width: 920px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 2rem; color: #00aade; margin-bottom: 8px; }
+    h1 span { font-size: 0.9rem; color: #6b7280; font-weight: normal; display: block; margin-top: 4px; }
+    h2 { font-size: 1.4rem; color: #1a1a2e; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #00aade; }
+    h3 { font-size: 1.1rem; color: #374151; margin: 24px 0 12px; }
+    h4 { font-size: 0.95rem; color: #4b5563; margin: 16px 0 8px; }
+    p, li { color: #4b5563; }
+    p { margin: 8px 0; }
+    ul, ol { padding-left: 24px; margin: 12px 0; }
+    li { margin: 6px 0; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: #1f2937; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 0.82em; line-height: 1.55; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-available { background: #d1fae5; color: #047857; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-failed { background: #fee2e2; color: #b91c1c; }
+    .badge-expired { background: #e5e7eb; color: #4b5563; }
+    .badge-synced { background: #d1fae5; color: #047857; }
+    .file-list { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    .file-list h4 { font-size: 0.78rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; }
+    .file-list code { display: block; background: none; padding: 3px 0; font-size: 0.82rem; color: #1f2937; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 10px 14px; font-size: 0.88rem; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f3f4f6; font-weight: 600; color: #374151; }
+    tr:last-child td { border-bottom: none; }
+    td code { font-size: 0.82em; }
+    blockquote { margin: 16px 0; padding: 12px 16px; background: #f0f9ff; border-left: 4px solid #00aade; border-radius: 4px; color: #0c4a6e; font-size: 0.9rem; }
+    .callout { margin: 16px 0; padding: 14px 18px; border-radius: 6px; font-size: 0.9rem; }
+    .callout-warn { background: #fef3c7; border-left: 4px solid #f59e0b; color: #92400e; }
+    .callout-info { background: #f0f9ff; border-left: 4px solid #00aade; color: #0c4a6e; }
+    .meta { color: #6b7280; font-size: 0.85rem; margin-bottom: 24px; }
+    .meta span { display: inline-block; margin-right: 16px; }
+    hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+    .ascii-diagram { background: #1f2937; color: #e5e7eb; padding: 20px; border-radius: 8px; overflow-x: auto; white-space: pre; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.78rem; line-height: 1.5; margin: 16px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h1>Webinar Events<span>EA-SYS Implementation Guide — Phases 1–6</span></h1>
+    <div class="meta">
+      <span><strong>Last updated:</strong> 2026-04-14</span>
+      <span><strong>Status:</strong> Phases 1–6 + UX refresh + public page rebuild (embed + tabs + sponsors)</span>
+    </div>
+
+    <blockquote>
+      This document is the minimal, end-to-end reference for WEBINAR-type events in EA-SYS. For the line-by-line changelog see <code>CHANGELOG.md</code>. For the underlying Zoom OAuth + SDK setup see <code>ZOOM_INTEGRATION.html</code>.
+    </blockquote>
+
+    <h2>What it does</h2>
+    <p>Creating an event with <code>eventType = 'WEBINAR'</code> turns on a differentiated mode:</p>
+    <ol>
+      <li><strong>Auto-provisions</strong> an anchor <code>EventSession</code> and a Zoom webinar</li>
+      <li><strong>Queues</strong> a 5-phase email sequence (confirmation → 24h → 1h → live-now → thank-you+recording)</li>
+      <li><strong>Polls Zoom</strong> post-event for cloud recording, attendance, polls, and Q&amp;A</li>
+      <li><strong>Surfaces everything</strong> on a dedicated Webinar Console at <code>/events/[eventId]/webinar</code></li>
+      <li><strong>Hides</strong> irrelevant sidebar modules (Accommodation, Check-In, Promo Codes, Abstracts, Reviewers)</li>
+      <li><strong>Embeds Zoom in-page</strong> on the public session URL via <code>ZoomWebEmbed</code> (Component View) — attendees watch without leaving our domain</li>
+      <li><strong>Surfaces sponsors + topics + speaker bios</strong> under a 3-tab layout (Live Video / Session Details / Sponsors) on the public session page</li>
+    </ol>
+    <p>Non-webinar events are untouched — all logic is gated on <code>eventType</code>.</p>
+
+    <h2>Architecture at a glance</h2>
+    <div class="ascii-diagram">┌──────────────────────────────────────────────────────────────┐
+│             POST /api/events (eventType=WEBINAR)             │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ fire-and-forget
+                               ▼
+              ┌────────────────────────────────┐
+              │   provisionWebinar(eventId)    │ idempotent
+              │                                │
+              │   1. Create EventSession       │
+              │   2. createZoomWebinar()       │
+              │   3. Persist settings.webinar  │
+              │   4. Enqueue email sequence    │
+              └────────────────────────────────┘
+                               │
+                   ┌───────────┴───────────┐
+                   ▼                       ▼
+           ┌───────────────┐       ┌────────────────┐
+           │ EventSession  │       │  ZoomMeeting   │
+           │  (anchor)     │ 1:1   │ meetingType=   │
+           │               │───────│ WEBINAR        │
+           └───────────────┘       └────────────────┘
+
+       Registration flow:
+       ─────────────────
+       POST /api/public/events/[slug]/register
+         ├─ if eventType === WEBINAR
+         │    └─ sendWebinarConfirmationForRegistration()  ← direct, no cron
+         └─ else
+              └─ sendRegistrationConfirmation()
+
+       Post-event flow (cron workers):
+       ───────────────────────────────
+       */5    /api/cron/webinar-recordings  ─► syncRecordingForZoomMeeting()
+       */10   /api/cron/webinar-attendance  ─► syncWebinarAttendance()
+                                              └─► syncWebinarEngagement()  (chained)</div>
+
+    <h2>Data model</h2>
+    <table>
+      <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>Event.settings.webinar</code> (JSON)</td><td><code>{ autoCreated, sessionId, autoProvisionZoom, waitingRoom, autoRecording, automationEnabled }</code></td></tr>
+        <tr><td><code>Event.settings.sponsors</code> (JSON)</td><td><code>SponsorEntry[]</code> — <code>{ id, name, logoUrl?, websiteUrl?, tier?, description?, sortOrder }</code>. Six tiers: <code>platinum</code> / <code>gold</code> / <code>silver</code> / <code>bronze</code> / <code>partner</code> / <code>exhibitor</code></td></tr>
+        <tr><td><code>EventSession</code></td><td>The <strong>anchor session</strong> — one per webinar event, holds the start/end window</td></tr>
+        <tr><td><code>ZoomMeeting</code></td><td>1:1 with anchor session. Recording fields (<code>recordingUrl</code>, <code>recordingStatus</code>…), <code>lastAttendanceSyncAt</code>, <code>lastEngagementSyncAt</code></td></tr>
+        <tr><td><code>ZoomAttendance</code></td><td>One row per join/leave <strong>segment</strong>. Unique key <code>(zoomMeetingId, zoomParticipantId, joinTime)</code></td></tr>
+        <tr><td><code>WebinarPoll</code> + <code>WebinarPollResponse</code></td><td>Polls collapsed to one logical poll per webinar</td></tr>
+        <tr><td><code>WebinarQuestion</code></td><td>Q&amp;A rows. Unique key <code>(zoomMeetingId, askerName, askedAt)</code></td></tr>
+        <tr><td><code>ScheduledEmail</code></td><td>Reused existing model. <code>emailType</code> starting with <code>webinar-</code> identifies sequence rows</td></tr>
+      </tbody>
+    </table>
+    <p>No <code>Webinar</code> parent table — <code>eventType</code> is the switch. WEBINAR events reuse the entire core schema (registrations, tickets, emails, speakers), which is why a webinar registrant still goes through the same registrant portal, payment flow, and CSV import as a conference attendee.</p>
+
+    <h2>File map</h2>
+    <div class="file-list">
+      <h4>Library modules</h4>
+      <code>src/lib/webinar.ts — isWebinar(), sidebar filter policy, WebinarSettings type</code>
+      <code>src/lib/webinar-provisioner.ts — provisionWebinar() entry point</code>
+      <code>src/lib/webinar-email-sequence.ts — enqueue / clear / immediate-send helpers</code>
+      <code>src/lib/webinar-recording-sync.ts — recording state machine</code>
+      <code>src/lib/webinar-attendance.ts — attendance state machine</code>
+      <code>src/lib/webinar-engagement.ts — polls + Q&A state machine (transactional for polls)</code>
+      <code>src/lib/zoom/recordings.ts — getZoomRecordings() + pickBestRecordingFile()</code>
+      <code>src/lib/zoom/reports.ts — getZoomParticipants() paginated</code>
+      <code>src/lib/zoom/polls-qa.ts — getWebinarPollReport() + getWebinarQaReport()</code>
+    </div>
+    <div class="file-list">
+      <h4>UI — admin dashboard</h4>
+      <code>src/app/(dashboard)/events/[eventId]/webinar/page.tsx — Webinar Console: sticky status bar + Setup/Analytics/Settings tabs; WebinarStatusBar, OverviewCard, GlobalRefreshButton, PanelistsCard (Import from Speakers + optimistic UI), CardLoading, CardEmpty</code>
+      <code>src/app/(dashboard)/events/[eventId]/sponsors/page.tsx — Sponsors admin editor with draft-based editing, add/edit dialog (logo upload via PhotoUpload), up/down reorder arrows, grouped-by-tier list</code>
+    </div>
+    <div class="file-list">
+      <h4>UI — public session page</h4>
+      <code>src/app/e/[slug]/session/[sessionId]/page.tsx — Public session page: sticky CTA + Live Video / Session Details / Sponsors tabs. Dynamic-imports ZoomWebEmbed + LivePlayer to keep the SDK bundle out of first paint</code>
+      <code>src/components/zoom/zoom-web-embed.tsx — ZoomWebEmbed (Component View wrapper) — createClient → init → join → leaveMeeting → destroyClient lifecycle, StrictMode-safe via module-level pendingDestroy promise, connection-change subscription for in-meeting Leave events</code>
+      <code>src/components/zoom/zoom-embed.tsx — Iframe fallback (NOT imported by default) — kept as belt-and-braces if Component View ever regresses</code>
+    </div>
+    <div class="file-list">
+      <h4>REST surface</h4>
+      <code>src/app/api/events/[eventId]/webinar/route.ts — settings + manual re-provision</code>
+      <code>src/app/api/events/[eventId]/webinar/sequence/route.ts — list + re-enqueue</code>
+      <code>src/app/api/events/[eventId]/webinar/recording/fetch/route.ts — manual refetch</code>
+      <code>src/app/api/events/[eventId]/webinar/attendance/route.ts — GET + CSV + POST sync</code>
+      <code>src/app/api/events/[eventId]/webinar/engagement/route.ts — GET + POST sync</code>
+      <code>src/app/api/events/[eventId]/webinar/panelists/route.ts — GET + POST + DELETE (exports resolveAnchorZoomMeeting)</code>
+      <code>src/app/api/events/[eventId]/webinar/panelists/sync-speakers/route.ts — POST batch import from SessionSpeaker[], dedup'd against existing panelists</code>
+      <code>src/app/api/events/[eventId]/sponsors/route.ts — GET + PUT sponsors array (Zod-validated, URL scheme whitelisted)</code>
+      <code>src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts — public session detail: returns session + topics (with per-topic speakers) + speakers with bios + sponsors</code>
+      <code>src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts — returns mode: "sdk" (frontend embeds) or mode: "url" (frontend redirects)</code>
+    </div>
+    <div class="file-list">
+      <h4>Cron workers</h4>
+      <code>src/app/api/cron/webinar-recordings/route.ts — */5 min</code>
+      <code>src/app/api/cron/webinar-attendance/route.ts — */10 min (chains engagement)</code>
+    </div>
+
+    <h2>State machines</h2>
+    <p>Each of the three sync helpers is an <strong>idempotent state machine</strong>. Running them twice on the same row is a no-op. Both the cron worker and the manual "Sync/Refetch now" button call the same helper — there is no parallel code path.</p>
+
+    <h3>Recording <code>syncRecordingForZoomMeeting</code></h3>
+    <pre><code>AVAILABLE          → short-circuit, return cached URL
+FAILED / EXPIRED   → short-circuit (manual refetch resets to NOT_REQUESTED)
+no endTime         → pending, skip
+&lt;10 min since end  → pending (Zoom encoding lag)
+&gt;7 days since end  → EXPIRED
+Zoom 404           → NOT_REQUESTED → PENDING, retry next tick
+got file           → AVAILABLE, persist URL/passcode/duration</code></pre>
+    <p>States:
+      <span class="badge badge-pending">NOT_REQUESTED</span>
+      <span class="badge badge-pending">PENDING</span>
+      <span class="badge badge-available">AVAILABLE</span>
+      <span class="badge badge-failed">FAILED</span>
+      <span class="badge badge-expired">EXPIRED</span>
+    </p>
+
+    <h3>Attendance <code>syncWebinarAttendance</code></h3>
+    <pre><code>&lt;30 min since end / &gt;30 days   → pending
+Zoom 404                       → pending (report not compiled)
+zero participants              → mark synced with zero counts
+got participants               → upsert per segment, mark lastAttendanceSyncAt</code></pre>
+
+    <h3>Engagement <code>syncWebinarEngagement</code></h3>
+    <pre><code>not webinar type               → skip
+&lt;30 min / &gt;30 days             → pending
+fetch polls + Q&amp;A in parallel (Promise.all)
+polls:  transaction → find-or-create WebinarPoll → delete+create responses
+Q&amp;A:    upsert by (meetingId, askerName, askedAt); skip rows w/ missing create_time
+mark lastEngagementSyncAt</code></pre>
+
+    <h2>Cron workers</h2>
+    <table>
+      <thead><tr><th>Cron</th><th>Frequency</th><th>Candidate window</th><th>Re-sync rule</th></tr></thead>
+      <tbody>
+        <tr><td><code>webinar-recordings</code></td><td><code>*/5 * * * *</code></td><td>session ended 10 min – 7 days ago</td><td>Status must be <code>NOT_REQUESTED</code> or <code>PENDING</code></td></tr>
+        <tr><td><code>webinar-attendance</code><br>(chains engagement)</td><td><code>*/10 * * * *</code></td><td>session ended 30 min – 30 days ago</td><td>Never synced OR (last synced &gt;1h ago AND session ended &lt;24h ago)</td></tr>
+      </tbody>
+    </table>
+    <p>Both use the same hygiene pattern:</p>
+    <ul>
+      <li><code>take: 10</code> candidates per tick</li>
+      <li><strong>Serial</strong> loop, never parallel (Zoom has a 30 req/s rate limit)</li>
+      <li>500ms delay between rows when <code>batch.length &gt; 3</code></li>
+      <li><strong>Per-row try/catch</strong> so one bad row can't kill the tick</li>
+      <li>Structured logs with <code>durationMs</code> on every state transition</li>
+    </ul>
+    <div class="callout callout-info">
+      <strong>Why 24-hour re-sync cap on attendance?</strong> Without it, every webinar in the 30-day fetch window gets re-polled hourly forever. The cap gives ~97% reduction in post-48h Zoom API traffic.
+    </div>
+
+    <h3>EC2 crontab</h3>
+    <pre><code>*/5  * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" https://events.meetingmindsgroup.com/api/cron/webinar-recordings
+*/10 * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" https://events.meetingmindsgroup.com/api/cron/webinar-attendance</code></pre>
+
+    <h2>Email sequence</h2>
+    <p>5 templates in <code>DEFAULT_TEMPLATES</code> (<code>src/lib/email.ts</code>):</p>
+    <table>
+      <thead><tr><th>Slug</th><th>When fires</th></tr></thead>
+      <tbody>
+        <tr><td><code>webinar-confirmation</code></td><td>Immediately on registration (direct, not via cron)</td></tr>
+        <tr><td><code>webinar-reminder-24h</code></td><td>24 h before anchor session start</td></tr>
+        <tr><td><code>webinar-reminder-1h</code></td><td>1 h before start</td></tr>
+        <tr><td><code>webinar-live-now</code></td><td>At start time</td></tr>
+        <tr><td><code>webinar-thank-you</code></td><td>30 min after end</td></tr>
+      </tbody>
+    </table>
+    <p>Variables: <code>{{joinUrl}}</code>, <code>{{passcode}}</code>, <code>{{webinarDate}}</code>, <code>{{webinarTime}}</code>, <code>{{recordingUrl}}</code> + conditional <code>{{passcodeBlock}}</code> / <code>{{recordingBlock}}</code> HTML fragments.</p>
+    <p><strong>Enqueueing</strong> — <code>enqueueWebinarSequenceForEvent()</code> creates 4 future <code>ScheduledEmail</code> rows (the immediate confirmation is sent directly from the register route). Past-dated phases are dropped; re-enqueue is idempotent.</p>
+    <p><strong>Cron worker reuse</strong> — webinar emails piggyback on the existing <code>/api/cron/scheduled-emails</code> worker; no new cron needed. <code>executeBulkEmail()</code> detects <code>emailType.startsWith('webinar-')</code> and enriches <code>vars</code> with the anchor Zoom meeting's fields in <strong>one extra query per scheduled row</strong>, not per recipient.</p>
+
+    <h2>Webinar Console (UI)</h2>
+    <p>The console at <code>/events/[eventId]/webinar</code> is organized top-down: <strong>header row</strong> → <strong>sticky status bar</strong> → <strong>Setup / Analytics / Settings tabs</strong>.</p>
+
+    <h3>Header row</h3>
+    <p>Page title + <code>GlobalRefreshButton</code> (parallel-fires recording + attendance + engagement syncs; disabled until session ends) + <code>Re-run provisioner</code>.</p>
+
+    <h3>Sticky status bar (<code>WebinarStatusBar</code>)</h3>
+    <p>Always visible above the fold. Color-coded by status:
+      <span class="badge badge-pending">Scheduled</span>
+      <span class="badge badge-failed">Live (pulsing)</span>
+      <span class="badge badge-expired">Ended</span>
+    </p>
+    <ul>
+      <li>Status icon + pill + session window ("Mar 14 · 2:00 – 3:00 PM")</li>
+      <li>Inline join URL + copy button + passcode badge</li>
+      <li><strong>Context-aware primary action</strong>:
+        <ul>
+          <li><code>Scheduled</code> / <code>Live</code> → <strong>Start as Host</strong></li>
+          <li><code>Ended, no recording</code> → <strong>Refetch recording</strong></li>
+          <li><code>Ended, recording ready</code> → <strong>Watch Replay</strong></li>
+        </ul>
+      </li>
+      <li><code>!hasZoom</code> → collapses to "Configure Zoom" banner with a "Run provisioner" button</li>
+    </ul>
+
+    <h3>Tabs — status-driven default</h3>
+    <p><code>scheduled</code> / <code>live</code> → <strong>Setup</strong>; <code>ended</code> → <strong>Analytics</strong>. User can always switch. No URL pin (local state).</p>
+
+    <h4>Setup tab</h4>
+    <ul>
+      <li><strong>Overview card</strong> — merged Anchor Session + Zoom details (previously two separate cards). Start as Host + Open Public Page buttons</li>
+      <li><strong>Panelists card</strong> — inline add form + <strong>Import from Speakers</strong> button that pulls all anchor-session speakers with emails in one batched call. Optimistic UI: new panelist row appears instantly (greyed out + spinner), reconciles after Zoom returns. Dedup against existing panelists so re-import is safe</li>
+      <li><strong>Email Sequence card</strong> — per-phase status icons + scheduled/sent timestamps + Re-enqueue button</li>
+    </ul>
+
+    <h4>Analytics tab</h4>
+    <ul>
+      <li><strong>Recording card</strong> — 5 UI states (AVAILABLE / PENDING / FAILED / EXPIRED / NOT_REQUESTED), Refetch button gated on session-ended</li>
+      <li><strong>Attendance card</strong> — 4-tile KPI grid (registered / attended / rate / avg watch) + attendee table + CSV export + Sync now</li>
+      <li><strong>Polls card</strong> — per-poll view with horizontal bar-chart distribution</li>
+      <li><strong>Q&amp;A card</strong> — searchable list with answer blocks</li>
+    </ul>
+
+    <h4>Settings tab</h4>
+    <ul>
+      <li><strong>Webinar Settings card</strong> — auto-provision, waiting room, auto-recording, passcode. Lazy-init local state so the form reflects loaded server values without setState-in-effect</li>
+    </ul>
+
+    <h3>Consistent loading + empty states</h3>
+    <ul>
+      <li><code>CardLoading</code> — centered spinner, <code>py-8</code></li>
+      <li><code>CardEmpty</code> — dashed border box with message + optional CTA button</li>
+    </ul>
+    <p>Every card uses these primitives instead of ad-hoc markup so scanning feels calm.</p>
+
+    <h3>Sidebar filtering</h3>
+    <p><code>webinarModuleFilter()</code> hides Accommodation, Check-In, Promo Codes, Abstracts, Reviewers on WEBINAR events; non-webinar events drop items flagged <code>webinarOnly: true</code>.</p>
+
+    <h2>Panelist flow</h2>
+    <p>Two entry points:</p>
+    <pre><code>Manual add (inline form, name + email)
+  └─ useAddWebinarPanelist — optimistic onMutate inserts row instantly
+      └─ POST /api/events/[eventId]/webinar/panelists  { name, email }
+          ├─ denyReviewer + 30/hr rate limit + Zod
+          ├─ resolveAnchorZoomMeeting()  ← event + settings.webinar.sessionId → ZoomMeeting
+          └─ addWebinarPanelists(orgId, zoomMeetingId, [{name, email}])
+              └─ Zoom POST /webinars/{id}/panelists
+
+Import from Speakers (bulk)
+  └─ useSyncSpeakersToPanelists
+      └─ POST /api/events/[eventId]/webinar/panelists/sync-speakers
+          ├─ denyReviewer + 30/hr rate limit (shared bucket w/ single-add)
+          ├─ resolveAnchorZoomMeeting()
+          ├─ Parallel fetch: SessionSpeaker[] + Zoom listWebinarPanelists
+          ├─ Dedup by lowercased email (no 409 Conflict on re-import)
+          └─ addWebinarPanelists(orgId, zoomMeetingId, filtered)</code></pre>
+    <p>Both mutations invalidate the <code>webinarPanelists</code> React Query cache on settle. Remove uses the same <code>resolveAnchorZoomMeeting</code> helper + <code>removeWebinarPanelist(orgId, zoomMeetingId, panelistId)</code>.</p>
+    <p><strong>Optimistic UI</strong>: optimistic rows carry an <code>id</code> prefixed with <code>optimistic:</code> (exported as <code>OPTIMISTIC_PANELIST_PREFIX</code>). The PanelistsCard detects this prefix and renders rows greyed out + italic + spinner, disables the remove button, then reconciles via the post-settle refetch. Rollback on error restores the previous query data.</p>
+
+    <h2>Public session page + in-page Zoom embed</h2>
+    <p>The public session page at <code>/e/[slug]/session/[sessionId]</code> is where attendees watch the webinar. As of the April 14 revamp, they <strong>watch without leaving our domain</strong> — Zoom's Component View mounts inside our page.</p>
+
+    <h3>Layout</h3>
+    <div class="ascii-diagram">┌─────────────────────────────────────────────┐
+│ Event banner + back link                    │
+├─────────────────────────────────────────────┤
+│ Session title + status + time + location    │
+├─────────────────────────────────────────────┤
+│ ╔═════ STICKY CTA (top-0 z-10) ═══════════╗ │
+│ ║  Scheduled/Live/Ended banner            ║ │
+│ ║  Primary action: Join / Replay / Ended  ║ │
+│ ╚═════════════════════════════════════════╝ │
+├─────────────────────────────────────────────┤
+│ [Live Video] [Session Details] [Sponsors]   │ ← tabs
+├─────────────────────────────────────────────┤
+│ Tab content                                 │
+└─────────────────────────────────────────────┘</div>
+
+    <h3>Sticky CTA states</h3>
+    <ul>
+      <li><strong>Upcoming, not yet joinable</strong> → amber "Session hasn't started, opens at X" banner</li>
+      <li><strong>Upcoming &amp; joinable</strong> (within 15 min) → blue "Ready to join" + <code>Join Webinar</code> button</li>
+      <li><strong>Live</strong> → red pulsing dot + "Live now" + <code>Join Webinar</code> button</li>
+      <li><strong>In meeting</strong> (user clicked Join, embed mounted) → green <span class="badge badge-available">In meeting</span> badge + outline <code>Leave</code> button that unmounts the embed</li>
+      <li><strong>Ended + recording AVAILABLE</strong> → emerald "Recording available" + <code>Watch Replay</code> button</li>
+      <li><strong>Ended, no recording</strong> → muted "session has ended" banner</li>
+    </ul>
+    <p>The sticky CTA uses <code>position: sticky; top: 0; z-10</code> with a gradient-blur background so content scrolls under it cleanly.</p>
+
+    <h3>Tabs</h3>
+    <h4>Tab 1 — Live Video</h4>
+    <ul>
+      <li><code>LivePlayer</code> (HLS) when the webinar has live streaming enabled (RTMP → MediaMTX → HLS flow from the original Phase 4 work)</li>
+      <li><code>ZoomWebEmbed</code> — only mounts when the user clicks Join in the sticky CTA. This keeps the ~3 MB SDK bundle off the initial paint</li>
+      <li>Recording replay card when session ended + recording <code>AVAILABLE</code></li>
+      <li>Recording processing placeholder when session ended + recording <code>PENDING</code></li>
+      <li>"Ready to join?" / "Session hasn't started yet" placeholders for the scheduled/upcoming states</li>
+    </ul>
+
+    <h4>Tab 2 — Session Details</h4>
+    <ul>
+      <li>Session description (with <code>whitespace-pre-wrap</code> for line breaks)</li>
+      <li><strong>Topics</strong> list (numbered, with duration + per-topic speaker chips). Topics come from <code>SessionTopic</code> + <code>TopicSpeaker</code> — previously only visible in the admin UI, now exposed publicly via the detail API</li>
+      <li><strong>Speakers</strong> grid with photos, jobTitle, organization, and full bios (previously only visible in the admin; the <code>speakers.bio</code> select was added to the public detail route)</li>
+    </ul>
+
+    <h4>Tab 3 — Sponsors</h4>
+    <ul>
+      <li>Grouped by tier (platinum → gold → silver → bronze → partner → exhibitor)</li>
+      <li>Each sponsor renders as a card with logo, name, optional description. The whole card is a link if <code>websiteUrl</code> is set (opens in a new tab, <code>rel="noopener noreferrer"</code>)</li>
+      <li>Clean empty state for events with no sponsors configured</li>
+    </ul>
+
+    <h3>ZoomWebEmbed component</h3>
+    <p><code>src/components/zoom/zoom-web-embed.tsx</code> wraps the Zoom SDK v6 <code>@zoom/meetingsdk/embedded</code> entry.</p>
+
+    <div class="callout callout-info">
+      <strong>Why Component View works under React 19</strong> — the <code>/embedded</code> entry is a <strong>UMD bundle</strong> (<code>zoomus-websdk-embedded.umd.min.js</code>) that ships its own React 18 + ReactDOM internally. That bundled React lives entirely inside the SDK's own DOM subtree and never touches our app's React 19 fiber tree. The two Reacts coexist without knowing about each other. This is the key difference from Client View (the non-embedded entry), which tries to render into the host app's React tree and therefore collides.
+    </div>
+
+    <h4>Lifecycle</h4>
+    <pre><code>createClient() → init({ zoomAppRoot, language, patchJsMedia, leaveOnPageUnload })
+  → client.on("connection-change", ...)
+  → join({ sdkKey, signature, meetingNumber, password, userName })
+  → [user watches]
+  → leaveMeeting() → destroyClient()   (either user click or unmount)</code></pre>
+
+    <h4>Critical safety mechanisms</h4>
+    <ol>
+      <li><strong>Dynamic import</strong> — <code>await import("@zoom/meetingsdk/embedded")</code> inside <code>useEffect</code>, never at module top. Combined with the parent's <code>next/dynamic({ ssr: false })</code> and the user-click gate, the 3 MB bundle is fully deferred</li>
+      <li><strong>StrictMode-safe cleanup</strong> — a module-level <code>pendingDestroy: Promise&lt;void&gt; | null</code> serializes cleanup across re-mounts. Effect 2 awaits cleanup 1's destroy before creating a new client, so cleanup 1's destroy can never race effect 2's createClient</li>
+      <li><strong><code>connection-change</code> subscription</strong> — the SDK emits this event with <code>{ state: "Closed" }</code> when the user clicks Zoom's in-meeting Leave button. We call <code>onLeave()</code> from there so the parent can unmount. Without this, the embed would tear itself down internally while the parent still thought the user was in the meeting, leaving a black box</li>
+      <li><strong><code>onLeave</code> stored in a ref</strong> — the effect is mount-once (<code>[]</code> deps) so the closed-over callback would go stale on parent re-renders. Reading <code>onLeaveRef.current?.()</code> fixes this without forcing a re-mount</li>
+      <li><strong>Fallback error state</strong> — any error during <code>init</code> or <code>join</code> flips to an error overlay with an "Open in Zoom app instead" button (guarded against missing <code>joinUrl</code>)</li>
+      <li><strong>User-initiated mount</strong> — the parent page keeps <code>isJoining</code> state as <code>false</code> on page load. The embed only mounts when the user clicks Join, so the ~50 MB of WASM + AV assets that Zoom lazy-loads from <code>source.zoom.us</code> only hit the network after the click</li>
+    </ol>
+
+    <h3>Sponsors admin editor</h3>
+    <p>Organizers manage sponsors at <code>/events/[id]/sponsors</code>:</p>
+    <ul>
+      <li>Outer page component waits for the <code>GET</code> response, then mounts <code>SponsorsEditor</code> with <code>initialSponsors</code> as a prop. Lazy-init draft state from props avoids the project-wide <code>react-hooks/set-state-in-effect</code> lint rule</li>
+      <li><code>PUT</code> replaces the entire array (single atomic write, simpler than row-level CRUD for a settings JSON field). The server reassigns <code>sortOrder</code> from the array index so client-side drag history doesn't matter</li>
+      <li>URL schemes are whitelisted server-side: <code>logoUrl</code> accepts <code>http(s)://</code> or <code>/</code> (for locally-uploaded files), <code>websiteUrl</code> requires absolute <code>http(s)://</code>. Rejects <code>javascript:</code> / <code>data:</code> URLs</li>
+      <li><code>SponsorEntry</code> type lives in <code>src/lib/webinar.ts</code> and is re-exported from <code>src/hooks/use-api.ts</code> — single source of truth</li>
+    </ul>
+
+    <h2>Conventions &amp; guarantees</h2>
+    <ul>
+      <li><strong>Idempotency everywhere</strong> — every sync helper short-circuits on terminal states, and every write path (provisioner, email enqueue, attendance upsert) is safe to replay</li>
+      <li><strong>Observability</strong> — every state transition emits a structured log with <code>zoomMeetingDbId</code> + <code>durationMs</code>. Grep <code>webinar-recording:</code> / <code>webinar-attendance:</code> / <code>webinar-engagement:</code> to trace a single row</li>
+      <li><strong>Security</strong> — every POST/PUT/DELETE route uses <code>denyReviewer</code> + <code>checkRateLimit</code> + Zod + <code>apiLogger.warn</code> on rate-limit rejection</li>
+      <li><strong>Fire-and-forget provisioning</strong> — <code>provisionWebinar()</code> is called with <code>.catch()</code> from <code>POST /api/events</code> so Zoom API failures never block event creation</li>
+      <li><strong>One-way imports</strong> — webinar code imports from core; core never imports from webinar</li>
+    </ul>
+
+    <h2>Edge cases &amp; known limitations</h2>
+    <table>
+      <thead><tr><th>Scenario</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td>Zoom not configured for the org</td><td>Event creates cleanly; provisioner logs <code>zoom-not-configured-skipping-auto-provision</code>; Webinar Console shows "Configure Zoom" CTA</td></tr>
+        <tr><td>Anchor session has no <code>endTime</code></td><td>Both crons emit <code>no-end-time</code> warn and skip the row</td></tr>
+        <tr><td>Duplicate concurrent engagement syncs</td><td>Poll section wrapped in a DB transaction so find-or-create is atomic — no duplicate "Webinar Poll" rows</td></tr>
+        <tr><td>Rejoin in same session</td><td><code>ZoomAttendance</code> stores one row per segment; <code>peakConcurrent</code> KPI is computed via sorted edge-event sweep to handle this correctly</td></tr>
+        <tr><td>Multiple polls in same webinar</td><td>Collapsed to a single logical <code>WebinarPoll</code> — Zoom's report API doesn't distinguish</td></tr>
+        <tr><td>Q&amp;A without <code>create_time</code></td><td>Row skipped + logged — avoids uniqueness collisions</td></tr>
+        <tr><td>Registrant cancels after reminder scheduled</td><td>Cron re-evaluates <code>{ status: CONFIRMED }</code> filter at fire time</td></tr>
+        <tr><td>Recording not ready at thank-you fire time</td><td>Template renders "recording coming soon" fallback via <code>{{recordingBlock}}</code></td></tr>
+        <tr><td>Import from Speakers run twice</td><td><code>sync-speakers</code> fetches the existing Zoom panelist list in parallel with session speakers and dedups by lowercased email — no 409 Conflict on re-import. Response surfaces <code>skippedAlreadyPanelist</code> count</td></tr>
+        <tr><td>Panelist add error after optimistic insert</td><td><code>onError</code> rollback restores the prior query cache; add form is re-populated with the attempted values so the user doesn't retype</td></tr>
+        <tr><td>Zoom SDK signature expired before user clicks Join</td><td><code>client.join()</code> rejects; embed flips to error state with "Open in Zoom app instead" fallback button. Future improvement: refetch the signature on Join click instead of page load</td></tr>
+        <tr><td>User clicks Zoom's in-meeting Leave button</td><td>SDK fires <code>connection-change</code> with <code>state === "Closed"</code> → <code>onLeave()</code> fires on the parent → <code>setIsJoining(false)</code> → React unmounts the embed cleanly</td></tr>
+        <tr><td>StrictMode double-mounts the embed in dev</td><td>Module-level <code>pendingDestroy</code> promise serializes destroy-then-mount across the double invoke. Effect 2 awaits cleanup 1's destroy before creating a new client</td></tr>
+        <tr><td>Sponsor <code>logoUrl</code> contains <code>javascript:</code> URL</td><td>Server Zod schema rejects with 400. Only <code>http(s)://</code> or <code>/</code> accepted</td></tr>
+        <tr><td>Admin saves sponsors with new <code>sortOrder</code> values</td><td>Server reassigns from array index, so client-side reorder history is thrown away and both sides agree after the roundtrip</td></tr>
+      </tbody>
+    </table>
+
+    <hr>
+
+    <h1 style="font-size: 1.7rem; margin-top: 20px;">Interview deep-dive topics<span>Architectural questions most likely to come up</span></h1>
+
+    <h2>1. Why is there no <code>Webinar</code> table?</h2>
+    <p>Two valid approaches were considered:</p>
+    <ul>
+      <li><strong>Option A (rejected)</strong> — a parallel <code>Webinar</code> model with its own <code>sessions</code>, <code>attendees</code>, etc. Clean separation, but every cross-cutting feature (email sequence, communications, media library, contacts) would need duplicate logic or complex polymorphic joins.</li>
+      <li><strong>Option B (chosen)</strong> — use the existing <code>Event</code> + <code>EventSession</code> + <code>ZoomMeeting</code> models and gate behavior on <code>eventType === 'WEBINAR'</code>.</li>
+    </ul>
+    <p>The trade-off: Option B means a WEBINAR event reuses 90% of the core schema. Only a thin layer of webinar-specific tables (<code>ZoomAttendance</code>, <code>WebinarPoll</code>, <code>WebinarQuestion</code>) is added. Feature reuse is the main reason — a registrant who registers for a webinar is still a <code>Registration</code>, so the registrant portal, payment flow, and CSV import work unchanged.</p>
+    <p><strong>When Option A would win</strong>: if webinars had fundamentally different data (e.g. per-second watch events, 10M+ attendees, required horizontal sharding by webinar).</p>
+
+    <h2>2. Why serial cron processing? Wouldn't <code>Promise.all</code> be faster?</h2>
+    <p>Zoom's API is rate-limited to ~30 requests/second per account. Parallel <code>Promise.all</code> across 10 rows × 2 API calls = 20 concurrent requests. Fine in isolation, but:</p>
+    <ol>
+      <li><strong>Thundering herd after outages</strong> — if the cron misses ticks during a DB outage, the next tick has a backlog. Parallel burst → rate-limit hit → exponential backoff → more missed ticks</li>
+      <li><strong>Bad rows can't be isolated</strong> — <code>Promise.all</code> rejects on the first failure; <code>Promise.allSettled</code> works but makes error accounting more complex</li>
+      <li><strong>Debugging</strong> — sequential logs with <code>durationMs</code> per row are trivially greppable; parallel logs interleave</li>
+    </ol>
+    <p>Serial with a 500ms delay between rows (only when batch &gt; 3) gives steady ~2 req/s average, natural circuit-breaker (one bad row doesn't starve others), and debuggability.</p>
+    <p><strong>For scale, the fix is not parallelism — it's more cron ticks with smaller batches</strong> (e.g. <code>take: 5</code> every 2 minutes instead of <code>take: 10</code> every 5 minutes).</p>
+
+    <h2>3. How is idempotency guaranteed?</h2>
+    <p>Three different techniques, one per sync helper:</p>
+    <table>
+      <thead><tr><th>Helper</th><th>Technique</th></tr></thead>
+      <tbody>
+        <tr><td>Recording</td><td><strong>State machine</strong> — <code>AVAILABLE</code> / <code>FAILED</code> / <code>EXPIRED</code> short-circuit on entry. The <code>PENDING → AVAILABLE</code> transition is a single Prisma <code>update</code> which is atomic by itself</td></tr>
+        <tr><td>Attendance</td><td><strong>Upsert by natural key</strong> — <code>(zoomMeetingId, zoomParticipantId, joinTime)</code>. The triple is stable across Zoom report re-fetches, so re-running produces the same DB state</td></tr>
+        <tr><td>Engagement (polls)</td><td><strong>Transaction</strong> — find-or-create + deleteMany + createMany in <code>$transaction</code>. Without the transaction, two concurrent syncs could both <code>findFirst → not found → create</code>, producing duplicate "Webinar Poll" rows (Postgres nullable unique keys don't enforce NULL uniqueness)</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Why not use a distributed lock instead?</strong> For this scale, a transaction is simpler and has lower ops overhead. If we had 100+ concurrent workers, a Redis lock with a lease would become more attractive.</p>
+
+    <h2>4. Why store per-segment attendance rows instead of one row per attendee?</h2>
+    <p>Zoom returns one row per join/leave <strong>segment</strong>. A single attendee who disconnects and rejoins appears as two rows with different <code>join_time</code> values.</p>
+    <ul>
+      <li><strong>Option A</strong> — collapse to one row per attendee, summing duration. Simpler display, loses history.</li>
+      <li><strong>Option B (chosen)</strong> — store one row per segment with unique key <code>(zoomMeetingId, zoomParticipantId, joinTime)</code>.</li>
+    </ul>
+    <p>Option B is required for <strong>peak concurrent</strong> — the KPI answers "what was the maximum number of people watching at any moment?" Computing peak needs a per-segment join/leave timeline, which Option A loses.</p>
+    <p><strong>Algorithm</strong>: build a sorted array of <code>{ time, delta }</code> edges (+1 for join, −1 for leave), walk it tracking a running counter, return the max. O(n log n) sort, O(n) sweep. Corner case: back-to-back leave/rejoin at the same timestamp is ordered leave-before-join so concurrent count never artificially spikes.</p>
+
+    <h2>5. Why not use a job queue (BullMQ, SQS) instead of crons?</h2>
+    <p>The cron approach has real downsides:</p>
+    <ul>
+      <li>Fixed latency (up to the cron interval)</li>
+      <li>No retry with exponential backoff</li>
+      <li>No dead-letter queue</li>
+      <li>Can't scale horizontally</li>
+    </ul>
+    <p>But for this workload, it's the right call:</p>
+    <ul>
+      <li><strong>Volume is small</strong>: typical orgs run 1–10 webinars/month</li>
+      <li><strong>Latency is tolerable</strong>: users don't expect real-time recording URLs</li>
+      <li><strong>Ops simplicity</strong>: EC2 crontab is already there for other crons (<code>scheduled-emails</code>)</li>
+      <li><strong>Monolith constraint</strong>: introducing a queue means Redis, a worker process, and a new deploy target</li>
+    </ul>
+    <p><strong>When to migrate</strong>: if we start running 100+ concurrent webinars or watch-time analytics become real-time. The sync helpers are already factored out, so a migration would swap the cron route for a queue consumer — no changes to the sync logic itself.</p>
+
+    <h2>6. What happens if the provisioner crashes mid-execution?</h2>
+    <p>Walk through the failure modes:</p>
+    <ol>
+      <li><strong>Crash after creating EventSession, before creating ZoomMeeting</strong>: Event has an orphan anchor session. Running provisioner again finds <code>settings.webinar.sessionId</code>, verifies it still exists, and short-circuits. User can click "Re-run provisioner" in the console to retry Zoom creation.</li>
+      <li><strong>Crash after creating ZoomMeeting, before persisting <code>settings.webinar</code></strong>: Event has a ZoomMeeting but no settings pointer. The next provisioner run creates <strong>another</strong> anchor session + another Zoom meeting. This is the worst case — two webinars on Zoom. <em>Mitigation (not implemented)</em>: wrap the whole provisioner in a DB transaction. Not currently worth it because failures are rare and visible in logs.</li>
+      <li><strong>Crash after persisting settings.webinar, before enqueueing email sequence</strong>: next provisioner run is idempotent no-op; email sequence re-enqueue is safe because <code>enqueueWebinarSequenceForEvent</code> checks for existing <code>webinar-*</code> rows first.</li>
+    </ol>
+    <p>The real guarantee is: <strong>the user can always click "Re-run provisioner"</strong> and the system will converge toward a valid state. Idempotency is the crash-safety net.</p>
+
+    <h2>7. How do you prevent duplicate email sends from the scheduled cron?</h2>
+    <p>The existing <code>ScheduledEmail</code> cron (reused by the webinar sequence) uses an <strong>atomic claim</strong>:</p>
+    <pre><code>UPDATE "ScheduledEmail"
+SET status = 'PROCESSING'
+WHERE id = ? AND status = 'PENDING'</code></pre>
+    <p>Only the worker whose <code>UPDATE</code> affected a row proceeds. A second worker racing the first sees 0 rows affected and skips. There's also a "stuck processing" sweeper that flips rows back to <code>FAILED</code> after 10 minutes so crashed workers don't hold rows hostage.</p>
+    <p>For the <strong>immediate</strong> webinar-confirmation (sent directly from the register route), there's no claim — we rely on the register route itself being idempotent.</p>
+
+    <h2>8. How is "peak concurrent attendees" calculated correctly when attendees rejoin?</h2>
+    <p>The naive approach — count distinct <code>zoomParticipantId</code> values where <code>joinTime &lt; T &lt; leaveTime</code> — is O(n × points-to-check) and gets the answer wrong if you check at fixed intervals.</p>
+    <p>The correct approach is an <strong>edge-event sweep</strong>:</p>
+    <pre><code>const edges: Edge[] = [];
+for (const row of attendanceRows) {
+  edges.push({ time: row.joinTime.getTime(), delta: +1 });
+  if (row.leaveTime) edges.push({ time: row.leaveTime.getTime(), delta: -1 });
+}
+// Sort: time asc, leave (-1) before join (+1) at same instant.
+edges.sort((a, b) => a.time - b.time || a.delta - b.delta);
+
+let current = 0, peak = 0;
+for (const e of edges) {
+  current += e.delta;
+  if (current &gt; peak) peak = current;
+}</code></pre>
+    <p>Complexity: O(n log n) sort, O(n) sweep, O(n) memory. Handles rejoins, dropouts, and back-to-back segments correctly. The tie-breaker (leave before join at the same timestamp) ensures a user who rejoins instantly doesn't inflate the peak.</p>
+
+    <h2>9. How is extensibility preserved? (Decouplability boundary)</h2>
+    <p>All webinar code lives under tightly-scoped namespaces:</p>
+    <pre><code>src/lib/webinar*                                    ← helpers + state machines
+src/lib/zoom/{recordings,reports,polls-qa}.ts       ← Zoom API clients
+src/app/api/events/[eventId]/webinar/*              ← dashboard REST
+src/app/api/cron/webinar-*                          ← cron workers
+src/app/(dashboard)/events/[eventId]/webinar/       ← UI</code></pre>
+    <p>Rule: <strong>webinar imports from core; core never imports from webinar</strong>. To extract into a standalone microservice:</p>
+    <ol>
+      <li>Copy the namespaced files into a new repo</li>
+      <li>Replace direct Prisma calls in webinar code with HTTP calls to an <code>ea-sys-core</code> API</li>
+      <li>Swap the in-process provisioner invocation (<code>POST /api/events → provisionWebinar()</code>) for a queue publish</li>
+      <li>Point the crontab at the new service</li>
+    </ol>
+    <p>Estimated effort: 1–2 days. The boundaries are already drawn — extraction is a plumbing job, not a rewrite.</p>
+
+    <h2>10. Why are polls collapsed to one logical poll per webinar?</h2>
+    <p>Zoom's <code>/report/webinars/{id}/polls</code> endpoint returns a <strong>flat list of (participant, question, answer) tuples</strong>, with no poll-id field to distinguish multiple polls run during the same webinar. You can't reconstruct the original poll boundaries from this report alone.</p>
+    <p>Zoom's own dashboard collapses the same way — it shows all poll questions and answers in one list per webinar.</p>
+    <p><strong>Alternative</strong>: call <code>/webinars/{id}/polls</code> (definitions) first to get poll ids + question lists, then match answers back. Would require a join on the question string, which is fragile. Not worth the complexity for a feature where Zoom itself doesn't distinguish.</p>
+    <p><strong>Future-proofing</strong>: <code>WebinarPoll.zoomPollId</code> is nullable and the schema supports multiple <code>WebinarPoll</code> rows per <code>ZoomMeeting</code> if we ever want to split them.</p>
+
+    <h2>11. How does the Zoom SDK embed work under React 19 when the SDK bundles React 18?</h2>
+    <p>The key insight is that <strong>Zoom's <code>@zoom/meetingsdk</code> exposes two entry points</strong>:</p>
+    <ul>
+      <li><code>@zoom/meetingsdk</code> (<code>index.js</code>) — the <strong>Client View</strong>. This is a React component that tries to render into your app's React fiber tree. Under React 19, hooks fail because the SDK's bundled React 18 and our React 19 see different versions of <code>useState</code> and the reconciler throws the classic "you might have more than one copy of React" errors</li>
+      <li><code>@zoom/meetingsdk/embedded</code> (<code>embedded.js</code>) — the <strong>Component View</strong>. This is a UMD bundle (<code>zoomus-websdk-embedded.umd.min.js</code>) that exposes <code>ZoomMtgEmbedded</code> as a module-level singleton. It ships its own React 18 + ReactDOM + Redux internally, but they all live inside the UMD closure — they never interact with the host app's React tree. Zoom's SDK mounts its UI into an HTMLElement you hand it (<code>init({ zoomAppRoot: el })</code>) and does all rendering inside that subtree</li>
+    </ul>
+    <p><strong>Trade-off</strong>: Component View's API is factory-style (<code>createClient().init().join()</code>) instead of declarative React props. You lose JSX composition but gain version isolation. For our use case — a full-panel embedded webinar viewer — that's a great trade.</p>
+    <p><strong>Why we didn't discover this in the first audit</strong>: the first audit read <code>package.json</code> and saw <code>react: "18.2.0"</code> in the SDK's peerDependencies and concluded "blocked". It didn't distinguish between the two entry points. When the second audit ran <code>npm pack @zoom/meetingsdk@6.0.0 --dry-run</code> and saw both <code>index.js</code> and <code>embedded.js</code> listed separately, the isolation became obvious.</p>
+    <p><strong>When Client View would come back</strong>: only if a future Zoom SDK version drops the bundled React entirely and uses our host React. Until then, stick with Component View via <code>ZoomWebEmbed</code>.</p>
+
+    <h2>12. What race conditions does the embed guard against, and how?</h2>
+    <p>Three concrete races were identified during audit:</p>
+
+    <h3>Race 1: StrictMode double-invoke</h3>
+    <p>In React 19 dev mode, effects run twice:</p>
+    <ol>
+      <li>Effect 1 → <code>mount()</code> starts (async: import, createClient, init, join)</li>
+      <li>Cleanup 1 → schedules async destroy (<code>leaveMeeting()</code> + <code>destroyClient()</code>)</li>
+      <li>Effect 2 → <code>mount()</code> starts again</li>
+    </ol>
+    <p>The naive cleanup fires destroy as a fire-and-forget async IIFE. Effect 2 then calls <code>destroyClient()</code> → <code>createClient()</code> immediately. If cleanup 1's destroy runs <em>between</em> effect 2's createClient and init, the new client handle becomes invalid.</p>
+    <p><strong>Fix</strong>: module-level <code>pendingDestroy: Promise&lt;void&gt; | null</code>. Cleanup 1 assigns to it, and effect 2 awaits it at the start of <code>mount()</code>. Order is now deterministic.</p>
+
+    <h3>Race 2: Parent thinks user is in meeting, but Zoom says otherwise</h3>
+    <p>When the user clicks Zoom's own in-meeting Leave button, the SDK tears down its UI but the parent's <code>isJoining</code> state is still <code>true</code>. User sees a black box.</p>
+    <p><strong>Fix</strong>: subscribe to <code>client.on("connection-change", payload =&gt; ...)</code>. When <code>payload.state === "Closed"</code>, call <code>onLeave?.()</code> which the parent uses to flip <code>isJoining</code> to <code>false</code> and React unmounts the component.</p>
+
+    <h3>Race 3: Stale <code>onLeave</code> callback</h3>
+    <p>The <code>useEffect</code> is deliberately mount-once (<code>[]</code> deps) because prop changes would require a full re-mount anyway. But <code>onLeave</code> is closed over from the first render — if the parent re-renders with a different callback, the embed still fires the original one.</p>
+    <p><strong>Fix</strong>: <code>onLeaveRef = useRef(onLeave); onLeaveRef.current = onLeave;</code>. The effect reads <code>onLeaveRef.current?.()</code> so it always hits the latest handler without forcing a re-mount.</p>
+
+    <h2>13. Why is sponsor data in <code>Event.settings.sponsors</code> JSON instead of a dedicated Prisma table?</h2>
+    <p>Same pattern as <code>Event.settings.webinar</code> — the JSON escape hatch. Trade-offs:</p>
+    <h3>Pros</h3>
+    <ul>
+      <li><strong>Zero migration cost.</strong> Ships in one commit. No foreign keys to manage, no join complexity, no cascading delete semantics</li>
+      <li><strong>Atomic updates.</strong> <code>PUT /api/events/[id]/sponsors</code> replaces the whole array in a single write. No row-by-row diffing</li>
+      <li><strong>Tight colocation.</strong> Reading a sponsor list is a field-read on the event row, not a join</li>
+    </ul>
+    <h3>Cons</h3>
+    <ul>
+      <li><strong>No cross-event queries.</strong> "Which events did Acme sponsor?" is now a <code>jsonb_array_elements</code> query instead of a simple <code>WHERE sponsorId</code>. Acceptable — we don't need that query today</li>
+      <li><strong>No row-level permissions.</strong> The entire list is one Prisma write; you can't have per-sponsor edit locks</li>
+      <li><strong>Limited indexing.</strong> GIN indexes on JSON work but are heavier than normal B-trees. Not a concern at our expected scale (&lt;100 sponsors per event)</li>
+    </ul>
+    <p><strong>When to promote</strong>: the moment we want to query sponsors independently of events, or add sponsor-level analytics (click tracking, impressions), or share sponsors across multiple events. Until then, JSON is the right call.</p>
+    <p><strong>Upgrade path</strong>: the <code>SponsorEntry</code> type shape matches what a future <code>Sponsor</code> Prisma table would hold. A one-time migration script would walk <code>Event.settings.sponsors</code> and insert into the new table, then drop the JSON field. No application code changes beyond the Prisma read/write calls.</p>
+
+    <hr>
+
+    <h2>Related docs</h2>
+    <ul>
+      <li><code>CLAUDE.md</code> — Recent Features → "Webinar events as first-class"</li>
+      <li><code>docs/DEVELOPMENT_STATUS.md</code> — Recent Updates → "Webinar Events as First-Class"</li>
+      <li><code>CHANGELOG.md</code> — 2026-04-13 entry</li>
+      <li><code>docs/ZOOM_INTEGRATION.html</code> — underlying Zoom OAuth + SDK setup</li>
+    </ul>
+
+  </div>
+</body>
+</html>

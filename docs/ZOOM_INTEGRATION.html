@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoom Integration — EA-SYS Implementation Guide</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a2e; background: #f8f9fa; }
+    .container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+    h1 { font-size: 2rem; color: #00aade; margin-bottom: 8px; }
+    h1 span { font-size: 0.9rem; color: #6b7280; font-weight: normal; display: block; margin-top: 4px; }
+    h2 { font-size: 1.4rem; color: #1a1a2e; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #00aade; }
+    h3 { font-size: 1.1rem; color: #374151; margin: 24px 0 12px; }
+    p, li { color: #4b5563; }
+    ul, ol { padding-left: 24px; margin: 12px 0; }
+    li { margin: 6px 0; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #1f2937; }
+    pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 0.85em; line-height: 1.5; }
+    pre code { background: none; padding: 0; color: inherit; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .badge-new { background: #dbeafe; color: #1d4ed8; }
+    .badge-modified { background: #fef3c7; color: #92400e; }
+    .file-list { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    .file-list h4 { font-size: 0.85rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .file-list ul { list-style: none; padding: 0; }
+    .file-list li { padding: 4px 0; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+    .step { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; margin: 16px 0; }
+    .step-number { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: #00aade; color: #fff; border-radius: 50%; font-weight: 700; font-size: 0.9rem; margin-right: 12px; }
+    .note { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9rem; }
+    th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; }
+    .arch-diagram { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 16px 0; font-family: 'Courier New', monospace; font-size: 0.85rem; line-height: 1.8; white-space: pre; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h1>
+      Zoom Integration — EA-SYS
+      <span>Implementation Guide &bull; April 2026</span>
+    </h1>
+
+    <p>Complete documentation of the Zoom integration into EA-SYS, enabling meetings, webinars, and webinar series linked to event sessions with a branded attendee landing page.</p>
+
+    <!-- ─── OVERVIEW ─────────────────────────────────────────────── -->
+
+    <h2>1. Overview</h2>
+
+    <p>The Zoom integration is a <strong>fully decoupled, optional module</strong> that adds live meeting and webinar capabilities to event sessions. It operates at three levels:</p>
+
+    <table>
+      <tr><th>Level</th><th>Control</th><th>When Off</th></tr>
+      <tr><td>Organization</td><td>Zoom OAuth + SDK credentials in Org Settings</td><td>All Zoom API routes return 404</td></tr>
+      <tr><td>Event</td><td><code>Event.settings.zoom.enabled</code> toggle</td><td>No Zoom UI in session forms</td></tr>
+      <tr><td>Session</td><td>Per-session "Create Zoom Meeting" button</td><td>Session works as before</td></tr>
+    </table>
+
+    <p>Video/audio streaming happens entirely on Zoom's infrastructure. EA-SYS stores meeting metadata, generates JWT signatures, and provides a branded landing page for attendees.</p>
+
+    <div class="warning">
+      <strong>React 19 Limitation:</strong> The Zoom Meeting SDK (<code>@zoom/meetingsdk</code>) bundles React 18 internally and is incompatible with React 19 (used by Next.js 16). Embedded in-browser meetings are not currently possible. The integration uses a <strong>branded landing page</strong> that redirects attendees to Zoom's web client instead. The embed component (<code>zoom-embed.tsx</code>) is preserved for future use when Zoom releases a React 19 compatible SDK.
+    </div>
+
+    <!-- ─── ARCHITECTURE ─────────────────────────────────────────── -->
+
+    <h2>2. Architecture</h2>
+
+    <div class="arch-diagram">
+Organization Settings (DB)
+  └─ settings.zoom: {
+       accountId, clientId, clientSecretEncrypted,     ← Server-to-Server OAuth
+       sdkKeyDev, sdkSecretDevEncrypted,               ← Meeting SDK (Development)
+       sdkKeyProd, sdkSecretProdEncrypted,              ← Meeting SDK (Production)
+       sdkMode: "dev" | "prod"                         ← Active SDK mode
+     }
+        │
+        ├─── Server-to-Server OAuth ──→ Zoom REST API
+        │     /v2/meetings, /v2/webinars, /v2/users/me
+        │     Used for: create, update, delete meetings/webinars, manage panelists
+        │
+        └─── Meeting SDK credentials ──→ JWT Signature Generation
+              Used for: generating attendee join signatures (future: embedding)
+              │
+              ▼
+        Public Join API (/api/public/events/[slug]/sessions/[sessionId]/zoom-join)
+              │
+              ├─ SDK configured → { mode: "sdk", sdkKey, signature, meetingNumber }
+              └─ SDK not configured → { mode: "url", joinUrl }
+              │
+              ▼
+        Public Session Page (/e/[slug]/session/[sessionId])
+              │
+              └─ Branded landing page with event banner, session details,
+                 speakers with photos, and "Join Meeting" button
+                 → Opens Zoom web client in new tab
+    </div>
+
+    <h3>Two Zoom Apps Required</h3>
+    <table>
+      <tr><th>App Type</th><th>Purpose</th><th>Credentials</th><th>Where Stored</th></tr>
+      <tr>
+        <td><strong>Server-to-Server OAuth</strong></td>
+        <td>Create/manage meetings & webinars via API</td>
+        <td>Account ID, Client ID, Client Secret</td>
+        <td>Org Settings (encrypted)</td>
+      </tr>
+      <tr>
+        <td><strong>General App</strong></td>
+        <td>JWT signatures for attendee join + future embedding</td>
+        <td>Client ID (SDK Key), Client Secret (SDK Secret)</td>
+        <td>Org Settings (Dev + Prod, encrypted)</td>
+      </tr>
+    </table>
+
+    <h3>Credential Security</h3>
+    <table>
+      <tr><th>Field</th><th>Storage</th></tr>
+      <tr><td>accountId, clientId</td><td>Plain text</td></tr>
+      <tr><td>clientSecretEncrypted</td><td>AES-256-GCM encrypted</td></tr>
+      <tr><td>sdkKeyDev, sdkKeyProd</td><td>Plain text (public key, sent to browser)</td></tr>
+      <tr><td>sdkSecretDevEncrypted, sdkSecretProdEncrypted</td><td>AES-256-GCM encrypted</td></tr>
+    </table>
+    <p>Encryption uses <code>NEXTAUTH_SECRET</code> as the key derivation input via SHA-256. Secrets are never returned by the GET endpoint — only <code>hasClientSecret: true/false</code> flags. Pino logger auto-redacts fields containing "secret".</p>
+
+    <!-- ─── IMPLEMENTATION STEPS ──────────────────────────────────── -->
+
+    <h2>3. Implementation Steps</h2>
+
+    <!-- Step 1 -->
+    <div class="step">
+      <h3><span class="step-number">1</span>Database Schema</h3>
+      <p>Added <code>ZoomMeeting</code> model to Prisma schema with a 1:1 relationship to <code>EventSession</code>.</p>
+      <pre><code>model ZoomMeeting {
+  id             String            @id @default(cuid())
+  sessionId      String            @unique
+  eventId        String
+  zoomMeetingId  String
+  meetingType    ZoomMeetingType   // MEETING | WEBINAR | WEBINAR_SERIES
+  joinUrl        String
+  startUrl       String?           @db.Text   // host start URL
+  passcode       String?
+  duration       Int?
+  status         ZoomMeetingStatus @default(CREATED)
+  isRecurring    Boolean           @default(false)
+  recurrenceType Int?
+  occurrences    Json?
+  zoomResponse   Json?
+
+  session EventSession @relation(...)
+  event   Event        @relation(...)
+}</code></pre>
+      <div class="file-list">
+        <h4>Files</h4>
+        <ul>
+          <li><span class="badge badge-modified">Modified</span> <code>prisma/schema.prisma</code></li>
+          <li><span class="badge badge-new">New</span> <code>prisma/migrations/20260408000000_add_speaker_accommodation_and_zoom/migration.sql</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step">
+      <h3><span class="step-number">2</span>Server-Side Zoom Module</h3>
+      <p>Created <code>src/lib/zoom/</code> with five files following the lazy-init singleton pattern:</p>
+      <div class="file-list">
+        <h4>New Files</h4>
+        <ul>
+          <li><span class="badge badge-new">New</span> <code>src/lib/zoom/types.ts</code> — TypeScript interfaces (credentials with dev/prod SDK fields, meeting params, responses)</li>
+          <li><span class="badge badge-new">New</span> <code>src/lib/zoom/client.ts</code> — OAuth token management with in-memory cache + TTL, <code>zoomApiRequest()</code> wrapper with duration logging</li>
+          <li><span class="badge badge-new">New</span> <code>src/lib/zoom/meetings.ts</code> — Meeting/webinar/series CRUD, panelist management, all operations logged with <code>apiLogger</code></li>
+          <li><span class="badge badge-new">New</span> <code>src/lib/zoom/signature.ts</code> — Org-aware JWT signature generation (<code>generateZoomSignatureForOrg</code>), picks dev/prod based on <code>sdkMode</code></li>
+          <li><span class="badge badge-new">New</span> <code>src/lib/zoom/index.ts</code> — Re-exports + <code>isZoomConfigured()</code> helper</li>
+        </ul>
+      </div>
+      <h4>Key Design Decisions</h4>
+      <ul>
+        <li><strong>OAuth tokens cached in-memory</strong> — <code>Map&lt;orgId, {token, expiresAt}&gt;</code> with 5-minute pre-expiry refresh, cache hits logged at debug level</li>
+        <li><strong>Credentials encrypted with AES-256-GCM</strong> — reuses <code>encryptSecret()</code>/<code>decryptSecret()</code> from <code>eventsair-client.ts</code></li>
+        <li><strong>Dev/Prod SDK credentials</strong> — stored per-org with <code>sdkMode</code> toggle; dev for localhost testing, prod for live domain</li>
+        <li><strong>No environment variables needed</strong> — all credentials come from org settings in the database</li>
+        <li><strong>Secrets optional on update</strong> — if left blank on save, existing encrypted values are preserved</li>
+      </ul>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step">
+      <h3><span class="step-number">3</span>API Routes</h3>
+      <p>Seven API routes following the existing auth + <code>denyReviewer()</code> + Zod validation pattern:</p>
+      <table>
+        <tr><th>Route</th><th>Methods</th><th>Purpose</th></tr>
+        <tr><td><code>/api/organization/zoom/credentials</code></td><td>GET, PUT, DELETE</td><td>Org-level OAuth + Dev/Prod SDK credentials</td></tr>
+        <tr><td><code>/api/organization/zoom/test-connection</code></td><td>POST</td><td>Validate Server-to-Server OAuth against Zoom API</td></tr>
+        <tr><td><code>/api/events/[eventId]/zoom/settings</code></td><td>GET, PUT</td><td>Per-event Zoom enable toggle + defaults</td></tr>
+        <tr><td><code>/api/events/[eventId]/sessions/[sessionId]/zoom</code></td><td>POST, GET, PUT, DELETE</td><td>Zoom meeting CRUD (includes startUrl for host)</td></tr>
+        <tr><td><code>/api/events/[eventId]/sessions/[sessionId]/zoom/panelists</code></td><td>POST, GET, DELETE</td><td>Sync speakers to Zoom webinar panelists</td></tr>
+        <tr><td><code>/api/public/.../zoom-join</code></td><td>GET</td><td>Public join endpoint (rate limited, org-aware signature)</td></tr>
+        <tr><td><code>/api/public/.../detail</code></td><td>GET</td><td>Public session details with event branding + speakers</td></tr>
+      </table>
+
+      <h4>Logging Coverage</h4>
+      <p>Every route logs with <code>apiLogger</code> using <code>zoom:</code> prefixes:</p>
+      <table>
+        <tr><th>Event</th><th>Level</th><th>Prefix</th></tr>
+        <tr><td>Meeting create/delete</td><td>info</td><td><code>zoom:creating-meeting</code>, <code>zoom:deleting-meeting</code></td></tr>
+        <tr><td>Webinar create/delete</td><td>info</td><td><code>zoom:creating-webinar</code>, <code>zoom:deleting-webinar</code></td></tr>
+        <tr><td>Zoom API call (all)</td><td>info</td><td><code>zoom:api-call</code> (method, path, status, durationMs)</td></tr>
+        <tr><td>Zoom API error</td><td>error</td><td><code>zoom:api-error</code> (zoomErrorCode, zoomMessage)</td></tr>
+        <tr><td>OAuth token refresh</td><td>info</td><td><code>zoom:oauth-token-refreshed</code></td></tr>
+        <tr><td>OAuth token cache hit</td><td>debug</td><td><code>zoom:token-cache-hit</code> (ttlMs)</td></tr>
+        <tr><td>Meeting join (public)</td><td>info</td><td><code>zoom:join-via-sdk</code> / <code>zoom:join-via-url</code></td></tr>
+        <tr><td>Rate limit hit</td><td>warn</td><td><code>zoom:*-rate-limited</code></td></tr>
+        <tr><td>Validation failure</td><td>warn</td><td><code>zoom:*-validation-failed</code></td></tr>
+        <tr><td>Panelist sync</td><td>info</td><td><code>zoom:adding-panelists</code>, <code>zoom:panelists-synced</code></td></tr>
+        <tr><td>Credential save/delete</td><td>info</td><td><code>zoom:credentials-saved</code>, <code>zoom:credentials-deleted</code></td></tr>
+      </table>
+
+      <h4>Rate Limits</h4>
+      <table>
+        <tr><th>Endpoint</th><th>Limit</th><th>Key</th></tr>
+        <tr><td>Create meeting</td><td>30/hour</td><td><code>zoom-create:${eventId}</code></td></tr>
+        <tr><td>Public join</td><td>60/hour</td><td><code>zoom-join:${ip}</code></td></tr>
+        <tr><td>Save credentials</td><td>10/hour</td><td><code>zoom-creds:${orgId}</code></td></tr>
+        <tr><td>Test connection</td><td>10/hour</td><td><code>zoom-test:${orgId}</code></td></tr>
+        <tr><td>Panelist sync</td><td>30/hour</td><td><code>zoom-panelists:${eventId}</code></td></tr>
+      </table>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="step">
+      <h3><span class="step-number">4</span>UI Components</h3>
+      <table>
+        <tr><th>Component</th><th>Purpose</th><th>Where Used</th></tr>
+        <tr><td><code>org-zoom-credentials.tsx</code></td><td>OAuth + Dev/Prod SDK credentials form with "saved" indicators</td><td>Org Settings &rarr; Integrations tab</td></tr>
+        <tr><td><code>zoom-settings-card.tsx</code></td><td>Event-level enable toggle + step-by-step setup guide</td><td>Event Settings &rarr; Zoom tab</td></tr>
+        <tr><td><code>zoom-meeting-form.tsx</code></td><td>Create/delete meeting dialog + Start as Host / Join Link / Copy / Open Embed buttons</td><td>Session edit dialog</td></tr>
+        <tr><td><code>zoom-session-badge.tsx</code></td><td>Meeting/Webinar badge with live pulse indicator</td><td>Session cards + calendar tooltips</td></tr>
+        <tr><td><code>zoom-join-button.tsx</code></td><td>Public "Join" button (appears 15min before)</td><td>Public schedule</td></tr>
+        <tr><td><code>zoom-embed.tsx</code></td><td>Embedded Zoom viewer (preserved for future React 19 SDK)</td><td>Not active — awaiting SDK update</td></tr>
+        <tr><td><code>zoom-series-schedule.tsx</code></td><td>Webinar series occurrence list with per-occurrence join</td><td>Series sessions</td></tr>
+      </table>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="step">
+      <h3><span class="step-number">5</span>Branded Session Landing Page</h3>
+      <p>Public page at <code>/e/[slug]/session/[sessionId]</code> — the attendee experience:</p>
+      <ul>
+        <li><strong>Event branding</strong> — banner image, organization name, event name</li>
+        <li><strong>Session details</strong> — title, date, time, location, capacity, track badge</li>
+        <li><strong>Status badges</strong> — Live Now (green pulse), Upcoming, Ended</li>
+        <li><strong>Speakers sidebar</strong> — photos (with initials fallback), names, job titles, organizations</li>
+        <li><strong>"Join Meeting" CTA</strong> — prominent blue button that opens Zoom web client</li>
+        <li><strong>Meeting details card</strong> — type, meeting ID, passcode</li>
+        <li><strong>"Not yet joinable"</strong> state — shows when session hasn't started, with countdown info</li>
+        <li><strong>DRAFT events supported</strong> — allows testing before publishing</li>
+      </ul>
+      <p>Data fetched in parallel from two endpoints: <code>/zoom-join</code> (meeting info) and <code>/detail</code> (session + event branding + speakers).</p>
+      <div class="file-list">
+        <h4>Files</h4>
+        <ul>
+          <li><span class="badge badge-new">New</span> <code>src/app/e/[slug]/session/[sessionId]/page.tsx</code></li>
+          <li><span class="badge badge-new">New</span> <code>src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts</code></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Step 6 -->
+    <div class="step">
+      <h3><span class="step-number">6</span>Session Edit Dialog — Host Controls</h3>
+      <p>When a session has a Zoom meeting linked, the edit dialog shows:</p>
+      <ul>
+        <li><strong>Start as Host</strong> (blue button) — opens Zoom with host privileges to start the meeting</li>
+        <li><strong>Attendee Join Link</strong> — the link attendees use (opens Zoom web client)</li>
+        <li><strong>Copy Link</strong> — copies join URL to clipboard</li>
+        <li><strong>Open Embed Page</strong> — opens <code>/e/[slug]/session/[sessionId]</code> for preview</li>
+        <li><strong>Meeting ID + Passcode</strong> — displayed for reference</li>
+        <li><strong>Delete</strong> — removes Zoom meeting from both DB and Zoom API</li>
+      </ul>
+    </div>
+
+    <!-- Step 7 -->
+    <div class="step">
+      <h3><span class="step-number">7</span>React Query Hooks &amp; AI Agent Tools</h3>
+      <p>10 hooks in <code>src/hooks/use-api.ts</code> and 2 AI agent tools in <code>src/lib/agent/event-tools.ts</code>.</p>
+      <pre><code>// React Query hooks
+useZoomCredentials()            useSaveZoomCredentials()
+useDeleteZoomCredentials()      useTestZoomConnection()
+useZoomSettings(eventId)        useUpdateZoomSettings(eventId)
+useZoomMeeting(sessionId)       useCreateZoomMeeting(eventId, sessionId)
+useDeleteZoomMeeting(eventId, sessionId)
+useSyncZoomPanelists(eventId, sessionId)
+
+// AI Agent tools
+list_zoom_meetings              create_zoom_meeting</code></pre>
+    </div>
+
+    <!-- ─── SETUP GUIDE ──────────────────────────────────────────── -->
+
+    <h2>4. Setup Guide</h2>
+
+    <div class="step">
+      <h3><span class="step-number">A</span>Create Server-to-Server OAuth App (for meeting management)</h3>
+      <ol>
+        <li>Go to <a href="https://marketplace.zoom.us/develop/create">Zoom App Marketplace</a> &rarr; Develop &rarr; Build App</li>
+        <li>Choose <strong>Server-to-Server OAuth</strong> app type &rarr; Create</li>
+        <li>Name it (e.g., "EA-SYS Event Platform")</li>
+        <li>On the <strong>App Credentials</strong> tab, copy: Account ID, Client ID, Client Secret</li>
+        <li>On the <strong>Scopes</strong> tab, add:
+          <ul>
+            <li><code>meeting:write:meeting:admin</code>, <code>meeting:read:meeting:admin</code></li>
+            <li><code>webinar:write:webinar:admin</code>, <code>webinar:read:webinar:admin</code></li>
+            <li><code>user:read:user:admin</code></li>
+          </ul>
+        </li>
+        <li>Click <strong>Activate</strong></li>
+      </ol>
+    </div>
+
+    <div class="step">
+      <h3><span class="step-number">B</span>Create General App (for Meeting SDK / embedding)</h3>
+      <ol>
+        <li>In Zoom App Marketplace &rarr; Develop &rarr; Build App</li>
+        <li>Choose <strong>General App</strong> type &rarr; Create</li>
+        <li>On the <strong>App Credentials</strong> tab, copy: Client ID (= SDK Key) and Client Secret (= SDK Secret)</li>
+        <li>On the <strong>Scopes</strong> tab, add: <code>meeting:read</code>, <code>meeting:write</code></li>
+        <li>On the <strong>Embed</strong> tab, add allowed domains:
+          <ul>
+            <li><code>localhost</code> (for development)</li>
+            <li><code>events.meetingmindsgroup.com</code> (for production)</li>
+          </ul>
+        </li>
+        <li>Set <strong>OAuth Redirect URL</strong> to <code>https://zoom.us</code> (not used — just a required field)</li>
+        <li>The app has both Development and Production credentials — copy each set separately</li>
+      </ol>
+    </div>
+
+    <div class="step">
+      <h3><span class="step-number">C</span>Configure in EA-SYS</h3>
+      <ol>
+        <li>Go to <strong>Organization Settings &rarr; Integrations</strong> tab</li>
+        <li>In the <strong>Zoom Integration</strong> card:
+          <ul>
+            <li><strong>Server-to-Server OAuth:</strong> Account ID, Client ID, Client Secret from Step A</li>
+            <li><strong>Meeting SDK &mdash; Development:</strong> Dev Client ID + Secret from Step B</li>
+            <li><strong>Meeting SDK &mdash; Production:</strong> Prod Client ID + Secret from Step B</li>
+            <li><strong>Active SDK Mode:</strong> "Development" for testing, "Production" for live</li>
+          </ul>
+        </li>
+        <li>Click <strong>Save Credentials</strong> &rarr; <strong>Test Connection</strong></li>
+        <li>Go to your event &rarr; <strong>Settings &rarr; Zoom</strong> tab &rarr; Enable Zoom</li>
+        <li>Go to <strong>Schedule</strong> &rarr; click on a session &rarr; click <strong>"Create Zoom Meeting"</strong></li>
+        <li>Use <strong>"Start as Host"</strong> to begin the meeting, share <strong>"Open Embed Page"</strong> link with attendees</li>
+      </ol>
+    </div>
+
+    <!-- ─── MEETING TYPES ─────────────────────────────────────────── -->
+
+    <h2>5. Meeting Types</h2>
+
+    <table>
+      <tr><th>Type</th><th>Zoom API Type</th><th>Use Case</th><th>Capacity</th></tr>
+      <tr><td><strong>Meeting</strong></td><td>type: 2</td><td>Interactive sessions — all participants share audio/video</td><td>Up to 1,000</td></tr>
+      <tr><td><strong>Webinar</strong></td><td>type: 5</td><td>Broadcast — panelists speak, attendees view only</td><td>Up to 10,000</td></tr>
+      <tr><td><strong>Webinar Series</strong></td><td>type: 9</td><td>Recurring webinar with multiple occurrences</td><td>Up to 10,000</td></tr>
+    </table>
+
+    <div class="note">
+      <strong>Zoom Plan Requirement:</strong> Webinar features require a Zoom Webinar add-on (not included in basic Zoom plans). Standard meetings work with any paid Zoom plan.
+    </div>
+
+    <!-- ─── PERFORMANCE ──────────────────────────────────────────── -->
+
+    <h2>6. Performance &amp; Capacity</h2>
+
+    <p>Zoom streaming runs entirely on Zoom's infrastructure. EA-SYS only serves a lightweight JWT signature and branded landing page.</p>
+
+    <table>
+      <tr><th>Scenario</th><th>Server Impact</th></tr>
+      <tr><td>2,000 attendees join within 5 min</td><td>~7 req/s to <code>/zoom-join</code> — single DB read + JWT sign (~2ms each)</td></tr>
+      <tr><td>Multiple webinars same day, different slots</td><td>Load staggered naturally. Each session has its own endpoint.</td></tr>
+      <tr><td>After join</td><td>Zero server load — Zoom runs in the attendee's browser/app.</td></tr>
+    </table>
+
+    <h4>Performance optimizations implemented:</h4>
+    <ul>
+      <li><strong>OAuth token cache</strong> — in-memory <code>Map&lt;orgId, {token, expiresAt}&gt;</code> with 5-minute pre-expiry refresh. Cache hits logged at debug level.</li>
+      <li><strong>Promise.all</strong> — all routes parallelize independent DB queries (event + session + zoom meeting)</li>
+      <li><strong>Prisma select</strong> — all queries use <code>select</code> (not <code>include</code>) for minimal data transfer</li>
+      <li><strong>@zoom/meetingsdk in serverExternalPackages</strong> — keeps 5MB SDK out of server bundle</li>
+      <li><strong>Dynamic import</strong> — zoom-embed.tsx loaded with <code>next/dynamic</code> + <code>ssr: false</code></li>
+      <li><strong>No N+1 queries</strong> — panelists, speakers, and session data fetched in single queries with nested selects</li>
+      <li><strong>Public endpoints stateless</strong> — no auth overhead, single DB read + JWT sign per join request</li>
+    </ul>
+
+    <p>The EC2 t3.large instance handles this comfortably. No upgrade needed for Zoom itself.</p>
+
+    <!-- ─── FILE LIST ─────────────────────────────────────────────── -->
+
+    <h2>7. Complete File List</h2>
+
+    <div class="file-list">
+      <h4>New Files (22)</h4>
+      <ul>
+        <li><code>src/lib/zoom/types.ts</code></li>
+        <li><code>src/lib/zoom/client.ts</code></li>
+        <li><code>src/lib/zoom/meetings.ts</code></li>
+        <li><code>src/lib/zoom/signature.ts</code></li>
+        <li><code>src/lib/zoom/index.ts</code></li>
+        <li><code>src/app/api/organization/zoom/credentials/route.ts</code></li>
+        <li><code>src/app/api/organization/zoom/test-connection/route.ts</code></li>
+        <li><code>src/app/api/events/[eventId]/zoom/settings/route.ts</code></li>
+        <li><code>src/app/api/events/[eventId]/sessions/[sessionId]/zoom/route.ts</code></li>
+        <li><code>src/app/api/events/[eventId]/sessions/[sessionId]/zoom/panelists/route.ts</code></li>
+        <li><code>src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts</code></li>
+        <li><code>src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts</code></li>
+        <li><code>src/components/zoom/org-zoom-credentials.tsx</code></li>
+        <li><code>src/components/zoom/zoom-settings-card.tsx</code></li>
+        <li><code>src/components/zoom/zoom-meeting-form.tsx</code></li>
+        <li><code>src/components/zoom/zoom-session-badge.tsx</code></li>
+        <li><code>src/components/zoom/zoom-join-button.tsx</code></li>
+        <li><code>src/components/zoom/zoom-embed.tsx</code> (preserved, not active)</li>
+        <li><code>src/components/zoom/zoom-series-schedule.tsx</code></li>
+        <li><code>src/app/e/[slug]/session/[sessionId]/page.tsx</code></li>
+        <li><code>prisma/migrations/20260408000000_.../migration.sql</code></li>
+        <li><code>docs/ZOOM_INTEGRATION.html</code></li>
+      </ul>
+    </div>
+
+    <div class="file-list">
+      <h4>Modified Files (8)</h4>
+      <ul>
+        <li><code>prisma/schema.prisma</code> — ZoomMeeting model + enums + relations</li>
+        <li><code>next.config.ts</code> — serverExternalPackages + permissions-policy</li>
+        <li><code>src/hooks/use-api.ts</code> — 10 new React Query hooks</li>
+        <li><code>src/lib/agent/event-tools.ts</code> — 2 new AI agent tools</li>
+        <li><code>src/app/(dashboard)/settings/page.tsx</code> — Zoom card in Integrations tab</li>
+        <li><code>src/app/(dashboard)/events/[eventId]/settings/page.tsx</code> — Zoom tab with setup guide</li>
+        <li><code>src/app/(dashboard)/events/[eventId]/schedule/page.tsx</code> — Zoom button + badges in session UI</li>
+        <li><code>src/app/api/events/[eventId]/sessions/route.ts</code> — zoomMeeting in session response</li>
+      </ul>
+    </div>
+
+    <!-- ─── NPM ───────────────────────────────────────────────────── -->
+
+    <h2>8. Dependencies</h2>
+    <pre><code>npm install @zoom/meetingsdk jsonwebtoken
+npm install -D @types/jsonwebtoken</code></pre>
+    <p><code>@zoom/meetingsdk</code> is preserved in <code>serverExternalPackages</code> for future use when React 19 compatibility is available. <code>jsonwebtoken</code> is used for generating Meeting SDK JWT signatures server-side.</p>
+
+    <!-- ─── KNOWN LIMITATIONS ─────────────────────────────────────── -->
+
+    <h2>9. Known Limitations</h2>
+
+    <table>
+      <tr><th>Limitation</th><th>Reason</th><th>Workaround</th></tr>
+      <tr>
+        <td>No in-browser embedded meetings</td>
+        <td><code>@zoom/meetingsdk</code> v5.x/v6.x bundles React 18, incompatible with React 19 (Next.js 16)</td>
+        <td>Branded landing page with "Join Meeting" button redirects to Zoom web client</td>
+      </tr>
+      <tr>
+        <td>Host must open Zoom separately</td>
+        <td><code>startUrl</code> is a time-limited URL that opens Zoom app/web as host</td>
+        <td>"Start as Host" button in session edit dialog</td>
+      </tr>
+      <tr>
+        <td>No real-time meeting status sync</td>
+        <td>No Zoom webhook configured (optional future enhancement)</td>
+        <td>Manual status update or on-demand refresh from Zoom API</td>
+      </tr>
+    </table>
+
+  </div>
+</body>
+</html>

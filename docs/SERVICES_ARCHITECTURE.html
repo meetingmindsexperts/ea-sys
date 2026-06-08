@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EA-SYS — Services Layer Architecture</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.7; color: #1e293b; background: #f1f5f9;
+      -webkit-font-smoothing: antialiased;
+    }
+    .hero {
+      background: linear-gradient(135deg, #0c1a3a 0%, #00aade 50%, #38bdf8 100%);
+      color: #fff; padding: 80px 24px 60px; text-align: center;
+    }
+    .hero h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.03em; }
+    .hero p { font-size: 1.05rem; opacity: 0.9; max-width: 700px; margin: 12px auto 0; }
+    .hero-badge {
+      display: inline-block; background: rgba(255,255,255,0.15); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.25); border-radius: 20px;
+      padding: 4px 16px; font-size: 0.8rem; margin-bottom: 16px;
+    }
+    .page { max-width: 1100px; margin: -40px auto 0; padding: 0 16px 60px; position: relative; z-index: 1; }
+    .card {
+      background: #fff; border-radius: 16px; padding: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 24px;
+      border: 1px solid #e2e8f0;
+    }
+    .card h2 {
+      font-size: 1.4rem; font-weight: 700; color: #0f172a; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .card h2 .icon {
+      width: 36px; height: 36px; border-radius: 10px; display: flex;
+      align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;
+    }
+    .icon-blue { background: #dbeafe; color: #2563eb; }
+    .icon-emerald { background: #d1fae5; color: #059669; }
+    .icon-violet { background: #ede9fe; color: #7c3aed; }
+    .icon-amber { background: #fef3c7; color: #d97706; }
+    .icon-cyan { background: #cffafe; color: #0891b2; }
+    .icon-slate { background: #e2e8f0; color: #475569; }
+    .icon-orange { background: #ffedd5; color: #ea580c; }
+    .icon-indigo { background: #e0e7ff; color: #4f46e5; }
+    .card-subtitle { color: #64748b; font-size: 0.9rem; margin-bottom: 20px; }
+    .card h3 { font-size: 1.05rem; color: #1e293b; margin: 26px 0 10px; font-weight: 650; }
+    .card h3:first-of-type { margin-top: 0; }
+    .card p, .card li { color: #475569; font-size: 0.92rem; }
+    .card ul, .card ol { padding-left: 20px; margin: 8px 0; }
+    .card li { margin: 4px 0; }
+    code {
+      background: #f1f5f9; padding: 2px 7px; border-radius: 5px;
+      font-size: 0.85em; color: #0f172a; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    pre {
+      background: #0f172a; color: #e2e8f0; padding: 20px; border-radius: 12px;
+      overflow-x: auto; margin: 14px 0; font-size: 0.82em; line-height: 1.55;
+      border: 1px solid #1e293b; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.88em; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    th { background: #f8fafc; font-weight: 600; color: #475569; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; }
+    .table-wrap { overflow-x: auto; }
+    .risk-high { color: #b91c1c; font-weight: 600; font-size: 0.85em; }
+    .risk-med { color: #b45309; font-weight: 500; font-size: 0.85em; }
+    .risk-low { color: #15803d; font-weight: 500; font-size: 0.85em; }
+    .check { color: #15803d; font-weight: 700; }
+    .dim { color: #94a3b8; }
+    .legend {
+      background: #f8fafc; border-left: 3px solid #38bdf8; padding: 12px 16px;
+      border-radius: 6px; margin: 12px 0; font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-badge">EA-SYS &bull; Services Layer Snapshot &bull; April 22, 2026</div>
+  <h1>Route Handlers &amp; Services Architecture</h1>
+  <p>State as of April 23, 2026 &mdash; HEAD <code>aac0381</code>. Four services shipped (accommodation, abstract, speaker, registration). Phase 2 is complete; Phase 3 (external public REST API) is the next forcing function.</p>
+</div>
+
+<div class="page">
+
+<!-- ═══════════════ 1. FORMAL LAYER ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-indigo">&#128736;</span> 1. The <code>src/services/</code> layer</h2>
+  <p class="card-subtitle">Four services extracted &mdash; Phase 2 complete. All follow the conventions locked in by Phase 1: errors-as-values, typed inputs, caller-identity via <code>source</code>, service-owned side effects.</p>
+
+<pre><code>src/services/
+├── README.md                          Convention reference
+├── accommodation-service.ts           createAccommodation()      (Phase 1)
+├── abstract-service.ts                changeAbstractStatus()     (Phase 2a)
+├── speaker-service.ts                 createSpeaker()            (Phase 2b)
+└── registration-service.ts            createRegistration()       (Phase 2c)</code></pre>
+
+  <div class="legend">
+    <strong>Read <code>src/services/README.md</code> before adding a new service.</strong> It documents the result-type pattern, input shape, what stays in caller vs service, audit-log convention, and testing approach.
+  </div>
+</section>
+
+<!-- ═══════════════ 2. CALL GRAPH — ACCOMMODATION ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-blue">&#127968;</span> 2. <code>accommodation-service.ts</code> &rarr; <code>createAccommodation()</code></h2>
+  <p class="card-subtitle">Shipped in Phase 1 (<code>5c6ff8e</code>). Centralizes the atomic overbooking guard that was previously duplicated across REST and MCP.</p>
+
+<pre><code>┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
+│ REST POST /api/events/[id]/         │      │ MCP create_accommodation            │
+│ accommodations                      │      │ (src/lib/agent/tools/accommodations)│
+│                                     │      │                                     │
+│ • auth()                            │      │ • ctx from API key / OAuth          │
+│ • denyReviewer()                    │      │ • ISO-string → Date parse           │
+│ • Zod validate body                 │      │ • pass source: "mcp"                │
+│ • source: "rest" + requestIp        │      │                                     │
+│ • HTTP status ← error code map      │      │ • MCP response reshape              │
+│                                     │      │ • auto-pivot hint on                │
+│                                     │      │   *_HAS_ACCOMMODATION               │
+└──────────────┬──────────────────────┘      └──────────────┬──────────────────────┘
+               │                                            │
+               └──────────────────┬─────────────────────────┘
+                                  ▼
+                ┌──────────────────────────────────────┐
+                │ createAccommodation(input)           │
+                │                                      │
+                │ Domain rules:                        │
+                │  • MISSING_ASSIGNEE                  │
+                │  • INVALID_DATES (nights > 0)        │
+                │  • EVENT_NOT_FOUND (org scope)       │
+                │  • REGISTRATION / SPEAKER_NOT_FOUND  │
+                │  • *_HAS_ACCOMMODATION               │
+                │  • ROOM_NOT_FOUND                    │
+                │  • GUEST_COUNT_EXCEEDS_CAPACITY      │
+                │  • NO_ROOMS_AVAILABLE (in-tx race)   │
+                │  • UNKNOWN                           │
+                │                                      │
+                │ Owned side effects:                  │
+                │  • db.$transaction {                 │
+                │      in-tx bookedRooms guard         │
+                │      create Accommodation            │
+                │      bookedRooms: { increment: 1 }   │
+                │    }                                 │
+                │  • auditLog.create (fire-and-forget) │
+                │                                      │
+                │ Returns:                             │
+                │  { ok: true, accommodation, nights } │
+                │  | { ok: false, code, message, meta }│
+                └──────────────────────────────────────┘</code></pre>
+</section>
+
+<!-- ═══════════════ 3. CALL GRAPH — ABSTRACT ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-violet">&#128209;</span> 3. <code>abstract-service.ts</code> &rarr; <code>changeAbstractStatus()</code></h2>
+  <p class="card-subtitle">Shipped in Phase 2a (<code>761ec7a</code>). Wraps the review-status gate check, notification, and audit log — reusing the existing <code>abstract-review.ts</code> + <code>abstract-notifications.ts</code> helpers.</p>
+
+<pre><code>┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
+│ REST PUT /api/events/[id]/          │      │ MCP update_abstract_status          │
+│ abstracts/[abstractId]              │      │ (src/lib/agent/tools/abstracts)     │
+│                                     │      │                                     │
+│ • auth()                            │      │ • ctx from API key / OAuth          │
+│ • Zod validate body                 │      │ • ABSTRACT_UPDATE_STATUSES guard    │
+│ • Role checks (SUBMITTER /          │      │ • pass source: "mcp"                │
+│   REVIEWER / ADMIN /                │      │                                     │
+│   forceStatus admin-only)           │      │ • Suggestion-hint branches for      │
+│ • Track/theme existence checks      │      │   ABSTRACT_WITHDRAWN /              │
+│ • Branch: review+WITHDRAWN → svc    │      │   INSUFFICIENT_REVIEWS              │
+│ • Branch: DRAFT→SUBMITTED +         │      │                                     │
+│   field-only updates → inline       │      │                                     │
+│ • HTTP status ← error code map      │      │                                     │
+└──────────────┬──────────────────────┘      └──────────────┬──────────────────────┘
+               │                                            │
+               └──────────────────┬─────────────────────────┘
+                                  ▼
+                ┌──────────────────────────────────────┐
+                │ changeAbstractStatus(input)          │
+                │                                      │
+                │ Domain rules:                        │
+                │  • INVALID_STATUS (enum guard)       │
+                │  • ABSTRACT_NOT_FOUND (org scope)    │
+                │  • ABSTRACT_WITHDRAWN (terminal)     │
+                │  • INSUFFICIENT_REVIEWS (gate on     │
+                │    requiredReviewCount;              │
+                │    forceStatus bypass)               │
+                │  • UNKNOWN                           │
+                │                                      │
+                │ Owned side effects:                  │
+                │  • abstract.update(status,           │
+                │      reviewedAt: isReview ? now)     │
+                │  • auditLog.create (source:          │
+                │      "chair-override" if forceStatus,│
+                │      else from caller)               │
+                │  • refreshEventStats (fire-and-fget) │
+                │  • notifyAbstractStatusChange(...)   │
+                │    (awaited, isolated try/catch —    │
+                │     DB commit not masked by email    │
+                │     failure; notificationStatus      │
+                │     surfaced in response)            │
+                │                                      │
+                │ Reuses:                              │
+                │  src/lib/abstract-review.ts          │
+                │    (aggregate, requiredReviewCount)  │
+                │  src/lib/abstract-notifications.ts   │
+                │    (email + admin notification)      │
+                │                                      │
+                │ Returns:                             │
+                │  { ok: true, abstract, previousStatus│
+                │    reviewCount, meanOverallScore,    │
+                │    forcedOverride, notificationStatus│
+                │  } | { ok: false, code, message,     │
+                │        meta }                        │
+                └──────────────────────────────────────┘</code></pre>
+</section>
+
+<!-- ═══════════════ 3b. CALL GRAPH — SPEAKER ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-emerald">&#128100;</span> 3b. <code>speaker-service.ts</code> &rarr; <code>createSpeaker()</code></h2>
+  <p class="card-subtitle">Shipped in Phase 2b (<code>7381b65</code>). Consolidates single-create speaker logic behind one function. Bulk paths (<code>create_speakers_bulk</code>, <code>/import-registrations</code>) are intentionally NOT in this service &mdash; different mechanics.</p>
+
+<pre><code>┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
+│ REST POST /api/events/[id]/         │      │ MCP create_speaker                  │
+│ speakers                            │      │ (src/lib/agent/tools/speakers.ts)   │
+│                                     │      │                                     │
+│ • auth()                            │      │ • ctx from API key / OAuth          │
+│ • denyReviewer()                    │      │ • Email regex + trim + lowercase    │
+│ • Zod validate body                 │      │ • Title / status enum validation    │
+│ • source: "rest" + requestIp        │      │ • Field slicing (name caps, etc.)   │
+│ • HTTP status ← error code map      │      │ • source: "mcp"                     │
+│                                     │      │                                     │
+│                                     │      │ • MCP response reshape (slim)       │
+│                                     │      │ • auto-pivot hint on                │
+│                                     │      │   SPEAKER_ALREADY_EXISTS            │
+└──────────────┬──────────────────────┘      └──────────────┬──────────────────────┘
+               │                                            │
+               └──────────────────┬─────────────────────────┘
+                                  ▼
+                ┌──────────────────────────────────────┐
+                │ createSpeaker(input)                 │
+                │                                      │
+                │ Domain rules:                        │
+                │  • EVENT_NOT_FOUND (org scope)       │
+                │  • SPEAKER_ALREADY_EXISTS            │
+                │    (pre-check + P2002 race net)      │
+                │  • UNKNOWN                           │
+                │                                      │
+                │ Owned side effects:                  │
+                │  • speaker.create with normalized    │
+                │    inputs (empty-string → null as    │
+                │    last line of defense for direct   │
+                │    callers)                          │
+                │  • awaited syncToContact (full       │
+                │    payload — phone/photo/city/etc.)  │
+                │  • fire-and-forget auditLog          │
+                │    (source-tagged, ip on REST only)  │
+                │  • fire-and-forget refreshEventStats │
+                │  • fire-and-forget notifyEventAdmins │
+                │    (message differs rest vs mcp)    │
+                │                                      │
+                │ Returns:                             │
+                │  { ok: true, speaker }               │
+                │  | { ok: false, code, message, meta }│
+                └──────────────────────────────────────┘</code></pre>
+</section>
+
+<!-- ═══════════════ 3c. CALL GRAPH — REGISTRATION ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-orange">&#128197;</span> 3c. <code>registration-service.ts</code> &rarr; <code>createRegistration()</code></h2>
+  <p class="card-subtitle">Shipped in Phase 2c (<code>aac0381</code>). The biggest service in the refactor and the one that motivated the whole thing &mdash; Phase 0's confirmation-email bug was a registration drift. Now structurally guaranteed: MCP has no direct <code>sendRegistrationConfirmation</code> import, the email fan-out is service-owned end-to-end.</p>
+
+<pre><code>┌─────────────────────────────────────┐      ┌─────────────────────────────────────┐
+│ REST POST /api/events/[id]/         │      │ MCP create_registration             │
+│ registrations                       │      │ (src/lib/agent/tools/registrations) │
+│                                     │      │                                     │
+│ • auth()                            │      │ • ctx from API key / OAuth          │
+│ • denyReviewer()                    │      │ • Email regex + trim + lowercase    │
+│ • Zod validate nested attendee      │      │ • Title / status enum validation    │
+│ • source: "rest" + requestIp +      │      │ • source: "mcp"                     │
+│   actorFirstName                    │      │                                     │
+│ • HTTP status ← error code map      │      │ • MCP response reshape (slim)       │
+│   (9-code Record, exhaustive)       │      │ • auto-pivot hint on                │
+│                                     │      │   ALREADY_REGISTERED +              │
+│                                     │      │   TICKET_TYPE_NOT_FOUND             │
+└──────────────┬──────────────────────┘      └──────────────┬──────────────────────┘
+               │                                            │
+               └──────────────────┬─────────────────────────┘
+                                  ▼
+                ┌──────────────────────────────────────┐
+                │ createRegistration(input)            │
+                │                                      │
+                │ Domain rules (9 codes):              │
+                │  • EVENT_NOT_FOUND                   │
+                │  • TICKET_TYPE_NOT_FOUND             │
+                │  • SALES_NOT_STARTED                 │
+                │  • SALES_ENDED                       │
+                │  • SOLD_OUT (pre + in-tx race)       │
+                │  • PRICING_TIER_NOT_FOUND            │
+                │  • ALREADY_REGISTERED                │
+                │    (meta.existingRegistrationId)     │
+                │  • INVALID_PAYMENT_STATUS            │
+                │    (Stripe states rejected)          │
+                │  • UNKNOWN                           │
+                │                                      │
+                │ Owned side effects:                  │
+                │  • Atomic tx (typed sentinel class   │
+                │    for ALREADY_REGISTERED / SOLD_OUT │
+                │    discrimination):                  │
+                │      dup check inside tx (race-safe) │
+                │      attendee.create with empty-     │
+                │      string → null normalization     │
+                │      soldCount updateMany guard      │
+                │      registration.create w/ qrCode + │
+                │      serialId                        │
+                │  • Awaited syncToContact (full)      │
+                │  • Fire-and-forget refreshEventStats │
+                │  • Fire-and-forget auditLog          │
+                │    (slim { source, ticketTypeId,     │
+                │     paymentStatus, status, ip? })    │
+                │  • Fire-and-forget notifyEventAdmins │
+                │    (actor name on REST / via MCP     │
+                │     suffix on MCP)                   │
+                │  • Fire-and-forget                   │
+                │    sendRegistrationConfirmation      │
+                │    gated on price > 0 AND            │
+                │    finalPaymentStatus ∈ OUTSTANDING  │
+                │    — Phase 0 drift gate now          │
+                │    structurally guaranteed           │
+                │                                      │
+                │ paymentStatus defaults:              │
+                │  • UNASSIGNED for paid tickets       │
+                │  • COMPLIMENTARY for free or         │
+                │    no-ticket                         │
+                │  • Stripe-driven states rejected     │
+                │                                      │
+                │ Returns:                             │
+                │  { ok: true, registration }          │
+                │  (with attendee + ticketType include)│
+                │  | { ok: false, code, message, meta }│
+                └──────────────────────────────────────┘</code></pre>
+</section>
+
+<!-- ═══════════════ 4. SERVICES-IN-SPIRIT ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-amber">&#128218;</span> 4. Services-in-spirit (older, informal)</h2>
+  <p class="card-subtitle">Pre-date the formal <code>src/services/</code> layer. Live in <code>src/lib/</code>, extracted reactively when duplication appeared. Follow the "call-from-anywhere" principle but don't use the result-type pattern. They continue to work as-is — no urgent need to migrate.</p>
+
+  <div class="table-wrap">
+    <table>
+      <tr><th>File</th><th>Role</th><th>Callers</th></tr>
+      <tr>
+        <td><code>src/lib/abstract-notifications.ts</code></td>
+        <td>Speaker email + admin notification on abstract status change</td>
+        <td>abstract-service + REST PUT (indirect)</td>
+      </tr>
+      <tr>
+        <td><code>src/lib/abstract-review.ts</code></td>
+        <td>Aggregate computation (counts, means, consolidated notes) + <code>requiredReviewCount</code> reader</td>
+        <td>abstract-service + REST + MCP <code>get_abstract_scores</code></td>
+      </tr>
+      <tr>
+        <td><code>src/lib/bulk-email.ts</code></td>
+        <td>Bulk email execution with per-recipient error capture, rate limiting, audit</td>
+        <td>REST <code>/api/events/[id]/emails/bulk</code> + cron <code>scheduled-emails</code> + MCP <code>send_bulk_email</code></td>
+      </tr>
+      <tr>
+        <td><code>src/lib/contact-sync.ts</code></td>
+        <td>Upsert attendee/speaker &rarr; org-wide Contact store</td>
+        <td>22+ call sites across REST + MCP</td>
+      </tr>
+      <tr>
+        <td><code>src/lib/event-stats.ts</code></td>
+        <td><code>refreshEventStats()</code> &mdash; denormalized counter refresh</td>
+        <td>15+ call sites</td>
+      </tr>
+      <tr>
+        <td><code>src/lib/webinar-provisioner.ts</code></td>
+        <td>Idempotent webinar provisioning (anchor session + Zoom webinar + email sequence)</td>
+        <td><code>POST /api/events</code> + MCP <code>create_event</code> + manual re-provision route</td>
+      </tr>
+      <tr>
+        <td><code>src/lib/speaker-agreement.ts</code></td>
+        <td><code>buildSpeakerEmailContext()</code> + <code>generateSpeakerAgreementDocx()</code> + <code>saveSpeakerAgreementTemplate()</code></td>
+        <td>REST speaker email + bulk-email + MCP upload-template</td>
+      </tr>
+      <tr>
+        <td><code>src/lib/webinar-email-sequence.ts</code></td>
+        <td>Enqueue + send webinar confirmation sequence</td>
+        <td>REST public-register + REST webinar routes</td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 5. STILL IN HANDLERS ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-orange">&#128204;</span> 5. What's still in fat route handlers</h2>
+  <p class="card-subtitle">Audit-flagged Phase 2 targets. "Phase 0 fixed in-place" means the drift bugs were patched in the MCP tool directly; extraction into a service is queued.</p>
+
+  <div class="table-wrap">
+    <table>
+      <tr><th>Operation</th><th>REST caller</th><th>MCP caller</th><th>Status</th></tr>
+      <tr>
+        <td>Create registration</td>
+        <td><code>api/events/[id]/registrations</code> POST</td>
+        <td><code>tools/registrations.ts</code> <code>create_registration</code></td>
+        <td class="risk-low">Service-backed (<code>registration-service.ts</code>)</td>
+      </tr>
+      <tr>
+        <td>Create registration (public)</td>
+        <td><code>api/public/events/[slug]/register</code></td>
+        <td>&mdash;</td>
+        <td class="risk-med">Stays inline &mdash; Stripe checkout + REGISTRANT account + invoice auto-create are public-only concerns. Tackle in Phase 3 if external API needs equivalent paths.</td>
+      </tr>
+      <tr>
+        <td>Create registration (public)</td>
+        <td><code>api/public/events/[slug]/register</code></td>
+        <td>&mdash;</td>
+        <td class="risk-med">Queued (Phase 2c)</td>
+      </tr>
+      <tr>
+        <td>Update registration</td>
+        <td><code>api/events/[id]/registrations/[rid]</code> PUT</td>
+        <td><code>tools/registrations.ts</code> <code>update_registration</code></td>
+        <td class="risk-med">Queued</td>
+      </tr>
+      <tr>
+        <td>Create speaker</td>
+        <td><code>api/events/[id]/speakers</code> POST</td>
+        <td><code>tools/speakers.ts</code> <code>create_speaker</code></td>
+        <td class="risk-low">Service-backed (<code>speaker-service.ts</code>)</td>
+      </tr>
+      <tr>
+        <td>Update speaker</td>
+        <td><code>api/events/[id]/speakers/[sid]</code> PUT</td>
+        <td><code>tools/speakers.ts</code> <code>update_speaker</code></td>
+        <td class="risk-med">Queued</td>
+      </tr>
+      <tr>
+        <td>Create session</td>
+        <td><code>api/events/[id]/sessions</code> POST</td>
+        <td><code>tools/sessions.ts</code> <code>create_session</code></td>
+        <td class="dim">Not yet audited; may not need extraction</td>
+      </tr>
+      <tr>
+        <td>Invoice create / send</td>
+        <td><code>api/events/[id]/invoices/*</code></td>
+        <td><code>tools/invoices.ts</code></td>
+        <td class="risk-low">Already informally extracted (<code>src/lib/invoice-service.ts</code>)</td>
+      </tr>
+      <tr>
+        <td>Abstract field updates (title, content, trackId, themeId, specialty, presentationType)</td>
+        <td><code>abstracts/[aid]</code> PUT inline branch</td>
+        <td>&mdash; (MCP doesn't expose)</td>
+        <td class="risk-low">Stays in handler &mdash; single caller, no drift risk</td>
+      </tr>
+      <tr>
+        <td>Accommodation status update</td>
+        <td><code>api/events/[id]/accommodations/[id]</code> PUT</td>
+        <td><code>tools/accommodations.ts</code> <code>update_accommodation_status</code></td>
+        <td class="risk-med">Queued (same shape as <code>changeAbstractStatus</code>)</td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════ 6. REQUEST FLOW ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-cyan">&#128260;</span> 6. Request-flow summary</h2>
+  <p class="card-subtitle">How a write travels from client to database today. Both entry points (REST + MCP) converge at the service layer.</p>
+
+<pre><code>┌────────────────────────┐                      ┌────────────────────────┐
+│   Dashboard UI (React) │                      │   MCP clients          │
+│   + React Query        │                      │   (Claude.ai / Desktop │
+└───────────┬────────────┘                      │    / n8n / mcp-remote) │
+            │ fetch                             └───────────┬────────────┘
+            │                                               │ JSON-RPC over
+            │                                               │ HTTP (+OAuth/x-api-key)
+            ▼                                               ▼
+┌────────────────────────┐                      ┌────────────────────────┐
+│  Next.js Route Handler │                      │  MCP Tool Executor     │
+│  (src/app/api/...)     │                      │  (src/lib/agent/       │
+│                        │                      │   tools/*.ts)          │
+│  • auth()              │                      │  • API key / OAuth     │
+│  • denyReviewer()      │                      │    → organizationId    │
+│  • Zod validate body   │                      │  • Manual input coerce │
+│  • HTTP response shape │                      │  • MCP response shape  │
+└───────────┬────────────┘                      └───────────┬────────────┘
+            │                                               │
+            │     typed input {                             │     typed input {
+            │       organizationId,                         │       organizationId,
+            │       userId,                                 │       userId,
+            │       source: "rest",                         │       source: "mcp",
+            │       requestIp,                              │       ...
+            │       ...                                     │     }
+            │     }                                         │
+            ▼                                               ▼
+   ┌──────────────────────────────────────────────────────────────────┐
+   │   Service layer (src/services/*-service.ts)                      │
+   │                                                                   │
+   │   accommodation-service.ts  ·  abstract-service.ts                │
+   │   (+ older services-in-spirit under src/lib/*.ts)                 │
+   │                                                                   │
+   │   • Domain rules + transactions                                   │
+   │   • audit log (source-tagged)                                     │
+   │   • side effects (email, notify, syncToContact, stats refresh)    │
+   │                                                                   │
+   │   Returns { ok: true, &lt;domain-key&gt;, ... }                         │
+   │        | { ok: false, code, message, meta? }                      │
+   └──────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                          ┌───────────────────┐
+                          │   Prisma → PG     │
+                          └───────────────────┘</code></pre>
+</section>
+
+<!-- ═══════════════ 7. STATS ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-emerald">&#128202;</span> 7. Refactor metrics</h2>
+  <p class="card-subtitle">Observable progress from Phase 0 &rarr; Phase 2a.</p>
+
+  <div class="table-wrap">
+    <table>
+      <tr>
+        <th>Metric</th>
+        <th>Before</th>
+        <th>P0</th>
+        <th>P1</th>
+        <th>P2a</th>
+        <th>P2b</th>
+        <th>P2c</th>
+      </tr>
+      <tr>
+        <td>Services in <code>src/services/</code></td>
+        <td>0</td>
+        <td>0</td>
+        <td>1</td>
+        <td>2</td>
+        <td>3</td>
+        <td><strong>4</strong></td>
+      </tr>
+      <tr>
+        <td>Unit tests</td>
+        <td>882</td>
+        <td>900</td>
+        <td>920</td>
+        <td>944</td>
+        <td>963</td>
+        <td><strong>1000</strong></td>
+      </tr>
+      <tr>
+        <td>MCP write tools at REST parity</td>
+        <td>partial</td>
+        <td class="check">&check;</td>
+        <td class="check">&check;</td>
+        <td class="check">&check;</td>
+        <td class="check">&check;</td>
+        <td class="check">&check;</td>
+      </tr>
+      <tr>
+        <td>Drift surface (ops dup across REST+MCP)</td>
+        <td>6</td>
+        <td>&mdash;</td>
+        <td>5</td>
+        <td>4</td>
+        <td>3</td>
+        <td><strong>2</strong></td>
+      </tr>
+    </table>
+  </div>
+  <p style="font-size: 0.85em; color: #64748b; margin-top: 8px;">
+    Remaining drift surface (2 items): (a) public register &mdash; different concerns (Stripe checkout + REGISTRANT account + invoice auto-create), stays inline unless Phase 3 calls for equivalent paths; (b) bulk creates &mdash; per-row error capture loops, different response shape, separate bulk-service would be needed.
+  </p>
+</section>
+
+<!-- ═══════════════ 8. WHAT'S NEXT ═══════════════ -->
+<section class="card">
+  <h2><span class="icon icon-slate">&#128736;</span> 8. What's next</h2>
+  <ul>
+    <li><strong>Phase 2c &mdash; registration-service (shipped April 23).</strong> The two callers were already aligned by Phase 0, which turned the planned deferral into a safe consolidation opportunity. Landed earlier than the original plan suggested. Backward compat preserved end-to-end (verified by independent review-agent with 45/45 checklist items).</li>
+    <li><strong>Phase 3 &mdash; External REST API (next forcing function).</strong> A public REST API for third-party integrators is on the near-term roadmap. New endpoints back onto the existing four services. Any domain operation the API exposes that doesn't yet have a service gets its own extraction at that point &mdash; shape informed by a real third caller, not guessed.</li>
+    <li><strong>Phase 4 &mdash; Opportunistic (ongoing).</strong> Single-caller routes extract only when touching for a feature reason. No dedicated time.</li>
+  </ul>
+
+  <div class="legend">
+    <strong>Why 2c landed early:</strong> Originally deferred because premature extraction would have locked in a service shape before the external-API caller's requirements were known. But Phase 0 had already aligned the two existing callers exactly, meaning the service shape was <em>already observed</em> from two real implementations. Extracting became a low-risk consolidation rather than a speculation. Experienced senior-review answer: <em>"Extract when the shape is known from real callers. We had two, aligned. Waiting for a third to redundantly confirm the shape would be ceremony."</em>
+  </div>
+</section>
+
+<p style="text-align: center; color: #94a3b8; font-size: 0.8em; margin-top: 32px;">
+  Updated April 23, 2026 &bull; HEAD <code>aac0381</code> &bull; See <code>src/services/README.md</code> for the convention reference, <code>CHANGELOG.md</code> for the full history.
+</p>
+
+</div>
+</body>
+</html>
