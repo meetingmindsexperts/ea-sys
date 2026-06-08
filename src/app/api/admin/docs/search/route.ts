@@ -5,9 +5,10 @@
  * (not regex — protects against ReDoS from operator-typed patterns).
  * Caps results at 100 hits so a 2-char query can't burn CPU.
  *
- * Rate-limited 60/hr/user even though only SUPER_ADMIN can hit it —
- * defense in depth against a runaway client polling the endpoint, and
- * matches the pattern other CPU-touching admin endpoints use.
+ * Rate-limited 60/hr/user — defense in depth against a runaway client
+ * polling the endpoint, and matches the pattern other CPU-touching
+ * admin endpoints use. ADMIN + SUPER_ADMIN can hit this; REVIEWER /
+ * SUBMITTER / REGISTRANT / MEMBER blocked.
  */
 
 import { NextResponse } from "next/server";
@@ -22,7 +23,7 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "SUPER_ADMIN") {
+    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       apiLogger.warn({
         msg: "admin-docs:search:forbidden",
         userId: session.user.id,

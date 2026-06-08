@@ -5,7 +5,7 @@
  * the same allowlist/blocklist the tree walker uses (extension,
  * directory blocklist, path-traversal guard) before any read happens.
  *
- * SUPER_ADMIN only. 404 on miss/blocked rather than 403 — same
+ * ADMIN + SUPER_ADMIN. 404 on miss/blocked rather than 403 — same
  * non-enumeration posture used elsewhere in EA-SYS for resource lookups.
  */
 
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "SUPER_ADMIN") {
+    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       apiLogger.warn({
         msg: "admin-docs:file:forbidden",
         userId: session.user.id,

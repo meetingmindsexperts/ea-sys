@@ -62,7 +62,12 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
   { name: "Activity",  href: "/activity",  icon: Activity, superAdminOnly: true },
-  { name: "Docs",      href: "/admin/docs", icon: BookOpen, superAdminOnly: true },
+  // Docs viewer is open to ADMIN + SUPER_ADMIN (not just SUPER_ADMIN
+  // like Logs + Activity). Operationally useful for org admins to
+  // self-serve on architecture / runbook / handover material;
+  // contains no secrets (gitignore excludes .env files + screenshots
+  // + the interview-prep file).
+  { name: "Docs",      href: "/admin/docs", icon: BookOpen, adminOnly: true },
 ];
 
 // Event nav split into sections for visual grouping

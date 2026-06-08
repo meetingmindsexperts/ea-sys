@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /admin/docs — SUPER_ADMIN docs viewer.
+ * /admin/docs — ADMIN + SUPER_ADMIN docs viewer.
  *
  * Browseable repository of every .md / .html in the repo (outside the
  * blocklist). Split layout:
@@ -15,7 +15,7 @@
  *
  * Auth posture: page itself is gated by the dashboard layout's role
  * checks; each API route also re-checks role server-side. The UI
- * gracefully shows a "Forbidden" panel if a non-SUPER_ADMIN somehow
+ * gracefully shows a "Forbidden" panel if a role below ADMIN somehow
  * lands here (e.g., via shared URL).
  */
 
@@ -182,6 +182,13 @@ export default function AdminDocsPage() {
   // Default selection on first load — try infra/dr/README.md if present
   // (most likely useful entry point for ops work), else first file we
   // can find in the tree.
+  // Role gate: ADMIN + SUPER_ADMIN can browse docs. Computed once so
+  // all 4 query enable-guards + the page-level Forbidden panel below
+  // stay in sync — adding a third allowed role (or removing one)
+  // is a one-line change here, not a 5-place search.
+  const userRole = session?.user?.role;
+  const canViewDocs = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
+
   const treeQuery = useQuery({
     queryKey: ["admin-docs-tree"],
     queryFn: async () => {
@@ -189,7 +196,7 @@ export default function AdminDocsPage() {
       if (!res.ok) throw new Error("Failed to load docs tree");
       return (await res.json()) as { tree: TreeNode[] };
     },
-    enabled: status === "authenticated" && session?.user?.role === "SUPER_ADMIN",
+    enabled: status === "authenticated" && canViewDocs,
   });
 
   // Same "store info from previous render" pattern — pick a sensible
@@ -212,7 +219,7 @@ export default function AdminDocsPage() {
       if (!res.ok) throw new Error("Failed to load file");
       return (await res.json()) as { file: FileContent };
     },
-    enabled: !!activePath && session?.user?.role === "SUPER_ADMIN",
+    enabled: !!activePath && canViewDocs,
   });
 
   const searchResultsQuery = useQuery({
@@ -222,7 +229,7 @@ export default function AdminDocsPage() {
       if (!res.ok) throw new Error("Search failed");
       return (await res.json()) as { hits: SearchHit[] };
     },
-    enabled: debouncedQuery.length >= 2 && session?.user?.role === "SUPER_ADMIN",
+    enabled: debouncedQuery.length >= 2 && canViewDocs,
   });
 
   const copyPath = useCallback((p: string) => {
@@ -240,13 +247,13 @@ export default function AdminDocsPage() {
       </div>
     );
   }
-  if (!session?.user || session.user.role !== "SUPER_ADMIN") {
+  if (!session?.user || !canViewDocs) {
     return (
       <div className="max-w-md mx-auto mt-20 rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
         <Lock className="h-8 w-8 mx-auto text-amber-700 mb-3" />
-        <h2 className="font-semibold text-amber-900">SUPER_ADMIN only</h2>
+        <h2 className="font-semibold text-amber-900">Admin only</h2>
         <p className="text-sm text-amber-800 mt-2">
-          The repository docs viewer is restricted to super admins.
+          The repository docs viewer is restricted to admins.
         </p>
       </div>
     );
@@ -259,7 +266,7 @@ export default function AdminDocsPage() {
         <p className="text-sm text-muted-foreground">
           Every <code className="text-xs">.md</code> /{" "}
           <code className="text-xs">.html</code> in the repo. Source of truth is
-          git — updates on every deploy. SUPER_ADMIN only.
+          git — updates on every deploy. Admin access.
         </p>
       </div>
 

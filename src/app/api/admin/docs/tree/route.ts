@@ -4,8 +4,10 @@
  * Returns the in-repo docs tree (every .md / .html outside the blocklist)
  * as a nested structure for the sidebar nav on /admin/docs.
  *
- * SUPER_ADMIN only — the docs include internal architecture notes,
- * runbooks, and decision history that aren't operator-facing.
+ * ADMIN + SUPER_ADMIN — internal architecture notes, runbooks, and
+ * decision history that admins benefit from but aren't operator-facing.
+ * REVIEWER / SUBMITTER / REGISTRANT / MEMBER blocked (docs include
+ * deploy procedures + IAM patterns inappropriate for those roles).
  *
  * Source of truth is the filesystem at request time; docs auto-refresh
  * on every deploy because scripts/deploy.sh pulls the latest commit.
@@ -24,7 +26,7 @@ export async function GET() {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (session.user.role !== "SUPER_ADMIN") {
+    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
       apiLogger.warn({
         msg: "admin-docs:tree:forbidden",
         userId: session.user.id,
