@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MMGroup EventsHub",
+  title: "Meeting Minds Events Management Platform",
   description: "Event management platform by Meeting Minds Group — conferences, meetings, and events",
   icons: {
     icon: "/mmg-logo.png",

@@ -156,7 +156,7 @@ The platform is largely self-monitoring (errors trigger emails, scheduled jobs a
 
 | What | How | Who is notified |
 |---|---|---|
-| **System errors in production** | Three-layer pipeline: Sentry capture (~30 sec), SES admin-alert email (~10 sec), persisted to dashboard log viewer | Krishna's inbox (`krishna@meetingmindsdubai.com`) |
+| **System errors in production** | Four-layer pipeline: Sentry capture (~30 sec), SES admin-alert email (~10 sec), persisted to dashboard log viewer, and CloudWatch Logs (cross-region durability + Insights queries — see `infra/cloudwatch/README.md`) | Krishna's inbox (`krishna@meetingmindsdubai.com`) |
 | **Email send failures** | Per-failure email with full context (recipient, sender, AWS error code) | Krishna's inbox |
 | **Disaster recovery backups** | Daily Postgres `pg_dump` to AWS Singapore, hourly upload-folder mirror | Failure triggers SES email; success is silent |
 | **Worker health** | `/worker/health` endpoint, Docker health check every 30 seconds | Internal — Docker restarts unhealthy container automatically |
@@ -175,7 +175,7 @@ The platform is largely self-monitoring (errors trigger emails, scheduled jobs a
 | **DNS / domain expiration** | Domain lapses → everything breaks | Manual renewal calendar |
 | **SSL certificate expiration** | Cert expires → users see security warnings, can't access site | Auto-renewed but should be verified annually |
 
-The items in this second list represent **gaps in the monitoring story** — they should be paged (auto-alerted) rather than relying on human discipline to check them. Several are tracked in [docs/ROADMAP.md](ROADMAP.md) under the observability backlog; some are still pending leadership decision on whether to invest in the alerting infrastructure (Sentry alert rules + CloudWatch agent).
+The items in this second list represent **gaps in the monitoring story** — they should be paged (auto-alerted) rather than relying on human discipline to check them. Several are tracked in [docs/ROADMAP.md](ROADMAP.md) under the observability backlog. The CloudWatch agent is now in place ([infra/cloudwatch/README.md](../infra/cloudwatch/README.md)) shipping all Pino logs to AWS — turning the alarm pipeline on top of that (metric filter on `{ $.level >= 50 }` → CloudWatch alarm → SNS → email) is a 15-minute follow-up documented in §3 of that runbook.
 
 ---
 
@@ -210,7 +210,7 @@ Honest list of where the platform is exposed. Each row notes whether it's alread
 | **No staging environment** | Intentional design choice (prod-only UAT) | Low–Medium | Documented; works at current scale but limits some kinds of testing |
 | **DR drill not auto-run** | Manual quarterly process | Medium | Script exists (`scripts/dr-restore-drill.sh`); could be CI-scheduled |
 | **Sentry alert rule not configured in Sentry web UI** | Sentry captures errors but doesn't email | Medium | One-time 5-min setup pending |
-| **No CloudWatch metric-filter alarm for production stdout** | Optional third notification path | Low | Pending infrastructure setup |
+| **CloudWatch metric-filter alarm not yet enabled** | Logs are flowing to CloudWatch (June 8, 2026) — the alarm + SNS topic on `{ $.level >= 50 }` would add a sixth notification path for error-rate spikes specifically | Low | Setup scripted in `infra/cloudwatch/README.md` §3 |
 | **SES sender `meetingmindsexperts.com` only verified — `meetingmindsgroup.com` not** | Causes occasional rejections when an event uses `@meetingmindsgroup.com` from-address | Low | Documented workaround (use `meetingmindsexperts.com` from-address); domain verification is an alternative |
 | **Automated security scanning (ZAP / Snyk / dependabot beyond default)** | Default Dependabot + GitHub secret scanning active; deeper scanning intentionally deferred | Low | Backlog item — adopt when team size > 2 or external regulator/customer asks |
 | **No formal SOC 2 / ISO 27001 / HITRUST attestation** | Not pursued | Low (for now) | Worth revisiting if MMG sells events to customers who require it |

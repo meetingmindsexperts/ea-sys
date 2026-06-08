@@ -738,6 +738,7 @@ shops.**
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, and design decisions |
 | [HANDOVER.md](HANDOVER.md) | Full handover document for new developers |
 | [SUPPORT_AND_MAINTENANCE.md](SUPPORT_AND_MAINTENANCE.md) | Leadership-oriented operational requirements: what's monitored, recurring tasks, vendor risks, decisions needed from management |
+| [infra/cloudwatch/README.md](../infra/cloudwatch/README.md) | CloudWatch Logs runbook — agent setup, IAM policy, log groups + retention, optional alarm/SNS pipeline. Logs flowing live since June 8, 2026. |
 | [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) | Production environment audit and configuration |
 | [SECURITY_AUDIT_FIXES.md](SECURITY_AUDIT_FIXES.md) | Security improvements and fixes applied |
 | [agents.md](agents.md) | AI agent tool documentation |
