@@ -13,7 +13,7 @@ EA-SYS is the in-house event platform that runs every MMG event (8th OSH, IOHNC,
 
 This document is **not** about new features. It's about **what's required to keep the platform healthy** — the people, infrastructure, recurring tasks, monitoring discipline, and vendor relationships that sit behind the scenes when an organiser opens the dashboard each morning.
 
-**One-line summary:** EA-SYS is in a stable, well-monitored, mid-maturity state — but it depends on one engineer with no formal cover, three external vendors that could disrupt service if they fail, and a handful of recurring tasks that need protected time. Most of the operational baseline is in place; the items in §9 (Decisions Needed) are what leadership input would unblock.
+**One-line summary:** EA-SYS is in a stable, well-monitored, mid-maturity state. The platform is largely self-managing — three layers of automated error detection, daily backups to a different AWS region, and a worker tier that handles cron-driven jobs without human action. What it needs to keep healthy is a budgeted ~8–14 hours/month of recurring maintenance (monitoring, dependency upgrades, DR drills) and the disciplines documented in §4. The items in §9 (Decisions Needed) are where leadership input would unblock specific improvements.
 
 ---
 
@@ -34,48 +34,73 @@ This document is **not** about new features. It's about **what's required to kee
 | **DNS + email reputation** | `events.meetingmindsgroup.com`, `meetingmindsexperts.com` | GoDaddy (registrar), AWS Route 53 (some DNS) | If DNS goes down, nothing is reachable. Email reputation lives with whoever owns the sender domain (currently `meetingmindsexperts.com`). |
 | **Error monitoring** | Real-time error capture | Sentry (cloud SaaS) | Captures every error with stack trace + context. Production safety net. |
 
-**Total infrastructure cost: currently under $100 USD/month at MMG's actual event volume.** Detailed cost breakdown in §8. The figure scales primarily with Anthropic API usage (AI Agent + Help Chat) and AWS storage, not with event count — adding events doesn't materially increase costs until traffic crosses ~10x today's volume.
+**Total infrastructure cost: around $100 USD/month at MMG's actual event volume.** Detailed cost breakdown in §8. The figure scales primarily with Anthropic API usage (AI Agent + Help Chat) and AWS storage, not with event count — adding events doesn't materially increase costs until traffic crosses ~10x today's volume.
 
 ---
 
 ## 3. Personnel & skills required
 
-### Current state
+### Estimated engineering time required
 
-| Role | Who | Coverage status |
+EA-SYS is largely self-managing day-to-day. The actual time investment to maintain it splits across four categories, each with its own cadence and skill profile.
+
+| Category | Typical time investment | What it covers |
 |---|---|---|
-| **Lead engineer / development manager** | Krishna Pallapolu | **Single point of failure.** No formal backup if Krishna is unavailable (vacation, illness, departure). |
-| **Junior developer** | Allocated but not currently engaged on EA-SYS | Available for assistance; not yet integrated into the daily flow |
-| **Customer-facing support** | Event coordination teams within MMG | Currently absorbs first-line issues by working with Krishna directly. Works because volume is low. |
+| **Daily monitoring + triage** | ~10–20 min / day | Admin-alert inbox check, `/logs` scan for unusual patterns, scheduled-email verification, first-line response to operator-reported issues |
+| **Weekly maintenance** | ~30–60 min / week | Sentry review, DR backup verification, worker health check, Dependabot triage, EC2 disk/memory spot-check |
+| **Monthly upkeep** | ~2–4 hours / month | Non-critical dependency upgrades, IAM audit, key-rotation tracking, slow-query review, documentation refresh |
+| **Quarterly + annual** | ~1 day / quarter + 1–2 weeks / year | DR drill, access review, security audit, vendor cost review, major version upgrades |
+| **Bug fixes + feature work** | Variable | Driven by operator requests + audit findings + roadmap |
 
-### Skills the lead engineer role requires
+Adding these up: **roughly 8–14 hours / month of recurring maintenance** at current scale, plus whatever the active feature/bug backlog demands. None of these tasks are large individually; together they're the maintenance baseline that keeps the platform healthy.
 
-This is **not a "junior dev" role**. EA-SYS is a substantial system (149,000+ lines of code, see [docs/SUPPORT_AND_MAINTENANCE.md](SUPPORT_AND_MAINTENANCE.md) / [docs/HANDOVER.md](HANDOVER.md)). The person doing this work needs:
+### Skills the maintenance role requires
 
-- TypeScript + Next.js (current framework, ~95% of the code)
-- PostgreSQL + Prisma ORM (database)
-- AWS administration (EC2, S3, SES, IAM)
-- Linux server administration (Ubuntu, Docker, nginx)
-- Stripe integration patterns
-- AWS SES email deliverability (DKIM, SPF, DMARC)
-- Familiarity with React frontend
-- Comfort with command-line, git, GitHub Actions
-- Reading + writing technical documentation
+EA-SYS is a substantial system (~149,000 lines of code across registration, payments, speakers, abstracts, accommodation, certificates, surveys, webinar, MCP, AI Agent). The person doing this work needs:
 
-A mid-to-senior engineer with 5+ years of full-stack experience can pick up the codebase in ~2–4 weeks given the documentation that exists (`docs/HANDOVER.md`, `docs/ARCHITECTURE.md`, `docs/MUMBAI_SETUP.md`).
+- **TypeScript + Next.js** — the current framework, ~95% of the code
+- **PostgreSQL + Prisma ORM** — schema design + migrations
+- **AWS administration** — EC2, S3, SES, IAM, CloudWatch
+- **Linux server administration** — Ubuntu, Docker, nginx
+- **Stripe integration patterns** — payment flows + webhook handling
+- **AWS SES email deliverability** — DKIM, SPF, DMARC, reputation monitoring
+- **React frontend** — for UI work
+- **Command-line / git / GitHub Actions** — daily ops
+- **Reading + writing technical documentation** — the discipline that keeps the platform maintainable across time
 
-### What's at risk with single-person bus factor
+A mid-to-senior engineer with 5+ years of full-stack experience can pick up the codebase in ~2–4 weeks given the existing documentation (`docs/HANDOVER.md`, `docs/ARCHITECTURE.md`, `docs/MUMBAI_SETUP.md`, `infra/dr/README.md`, `worker/README.md`).
 
-If Krishna is unavailable for an extended period:
+### Documentation as the maintainability backbone
 
-| Timeframe | Without backup engineer |
-|---|---|
-| **1–3 days** | Platform continues running (it's largely self-managing). Routine issues queue up. |
-| **1–2 weeks** | Recurring maintenance tasks (dependency upgrades, log review) drift. New issues surfaced via Sentry don't get triaged. |
-| **3–4 weeks** | Security patches not applied. Vendor SDK changes could break integrations. Customer-reported issues accumulate. |
-| **1+ months** | Real risk of customer-impacting outages from neglected updates. Documentation may not be enough to bring a new engineer up to speed without help. |
+The platform's long-term maintainability is heavily front-loaded into existing documentation. The repo contains:
 
-**The mitigation is documentation, not a backup engineer** — the existing `docs/HANDOVER.md` is comprehensive enough that a competent senior engineer could take over in a crisis. But that's a backup plan, not the desired operating model.
+- **`docs/HANDOVER.md`** — full technical onboarding for a new engineer
+- **`docs/ARCHITECTURE.md`** — system design, data flow, decision history
+- **`docs/CLAUDE.md`** — current state + recent features in granular detail
+- **`docs/MUMBAI_SETUP.md`** — EC2 server bootstrap procedure
+- **`docs/EC2_HARDENING.html`** — security posture on the production instance
+- **`docs/ERRORS_AND_FIXES.md`** — known bugs, fixes, and lessons learned
+- **`infra/dr/README.md`** — disaster recovery procedures
+- **`worker/README.md`** — background worker operator guide
+- **`docs/MCP_REFERENCE.md`** — every AI tool exposed via MCP
+- **`docs/ROADMAP.md`** — feature timeline + planned work + deferred items
+- **In-dashboard docs viewer at `/admin/docs`** — every `.md`/`.html` browseable + searchable by ADMIN/SUPER_ADMIN roles, auto-refreshed on each deploy
+
+This documentation is what makes the maintenance role transferable. The work isn't dependent on any one person's memory of how the system works — it's all written down.
+
+### Existing automation that reduces manual effort
+
+The platform invests heavily in self-monitoring + self-healing so the maintenance burden stays low:
+
+- **Three-layer error capture** — Sentry (cloud), SES admin-alert email (~10 sec latency), `/logs` dashboard (Postgres-persisted)
+- **Background worker tier** — cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync) run automatically with Postgres advisory locks for singleton enforcement
+- **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination
+- **Automated DR backups** — hourly upload mirror + daily Postgres dump to AWS Singapore, no human action required
+- **Health endpoints** — `/health` and `/worker/health` proxy through nginx for external uptime monitoring
+- **Dependabot** — automated PRs for vulnerable npm packages
+- **GitHub Actions CI** — every push runs tsc + lint + 1479 unit tests + production build; broken changes can't reach production
+
+This automation is the reason "8–14 hours / month of maintenance" is realistic. Without it, the same workload would require an order of magnitude more time.
 
 ---
 
@@ -180,7 +205,7 @@ Honest list of where the platform is exposed. Each row notes whether it's alread
 
 | Risk | Current state | Severity | Plan |
 |---|---|---|---|
-| **Single engineer (bus factor)** | Unmitigated | High | Documented in `HANDOVER.md`; would survive a crisis but not gracefully |
+| **Maintenance time allocation** | Implicit in current role assignment | Medium | The 8–14 hr/month of recurring upkeep needs protected calendar time. Best mitigated by treating it as a budgeted commitment, not a "if there's time" fill-in. |
 | **AWS IAM key in `.env` (overrides instance role)** | Identified, scheduled for removal | Medium | One-line change + redeploy; key rotation handled by AWS |
 | **No staging environment** | Intentional design choice (prod-only UAT) | Low–Medium | Documented; works at current scale but limits some kinds of testing |
 | **DR drill not auto-run** | Manual quarterly process | Medium | Script exists (`scripts/dr-restore-drill.sh`); could be CI-scheduled |
@@ -204,13 +229,13 @@ These are the recurring infrastructure costs only. Engineering time (the largest
 | AWS EC2 Singapore (DR standby) | ~$3–5 | ~$36–60 | Instance is provisioned but typically **stopped** when not in DR drill mode — only EBS storage accrues. The full ~$60/mo cost only applies during a live failover (rare). |
 | AWS S3 Singapore (DR mirror only — live files on Mumbai instance disk) | ~$1–3 | ~$12–36 | Small at current upload volume; scales linearly with media-upload growth. |
 | AWS SES | ~$1–2 | ~$12–24 | $0.10 per 1,000 emails. Current event volume = a few thousand emails per event = pennies per send. |
-| Supabase (Postgres managed) | $0–25 | $0–300 | Currently on free / starter tier; would step up to Pro (~$25/mo) when scale demands it. |
+| Supabase (Postgres managed) | ~$25 | ~$300 | Pro tier — includes the managed Postgres + connection pooling + the headroom needed for production workload. Exact figure to be confirmed against current invoice. |
 | Anthropic (Claude API) | ~$5–20 | ~$60–240 | Help Chat + AI Agent usage at current volume. Cost scales primarily with operator queries to AI Agent — could rise to $50+/mo if usage grows. |
 | Sentry | $0 | $0 | Free tier covers current error volume comfortably. |
 | Domain (GoDaddy) | ~$1 | ~$12–20 | `meetingmindsgroup.com` + `meetingmindsexperts.com` |
 | GitHub (private repos + Actions) | $0 (incremental) | $0 | Already paid via organisational subscription. |
 | Stripe | Per-transaction fee | — | ~2.9% + $0.30 per successful transaction — not a fixed cost. |
-| **Total infrastructure** | **~$70–115** | **~$840–1,400** | **Currently sub-$100/month most months.** |
+| **Total infrastructure** | **~$95–115** | **~$1,140–1,400** | **Currently around $100/month at MMG's actual event volume.** |
 
 **What's not in this number:** engineering time (the dominant cost), one-time setup fees, vendor support contracts (none currently). At MMG's current event volume, this infrastructure stack supports an order of magnitude more events without significant scaling cost — the largest line item (Mumbai EC2) stays flat regardless of registrations until traffic crosses ~10x today's volume.
 
@@ -226,13 +251,13 @@ These are the recurring infrastructure costs only. Engineering time (the largest
 
 These are the specific items where leadership input would unblock or accelerate the support model. None are blocking immediate operation — but each represents a meaningful improvement to the platform's resilience or capacity.
 
-### 1. Backup engineering capacity
+### 1. Maintenance time as a recurring budget
 
-**The ask:** Even a part-time second engineer with platform context would significantly reduce the bus-factor risk. Options range from formal hire to having the junior developer spend 1 day/week on EA-SYS familiarisation.
+**The ask:** Treat the 8–14 hours/month of recurring upkeep (daily monitoring + weekly maintenance + monthly upkeep + quarterly DR drills, per §3) as a budgeted commitment rather than work that fits between feature requests.
 
-**Why it matters:** A 2–4 week absence of the lead engineer would have meaningful impact on platform health. A 1-day-a-week understudy halves that risk for less than a full hire.
+**Why it matters:** The platform's stability today is the result of the recurring maintenance work being done consistently. When that work gets squeezed by feature deadlines, the symptoms (slow-query buildup, dependency drift, stale dashboards) show up months later as harder-to-diagnose issues. Protecting the time prevents the future fire-fighting.
 
-**Decision required:** Whether to allocate time from the junior developer; or hire a second mid-level engineer; or accept the current risk.
+**Decision required:** Whether to formalise the maintenance hours as a recurring allocation (a standing ~3 hr/week on the calendar), or continue as best-effort with the understanding that feature work will sometimes displace it.
 
 ### 2. AWS key rotation + lockdown
 
