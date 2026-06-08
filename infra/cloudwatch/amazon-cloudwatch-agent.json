@@ -1,0 +1,38 @@
+{
+  "_comment": "CloudWatch agent configuration for the Mumbai EA-SYS production box.",
+  "_purpose": "Ship the structured Pino logs written by both web + worker Docker containers (mounted at /home/ubuntu/ea-sys/logs/) to CloudWatch Logs in ap-south-1. Third notification path alongside Sentry + SES admin-alert; provides cross-region durability + log Insights querying + alarm-on-metric-filter readiness.",
+  "_install_path": "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+  "_apply_with": "sudo systemctl restart amazon-cloudwatch-agent",
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "cwagent"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "_comment": "All app log lines (info + warn + error). Worker + web containers both write here via mounted ./logs:/app/logs volume.",
+            "file_path": "/home/ubuntu/ea-sys/logs/app.log",
+            "log_group_name": "ea-sys/app",
+            "log_stream_name": "mumbai-{instance_id}",
+            "retention_in_days": 30,
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S",
+            "timezone": "UTC"
+          },
+          {
+            "_comment": "Error-only stream — same source as app.log but pre-filtered by Pino's separate transport. Useful as a cheap CloudWatch alarm target (any new line = an error in prod). 90-day retention because errors are the high-value forensic data.",
+            "file_path": "/home/ubuntu/ea-sys/logs/error.log",
+            "log_group_name": "ea-sys/error",
+            "log_stream_name": "mumbai-{instance_id}",
+            "retention_in_days": 90,
+            "timestamp_format": "%Y-%m-%dT%H:%M:%S",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    },
+    "log_stream_name": "mumbai-fallback",
+    "force_flush_interval": 5
+  }
+}
