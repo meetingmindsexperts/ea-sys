@@ -4,13 +4,25 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { notifyEventAdmins } from "@/lib/notifications";
-import { bulkEmailSchema, executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
+import { bulkEmailSchema } from "@/lib/bulk-email";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+/**
+ * Immediate bulk send.
+ *
+ * As of 2026-06-09 this no longer sends inline. It enqueues a
+ * `ScheduledEmail` row with `scheduledFor = now` and returns a job id
+ * (202). The scheduled-emails worker (runs every minute) drains it via
+ * the SAME `executeBulkEmail` the scheduled path uses, so the HTTP
+ * request can never block on / time out against a large fan-out, and the
+ * caller polls status via the existing Scheduled Emails list. "Send now"
+ * therefore means "sends within ~60s". Explicitly-selected recipients are
+ * preserved through `recipientIds` on the row; the worker also emits the
+ * "Scheduled Email Sent" admin notification on completion.
+ */
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session, body] = await Promise.all([
@@ -26,6 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Shared bucket with the scheduled-send route — 20/hr per event.
     const bulkEmailRateLimit = checkRateLimit({
       key: `bulk-email:org:${session.user.organizationId}:event:${eventId}`,
       limit: 20,
@@ -61,68 +74,48 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { recipientType, recipientIds, emailType, customSubject, customMessage, attachments, filters } =
       validated.data;
 
-    const [event, user] = await Promise.all([
-      db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true },
-      }),
-      db.user.findUnique({
-        where: { id: session.user.id },
-        select: { firstName: true, lastName: true, email: true, emailSignature: true },
-      }),
-    ]);
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const organizerName = user?.firstName && user?.lastName
-      ? `${user.firstName} ${user.lastName}` : "Event Organizer";
-    const organizerEmail = user?.email || "";
-    const organizerSignature = user?.emailSignature ?? undefined;
-
-    let result;
-    try {
-      result = await executeBulkEmail({
+    // Enqueue for immediate processing — scheduledFor = now, so the
+    // scheduled-emails worker claims it on its next tick (≤60s). The
+    // worker reconstructs the organizer (name + signature) from
+    // createdById, so we don't need to load the user here.
+    const created = await db.scheduledEmail.create({
+      data: {
         eventId,
+        organizationId: session.user.organizationId!,
+        createdById: session.user.id,
         recipientType,
-        recipientIds,
+        recipientIds: recipientIds ?? [],
         emailType,
         customSubject,
         customMessage,
-        attachments,
-        filters,
-        organizerName,
-        organizerEmail,
-        organizerSignature,
-        organizationId: session.user.organizationId ?? null,
-        triggeredByUserId: session.user.id,
-      });
-    } catch (err) {
-      if (err instanceof BulkEmailError) {
-        return NextResponse.json({ error: err.message }, { status: err.status });
-      }
-      throw err;
-    }
+        attachments: attachments ?? undefined,
+        filters: filters ?? undefined,
+        scheduledFor: new Date(),
+      },
+      select: { id: true, status: true },
+    });
 
     db.auditLog
       .create({
         data: {
           eventId,
           userId: session.user.id,
-          action: "BULK_EMAIL_SENT",
-          entityType:
-            recipientType === "speakers"
-              ? "Speaker"
-              : recipientType === "reviewers"
-              ? "Reviewer"
-              : "Registration",
-          entityId: eventId,
+          action: "BULK_EMAIL_QUEUED",
+          entityType: "ScheduledEmail",
+          entityId: created.id,
           changes: {
             emailType,
-            totalRecipients: result.total,
-            successCount: result.successCount,
-            failureCount: result.failureCount,
+            recipientType,
+            selectedRecipientCount: recipientIds?.length ?? 0,
             customSubject,
             hasAttachments:
               !!attachments?.length ||
@@ -132,24 +125,31 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       })
       .catch((err: unknown) =>
-        apiLogger.error({ err, msg: "Failed to write BULK_EMAIL_SENT audit log" })
+        apiLogger.error({ err, msg: "Failed to write BULK_EMAIL_QUEUED audit log", id: created.id })
       );
 
-    notifyEventAdmins(eventId, {
-      type: "REGISTRATION",
-      title: "Bulk Email Sent",
-      message: `Email sent to ${result.successCount} recipients`,
-      link: `/events/${eventId}/registrations`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send bulk email notification" }));
-
-    return NextResponse.json({
-      success: true,
-      message: `Sent ${result.successCount} of ${result.total} emails`,
-      stats: { total: result.total, sent: result.successCount, failed: result.failureCount },
-      errors: result.errors.length > 0 ? result.errors : undefined,
+    apiLogger.info({
+      msg: "bulk-email:queued",
+      eventId,
+      jobId: created.id,
+      recipientType,
+      emailType,
+      selectedRecipientCount: recipientIds?.length ?? 0,
     });
+
+    return NextResponse.json(
+      {
+        success: true,
+        queued: true,
+        jobId: created.id,
+        status: created.status,
+        message:
+          "Email queued — it will be sent within about a minute. Track progress under Scheduled Emails.",
+      },
+      { status: 202 }
+    );
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error sending bulk emails" });
-    return NextResponse.json({ error: "Failed to send bulk emails" }, { status: 500 });
+    apiLogger.error({ err: error, msg: "Error queueing bulk emails" });
+    return NextResponse.json({ error: "Failed to queue bulk emails" }, { status: 500 });
   }
 }

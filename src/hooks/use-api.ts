@@ -1058,7 +1058,10 @@ export function useBulkEmail(eventId: string) {
       attachments?: Array<{ name: string; content: string; contentType?: string }>;
       filters?: { status?: string; ticketTypeId?: string };
     }) =>
-      fetchApi<{ success: boolean; message: string; stats: { total: number; sent: number; failed: number }; errors?: Array<{ email: string; error: string }> }>(
+      // Immediate send now ENQUEUES (202) and returns a job id; the
+      // scheduled-emails worker drains it within ~60s. The caller polls
+      // status via the Scheduled Emails list.
+      fetchApi<{ success: boolean; message: string; queued: boolean; jobId: string; status: string }>(
         `/api/events/${eventId}/emails/bulk`,
         {
           method: "POST",

@@ -1808,6 +1808,11 @@ model ScheduledEmail {
   customMessage String? @db.Text
   attachments   Json? // [{ name, content (base64), contentType }]
   filters       Json? // { status?, ticketTypeId? }
+  // Explicitly-selected recipient ids (the "send to selected" path). Empty
+  // array = filter-based send (resolve recipients at fire time). Lets the
+  // immediate-send route queue selected-recipient sends without losing the
+  // selection — the worker passes these through to executeBulkEmail.
+  recipientIds String[] @default([])
 
   scheduledFor DateTime
   status       ScheduledEmailStatus @default(PENDING)

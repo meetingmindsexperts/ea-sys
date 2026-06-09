@@ -82,6 +82,8 @@ async function processRow(
     customMessage: string | null;
     attachments: unknown;
     filters: unknown;
+    recipientIds: string[];
+    retryCount: number;
   },
   organizer:
     | { firstName: string; lastName: string; email: string; emailSignature: string | null }
@@ -100,6 +102,9 @@ async function processRow(
     const result = await executeBulkEmail({
       eventId: row.eventId,
       recipientType: row.recipientType as BulkEmailRecipientType,
+      // Empty array = filter-based send; executeBulkEmail keys off
+      // recipientIds?.length, so pass undefined when none were selected.
+      recipientIds: row.recipientIds.length ? row.recipientIds : undefined,
       emailType: row.emailType as BulkEmailType,
       customSubject: row.customSubject ?? undefined,
       customMessage: row.customMessage ?? undefined,
@@ -161,6 +166,7 @@ async function processRow(
       msg: "scheduled-email:sent",
       id: row.id,
       eventId: row.eventId,
+      retryCount: row.retryCount,
       total: result.total,
       successCount: result.successCount,
       failureCount: result.failureCount,
@@ -183,7 +189,13 @@ async function processRow(
         lastError: message,
       },
     });
-    apiLogger.error({ err, msg: "scheduled-email:send-failed", id: row.id, eventId: row.eventId });
+    apiLogger.error({
+      err,
+      msg: "scheduled-email:send-failed",
+      id: row.id,
+      eventId: row.eventId,
+      retryCount: row.retryCount,
+    });
     return { id: row.id, status: "failed", error: message };
   }
 }
@@ -227,6 +239,8 @@ export async function runScheduledEmailsTick(): Promise<ScheduledEmailsTickRepor
       customMessage: true,
       attachments: true,
       filters: true,
+      recipientIds: true,
+      retryCount: true,
     },
   });
 

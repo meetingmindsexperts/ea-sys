@@ -73,6 +73,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.error({ err, msg: "Failed to write SCHEDULED_EMAIL_RETRIED audit log", id })
       );
 
+    apiLogger.info({
+      msg: "scheduled-email:retried",
+      id,
+      eventId,
+      retryCount: updated?.retryCount ?? 0,
+    });
+
     return NextResponse.json({ success: true, scheduledEmail: updated });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error retrying scheduled email" });
