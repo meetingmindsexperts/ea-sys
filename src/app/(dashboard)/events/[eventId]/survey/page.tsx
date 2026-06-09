@@ -26,6 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -72,11 +73,27 @@ import {
   type SurveyQuestion,
 } from "@/lib/survey/schema";
 
+// Lazy-load the WYSIWYG editor (heavy; client-only) — same pattern as the
+// Content page and Email Templates.
+const TiptapEditor = dynamic(
+  () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
+  {
+    ssr: false,
+    loading: () => <div className="h-[300px] animate-pulse rounded-md border bg-muted" />,
+  },
+);
+
 const QUESTION_TYPE_LABELS: Record<SurveyQuestion["type"], string> = {
   single_select: "Single select",
   rating_1_to_5: "Rating (1–5)",
   text: "Free text",
 };
+
+// Tiptap emits "<p></p>" (and similar) for an empty document — treat that
+// as "no intro" so the public form falls back to its default copy.
+function introIsEmpty(html: string): boolean {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() === "";
+}
 
 function defaultQuestion(type: SurveyQuestion["type"]): SurveyQuestion {
   const id = newQuestionId();
@@ -101,6 +118,7 @@ export default function SurveyBuilderPage() {
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Shareable link — { url, expiresAt } when active, null when none.
+  const [introHtml, setIntroHtml] = useState<string>("");
   const [shareLink, setShareLink] = useState<{ url: string; expiresAt: string } | null>(null);
   const [shareExpiry, setShareExpiry] = useState<string>("7");
   const [shareBusy, setShareBusy] = useState(false);
@@ -122,6 +140,7 @@ export default function SurveyBuilderPage() {
         if (cancelled) return;
         setEventName(data.name ?? "");
         setEventSlug(data.slug ?? "");
+        setIntroHtml(data.surveyIntroHtml ?? "");
         // Reconstruct the shareable URL client-side from the stored
         // plaintext token + the current origin (avoids round-tripping
         // the full URL through the event GET).
@@ -267,6 +286,10 @@ export default function SurveyBuilderPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             surveyConfig: mode === "clear" ? null : questions,
+            // Persist the intro alongside the questions. Empty editor
+            // (only whitespace / empty <p>) saves as null so the public
+            // form falls back to its default intro copy.
+            surveyIntroHtml: introIsEmpty(introHtml) ? null : introHtml,
           }),
         });
         if (!res.ok) {
@@ -287,7 +310,7 @@ export default function SurveyBuilderPage() {
         setSaving(false);
       }
     },
-    [eventId, questions],
+    [eventId, questions, introHtml],
   );
 
   const dirtyCount = questions.length;
@@ -537,6 +560,28 @@ export default function SurveyBuilderPage() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Intro message — organizer-authored rich text shown at the top of
+          the public survey form. Optional; falls back to default copy. */}
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Intro message</CardTitle>
+          <CardDescription className="text-xs">
+            Optional rich text shown at the top of the survey, above the questions — a thank-you
+            note, context, or instructions. Leave blank to use the default intro.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TiptapEditor
+            content={introHtml}
+            onChange={setIntroHtml}
+            placeholder="Thank you for attending! Your feedback helps us improve future events…"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Saved with the survey when you click <span className="font-medium">Save survey</span>.
+          </p>
         </CardContent>
       </Card>
 

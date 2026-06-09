@@ -199,6 +199,10 @@ model Event {
   abstractConfirmationHtml     String?     @db.Text
   registrationConfirmationHtml String?     @db.Text
   speakerAgreementHtml         String?     @db.Text
+  /// Organizer-authored rich-text intro shown at the top of the public
+  /// survey form (Tiptap WYSIWYG, sanitized on render). Null = use the
+  /// default intro copy.
+  surveyIntroHtml              String?     @db.Text
   speakerAgreementTemplate     Json?
   /// Per-event post-event evaluation/feedback survey definition. Null
   /// when no survey is configured. Shape: ordered array of

@@ -37,6 +37,7 @@ import {
 import { toast } from "sonner";
 import type { SurveyConfig, SurveyQuestion } from "@/lib/survey/schema";
 import { getTitleLabel } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 // ── Loaded payload types ───────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ type ApiPayload =
       attendee?: Attendee;
       event: EventLite;
       config: SurveyConfig;
+      introHtml?: string | null;
     }
   | { alreadyCompleted: true; event: EventLite };
 
@@ -72,6 +74,7 @@ interface ReadyData {
   event: EventLite;
   config: SurveyConfig;
   attendee: Attendee | null; // token mode only
+  introHtml: string | null; // organizer-authored rich-text intro
 }
 
 // ── Page shell ─────────────────────────────────────────────────────────
@@ -162,7 +165,12 @@ function PublicSurveyClient() {
         }
         setState({
           kind: "ready",
-          data: { event: data.event, config: data.config, attendee: data.attendee ?? null },
+          data: {
+            event: data.event,
+            config: data.config,
+            attendee: data.attendee ?? null,
+            introHtml: data.introHtml ?? null,
+          },
         });
       } catch (err) {
         if (cancelled) return;
@@ -280,10 +288,17 @@ function PublicSurveyClient() {
             <h1 className="mt-1.5 text-3xl font-bold tracking-tight sm:text-[2.1rem]">
               How did we do?
             </h1>
-            <p className="mt-2 max-w-prose text-muted-foreground">
-              Your feedback shapes our next event. It takes about 2–3 minutes — thank you for
-              sharing.
-            </p>
+            {data.introHtml ? (
+              <div
+                className="prose prose-slate mt-3 max-w-none text-muted-foreground [&_a]:text-primary [&>*:last-child]:mb-0 [&>*]:mb-3"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.introHtml) }}
+              />
+            ) : (
+              <p className="mt-2 max-w-prose text-muted-foreground">
+                Your feedback shapes our next event. It takes about 2–3 minutes — thank you for
+                sharing.
+              </p>
+            )}
             {!isPreviewMode && total > 0 ? (
               <div className="mt-5">
                 <div className="flex items-center justify-between text-xs">

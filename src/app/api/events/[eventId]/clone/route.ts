@@ -107,6 +107,7 @@ export async function POST(
             abstractTermsHtml: source.abstractTermsHtml,
             abstractConfirmationHtml: source.abstractConfirmationHtml,
             speakerAgreementHtml: source.speakerAgreementHtml,
+            surveyIntroHtml: source.surveyIntroHtml,
             surveyConfig: source.surveyConfig ?? undefined,
             taxRate: source.taxRate,
             taxLabel: source.taxLabel,

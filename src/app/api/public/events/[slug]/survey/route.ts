@@ -325,7 +325,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       }
       const event = await db.event.findFirst({
         where: { slug },
-        select: { id: true, name: true, slug: true, bannerImage: true, surveyConfig: true },
+        select: { id: true, name: true, slug: true, bannerImage: true, surveyConfig: true, surveyIntroHtml: true },
       });
       if (!event) {
         return NextResponse.json({ error: "Survey not found" }, { status: 404 });
@@ -340,6 +340,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({
         mode: "preview",
         event: { name: event.name, slug: event.slug, bannerImage: event.bannerImage },
+        introHtml: event.surveyIntroHtml,
         config,
       });
     }
@@ -364,7 +365,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: { slug },
         select: {
           id: true, name: true, slug: true, bannerImage: true,
-          surveyConfig: true, surveyShareLink: true,
+          surveyConfig: true, surveyShareLink: true, surveyIntroHtml: true,
         },
       });
       if (!event) {
@@ -393,6 +394,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({
         mode: "share",
         event: { id: event.id, name: event.name, slug: event.slug, bannerImage: event.bannerImage },
+        introHtml: event.surveyIntroHtml,
         config,
       });
     }
@@ -481,6 +483,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             slug: true,
             bannerImage: true,
             surveyConfig: true,
+            surveyIntroHtml: true,
           },
         },
       },
@@ -555,6 +558,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         slug: registration.event.slug,
         bannerImage: registration.event.bannerImage,
       },
+      introHtml: registration.event.surveyIntroHtml,
       config,
     });
   } catch (err) {
