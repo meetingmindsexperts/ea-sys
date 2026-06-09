@@ -371,12 +371,12 @@ function SurveyHeader({
   return (
     <div className="bg-white border-b">
       {event.bannerImage ? (
-        <div className="w-full max-h-48 overflow-hidden">
+        <div className="w-full h-32 sm:h-40 overflow-hidden bg-muted/20 flex items-center justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={event.bannerImage}
             alt={event.name}
-            className="w-full object-cover"
+            className="w-full h-full object-contain object-center"
           />
         </div>
       ) : null}
@@ -539,12 +539,12 @@ function ThankYouPanel({
   return (
     <div className="min-h-screen bg-muted/30">
       {bannerImage ? (
-        <div className="w-full max-h-48 overflow-hidden bg-white border-b">
+        <div className="w-full h-32 sm:h-40 overflow-hidden bg-white border-b flex items-center justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={bannerImage}
             alt={eventName}
-            className="w-full object-cover"
+            className="w-full h-full object-contain object-center"
           />
         </div>
       ) : null}
