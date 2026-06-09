@@ -206,6 +206,7 @@ Useful keys:
 | `worker:tick-start` | A job's tick is about to run (debug-level) |
 | `worker:tick-end` | A tick settled; `durationMs` is the wall-clock cost |
 | `worker:skip-tick-locked` | Another worker held the advisory lock; we politely skipped |
+| `worker:lock-acquire-transient-skip` | A retryable DB connection-closed (e.g. Supabase `EDBHANDLEREXITED`) hit the lock-acquire; treated like a contended lock — tick skipped, retries next cycle. **Warn-level — does NOT page** |
 | `worker:tick-uncaught` | Exception escaped the job's own try/catch |
 | `worker:tick-wrapper-uncaught` | Exception escaped EVEN the wrapper's catch (rare) |
 | `worker:shutdown-start` | SIGTERM received; draining begins |
@@ -217,13 +218,18 @@ Useful keys:
 
 ## Cutover plan (Phase 4)
 
-After ~1 week of clean dual-write operation:
+> **Status (2026-06-09):** the operational half is DONE early — the 5
+> `/api/cron/*` crontab lines on Mumbai are **commented out** (backed up
+> to `/home/ubuntu/crontab.backup.2026-06-09.txt`; the 3 DR backup lines
+> are untouched), so the worker is already the **sole runner**. The route
+> shims are still in code (step 3 below) as the rollback handle — to
+> revert, re-enable the crontab lines. Code deletion still pending.
 
 1. Confirm via `/admin/logs` viewer that worker ticks fire at expected
    cadences (search for `worker:tick-end` keys; counts should match
    the legacy `scheduled-emails:tick-complete` / etc. counts)
-2. On Mumbai box: `crontab -e` → remove the 5 lines that hit
-   `/api/cron/*`
+2. ✅ On Mumbai box: comment/remove the 5 lines that hit `/api/cron/*`
+   (done 2026-06-09 — commented, not deleted, for instant rollback)
 3. Commit the deletion of the 4 thin-shim route handlers AND the
    `scheduled-emails` route's leftover wiring
 4. Deploy. Worker is now the only path.

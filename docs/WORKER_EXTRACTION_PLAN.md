@@ -7,8 +7,13 @@
 > EC2 box.
 >
 > **Status**: Phases 1 + 2 shipped 2026-06-04. Phase 3 (dual-write
-> watch window) in progress. Phase 4 (cut-over) scheduled for
-> ~2026-06-11.
+> watch window) in progress. Phase 4 **operational half done early
+> 2026-06-09** — the 5 `/api/cron/*` crontab lines on Mumbai are
+> commented out (backed up to `/home/ubuntu/crontab.backup.2026-06-09.txt`;
+> 3 DR lines untouched), so the worker is now the SOLE runner. Route-shim
+> code deletion still pending (kept as rollback handle). Triggered early
+> while resolving the 2026-06-09 `EDBHANDLEREXITED` worker alert — see
+> CLAUDE.md Recent Features.
 > **Owner**: Krishna.
 > **Sister docs**: [POSTGRES_BACKUP_PLAN.md](../infra/dr/POSTGRES_BACKUP_PLAN.md)
 > for the design-doc convention; [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -481,8 +486,8 @@ Live operation. Watch for:
 
 ### Phase 4 — Cut over (~30 min)
 
-1. SSM into Mumbai: `crontab -e` → remove the 5 cron lines that hit `/api/cron/*`
-2. Commit the route deletions + remove the `CRON_SECRET` check from the bottom of those handlers (or just delete them entirely)
+1. ✅ **Done 2026-06-09** — SSM into Mumbai: `crontab -e` → the 5 cron lines that hit `/api/cron/*` are commented out (not deleted, for instant rollback; backup at `/home/ubuntu/crontab.backup.2026-06-09.txt`). Worker is the sole runner from this point.
+2. Commit the route deletions + remove the `CRON_SECRET` check from the bottom of those handlers (or just delete them entirely) — **still pending**
 3. Deploy. Worker is now the only path.
 
 **Verification**: worker logs show ticks at expected cadences for 24 hours.
