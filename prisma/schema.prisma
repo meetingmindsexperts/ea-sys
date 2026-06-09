@@ -209,6 +209,15 @@ model Event {
   /// allowed but care must be taken not to invalidate in-flight
   /// responses (answer linkage is by question.id, not array index).
   surveyConfig                 Json?
+  /// Organizer-generated reusable shareable survey link. Null when no
+  /// link is active. Shape: `{ token, expiresAt, createdAt,
+  /// createdByUserId }` — see `src/lib/survey/share-link.ts` for the
+  /// Zod-validated shape. Token is stored PLAINTEXT (like
+  /// Abstract.managementToken) so the dashboard can re-display the URL;
+  /// a valid registrant email is still required to submit, so this only
+  /// gates reaching the form. Lookup is slug-scoped (the public URL
+  /// carries the slug), so no global token index is needed.
+  surveyShareLink              Json?
   taxRate                      Decimal?    @db.Decimal(5, 2)
   taxLabel                     String?     @default("VAT")
   bankDetails                  String?     @db.Text

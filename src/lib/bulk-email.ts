@@ -22,6 +22,12 @@ import {
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
 import { getTitleLabel } from "./utils";
+import {
+  DEFAULT_SURVEY_EXPIRY_DAYS,
+  DAY_MS,
+  surveyExpiryDaysSchema,
+  type SurveyExpiryDays,
+} from "./survey/share-link";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -100,6 +106,15 @@ export interface BulkEmailFilters {
    * speaker has at least one session in that role.
    */
   sessionRole?: SessionRole;
+  /**
+   * survey-invitation email type only — TTL (days) for the minted
+   * survey link token (3/5/7/10, default 7). Rides inside `filters`
+   * rather than a top-level param so it survives the schedule→worker
+   * round trip (the worker reconstructs the send from the persisted
+   * ScheduledEmail.filters JSON; a top-level param would silently fall
+   * back to the default on scheduled sends).
+   */
+  surveyExpiryDays?: SurveyExpiryDays;
 }
 
 export interface BulkEmailInput {
@@ -175,6 +190,7 @@ export const bulkEmailSchema = z.object({
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
+      surveyExpiryDays: surveyExpiryDaysSchema.optional(),
     })
     .optional(),
 });
@@ -674,8 +690,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // matches the public survey route's prefix check. Old tokens for
       // the same registration are removed first so a re-send produces
       // exactly one live link (no resend confusion if the operator
-      // clicks the tile twice on the same audience). 7-day TTL matches
-      // the registration-completion convention.
+      // clicks the tile twice on the same audience). TTL is operator-
+      // configurable (3/5/7/10 days) via filters.surveyExpiryDays,
+      // defaulting to 7. It rides inside `filters` so scheduled sends
+      // honor it too (the worker rebuilds the send from the persisted
+      // ScheduledEmail.filters JSON).
       //
       // We mint INSIDE generateEmailForRecipient so an aborted batch
       // doesn't leave orphan VerificationToken rows for recipients we
@@ -686,11 +705,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       });
       const rawToken = crypto.randomBytes(32).toString("hex");
       const hashedToken = hashVerificationToken(rawToken);
+      const surveyExpiryDays: SurveyExpiryDays =
+        filters?.surveyExpiryDays ?? DEFAULT_SURVEY_EXPIRY_DAYS;
       await db.verificationToken.create({
         data: {
           identifier: `survey:${recipient.id}`,
           token: hashedToken,
-          expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expires: new Date(Date.now() + surveyExpiryDays * DAY_MS),
         },
       });
       vars.surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;

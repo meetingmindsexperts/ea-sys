@@ -33,11 +33,15 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  Check,
   ChevronDown,
   ChevronUp,
+  Copy,
   ExternalLink,
+  Link2,
   Loader2,
   Plus,
+  RefreshCw,
   Save,
   Trash2,
 } from "lucide-react";
@@ -96,6 +100,11 @@ export default function SurveyBuilderPage() {
   const [saving, setSaving] = useState(false);
   const [questions, setQuestions] = useState<SurveyQuestion[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Shareable link — { url, expiresAt } when active, null when none.
+  const [shareLink, setShareLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [shareExpiry, setShareExpiry] = useState<string>("7");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // ── Load ─────────────────────────────────────────────────────────────
 
@@ -113,6 +122,18 @@ export default function SurveyBuilderPage() {
         if (cancelled) return;
         setEventName(data.name ?? "");
         setEventSlug(data.slug ?? "");
+        // Reconstruct the shareable URL client-side from the stored
+        // plaintext token + the current origin (avoids round-tripping
+        // the full URL through the event GET).
+        const sl = data.surveyShareLink;
+        if (sl && typeof sl.token === "string" && typeof sl.expiresAt === "string" && data.slug) {
+          setShareLink({
+            url: `${window.location.origin}/e/${data.slug}/survey?share=${sl.token}`,
+            expiresAt: sl.expiresAt,
+          });
+        } else {
+          setShareLink(null);
+        }
         const stored = data.surveyConfig;
         if (Array.isArray(stored)) {
           // Validate against the current Zod schema before adopting —
@@ -275,6 +296,63 @@ export default function SurveyBuilderPage() {
     return `/e/${encodeURIComponent(eventSlug)}/survey`;
   }, [eventSlug]);
 
+  // ── Shareable link handlers ──────────────────────────────────────────
+
+  const generateShareLink = useCallback(async () => {
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/survey/share-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresInDays: Number(shareExpiry) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Could not create the shareable link.");
+        return;
+      }
+      setShareLink({ url: data.url, expiresAt: data.expiresAt });
+      toast.success(shareLink ? "Shareable link regenerated." : "Shareable link created.");
+    } catch (err) {
+      console.error("survey:share-link-generate-failed", err);
+      toast.error("Failed to create the shareable link.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [eventId, shareExpiry, shareLink]);
+
+  const disableShareLink = useCallback(async () => {
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/survey/share-link`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data?.error ?? "Could not disable the link.");
+        return;
+      }
+      setShareLink(null);
+      toast.success("Shareable link disabled.");
+    } catch (err) {
+      console.error("survey:share-link-disable-failed", err);
+      toast.error("Failed to disable the link.");
+    } finally {
+      setShareBusy(false);
+    }
+  }, [eventId]);
+
+  const copyShareUrl = useCallback(async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't copy — select the link and copy manually.");
+    }
+  }, [shareLink]);
+
   // ── Render ───────────────────────────────────────────────────────────
 
   if (loading) {
@@ -315,7 +393,7 @@ export default function SurveyBuilderPage() {
           </Link>
           {previewLink ? (
             <Link
-              href={`${previewLink}?token=preview`}
+              href={`${previewLink}?preview=1`}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -350,12 +428,116 @@ export default function SurveyBuilderPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">How surveys work</CardTitle>
           <CardDescription className="text-xs">
-            Send invitations from the Communications page after the event ends. Each registrant
-            receives a unique link valid for 7 days. Completing the survey adds the{" "}
+            Send personalized invitations from the Communications page (each registrant gets a
+            unique link), or share the single link below for anyone to self-identify by email.
+            You choose how long links stay valid. Completing the survey adds the{" "}
             <code className="text-xs">survey-completed</code> tag to their record — useful as
             a filter when issuing CME certificates.
           </CardDescription>
         </CardHeader>
+      </Card>
+
+      {/* Shareable link — one reusable link the organizer can post anywhere.
+          Respondents self-identify by their registered email. */}
+      <Card className="mb-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-1.5">
+            <Link2 className="h-4 w-4" />
+            Shareable link
+          </CardTitle>
+          <CardDescription className="text-xs">
+            One link you can post anywhere (email signature, WhatsApp, a slide). Anyone who opens
+            it enters their registered email to complete the survey — responses stay tied to that
+            registrant. Not registered? They&apos;ll be asked to use their registration email.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {shareLink ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Input readOnly value={shareLink.url} className="text-xs font-mono" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copyShareUrl()}
+                  className="shrink-0"
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Expires{" "}
+                {new Date(shareLink.expiresAt).toLocaleDateString(undefined, {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })}
+                .
+              </p>
+              <div className="flex items-center gap-2">
+                <Select value={shareExpiry} onValueChange={setShareExpiry}>
+                  <SelectTrigger className="w-32" aria-label="Link expiry">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 days</SelectItem>
+                    <SelectItem value="5">5 days</SelectItem>
+                    <SelectItem value="7">7 days</SelectItem>
+                    <SelectItem value="10">10 days</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void generateShareLink()}
+                  disabled={shareBusy}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  Regenerate
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void disableShareLink()}
+                  disabled={shareBusy}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Disable
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Regenerating changes the URL and resets the expiry — the old link stops working.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Select value={shareExpiry} onValueChange={setShareExpiry}>
+                <SelectTrigger className="w-32" aria-label="Link expiry">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">3 days</SelectItem>
+                  <SelectItem value="5">5 days</SelectItem>
+                  <SelectItem value="7">7 days</SelectItem>
+                  <SelectItem value="10">10 days</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={() => void generateShareLink()} disabled={shareBusy}>
+                {shareBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Generate link
+              </Button>
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       {questions.length === 0 ? (

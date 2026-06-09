@@ -206,6 +206,8 @@ export function BulkEmailDialog({
   // pages that already pass a value (e.g. via "Email all unpaid" link)
   // render the dropdown pre-selected. Registrations recipient only.
   const [localPaymentFilter, setLocalPaymentFilter] = useState<string>(paymentStatusFilter ?? "all");
+  // survey-invitation only — TTL (days) for the minted survey link.
+  const [surveyExpiryDays, setSurveyExpiryDays] = useState<string>("7");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkEmail = useBulkEmail(eventId);
@@ -332,6 +334,10 @@ export function BulkEmailDialog({
           : {}),
         ...(recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all"
           ? { sessionRole: sessionRoleFilter }
+          : {}),
+        // survey-invitation only — TTL (days) for the minted survey link.
+        ...(emailType === "survey-invitation"
+          ? { surveyExpiryDays: Number(surveyExpiryDays) }
           : {}),
       },
     };
@@ -535,6 +541,28 @@ export function BulkEmailDialog({
               </Select>
               <p className="text-xs text-muted-foreground">
                 Combine with status filter to target e.g. CONFIRMED + UNPAID.
+              </p>
+            </div>
+          )}
+
+          {/* survey-invitation only — link expiry (days). Mirrors the
+              dashboard shareable-link expiry control; default 7. */}
+          {emailType === "survey-invitation" && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-email-survey-expiry">Survey link expires in</Label>
+              <Select value={surveyExpiryDays} onValueChange={setSurveyExpiryDays}>
+                <SelectTrigger id="bulk-email-survey-expiry" aria-label="Survey link expiry">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">3 days</SelectItem>
+                  <SelectItem value="5">5 days</SelectItem>
+                  <SelectItem value="7">7 days</SelectItem>
+                  <SelectItem value="10">10 days</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Each recipient gets a unique link that stops working after this many days.
               </p>
             </div>
           )}

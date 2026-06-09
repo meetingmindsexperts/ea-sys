@@ -45,6 +45,7 @@ import {
   validateAnswers,
   type SurveyConfig,
 } from "@/lib/survey/schema";
+import { isShareLinkValid } from "@/lib/survey/share-link";
 import {
   brandingCc,
   brandingFrom,
@@ -99,6 +100,202 @@ function readSurveyConfig(
   return result.data;
 }
 
+// Shared registration select used by both the per-registration `?token=`
+// path and the self-identify `?share=` path so they feed the identical
+// shape into finalizeSubmission().
+const SUBMIT_REGISTRATION_SELECT = {
+  id: true,
+  surveyCompletedAt: true,
+  attendeeId: true,
+  attendee: {
+    select: { id: true, firstName: true, email: true, tags: true },
+  },
+  event: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      surveyConfig: true,
+      emailHeaderImage: true,
+      emailFooterImage: true,
+      emailFooterHtml: true,
+      emailFromAddress: true,
+      emailFromName: true,
+      emailCcAddresses: true,
+      organizationId: true,
+    },
+  },
+} satisfies Prisma.RegistrationSelect;
+
+type SubmitRegistration = Prisma.RegistrationGetPayload<{
+  select: typeof SUBMIT_REGISTRATION_SELECT;
+}>;
+
+/**
+ * Shared submit finalizer for both the `?token=` (single-use, deletes
+ * the token) and `?share=` (reusable, no token to delete) paths. Loads
+ * + validates the config, validates answers, dedups, persists in one
+ * transaction, and fires the thank-you email. Behavior for the token
+ * path is byte-for-byte what the route did inline before this refactor.
+ *
+ * @param deleteTokenHash  hashed VerificationToken to delete inside the
+ *   transaction (token path), or null for the reusable share path.
+ */
+async function finalizeSubmission(
+  req: Request,
+  registration: SubmitRegistration,
+  rawAnswers: Record<string, unknown>,
+  deleteTokenHash: string | null,
+): Promise<NextResponse> {
+  const eventId = registration.event.id;
+  const registrationId = registration.id;
+
+  const config = readSurveyConfig(registration.event.surveyConfig, eventId);
+  if (!config) {
+    apiLogger.warn({ msg: "survey:submit-no-config", eventId, registrationId });
+    return NextResponse.json(
+      { error: "No survey is configured for this event." },
+      { status: 404 },
+    );
+  }
+
+  const answerResult = validateAnswers(config, rawAnswers);
+  if (!answerResult.ok) {
+    apiLogger.warn({
+      msg: "survey:submit-answers-invalid",
+      eventId,
+      registrationId,
+      errors: answerResult.errors,
+    });
+    return NextResponse.json(
+      { error: "Some answers are invalid", details: { errors: answerResult.errors } },
+      { status: 400 },
+    );
+  }
+
+  // Pre-tx dedup — the @unique on SurveyResponse.registrationId is the
+  // race-safe net; this just avoids a tx round-trip on the common
+  // "reload after submit" case.
+  if (registration.surveyCompletedAt) {
+    apiLogger.info({ msg: "survey:submit-already-completed", eventId, registrationId });
+    if (deleteTokenHash) {
+      await db.verificationToken
+        .delete({ where: { token: deleteTokenHash } })
+        .catch(() => {});
+    }
+    return NextResponse.json({ ok: true, alreadyCompleted: true });
+  }
+
+  const now = new Date();
+  const ipHash = hashIp(getClientIp(req));
+  const mergedTags = Array.from(
+    new Set([...(registration.attendee.tags ?? []), SURVEY_COMPLETED_TAG]),
+  );
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.surveyResponse.create({
+        data: {
+          eventId,
+          registrationId,
+          answers: answerResult.answers as Prisma.InputJsonValue,
+          ipHash,
+          submittedAt: now,
+        },
+      });
+      await tx.registration.update({
+        where: { id: registrationId },
+        data: { surveyCompletedAt: now },
+      });
+      await tx.attendee.update({
+        where: { id: registration.attendee.id },
+        data: { tags: mergedTags },
+      });
+      if (deleteTokenHash) {
+        await tx.verificationToken.delete({ where: { token: deleteTokenHash } });
+      }
+    });
+  } catch (txErr) {
+    // P2002 = unique constraint on SurveyResponse.registrationId — a
+    // race between two clicks; idempotent success.
+    if (
+      txErr instanceof Prisma.PrismaClientKnownRequestError &&
+      txErr.code === "P2002"
+    ) {
+      apiLogger.info({ msg: "survey:submit-race-dedup", eventId, registrationId });
+      if (deleteTokenHash) {
+        await db.verificationToken
+          .delete({ where: { token: deleteTokenHash } })
+          .catch(() => {});
+      }
+      return NextResponse.json({ ok: true, alreadyCompleted: true });
+    }
+    throw txErr;
+  }
+
+  // Fire-and-forget thank-you email — failure logs but never 500s; the
+  // response is already persisted. Goes through the per-event template
+  // registry + branding pipeline.
+  const recipient = registration.attendee;
+  if (recipient.email) {
+    void (async () => {
+      try {
+        const dbTemplate = await getEventTemplate(eventId, "survey-thankyou");
+        const fallback = getDefaultTemplate("survey-thankyou");
+        const tpl = dbTemplate ?? fallback;
+        if (!tpl) {
+          apiLogger.error({ msg: "survey:thankyou-template-missing", eventId, registrationId });
+          return;
+        }
+        const branding: EmailBranding = dbTemplate?.branding ?? {
+          eventName: registration.event.name,
+          emailHeaderImage: registration.event.emailHeaderImage,
+          emailFooterImage: registration.event.emailFooterImage,
+          emailFooterHtml: registration.event.emailFooterHtml,
+          emailFromAddress: registration.event.emailFromAddress,
+          emailFromName: registration.event.emailFromName,
+          emailCcAddresses: registration.event.emailCcAddresses,
+        };
+        const vars: Record<string, string | number | undefined> = {
+          firstName: recipient.firstName ?? "there",
+          lastName: "",
+          eventName: registration.event.name,
+        };
+        const rendered = renderAndWrap(tpl, vars, branding);
+        await sendEmail({
+          to: [{ email: recipient.email, name: recipient.firstName ?? undefined }],
+          cc: brandingCc(branding, [{ email: recipient.email }]),
+          from: brandingFrom(branding),
+          subject: rendered.subject,
+          htmlContent: rendered.htmlContent,
+          textContent: rendered.textContent,
+          emailType: "survey_thankyou",
+          stream: "transactional",
+          logContext: {
+            organizationId: registration.event.organizationId,
+            eventId,
+            entityType: "REGISTRATION",
+            entityId: registrationId,
+            templateSlug: "survey-thankyou",
+          },
+        });
+      } catch (err) {
+        apiLogger.warn({ msg: "survey:thankyou-email-failed", err, eventId, registrationId });
+      }
+    })();
+  } else {
+    apiLogger.warn({ msg: "survey:thankyou-no-email", eventId, registrationId });
+  }
+
+  apiLogger.info({
+    msg: "survey:submit-success",
+    eventId,
+    registrationId,
+    answeredCount: Object.keys(answerResult.answers).length,
+  });
+  return NextResponse.json({ ok: true });
+}
+
 // ── GET: validate token + return config/prefill ────────────────────────
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -106,6 +303,99 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { slug } = await params;
     const { searchParams } = new URL(req.url);
     const rawToken = searchParams.get("token");
+    const shareToken = searchParams.get("share");
+    const isPreview = searchParams.get("preview") === "1";
+
+    // ── Preview branch (FIRST — no token, no PII, no DB write) ──
+    // The builder's "Preview" button opens this so an organizer can
+    // eyeball the form. Returns config only; the public page disables
+    // submit. Exposing the questions publicly is acceptable — every
+    // invited registrant already sees the identical set.
+    if (isPreview) {
+      const previewLimit = checkRateLimit({
+        key: `survey-get:ip:${getClientIp(req)}`,
+        limit: 30,
+        windowMs: 15 * 60 * 1000,
+      });
+      if (!previewLimit.allowed) {
+        return NextResponse.json(
+          { error: "Too many requests" },
+          { status: 429, headers: { "Retry-After": String(previewLimit.retryAfterSeconds) } },
+        );
+      }
+      const event = await db.event.findFirst({
+        where: { slug },
+        select: { id: true, name: true, slug: true, bannerImage: true, surveyConfig: true },
+      });
+      if (!event) {
+        return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+      }
+      const config = readSurveyConfig(event.surveyConfig, event.id);
+      if (!config) {
+        return NextResponse.json(
+          { error: "No survey is configured for this event yet." },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({
+        mode: "preview",
+        event: { name: event.name, slug: event.slug, bannerImage: event.bannerImage },
+        config,
+      });
+    }
+
+    // ── Shareable-link branch (self-identify by email) ──
+    // Validates the organizer-generated reusable token, then returns
+    // the config WITHOUT prefill — the public page collects the email
+    // and the POST resolves the registration.
+    if (shareToken) {
+      const shareLimit = checkRateLimit({
+        key: `survey-get:ip:${getClientIp(req)}`,
+        limit: 30,
+        windowMs: 15 * 60 * 1000,
+      });
+      if (!shareLimit.allowed) {
+        return NextResponse.json(
+          { error: "Too many requests" },
+          { status: 429, headers: { "Retry-After": String(shareLimit.retryAfterSeconds) } },
+        );
+      }
+      const event = await db.event.findFirst({
+        where: { slug },
+        select: {
+          id: true, name: true, slug: true, bannerImage: true,
+          surveyConfig: true, surveyShareLink: true,
+        },
+      });
+      if (!event) {
+        return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+      }
+      const valid = isShareLinkValid(event.surveyShareLink, shareToken);
+      if (!valid.ok) {
+        apiLogger.info({ msg: "survey:get-share-invalid", slug, reason: valid.reason, ip: getClientIp(req) });
+        return NextResponse.json(
+          {
+            error:
+              valid.reason === "expired"
+                ? "This survey link has expired. Please ask the organizer for a new link."
+                : "This survey link is invalid or no longer active. Please ask the organizer for a new link.",
+          },
+          { status: 400 },
+        );
+      }
+      const config = readSurveyConfig(event.surveyConfig, event.id);
+      if (!config) {
+        return NextResponse.json(
+          { error: "No survey is configured for this event." },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({
+        mode: "share",
+        event: { id: event.id, name: event.name, slug: event.slug, bannerImage: event.bannerImage },
+        config,
+      });
+    }
 
     if (!rawToken) {
       apiLogger.warn({ msg: "survey:get-missing-token", slug, ip: getClientIp(req) });
@@ -286,6 +576,118 @@ const submitBodySchema = z.object({
   answers: z.record(z.string(), z.unknown()),
 });
 
+const shareSubmitSchema = z.object({
+  share: z.string().min(1),
+  email: z.string().email(),
+  answers: z.record(z.string(), z.unknown()),
+});
+
+// Soft IP-dedup window for the shareable link. Deliberately short so it
+// only catches a double-click/refresh — NOT distinct registrants behind
+// one conference-WiFi NAT IP. The per-registration @unique stays primary.
+const SHARE_SOFT_DEDUP_WINDOW_MS = 60_000;
+
+/**
+ * Shareable-link submit (self-identify by email). Validates the
+ * organizer-generated reusable token, resolves the registration from
+ * the typed email, runs a short-window soft IP dedup, then defers to
+ * the shared finalizeSubmission (no token to delete — the link reuses).
+ */
+async function handleShareSubmit(
+  req: Request,
+  slug: string,
+  body: unknown,
+): Promise<NextResponse> {
+  const parsed = shareSubmitSchema.safeParse(body);
+  if (!parsed.success) {
+    apiLogger.warn({ msg: "survey:share-post-invalid", slug, errors: parsed.error.flatten() });
+    return NextResponse.json(
+      { error: "Invalid input", details: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+  const { share: shareToken, email, answers: rawAnswers } = parsed.data;
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const event = await db.event.findFirst({
+    where: { slug },
+    select: { id: true, surveyShareLink: true },
+  });
+  if (!event) {
+    return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+  }
+
+  const valid = isShareLinkValid(event.surveyShareLink, shareToken);
+  if (!valid.ok) {
+    apiLogger.info({ msg: "survey:share-post-invalid-token", slug, reason: valid.reason });
+    return NextResponse.json(
+      {
+        error:
+          valid.reason === "expired"
+            ? "This survey link has expired. Please ask the organizer for a new link."
+            : "This survey link is invalid or no longer active.",
+      },
+      { status: 400 },
+    );
+  }
+
+  // Same email can map to multiple registrations in an event (multi-ticket
+  // / re-registration): prefer an incomplete one, else treat as already
+  // completed. Scoped by event slug (slug is unique) so no cross-event leak.
+  const registrations = await db.registration.findMany({
+    where: {
+      event: { slug },
+      status: { notIn: ["CANCELLED"] },
+      attendee: { email: normalizedEmail },
+    },
+    select: SUBMIT_REGISTRATION_SELECT,
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (registrations.length === 0) {
+    apiLogger.info({ msg: "survey:share-post-email-not-found", eventId: event.id });
+    return NextResponse.json(
+      {
+        error:
+          "We couldn't find a registration for that email at this event. Please use the email address you registered with.",
+      },
+      { status: 404 },
+    );
+  }
+
+  const target = registrations.find((r) => !r.surveyCompletedAt) ?? registrations[0];
+  if (target.surveyCompletedAt) {
+    return NextResponse.json({ ok: true, alreadyCompleted: true });
+  }
+
+  // Soft IP dedup — secondary guard only (the per-registration @unique is
+  // primary). 60s window catches double-click/refresh; the short window is
+  // deliberate so distinct registrants behind one NAT IP aren't blocked.
+  const ipHash = hashIp(getClientIp(req));
+  if (ipHash) {
+    const recent = await db.surveyResponse.findFirst({
+      where: {
+        eventId: event.id,
+        ipHash,
+        submittedAt: { gte: new Date(Date.now() - SHARE_SOFT_DEDUP_WINDOW_MS) },
+      },
+      select: { id: true },
+    });
+    if (recent) {
+      apiLogger.info({ msg: "survey:share-post-soft-dedup", eventId: event.id });
+      return NextResponse.json(
+        {
+          error:
+            "A response was just submitted from this device. Please wait a moment and try again if that wasn't you.",
+        },
+        { status: 429 },
+      );
+    }
+  }
+
+  return finalizeSubmission(req, target, rawAnswers, null);
+}
+
 export async function POST(req: Request, { params }: RouteParams) {
   let stage: string = "init";
   let registrationId: string | null = null;
@@ -309,7 +711,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     stage = "body-parse";
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
+
+    // ── Shareable-link submit (self-identify by email) ──
+    // Detected by the `share` field; resolves the registration from the
+    // typed email rather than a per-registration token.
+    if (typeof (body as { share?: unknown }).share === "string") {
+      stage = "share-submit";
+      return await handleShareSubmit(req, slug, body);
+    }
+
+    // ── Per-registration token submit (existing single-use path) ──
     const bodyValidated = submitBodySchema.safeParse(body);
     if (!bodyValidated.success) {
       apiLogger.warn({
@@ -369,34 +784,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     stage = "load-registration";
     const registration = await db.registration.findFirst({
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
-      select: {
-        id: true,
-        surveyCompletedAt: true,
-        attendeeId: true,
-        attendee: {
-          select: {
-            id: true,
-            firstName: true,
-            email: true,
-            tags: true,
-          },
-        },
-        event: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            surveyConfig: true,
-            emailHeaderImage: true,
-            emailFooterImage: true,
-            emailFooterHtml: true,
-            emailFromAddress: true,
-            emailFromName: true,
-            emailCcAddresses: true,
-            organizationId: true,
-          },
-        },
-      },
+      select: SUBMIT_REGISTRATION_SELECT,
     });
 
     if (!registration) {
@@ -425,193 +813,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    stage = "load-config";
-    const config = readSurveyConfig(
-      registration.event.surveyConfig,
-      registration.event.id,
-    );
-    if (!config) {
-      apiLogger.warn({
-        msg: "survey:post-no-config",
-        eventId,
-        registrationId,
-      });
-      return NextResponse.json(
-        { error: "No survey is configured for this event." },
-        { status: 404 },
-      );
-    }
-
-    stage = "validate-answers";
-    const answerResult = validateAnswers(config, rawAnswers);
-    if (!answerResult.ok) {
-      apiLogger.warn({
-        msg: "survey:post-answers-invalid",
-        eventId,
-        registrationId,
-        errors: answerResult.errors,
-      });
-      return NextResponse.json(
-        { error: "Some answers are invalid", details: { errors: answerResult.errors } },
-        { status: 400 },
-      );
-    }
-
-    // Pre-tx dedup check — if surveyCompletedAt is already set, return
-    // 200 no-op without re-firing the thank-you. The @unique constraint
-    // on SurveyResponse.registrationId is the race-safe net for
-    // concurrent submits; this check just avoids the tx round-trip in
-    // the common "reload after submit" case.
-    if (registration.surveyCompletedAt) {
-      apiLogger.info({
-        msg: "survey:post-already-completed",
-        eventId,
-        registrationId,
-      });
-      // Token should already be gone; if a stale clone made it here,
-      // clear it so subsequent attempts also fast-fail.
-      await db.verificationToken
-        .delete({ where: { token: hashedToken } })
-        .catch(() => {}); // already deleted is fine
-      return NextResponse.json({ ok: true, alreadyCompleted: true });
-    }
-
-    stage = "persist";
-    const now = new Date();
-    const ipHash = hashIp(getClientIp(req));
-    // Merge "survey-completed" into existing Attendee.tags without
-    // duplication. Tag list lives on Attendee, not Registration —
-    // mirrors how the cert Issue UI's tag filter operates today.
-    const mergedTags = Array.from(
-      new Set([...(registration.attendee.tags ?? []), SURVEY_COMPLETED_TAG]),
-    );
-
-    try {
-      await db.$transaction(async (tx) => {
-        await tx.surveyResponse.create({
-          data: {
-            eventId: registration.event.id,
-            registrationId: registration.id,
-            answers: answerResult.answers as Prisma.InputJsonValue,
-            ipHash,
-            submittedAt: now,
-          },
-        });
-        await tx.registration.update({
-          where: { id: registration.id },
-          data: { surveyCompletedAt: now },
-        });
-        await tx.attendee.update({
-          where: { id: registration.attendee.id },
-          data: { tags: mergedTags },
-        });
-        await tx.verificationToken.delete({
-          where: { token: hashedToken },
-        });
-      });
-    } catch (txErr) {
-      // P2002 = unique constraint on SurveyResponse.registrationId.
-      // A race between two clicks landed both submits; idempotent
-      // success.
-      if (
-        txErr instanceof Prisma.PrismaClientKnownRequestError &&
-        txErr.code === "P2002"
-      ) {
-        apiLogger.info({
-          msg: "survey:post-race-dedup",
-          eventId,
-          registrationId,
-        });
-        await db.verificationToken
-          .delete({ where: { token: hashedToken } })
-          .catch(() => {});
-        return NextResponse.json({ ok: true, alreadyCompleted: true });
-      }
-      throw txErr;
-    }
-
-    // Fire-and-forget thank-you email. Failure logs but never 500s
-    // the user — the response is already in the DB, the thank-you
-    // is a courtesy. Goes through the per-event template registry +
-    // branding pipeline so the body respects whatever the organizer
-    // configured at Communications → Email Templates → Survey Thank
-    // You (CME-required events override the default cert-neutral
-    // body with their cert-delivery language).
-    stage = "send-thankyou";
-    const recipient = registration.attendee;
-    if (recipient.email) {
-      void (async () => {
-        try {
-          const dbTemplate = await getEventTemplate(
-            registration.event.id,
-            "survey-thankyou",
-          );
-          const fallback = getDefaultTemplate("survey-thankyou");
-          const tpl = dbTemplate ?? fallback;
-          if (!tpl) {
-            apiLogger.error({
-              msg: "survey:thankyou-template-missing",
-              eventId,
-              registrationId,
-            });
-            return;
-          }
-          const branding: EmailBranding = dbTemplate?.branding ?? {
-            eventName: registration.event.name,
-            emailHeaderImage: registration.event.emailHeaderImage,
-            emailFooterImage: registration.event.emailFooterImage,
-            emailFooterHtml: registration.event.emailFooterHtml,
-            emailFromAddress: registration.event.emailFromAddress,
-            emailFromName: registration.event.emailFromName,
-            emailCcAddresses: registration.event.emailCcAddresses,
-          };
-          const vars: Record<string, string | number | undefined> = {
-            firstName: recipient.firstName ?? "there",
-            lastName: "",
-            eventName: registration.event.name,
-          };
-          const rendered = renderAndWrap(tpl, vars, branding);
-          await sendEmail({
-            to: [{ email: recipient.email, name: recipient.firstName ?? undefined }],
-            cc: brandingCc(branding, [{ email: recipient.email }]),
-            from: brandingFrom(branding),
-            subject: rendered.subject,
-            htmlContent: rendered.htmlContent,
-            textContent: rendered.textContent,
-            emailType: "survey_thankyou",
-            stream: "transactional",
-            logContext: {
-              organizationId: registration.event.organizationId,
-              eventId: registration.event.id,
-              entityType: "REGISTRATION",
-              entityId: registration.id,
-              templateSlug: "survey-thankyou",
-            },
-          });
-        } catch (err) {
-          apiLogger.warn({
-            msg: "survey:thankyou-email-failed",
-            err,
-            eventId,
-            registrationId,
-          });
-        }
-      })();
-    } else {
-      apiLogger.warn({
-        msg: "survey:thankyou-no-email",
-        eventId,
-        registrationId,
-      });
-    }
-
-    apiLogger.info({
-      msg: "survey:post-success",
-      eventId,
-      registrationId,
-      answeredCount: Object.keys(answerResult.answers).length,
-    });
-    return NextResponse.json({ ok: true });
+    // Shared finalizer — single-use token path deletes the token.
+    stage = "finalize";
+    return await finalizeSubmission(req, registration, rawAnswers, hashedToken);
   } catch (err) {
     apiLogger.error({
       err,

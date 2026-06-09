@@ -47,34 +47,40 @@ import { getTitleLabel } from "@/lib/utils";
 
 // ── Loaded payload types ───────────────────────────────────────────────
 
-interface LoadedPayload {
-  alreadyCompleted: false;
-  registration: { id: string };
-  attendee: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    title: string | null;
-  };
-  event: {
-    id: string;
-    name: string;
-    slug: string;
-    bannerImage: string | null;
-  };
+type SurveyMode = "token" | "share" | "preview";
+
+interface EventLite {
+  id?: string;
+  name: string;
+  slug: string;
+  bannerImage: string | null;
+}
+
+interface Attendee {
+  firstName: string;
+  lastName: string;
+  email: string;
+  title: string | null;
+}
+
+// Server response shapes across the three modes.
+type ApiPayload =
+  | {
+      alreadyCompleted?: false;
+      mode?: "share" | "preview";
+      registration?: { id: string };
+      attendee?: Attendee;
+      event: EventLite;
+      config: SurveyConfig;
+    }
+  | { alreadyCompleted: true; event: EventLite };
+
+interface ReadyData {
+  event: EventLite;
   config: SurveyConfig;
+  // Token mode prefills identity; share/preview have none.
+  attendee: Attendee | null;
 }
-
-interface AlreadyCompletedPayload {
-  alreadyCompleted: true;
-  event: {
-    name: string;
-    slug: string;
-    bannerImage: string | null;
-  };
-}
-
-type ApiPayload = LoadedPayload | AlreadyCompletedPayload;
 
 // ── Page shell ─────────────────────────────────────────────────────────
 
@@ -94,18 +100,24 @@ function CenteredSpinner() {
   );
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // ── Main client ────────────────────────────────────────────────────────
 
 function PublicSurveyClient() {
   const params = useParams<{ slug: string }>();
   const search = useSearchParams();
   const token = search.get("token") ?? "";
+  const shareToken = search.get("share") ?? "";
+  const isPreview = search.get("preview") === "1";
   const slug = params.slug;
+
+  const mode: SurveyMode = isPreview ? "preview" : shareToken ? "share" : "token";
 
   const [state, setState] = useState<
     | { kind: "loading" }
     | { kind: "error"; message: string }
-    | { kind: "ready"; payload: LoadedPayload }
+    | { kind: "ready"; data: ReadyData }
     | { kind: "thank-you"; eventName: string; bannerImage: string | null }
   >({ kind: "loading" });
 
@@ -114,24 +126,32 @@ function PublicSurveyClient() {
   // server-side per validateAnswers). Skipped optional questions:
   // empty string, which the server treats as absent.
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Share mode — the respondent self-identifies by their registered email.
+  const [shareEmail, setShareEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
 
-  // ── Load token + config ─────────────────────────────────────────────
+  // ── Load config (token / share / preview) ───────────────────────────
 
   useEffect(() => {
-    if (!token) {
+    if (mode === "token" && !token) {
       setState({
         kind: "error",
         message: "No survey token provided. Please use the link from your email.",
       });
       return;
     }
+    const qs =
+      mode === "preview"
+        ? "preview=1"
+        : mode === "share"
+          ? `share=${encodeURIComponent(shareToken)}`
+          : `token=${encodeURIComponent(token)}`;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch(
-          `/api/public/events/${encodeURIComponent(slug)}/survey?token=${encodeURIComponent(token)}`,
+          `/api/public/events/${encodeURIComponent(slug)}/survey?${qs}`,
         );
         const data = (await res.json()) as ApiPayload | { error: string };
         if (cancelled) return;
@@ -151,13 +171,12 @@ function PublicSurveyClient() {
           });
           return;
         }
-        setState({ kind: "ready", payload: data });
+        setState({
+          kind: "ready",
+          data: { event: data.event, config: data.config, attendee: data.attendee ?? null },
+        });
       } catch (err) {
         if (cancelled) return;
-        // Network error or JSON parse fail — distinct from server's
-        // "we got your request and refused it" path. The user
-        // experience is the same; the logged shape differs in
-        // browser devtools.
         console.error("survey:load-failed", err);
         setState({
           kind: "error",
@@ -168,15 +187,22 @@ function PublicSurveyClient() {
     return () => {
       cancelled = true;
     };
-  }, [slug, token]);
+  }, [slug, token, shareToken, mode]);
 
   // ── Submit ──────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(
-    async (loaded: LoadedPayload) => {
+    async (loaded: ReadyData) => {
+      if (mode === "preview") return; // preview never submits
+
+      // Share mode requires the self-identify email up front.
+      if (mode === "share" && !EMAIL_RE.test(shareEmail.trim())) {
+        toast.error("Please enter the email address you registered with.");
+        return;
+      }
+
       // Client-side required check — server re-validates. Marking
-      // failing fields lets the form highlight all of them at once
-      // rather than the user playing whack-a-mole.
+      // failing fields lets the form highlight all of them at once.
       const missing = new Set<string>();
       for (const q of loaded.config) {
         if (!q.required) continue;
@@ -192,25 +218,25 @@ function PublicSurveyClient() {
 
       setSubmitting(true);
       try {
-        // Build the answers map for the server — drop empty strings
-        // (server treats those as absent anyway, but keeping the
-        // wire format tight makes logs easier to read).
         const payloadAnswers: Record<string, string> = {};
         for (const [k, v] of Object.entries(answers)) {
           if (v !== "") payloadAnswers[k] = v;
         }
+        const body =
+          mode === "share"
+            ? { share: shareToken, email: shareEmail.trim(), answers: payloadAnswers }
+            : { token, answers: payloadAnswers };
         const res = await fetch(
           `/api/public/events/${encodeURIComponent(slug)}/survey`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token, answers: payloadAnswers }),
+            body: JSON.stringify(body),
           },
         );
         const data: { ok?: boolean; alreadyCompleted?: boolean; error?: string; details?: { errors?: string[] } } =
           await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
-          // Surface the server's specific per-field errors if it sent any.
           if (data.details?.errors?.length) {
             toast.error(data.details.errors[0]);
           } else {
@@ -230,7 +256,7 @@ function PublicSurveyClient() {
         setSubmitting(false);
       }
     },
-    [answers, slug, token],
+    [answers, slug, token, shareToken, shareEmail, mode],
   );
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -243,22 +269,52 @@ function PublicSurveyClient() {
     );
   }
 
-  const { payload } = state;
+  const { data } = state;
+  const isPreviewMode = mode === "preview";
   return (
     <div className="min-h-screen bg-muted/30">
-      <SurveyHeader event={payload.event} attendee={payload.attendee} />
+      <SurveyHeader event={data.event} attendee={data.attendee} />
       <div className="max-w-3xl mx-auto px-4 py-8">
+        {isPreviewMode ? (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <span className="font-medium">Preview</span> — this is how the survey looks to
+            recipients. Responses are <span className="font-medium">not saved</span> here.
+          </div>
+        ) : null}
         <div className="bg-white rounded-lg shadow-sm border p-6 sm:p-8">
           <h1 className="text-2xl font-bold mb-2">Post-Event Survey</h1>
           <p className="text-muted-foreground mb-6">
             Your feedback helps us improve future events. This should take about 2–3 minutes.
           </p>
+
+          {mode === "share" ? (
+            <div className="mb-6 pb-6 border-b">
+              <Label htmlFor="share-email" className="block mb-2 text-sm font-medium">
+                Your registered email
+                <span className="text-destructive ml-1">*</span>
+              </Label>
+              <Input
+                id="share-email"
+                type="email"
+                inputMode="email"
+                placeholder="you@example.com"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use the email address you registered for this event with — we link your feedback to
+                your registration.
+              </p>
+            </div>
+          ) : null}
+
           <div className="space-y-6">
-            {payload.config.map((q) => (
+            {data.config.map((q) => (
               <QuestionField
                 key={q.id}
                 question={q}
                 value={answers[q.id] ?? ""}
+                disabled={isPreviewMode}
                 onChange={(v) => {
                   setAnswers((prev) => ({ ...prev, [q.id]: v }));
                   if (fieldErrors.has(q.id)) {
@@ -275,8 +331,8 @@ function PublicSurveyClient() {
           </div>
           <div className="mt-8 pt-6 border-t flex justify-end">
             <Button
-              onClick={() => void handleSubmit(payload)}
-              disabled={submitting}
+              onClick={() => void handleSubmit(data)}
+              disabled={submitting || isPreviewMode}
               size="lg"
             >
               {submitting ? (
@@ -284,6 +340,8 @@ function PublicSurveyClient() {
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Submitting…
                 </>
+              ) : isPreviewMode ? (
+                "Submit disabled in preview"
               ) : (
                 "Submit feedback"
               )}
@@ -301,10 +359,11 @@ function SurveyHeader({
   event,
   attendee,
 }: {
-  event: LoadedPayload["event"];
-  attendee: LoadedPayload["attendee"];
+  event: EventLite;
+  attendee: Attendee | null;
 }) {
   const displayName = useMemo(() => {
+    if (!attendee) return "";
     const title = attendee.title ? getTitleLabel(attendee.title) : "";
     const parts = [title, attendee.firstName, attendee.lastName].filter(Boolean);
     return parts.join(" ");
@@ -325,10 +384,12 @@ function SurveyHeader({
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
           {event.name}
         </div>
-        <div className="mt-1 text-sm">
-          Submitting as <span className="font-medium">{displayName}</span>{" "}
-          <span className="text-muted-foreground">· {attendee.email}</span>
-        </div>
+        {attendee ? (
+          <div className="mt-1 text-sm">
+            Submitting as <span className="font-medium">{displayName}</span>{" "}
+            <span className="text-muted-foreground">· {attendee.email}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -339,11 +400,13 @@ function QuestionField({
   value,
   onChange,
   hasError,
+  disabled = false,
 }: {
   question: SurveyQuestion;
   value: string;
   onChange: (next: string) => void;
   hasError: boolean;
+  disabled?: boolean;
 }) {
   const labelEl = (
     <Label
@@ -365,7 +428,7 @@ function QuestionField({
       return (
         <div>
           {labelEl}
-          <Select value={value} onValueChange={onChange}>
+          <Select value={value} onValueChange={onChange} disabled={disabled}>
             <SelectTrigger
               id={question.id}
               className={hasError ? "border-destructive" : ""}
@@ -399,8 +462,9 @@ function QuestionField({
                   type="button"
                   role="radio"
                   aria-checked={selected}
+                  disabled={disabled}
                   onClick={() => onChange(String(n))}
-                  className={`flex-1 min-w-[44px] py-3 rounded-lg border text-lg font-semibold transition ${
+                  className={`flex-1 min-w-[44px] py-3 rounded-lg border text-lg font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed ${
                     selected
                       ? "bg-primary text-primary-foreground border-primary"
                       : hasError
@@ -427,6 +491,7 @@ function QuestionField({
             <Textarea
               id={question.id}
               value={value}
+              disabled={disabled}
               onChange={(e) => onChange(e.target.value)}
               maxLength={question.maxLength}
               rows={4}
@@ -436,6 +501,7 @@ function QuestionField({
             <Input
               id={question.id}
               value={value}
+              disabled={disabled}
               onChange={(e) => onChange(e.target.value)}
               maxLength={question.maxLength}
               className={hasError ? "border-destructive" : ""}
