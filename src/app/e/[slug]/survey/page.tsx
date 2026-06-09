@@ -3,30 +3,26 @@
 /**
  * Public survey form — tokenized post-event feedback collection.
  *
- *   /e/[slug]/survey?token=<raw>
+ *   /e/[slug]/survey?token=<raw>        per-registration (prefilled)
+ *   /e/[slug]/survey?share=<token>      shareable link (self-identify by email)
+ *   /e/[slug]/survey?preview=1          builder preview (non-saving)
  *
  * Lifecycle:
- *   1. On mount, GET /api/public/events/[slug]/survey?token=<raw>
- *      → validates token, returns { config, attendee, event } OR
+ *   1. On mount, GET /api/public/events/[slug]/survey?<mode-qs>
+ *      → validates, returns { config, attendee?, event } OR
  *        { alreadyCompleted: true } OR an error 4xx
- *   2. Render the question form with prefilled identity (read-only).
- *   3. On submit, POST to the same endpoint with { token, answers }.
+ *   2. Render the question form (token mode prefills identity).
+ *   3. On submit, POST to the same endpoint.
  *   4. On success, render the thank-you panel.
  *
- * Failure modes surfaced to the user:
- *   - invalid / expired / wrong-slug token → error panel with the
- *     server's message + a link back to the event home
- *   - no survey configured → friendly "no survey" panel
- *   - already-completed → thank-you panel (idempotent re-arrival)
- *
- * Server validates everything again — this form is the friendly
- * skin around the API. Tampering with the DOM is rejected at submit.
+ * Server validates everything again — this form is the friendly skin
+ * around the API. Tampering with the DOM is rejected at submit.
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2, Mail, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,10 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import type {
-  SurveyConfig,
-  SurveyQuestion,
-} from "@/lib/survey/schema";
+import type { SurveyConfig, SurveyQuestion } from "@/lib/survey/schema";
 import { getTitleLabel } from "@/lib/utils";
 
 // ── Loaded payload types ───────────────────────────────────────────────
@@ -78,8 +71,7 @@ type ApiPayload =
 interface ReadyData {
   event: EventLite;
   config: SurveyConfig;
-  // Token mode prefills identity; share/preview have none.
-  attendee: Attendee | null;
+  attendee: Attendee | null; // token mode only
 }
 
 // ── Page shell ─────────────────────────────────────────────────────────
@@ -94,8 +86,8 @@ export default function PublicSurveyPage() {
 
 function CenteredSpinner() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-primary/[0.06] via-background to-muted/30">
+      <Loader2 className="h-8 w-8 animate-spin text-primary/70" />
     </div>
   );
 }
@@ -121,13 +113,10 @@ function PublicSurveyClient() {
     | { kind: "thank-you"; eventName: string; bannerImage: string | null }
   >({ kind: "loading" });
 
-  // Per-question answer state: questionId → raw value (string from
-  // selects + inputs, number stored as string for ratings — coerced
-  // server-side per validateAnswers). Skipped optional questions:
-  // empty string, which the server treats as absent.
+  // questionId → raw value (string). Ratings stored as the string number;
+  // skipped optionals are empty string (server treats as absent).
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  // Share mode — the respondent self-identifies by their registered email.
-  const [shareEmail, setShareEmail] = useState("");
+  const [shareEmail, setShareEmail] = useState(""); // share mode self-identify
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
 
@@ -195,14 +184,13 @@ function PublicSurveyClient() {
     async (loaded: ReadyData) => {
       if (mode === "preview") return; // preview never submits
 
-      // Share mode requires the self-identify email up front.
       if (mode === "share" && !EMAIL_RE.test(shareEmail.trim())) {
         toast.error("Please enter the email address you registered with.");
         return;
       }
 
-      // Client-side required check — server re-validates. Marking
-      // failing fields lets the form highlight all of them at once.
+      // Client-side required check — server re-validates. Highlight all
+      // failing fields at once rather than one-at-a-time.
       const missing = new Set<string>();
       for (const q of loaded.config) {
         if (!q.required) continue;
@@ -264,57 +252,80 @@ function PublicSurveyClient() {
   if (state.kind === "loading") return <CenteredSpinner />;
   if (state.kind === "error") return <ErrorPanel message={state.message} />;
   if (state.kind === "thank-you") {
-    return (
-      <ThankYouPanel eventName={state.eventName} bannerImage={state.bannerImage} />
-    );
+    return <ThankYouPanel eventName={state.eventName} bannerImage={state.bannerImage} />;
   }
 
   const { data } = state;
   const isPreviewMode = mode === "preview";
-  return (
-    <div className="min-h-screen bg-muted/30">
-      <SurveyHeader event={data.event} attendee={data.attendee} />
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        {isPreviewMode ? (
-          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            <span className="font-medium">Preview</span> — this is how the survey looks to
-            recipients. Responses are <span className="font-medium">not saved</span> here.
-          </div>
-        ) : null}
-        <div className="bg-white rounded-lg shadow-sm border p-6 sm:p-8">
-          <h1 className="text-2xl font-bold mb-2">Post-Event Survey</h1>
-          <p className="text-muted-foreground mb-6">
-            Your feedback helps us improve future events. This should take about 2–3 minutes.
-          </p>
+  const total = data.config.length;
+  const answeredCount = data.config.filter((q) => (answers[q.id] ?? "") !== "").length;
+  const pct = total === 0 ? 0 : Math.round((answeredCount / total) * 100);
 
-          {mode === "share" ? (
-            <div className="mb-6 pb-6 border-b">
-              <Label htmlFor="share-email" className="block mb-2 text-sm font-medium">
-                Your registered email
-                <span className="text-destructive ml-1">*</span>
-              </Label>
-              <Input
-                id="share-email"
-                type="email"
-                inputMode="email"
-                placeholder="you@example.com"
-                value={shareEmail}
-                onChange={(e) => setShareEmail(e.target.value)}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Use the email address you registered for this event with — we link your feedback to
-                your registration.
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      {/* Shared public-page header (banner + event info strip) */}
+      <PublicHeader event={data.event} attendee={data.attendee} />
+
+      {/* Body */}
+      <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-primary/[0.06] via-background to-muted/40">
+        <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
+        <div className="pointer-events-none absolute top-1/3 -left-28 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
+
+        <div className="relative mx-auto max-w-2xl px-4 pb-24 pt-8 sm:pt-10">
+          {/* Intro */}
+          <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+              Post-event feedback
+            </span>
+            <h1 className="mt-1.5 text-3xl font-bold tracking-tight sm:text-[2.1rem]">
+              How did we do?
+            </h1>
+            <p className="mt-2 max-w-prose text-muted-foreground">
+              Your feedback shapes our next event. It takes about 2–3 minutes — thank you for
+              sharing.
+            </p>
+            {!isPreviewMode && total > 0 ? (
+              <div className="mt-5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-primary">
+                    {answeredCount} of {total} answered
+                  </span>
+                  <span className="text-muted-foreground">{pct}%</span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-primary/10">
+                  <div
+                    className="h-full rounded-full bg-gradient-primary-horizontal transition-[width] duration-500 ease-out"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {isPreviewMode ? (
+            <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-900 animate-in fade-in duration-500">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <p>
+                <span className="font-semibold">Preview</span> — this is exactly how the survey
+                looks to recipients. Responses are <span className="font-semibold">not saved</span>.
               </p>
             </div>
           ) : null}
 
-          <div className="space-y-6">
-            {data.config.map((q) => (
-              <QuestionField
+          {mode === "share" ? (
+            <ShareEmailStep value={shareEmail} onChange={setShareEmail} />
+          ) : null}
+
+          {/* Questions */}
+          <div className="mt-6 space-y-4">
+            {data.config.map((q, i) => (
+              <QuestionCard
                 key={q.id}
+                index={i}
                 question={q}
                 value={answers[q.id] ?? ""}
                 disabled={isPreviewMode}
+                hasError={fieldErrors.has(q.id)}
                 onChange={(v) => {
                   setAnswers((prev) => ({ ...prev, [q.id]: v }));
                   if (fieldErrors.has(q.id)) {
@@ -325,19 +336,20 @@ function PublicSurveyClient() {
                     });
                   }
                 }}
-                hasError={fieldErrors.has(q.id)}
               />
             ))}
           </div>
-          <div className="mt-8 pt-6 border-t flex justify-end">
+
+          {/* Submit */}
+          <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-700">
             <Button
               onClick={() => void handleSubmit(data)}
               disabled={submitting || isPreviewMode}
-              size="lg"
+              className="btn-gradient h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/20 disabled:opacity-60 disabled:shadow-none sm:w-auto sm:px-10"
             >
               {submitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   Submitting…
                 </>
               ) : isPreviewMode ? (
@@ -346,6 +358,13 @@ function PublicSurveyClient() {
                 "Submit feedback"
               )}
             </Button>
+            {!isPreviewMode ? (
+              <p className="text-xs text-muted-foreground">
+                {answeredCount === total
+                  ? "All set — submit when you're ready."
+                  : `${total - answeredCount} more to go (optional ones can be skipped).`}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -355,7 +374,12 @@ function PublicSurveyClient() {
 
 // ── Sub-components ─────────────────────────────────────────────────────
 
-function SurveyHeader({
+// Mirrors the header used across the public event pages (register /
+// confirmation): full-width banner shown whole (object-contain), or a
+// thin gradient accent line when there's no banner, followed by a white
+// event-info strip. Survey-specific: the strip carries the respondent's
+// identity (token mode) on the right.
+function PublicHeader({
   event,
   attendee,
 }: {
@@ -365,95 +389,187 @@ function SurveyHeader({
   const displayName = useMemo(() => {
     if (!attendee) return "";
     const title = attendee.title ? getTitleLabel(attendee.title) : "";
-    const parts = [title, attendee.firstName, attendee.lastName].filter(Boolean);
-    return parts.join(" ");
+    return [title, attendee.firstName, attendee.lastName].filter(Boolean).join(" ");
   }, [attendee]);
+
   return (
-    <div className="bg-white border-b">
+    <>
       {event.bannerImage ? (
-        <div className="w-full h-32 sm:h-40 overflow-hidden bg-muted/20 flex items-center justify-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={event.bannerImage}
-            alt={event.name}
-            className="w-full h-full object-contain object-center"
-          />
-        </div>
-      ) : null}
-      <div className="max-w-3xl mx-auto px-4 py-4">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          {event.name}
-        </div>
-        {attendee ? (
-          <div className="mt-1 text-sm">
-            Submitting as <span className="font-medium">{displayName}</span>{" "}
-            <span className="text-muted-foreground">· {attendee.email}</span>
+        <div className="relative w-full bg-white">
+          <div className="mx-auto max-w-[1400px]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={event.bannerImage}
+              alt={event.name}
+              className="h-auto max-h-[240px] w-full object-contain"
+            />
           </div>
-        ) : null}
+        </div>
+      ) : (
+        <div className="border-b border-slate-100 bg-white">
+          <div className="h-1 bg-gradient-primary" />
+        </div>
+      )}
+
+      <div className="border-b border-slate-200/60 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
+            <h2 className="mr-auto text-base font-semibold text-slate-800">{event.name}</h2>
+            {attendee ? (
+              <div className="flex items-center gap-1.5 text-sm text-slate-500">
+                <span className="font-medium text-slate-700">{displayName}</span>
+                <span className="text-slate-400">· {attendee.email}</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
+    </>
+  );
+}
+
+function ShareEmailStep({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="mt-6 rounded-2xl border bg-card p-5 shadow-sm animate-in fade-in slide-in-from-bottom-3 duration-500 sm:p-6">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Mail className="h-4 w-4" />
+        </div>
+        <div>
+          <Label htmlFor="share-email" className="text-sm font-semibold">
+            Your registered email <span className="text-destructive">*</span>
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            We link your feedback to your registration.
+          </p>
+        </div>
+      </div>
+      <Input
+        id="share-email"
+        type="email"
+        inputMode="email"
+        autoComplete="email"
+        placeholder="you@example.com"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-4 h-11 rounded-xl"
+      />
     </div>
   );
 }
 
-function QuestionField({
+function QuestionCard({
+  index,
   question,
   value,
   onChange,
   hasError,
   disabled = false,
 }: {
+  index: number;
   question: SurveyQuestion;
   value: string;
   onChange: (next: string) => void;
   hasError: boolean;
   disabled?: boolean;
 }) {
-  const labelEl = (
-    <Label
-      htmlFor={question.id}
-      className={`block mb-2 text-sm font-medium ${hasError ? "text-destructive" : ""}`}
-    >
-      {question.label}
-      {question.required ? <span className="text-destructive ml-1">*</span> : null}
-      {!question.required ? (
-        <span className="text-muted-foreground font-normal ml-2 text-xs">
-          (optional — skip if not applicable)
-        </span>
-      ) : null}
-    </Label>
-  );
+  const answered = value !== "";
 
+  return (
+    <div
+      className={`group rounded-2xl border bg-card p-5 shadow-sm transition-colors animate-in fade-in slide-in-from-bottom-3 fill-mode-backwards sm:p-6 ${
+        hasError ? "border-destructive/60 ring-1 ring-destructive/20" : "border-border hover:border-primary/30"
+      }`}
+      style={{ animationDelay: `${Math.min(index, 8) * 70}ms`, animationDuration: "500ms" }}
+    >
+      <div className="flex gap-3.5">
+        {/* Number badge — fills with the brand gradient once answered */}
+        <div
+          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-all ${
+            answered
+              ? "bg-gradient-primary text-white shadow-sm shadow-primary/30"
+              : hasError
+                ? "bg-destructive/10 text-destructive"
+                : "bg-muted text-muted-foreground"
+          }`}
+          aria-hidden
+        >
+          {answered ? <Check className="h-3.5 w-3.5" /> : index + 1}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <Label
+            htmlFor={question.id}
+            className={`block text-[0.95rem] font-medium leading-snug ${hasError ? "text-destructive" : ""}`}
+          >
+            {question.label}
+            {question.required ? (
+              <span className="ml-1 text-destructive">*</span>
+            ) : (
+              <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[0.65rem] font-normal text-muted-foreground">
+                Optional
+              </span>
+            )}
+          </Label>
+
+          <div className="mt-3">
+            <QuestionInput
+              question={question}
+              value={value}
+              onChange={onChange}
+              hasError={hasError}
+              disabled={disabled}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuestionInput({
+  question,
+  value,
+  onChange,
+  hasError,
+  disabled,
+}: {
+  question: SurveyQuestion;
+  value: string;
+  onChange: (next: string) => void;
+  hasError: boolean;
+  disabled: boolean;
+}) {
   switch (question.type) {
     case "single_select":
       return (
-        <div>
-          {labelEl}
-          <Select value={value} onValueChange={onChange} disabled={disabled}>
-            <SelectTrigger
-              id={question.id}
-              className={hasError ? "border-destructive" : ""}
-            >
-              <SelectValue placeholder="Select an option" />
-            </SelectTrigger>
-            <SelectContent>
-              {question.options.map((opt) => (
-                <SelectItem key={opt} value={opt}>
-                  {opt}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={value} onValueChange={onChange} disabled={disabled}>
+          <SelectTrigger
+            id={question.id}
+            className={`h-11 rounded-xl ${hasError ? "border-destructive" : ""}`}
+          >
+            <SelectValue placeholder="Choose an option" />
+          </SelectTrigger>
+          <SelectContent>
+            {question.options.map((opt) => (
+              <SelectItem key={opt} value={opt}>
+                {opt}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       );
+
     case "rating_1_to_5":
       return (
         <div>
-          {labelEl}
-          <div
-            className="flex gap-2"
-            role="radiogroup"
-            aria-label={question.label}
-          >
+          <div className="flex gap-2" role="radiogroup" aria-label={question.label}>
             {[1, 2, 3, 4, 5].map((n) => {
               const selected = value === String(n);
               return (
@@ -462,14 +578,15 @@ function QuestionField({
                   type="button"
                   role="radio"
                   aria-checked={selected}
+                  aria-label={String(n)}
                   disabled={disabled}
                   onClick={() => onChange(String(n))}
-                  className={`flex-1 min-w-[44px] py-3 rounded-lg border text-lg font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed ${
+                  className={`flex h-12 flex-1 items-center justify-center rounded-xl text-lg font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${
                     selected
-                      ? "bg-primary text-primary-foreground border-primary"
+                      ? "btn-gradient scale-[1.04] shadow-md shadow-primary/25"
                       : hasError
-                        ? "border-destructive text-destructive hover:bg-destructive/5"
-                        : "border-input hover:bg-muted"
+                        ? "border border-destructive/50 text-destructive hover:bg-destructive/5"
+                        : "border border-input bg-background text-foreground hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary"
                   }`}
                 >
                   {n}
@@ -477,52 +594,52 @@ function QuestionField({
               );
             })}
           </div>
-          <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-            <span>1 — Least satisfied</span>
-            <span>5 — Most satisfied</span>
+          <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+            <span>Least satisfied</span>
+            <span>Most satisfied</span>
           </div>
         </div>
       );
+
     case "text":
-      return (
-        <div>
-          {labelEl}
-          {(question.maxLength ?? 0) > 200 ? (
-            <Textarea
-              id={question.id}
-              value={value}
-              disabled={disabled}
-              onChange={(e) => onChange(e.target.value)}
-              maxLength={question.maxLength}
-              rows={4}
-              className={hasError ? "border-destructive" : ""}
-            />
-          ) : (
-            <Input
-              id={question.id}
-              value={value}
-              disabled={disabled}
-              onChange={(e) => onChange(e.target.value)}
-              maxLength={question.maxLength}
-              className={hasError ? "border-destructive" : ""}
-            />
-          )}
-        </div>
+      return (question.maxLength ?? 0) > 200 ? (
+        <Textarea
+          id={question.id}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={question.maxLength}
+          rows={4}
+          placeholder="Type your answer…"
+          className={`rounded-xl ${hasError ? "border-destructive" : ""}`}
+        />
+      ) : (
+        <Input
+          id={question.id}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={question.maxLength}
+          placeholder="Type your answer…"
+          className={`h-11 rounded-xl ${hasError ? "border-destructive" : ""}`}
+        />
       );
   }
 }
 
 function ErrorPanel({ message }: { message: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-sm border p-8 text-center">
-        <div className="mx-auto h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/[0.06] via-background to-muted/30 px-4">
+      <div className="w-full max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm animate-in fade-in zoom-in-95 duration-500">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
           <AlertCircle className="h-6 w-6 text-destructive" />
         </div>
-        <h1 className="text-xl font-semibold mb-2">Survey unavailable</h1>
-        <p className="text-muted-foreground mb-6">{message}</p>
+        <h1 className="mb-2 text-xl font-semibold">Survey unavailable</h1>
+        <p className="mb-6 text-muted-foreground">{message}</p>
         <Link href="/">
-          <Button variant="outline">Return to home</Button>
+          <Button variant="outline" className="rounded-xl">
+            Return to home
+          </Button>
         </Link>
       </div>
     </div>
@@ -537,27 +654,35 @@ function ThankYouPanel({
   bannerImage: string | null;
 }) {
   return (
-    <div className="min-h-screen bg-muted/30">
-      {bannerImage ? (
-        <div className="w-full h-32 sm:h-40 overflow-hidden bg-white border-b flex items-center justify-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={bannerImage}
-            alt={eventName}
-            className="w-full h-full object-contain object-center"
-          />
-        </div>
-      ) : null}
-      <div className="max-w-2xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-lg shadow-sm border p-8 text-center">
-          <div className="mx-auto h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
-            <CheckCircle className="h-7 w-7 text-emerald-600" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.07] via-background to-muted/40 px-4">
+      <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 -left-20 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
+
+      <div className="relative w-full max-w-md rounded-3xl border bg-card/90 p-8 text-center shadow-xl shadow-primary/10 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-500 sm:p-10">
+        {bannerImage ? (
+          <div className="mx-auto mb-6 flex h-16 items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={bannerImage}
+              alt={eventName}
+              className="max-h-full w-auto max-w-[70%] object-contain"
+            />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Thank you!</h1>
-          <p className="text-muted-foreground">
-            Your feedback for <span className="font-medium">{eventName}</span> has been recorded.
-          </p>
+        ) : null}
+
+        <div className="relative mx-auto mb-5 flex h-16 w-16 items-center justify-center">
+          <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-20 blur-md" />
+          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-white shadow-lg shadow-primary/30 animate-in zoom-in-50 duration-700">
+            <Check className="h-8 w-8" strokeWidth={2.5} />
+          </span>
         </div>
+
+        <h1 className="text-2xl font-bold tracking-tight">Thank you!</h1>
+        <p className="mt-2 text-muted-foreground">
+          Your feedback for <span className="font-medium text-foreground">{eventName}</span> has
+          been recorded.
+        </p>
+        <p className="mt-4 text-xs text-muted-foreground/80">You can safely close this tab.</p>
       </div>
     </div>
   );
