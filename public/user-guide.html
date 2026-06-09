@@ -1201,14 +1201,15 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="step"><div class="step-n"></div><div class="step-b">Recipient type: Registrations, Speakers, or Abstracts</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">For registrations: optionally set the <strong>Status Filter</strong> (CONFIRMED only, etc.) and the <strong>Payment Status Filter</strong> (UNPAID only, etc.)</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Pick a template or compose freely. Subject + body support variables.</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b">Review the recipient count. Send now, or pick a date/time to <strong>schedule for later</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Review the recipient count. <strong>Send now</strong> (queued and delivered within about a minute), or pick a date/time to <strong>schedule for later</strong>.</div></div>
         </div>
-        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Rate limit: 10 bulk sends per event per hour</div><div class="c-text">Plan campaigns accordingly. Avoid sending back-to-back in quick succession &mdash; you&rsquo;ll get a 429 with a retry-after time.</div></div></div>
+        <div class="callout c-new"><div class="c-icon">&#x1F4A1;</div><div class="c-body"><div class="c-title">&ldquo;Send now&rdquo; is queued, not instant</div><div class="c-text">As of June 2026, a &ldquo;Send now&rdquo; bulk email is <strong>queued and delivered within about a minute</strong> rather than sent on the spot &mdash; this keeps large sends from timing out the page. The send appears in the <strong>Scheduled</strong> tab where you watch it move PENDING &rarr; PROCESSING &rarr; SENT with success/failure counts. Your selected or filtered recipients are preserved exactly.</div></div></div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Rate limit: 20 bulk sends per event per hour</div><div class="c-text">Shared across &ldquo;Send now&rdquo; and scheduled sends. Avoid sending back-to-back in quick succession &mdash; you&rsquo;ll get a 429 with a retry-after time.</div></div></div>
       </div>
 
       <div class="sub" id="s9-5">
         <div class="sub-title">Scheduled emails</div>
-        <p>Future-dated sends. The bulk email dialog has a &ldquo;Send now / Schedule for later&rdquo; toggle. Scheduled emails appear in the Scheduled tab where you can edit, cancel, or retry failed sends. Recipient filters are <strong>re-evaluated at fire time</strong> &mdash; so a &ldquo;remind unpaid&rdquo; scheduled email naturally excludes anyone who paid in the meantime.</p>
+        <p>Future-dated sends. The bulk email dialog has a &ldquo;Send now / Schedule for later&rdquo; toggle. <strong>Both</strong> immediate &ldquo;Send now&rdquo; and future-dated sends land in the Scheduled tab, where you can edit, cancel, or retry failed sends and see per-send success/failure counts. Recipient filters are <strong>re-evaluated at fire time</strong> &mdash; so a &ldquo;remind unpaid&rdquo; scheduled email naturally excludes anyone who paid in the meantime.</p>
       </div>
 
       <div class="sub" id="s9-6">
