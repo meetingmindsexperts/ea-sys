@@ -232,6 +232,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
         status: "SCHEDULED",
         externalId: "sess-ext-1",
         speakers: [{ sessionId: "sess-1", speakerId: "sp-1", role: "keynote" }],
+        topics: [],
       },
       {
         id: "sess-2",
@@ -245,6 +246,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
         status: "SCHEDULED",
         externalId: null,
         speakers: [],
+        topics: [],
       },
     ],
     ...overrides,
@@ -376,6 +378,9 @@ describe("POST /api/events/[eventId]/clone", () => {
           sessionSpeaker: {
             create: vi.fn().mockResolvedValue({}),
           },
+          sessionTopic: {
+            create: vi.fn().mockResolvedValue({ id: "new-topic-1" }),
+          },
         };
 
         transactionCalls = {};
@@ -482,6 +487,62 @@ describe("POST /api/events/[eventId]/clone", () => {
       const data = mockTx.event.create.mock.calls[0][0].data;
       expect(data).not.toHaveProperty("externalId");
       expect(data).not.toHaveProperty("externalSource");
+    });
+
+    it("clones Tier-2 config columns and excludes code / surveyShareLink / agreement template", async () => {
+      setupSuccessfulClone({
+        emailHeaderImage: "/uploads/header.png",
+        emailFromName: "MMG Events",
+        emailCcAddresses: ["ops@example.com"],
+        registrationWelcomeHtml: "<p>Welcome</p>",
+        speakerAgreementHtml: "<p>Agreement</p>",
+        surveyConfig: [{ id: "q1", type: "text", label: "Q", required: false }],
+        taxRate: 5,
+        taxLabel: "VAT",
+        bankDetails: "IBAN 123",
+        badgeVerticalOffset: 12,
+        cmeHours: 3,
+        requiresDtcmBarcode: true,
+        // Must be excluded:
+        code: "MMG-001",
+        surveyShareLink: { token: "t", expiresAt: "x", createdAt: "y", createdByUserId: "u" },
+        speakerAgreementTemplate: { url: "/x.docx", filename: "x.docx" },
+      });
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "x", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+        sessionTopic: { create: vi.fn().mockResolvedValue({}) },
+      };
+
+      await txFn(mockTx);
+      const data = mockTx.event.create.mock.calls[0][0].data;
+
+      expect(data.emailHeaderImage).toBe("/uploads/header.png");
+      expect(data.emailFromName).toBe("MMG Events");
+      expect(data.emailCcAddresses).toEqual(["ops@example.com"]);
+      expect(data.registrationWelcomeHtml).toBe("<p>Welcome</p>");
+      expect(data.speakerAgreementHtml).toBe("<p>Agreement</p>");
+      expect(data.surveyConfig).toEqual([{ id: "q1", type: "text", label: "Q", required: false }]);
+      expect(data.taxRate).toBe(5);
+      expect(data.taxLabel).toBe("VAT");
+      expect(data.bankDetails).toBe("IBAN 123");
+      expect(data.badgeVerticalOffset).toBe(12);
+      expect(data.cmeHours).toBe(3);
+      expect(data.requiresDtcmBarcode).toBe(true);
+
+      // Deliberately excluded.
+      expect(data.code).toBeUndefined();
+      expect(data.surveyShareLink).toBeUndefined();
+      expect(data.speakerAgreementTemplate).toBeUndefined();
     });
 
     it("clones all ticket types with soldCount reset to 0", async () => {
@@ -677,6 +738,83 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(ssData.sessionId).toBe("new-sess-1");
       expect(ssData.speakerId).toBe("new-sp-1"); // Remapped from sp-1
       expect(ssData.role).toBe("keynote");
+    });
+
+    it("clones session topics + per-topic speakers with remapped IDs", async () => {
+      // Override only the sessions so the default `sp-1` speaker (created
+      // first → new-sp-1) is available for the per-topic remap.
+      setupSuccessfulClone({
+        eventSessions: [
+          {
+            id: "sess-1",
+            trackId: null,
+            name: "Agenda Session",
+            description: null,
+            startTime: new Date("2026-06-01T09:00:00Z"),
+            endTime: new Date("2026-06-01T10:00:00Z"),
+            location: null,
+            capacity: null,
+            status: "SCHEDULED",
+            externalId: null,
+            speakers: [],
+            topics: [
+              {
+                id: "top-1",
+                title: "Topic One",
+                sortOrder: 0,
+                duration: 30,
+                abstractId: "abs-1", // must NOT be cloned
+                speakers: [{ topicId: "top-1", speakerId: "sp-1" }],
+              },
+              {
+                id: "top-2",
+                title: "Topic Two",
+                sortOrder: 1,
+                duration: null,
+                abstractId: null,
+                speakers: [],
+              },
+            ],
+          },
+        ],
+      });
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      let speakerIndex = 0;
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+        speaker: {
+          create: vi.fn().mockImplementation(async () => {
+            speakerIndex++;
+            return { id: `new-sp-${speakerIndex}` };
+          }),
+        },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "new-sess-1" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+        sessionTopic: { create: vi.fn().mockResolvedValue({ id: "new-top" }) },
+      };
+
+      await txFn(mockTx);
+
+      expect(mockTx.sessionTopic.create).toHaveBeenCalledTimes(2);
+
+      const t1 = mockTx.sessionTopic.create.mock.calls[0][0].data;
+      expect(t1.sessionId).toBe("new-sess-1");
+      expect(t1.title).toBe("Topic One");
+      expect(t1.sortOrder).toBe(0);
+      expect(t1.duration).toBe(30);
+      expect(t1.abstractId).toBeUndefined(); // abstractId intentionally dropped
+      expect(t1.speakers).toEqual({ create: [{ speakerId: "new-sp-1" }] }); // sp-1 → new-sp-1
+
+      const t2 = mockTx.sessionTopic.create.mock.calls[1][0].data;
+      expect(t2.title).toBe("Topic Two");
+      expect(t2.duration).toBeNull();
+      expect(t2.speakers).toBeUndefined(); // no speakers → no nested create
     });
   });
 

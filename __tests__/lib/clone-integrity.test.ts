@@ -23,6 +23,28 @@ const CLONED_EVENT_FIELDS = [
   "specialty",
   "bannerImage",
   "footerHtml",
+  // Per-event config in dedicated columns (added to the clone June 2026).
+  "emailHeaderImage",
+  "emailFooterImage",
+  "emailFooterHtml",
+  "emailFromAddress",
+  "emailFromName",
+  "emailCcAddresses",
+  "supportEmail",
+  "registrationTermsHtml",
+  "registrationWelcomeHtml",
+  "registrationConfirmationHtml",
+  "abstractWelcomeHtml",
+  "abstractTermsHtml",
+  "abstractConfirmationHtml",
+  "speakerAgreementHtml",
+  "surveyConfig",
+  "taxRate",
+  "taxLabel",
+  "bankDetails",
+  "badgeVerticalOffset",
+  "cmeHours",
+  "requiresDtcmBarcode",
 ] as const;
 
 /** Fields that should be reset / excluded on the cloned event */
@@ -217,8 +239,16 @@ describe("clone data completeness", () => {
     const allEventFields = [
       "id", "organizationId", "name", "slug", "description",
       "startDate", "endDate", "timezone", "venue", "address",
-      "city", "country", "eventType", "tag", "specialty",
+      "city", "country", "eventType", "tag", "specialty", "code",
       "status", "settings", "bannerImage", "footerHtml",
+      "requiresDtcmBarcode",
+      "emailHeaderImage", "emailFooterImage", "emailFooterHtml",
+      "emailFromAddress", "emailFromName", "emailCcAddresses", "supportEmail",
+      "registrationTermsHtml", "registrationWelcomeHtml", "registrationConfirmationHtml",
+      "abstractWelcomeHtml", "abstractTermsHtml", "abstractConfirmationHtml",
+      "speakerAgreementHtml", "speakerAgreementTemplate",
+      "surveyConfig", "surveyShareLink",
+      "taxRate", "taxLabel", "bankDetails", "badgeVerticalOffset", "cmeHours",
       "externalId", "externalSource", "createdAt", "updatedAt",
     ];
 
@@ -226,9 +256,18 @@ describe("clone data completeness", () => {
     const autoFields = ["id", "createdAt", "updatedAt"];
     const resetFields = ["status", "externalId", "externalSource"];
     const specialFields = ["name", "slug", "settings"]; // modified, not copied as-is
+    // Deliberately excluded per the clone design:
+    //   code             — feeds invoice numbering; must regenerate per event
+    //   surveyShareLink  — a live token tied to the source event
+    //   speakerAgreementTemplate — file-backed (.docx); needs a file copy (Tier 3)
+    const intentionallyExcluded = ["code", "surveyShareLink", "speakerAgreementTemplate"];
 
     const copyableFields = allEventFields.filter(
-      (f) => !autoFields.includes(f) && !resetFields.includes(f) && !specialFields.includes(f)
+      (f) =>
+        !autoFields.includes(f) &&
+        !resetFields.includes(f) &&
+        !specialFields.includes(f) &&
+        !intentionallyExcluded.includes(f)
     );
 
     for (const field of copyableFields) {

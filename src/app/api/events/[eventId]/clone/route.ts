@@ -27,7 +27,15 @@ export async function POST(
         speakers: true,
         tracks: true,
         hotels: { include: { roomTypes: true } },
-        eventSessions: { include: { speakers: true } },
+        eventSessions: {
+          include: {
+            speakers: true,
+            // Per-session agenda items + their per-topic speakers — these
+            // were previously dropped, silently losing the detailed agenda
+            // on every clone.
+            topics: { include: { speakers: true } },
+          },
+        },
       },
     });
 
@@ -77,6 +85,35 @@ export async function POST(
             settings,
             bannerImage: source.bannerImage,
             footerHtml: source.footerHtml,
+            // Newer per-event config that lives in dedicated columns (NOT in
+            // the settings JSON). Copied so a clone carries the organizer's
+            // full customization instead of silently reverting to defaults.
+            // Deliberately NOT copied: `code` (feeds invoice numbering —
+            // must regenerate per event), `surveyShareLink` (a live token
+            // tied to the source event), and `speakerAgreementTemplate`
+            // (file-backed — would share an uploaded .docx; deferred to a
+            // file-copy pass).
+            emailHeaderImage: source.emailHeaderImage,
+            emailFooterImage: source.emailFooterImage,
+            emailFooterHtml: source.emailFooterHtml,
+            emailFromAddress: source.emailFromAddress,
+            emailFromName: source.emailFromName,
+            emailCcAddresses: source.emailCcAddresses,
+            supportEmail: source.supportEmail,
+            registrationTermsHtml: source.registrationTermsHtml,
+            registrationWelcomeHtml: source.registrationWelcomeHtml,
+            registrationConfirmationHtml: source.registrationConfirmationHtml,
+            abstractWelcomeHtml: source.abstractWelcomeHtml,
+            abstractTermsHtml: source.abstractTermsHtml,
+            abstractConfirmationHtml: source.abstractConfirmationHtml,
+            speakerAgreementHtml: source.speakerAgreementHtml,
+            surveyConfig: source.surveyConfig ?? undefined,
+            taxRate: source.taxRate,
+            taxLabel: source.taxLabel,
+            bankDetails: source.bankDetails,
+            badgeVerticalOffset: source.badgeVerticalOffset,
+            cmeHours: source.cmeHours,
+            requiresDtcmBarcode: source.requiresDtcmBarcode,
           },
         });
 
@@ -224,6 +261,28 @@ export async function POST(
                 },
               });
             }
+          }
+
+          // Clone agenda topics + their per-topic speakers. abstractId is
+          // intentionally NOT cloned — abstracts aren't copied, and the
+          // column is @unique so reusing it would dangle/collide.
+          for (const topic of sess.topics) {
+            const remappedTopicSpeakers = topic.speakers
+              .map((ts) => speakerMap.get(ts.speakerId))
+              .filter((id): id is string => Boolean(id))
+              .map((speakerId) => ({ speakerId }));
+            await tx.sessionTopic.create({
+              data: {
+                sessionId: newSession.id,
+                title: topic.title,
+                sortOrder: topic.sortOrder,
+                duration: topic.duration,
+                speakers:
+                  remappedTopicSpeakers.length > 0
+                    ? { create: remappedTopicSpeakers }
+                    : undefined,
+              },
+            });
           }
         }
 
