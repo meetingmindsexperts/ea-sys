@@ -26,7 +26,10 @@ const { eventHandlers, loggerCalls } = vi.hoisted(() => ({
 vi.mock("@/lib/logger", () => ({
   dbLogger: {
     info: () => undefined,
-    warn: () => undefined,
+    // Capture BOTH warn and error: as of the retryable-gating change,
+    // retryable transients log at warn (below the alert threshold) and
+    // non-retryable / unknown errors log at error. Tests assert the level.
+    warn: (payload: Record<string, unknown>) => loggerCalls.push({ level: "warn", payload }),
     error: (payload: Record<string, unknown>) => loggerCalls.push({ level: "error", payload }),
     debug: () => undefined,
   },
@@ -106,6 +109,50 @@ describe("Prisma error classifier — connectivity errors", () => {
     const payload = await fireError("Can't reach database server at host:5432");
     expect(payload.msg).toBe("DB unreachable");
     expect(payload.retryable).toBe(true);
+  });
+
+  // The webinar-recordings incident: Supabase pooler (Supavisor) closed a
+  // held connection. Two message shapes appeared — the connector event
+  // (`Error { kind: Closed }`) and the application-level invocation error
+  // (`EDBHANDLEREXITED ... connection to database closed`). Both must
+  // classify as the same retryable category so they don't fall back to
+  // the unclassified "Prisma error" bucket (and so they log at warn, not
+  // error — see the level-gating block below).
+  it("classifies connector 'kind: Closed' as retryable DB connection closed", async () => {
+    const payload = await fireError(
+      "Error in PostgreSQL connection: Error { kind: Closed, cause: None }",
+    );
+    expect(payload.msg).toBe("DB connection closed");
+    expect(payload.retryable).toBe(true);
+  });
+
+  it("classifies 'EDBHANDLEREXITED ... connection to database closed' as retryable DB connection closed", async () => {
+    const payload = await fireError(
+      "Error in connector: Error querying the database: FATAL: (EDBHANDLEREXITED) connection to database closed. Check logs for more information",
+    );
+    expect(payload.msg).toBe("DB connection closed");
+    expect(payload.retryable).toBe(true);
+  });
+});
+
+describe("Prisma error classifier — alert-level gating on `retryable`", () => {
+  // The whole point of the gating change: retryable transients self-heal,
+  // so they log at warn (visible in /logs + Sentry, but BELOW the
+  // error-level threshold that fires the SES admin-alert page). This is
+  // what stops the webinar-recordings pooler-dropout from paging.
+  it("logs a retryable connection-closed error at warn (no page)", async () => {
+    await fireError("Error { kind: Closed, cause: None }");
+    expect(loggerCalls[loggerCalls.length - 1].level).toBe("warn");
+  });
+
+  it("logs a non-retryable auth failure at error (still pages — needs a human)", async () => {
+    await fireError("FATAL: password authentication failed for user 'foo'");
+    expect(loggerCalls[loggerCalls.length - 1].level).toBe("error");
+  });
+
+  it("logs an UNCLASSIFIED error at error (unknowns must still page)", async () => {
+    await fireError("some brand new error string from a future Prisma");
+    expect(loggerCalls[loggerCalls.length - 1].level).toBe("error");
   });
 });
 

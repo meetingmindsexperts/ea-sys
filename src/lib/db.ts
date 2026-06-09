@@ -22,7 +22,7 @@ const globalForPrisma = globalThis as unknown as {
  * caller falls back to the generic "Prisma error" title and we add the
  * pattern next time we see it.
  */
-function classifyPrismaError(message: string): {
+export function classifyPrismaError(message: string): {
   category: string;
   retryable: boolean;
 } | null {
@@ -40,6 +40,18 @@ function classifyPrismaError(message: string): {
   }
   if (/Connection terminated|terminated unexpectedly/i.test(m)) {
     return { category: "DB connection terminated", retryable: true };
+  }
+  // Supabase pooler (Supavisor) dropping a held connection: the worker
+  // saw `EDBHANDLEREXITED` ("database handler exited") on a lock-acquire
+  // query, and the connector emitted `Error { kind: Closed }`. Routine
+  // idle-reap / maintenance churn — Prisma re-establishes on the next
+  // query, so it's retryable.
+  if (
+    /connection to database closed|connection closed|kind:\s*Closed|EDBHANDLEREXITED/i.test(
+      m,
+    )
+  ) {
+    return { category: "DB connection closed", retryable: true };
   }
   if (/authentication failed|password authentication/i.test(m)) {
     return { category: "DB authentication failed", retryable: false };
@@ -86,7 +98,17 @@ function createPrismaClient() {
     const wrappedError = new Error(e.message || "(no message — Rust event with empty propagation)");
     wrappedError.name = classification ? `Prisma${classification.category.replace(/\s+/g, "")}Error` : "PrismaError";
 
-    dbLogger.error({
+    // Gate the log level on the classification's `retryable` flag (until
+    // now `retryable` was metadata only — nothing consumed it). Retryable
+    // transients — pooler dropouts, timeouts, resets, closed connections —
+    // self-heal on the next query, so they log at `warn`: still visible in
+    // /logs + Sentry, but below the error threshold that fires the SES
+    // admin-alert page. Non-retryable classified errors (auth, TLS) AND
+    // unclassified errors stay at `error`, because those need a human.
+    const emit = classification?.retryable
+      ? dbLogger.warn.bind(dbLogger)
+      : dbLogger.error.bind(dbLogger);
+    emit({
       err: wrappedError,
       msg: title,
       // Original raw fields retained for grep/back-compat with the old
