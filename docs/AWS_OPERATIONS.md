@@ -455,7 +455,96 @@ debugger to the live prod Node process.
 
 ---
 
-## 4. One-time / occasional infra
+## 4. Security — DDoS / bot posture
+
+**Verified state (June 2026).** EA-SYS runs on a single directly-exposed EC2.
+There is **no CDN, no AWS WAF, and no host WAF**. Defense is entirely
+origin-side:
+
+| Layer | What's there | Notes |
+|---|---|---|
+| **L3/L4 volumetric** | AWS **Shield Standard** only (free, automatic) | A single EC2 cannot absorb a real volumetric flood — this is the known gap (no CDN by decision). |
+| **AWS WAF** | **None** — verified empty across WAFv2 Regional (ap-south-1, ap-southeast-1), WAFv2 CloudFront, and WAF Classic. No ALB/CloudFront for one to attach to anyway. | AWS WAF can't bind to a bare EC2. |
+| **Host WAF (ModSecurity)** | **None** — nginx not built with it, no modsec config. | — |
+| **nginx rate limiting** | **LIVE** — `limit_req` + `limit_conn` keyed on `$binary_remote_addr` (the real client IP, since no proxy is in front). | See §4.1. |
+| **In-app rate limiting** | `checkRateLimit` across ~80 buckets keyed by **IP / userId / org / API-key / OAuth-token**. | In-memory + per-container → resets on deploy, not shared across blue/green. Best-effort. |
+| **fail2ban** | **One jail: `sshd`** (SSH brute-force). Does NOT watch nginx/HTTP. | `fail2ban-client status` |
+| **ufw + Security Group** | Both **active but open** on 22/80/443 to `0.0.0.0/0`. 22 stays open (GitHub Actions deploy needs it; fail2ban + SG guard it). | — |
+| **Payments** | Stripe **Radar** (fraud/card-testing) — confirm it's enabled in the Stripe dashboard. | — |
+
+Verify any of these yourself: AWS WAF → `aws wafv2 list-web-acls --scope REGIONAL --region ap-south-1`; host → the §3.2 SSM bundle plus `fail2ban-client status` / `ufw status verbose` / `nginx -V 2>&1 | grep -i modsec`.
+
+### 4.1 nginx per-IP rate limiting (live config)
+
+Lives in the box's `/etc/nginx/sites-available/ea-sys` (a stripped,
+Certbot-managed file that has **diverged from the committed `deploy/nginx.conf`**
+— the box is the source of truth for nginx; the git file is a reference).
+
+- `limit_req_zone … zone=ea_req rate=100r/s` → `limit_req burst=200 nodelay` on
+  `location /` (HTML/RSC/API), `burst=50` on `/api/mcp`. Static `/_next/static/`
+  and the `/stream/` HLS path are intentionally **un-limited**.
+- `limit_conn_zone … zone=ea_conn` → `limit_conn ea_conn 100` (per-IP concurrent).
+- Exceeding either returns **429** and logs `limiting requests … zone "ea_req"`
+  to `/var/log/nginx/error.log`.
+- Keyed on `$binary_remote_addr` — safe today because the origin is directly
+  exposed, so that IS the true client IP.
+
+**Shared-NAT caveat (EA-SYS-specific):** event attendees often share one
+venue-WiFi IP, so per-IP limits can clip a whole crowd. The thresholds are tuned
+to tolerate a normal on-site audience; for a very large single-NAT rush, raise
+`limit_conn` / `rate`, `nginx -t`, then `systemctl reload nginx`.
+
+Verify it works (from anywhere — hits only your IP, resets in ~2s):
+```bash
+for i in $(seq 1 400); do curl -s -o /dev/null -w "%{http_code}\n" \
+  https://events.meetingmindsgroup.com/api/health; done | sort | uniq -c
+# expect 200s then 429s. On the box: tail -f /var/log/nginx/error.log | grep limiting
+```
+
+### 4.2 Adding a CDN / Cloudflare later (not currently used)
+
+If you ever put Cloudflare (or any proxy/CDN) in front, the origin stops seeing
+the real client IP — every request arrives from a **Cloudflare edge IP**, and the
+true IP comes in `CF-Connecting-IP`. Without handling that, **all rate limiting
+collapses** (everyone buckets as ~a dozen Cloudflare IPs).
+
+**The clean fix needs ZERO app-code changes** — restore the real IP at nginx with
+the `real_ip` module (ships with Ubuntu nginx):
+```nginx
+# Trust CF-Connecting-IP ONLY from Cloudflare's ranges (cloudflare.com/ips)
+set_real_ip_from 173.245.48.0/20;   # …all ~15 IPv4 + ~7 IPv6 CIDRs
+real_ip_header CF-Connecting-IP;
+```
+This rewrites `$remote_addr` to the true client IP, so everything downstream just
+works: nginx `limit_req`/`limit_conn`, `X-Real-IP`, and `getClientIp()` (which
+prefers `X-Real-IP`) all resolve the real client — **no change to `src/lib/security.ts`.**
+
+**Critical ordering (don't break it):**
+1. Get Cloudflare proxying (orange cloud); confirm `curl -I` shows a `cf-ray` header.
+2. **Then** lock the Security Group: 443/80 inbound → **Cloudflare CIDRs only** (keep 22 for GitHub Actions). Without this lock, an attacker hits the EIP directly with a forged `CF-Connecting-IP` and bypasses everything.
+3. **Then** add the nginx `set_real_ip_from` block.
+
+Locking the SG *before* Cloudflare is actually serving = real users locked out (the "522 origin unreachable" trap).
+
+**Change checklist:**
+
+| Area | Change |
+|---|---|
+| Cloudflare | Add site → change registrar nameservers → **preserve MX + SPF/DKIM/DMARC** (or org email dies) → `events` A record = Proxied → SSL mode **Full (strict)** (keep the origin Let's Encrypt cert) |
+| Security Group | 443/80 → Cloudflare CIDRs only; keep 22 |
+| nginx | Add `set_real_ip_from` + `real_ip_header CF-Connecting-IP`; optionally relax `limit_req` (Cloudflare absorbs floods at the edge — keep nginx limits as backstop) |
+| App code | **None** (with the `real_ip` approach) |
+| DR terraform | Set `infra/dr` `http_allow_cidrs` to Cloudflare CIDRs; re-add the Cloudflare DNS step to `infra/dr/README.md` |
+| Docs | Un-drop the Cloudflare steps in `docs/EC2_HARDENING.html`; update the "not behind a CDN" comment in `src/lib/security.ts` |
+
+**Standing gotchas once on Cloudflare:** CF adds CIDRs ~twice/year — update the SG
++ `set_real_ip_from` list or new edge traffic gets 522'd. Turn on the freebies:
+Bot Fight Mode, WAF managed/OWASP rulesets, and Cloudflare edge **rate limiting**
+(which becomes the primary limiter, nginx the backstop).
+
+---
+
+## 5. One-time / occasional infra
 
 These are setup operations you rarely run — full context in the linked docs.
 
@@ -477,7 +566,7 @@ aws iam list-attached-role-policies --role-name ea-sys-mumbai-ec2-role   # verif
 
 ---
 
-## 5. Gotchas worth memorising
+## 6. Gotchas worth memorising
 
 - **Always `--region`.** Mumbai = `ap-south-1`, Singapore/DR = `ap-southeast-1`,
   and SES + CloudWatch are in `ap-south-1`.
