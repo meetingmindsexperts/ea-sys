@@ -40,6 +40,16 @@ sudo fail2ban-client status nginx-rate-limit   # shows file monitored + currentl
 sudo tail -f /var/log/fail2ban.log | grep nginx-rate-limit
 ```
 
+## Gotcha: the backend
+
+`fail2ban-client get nginx-rate-limit logpath` **must** print
+`/var/log/nginx/error.log`. If it says *"No file is currently monitored"*, the
+jail is reading the **systemd journal** instead of the file and will never fire —
+because Debian/Ubuntu ships `/etc/fail2ban/jail.d/defaults-debian.conf` with
+`backend = systemd` as the global default, and nginx logs to a **file**. The jail
+here sets `backend = auto` explicitly to override that. (The `sshd` jail correctly
+uses the journal, so it shows "No file" too — that's expected for *it*.)
+
 ## Operate
 
 ```bash
