@@ -259,7 +259,135 @@ Full promotion + return runbook → `infra/dr/README.md` §"Promotion runbook" a
 
 ---
 
-## 3. One-time / occasional infra
+## 3. Troubleshooting — CPU / memory / disk spikes
+
+> **The t3.large is burstable.** Its CPU baseline is ~30% per vCPU; bursting
+> above that spends **CPU credits**. If credits hit zero, the box is throttled
+> *to baseline* — the app goes slow while `CPUUtilization` sits *pinned at ~30%,
+> not 100%*. So a "spike" can present as **sustained mediocrity, not a peak**.
+> Always check `CPUCreditBalance` alongside `CPUUtilization`.
+
+### 3.1 First look — CloudWatch (no box access needed)
+
+`CPUUtilization` is a default EC2 metric; memory/disk are not (they'd need the
+agent's metrics config, which today ships logs only — use the box for those).
+
+```bash
+# CPU over the last 3h (macOS date syntax; on Linux use -d '3 hours ago')
+aws cloudwatch get-metric-statistics --region ap-south-1 \
+  --namespace AWS/EC2 --metric-name CPUUtilization \
+  --dimensions Name=InstanceId,Value=i-0b51ab1213d084640 \
+  --start-time $(date -u -v-3H +%FT%TZ) --end-time $(date -u +%FT%TZ) \
+  --period 300 --statistics Average Maximum --output table
+
+# CPU credit balance — the burst gotcha. If this trends toward 0, you're throttled.
+aws cloudwatch get-metric-statistics --region ap-south-1 \
+  --namespace AWS/EC2 --metric-name CPUCreditBalance \
+  --dimensions Name=InstanceId,Value=i-0b51ab1213d084640 \
+  --start-time $(date -u -v-6H +%FT%TZ) --end-time $(date -u +%FT%TZ) \
+  --period 300 --statistics Minimum Average --output table
+```
+
+### 3.2 On the box — find the hot process/container
+
+One SSM call that dumps the whole picture (CPU, memory, disk, per-container,
+OOM history):
+
+```bash
+CMD_ID=$(aws ssm send-command --region ap-south-1 \
+  --instance-ids i-0b51ab1213d084640 \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=[
+    "echo === LOAD ===","uptime",
+    "echo === MEM ===","free -h",
+    "echo === DISK ===","df -h / && docker system df",
+    "echo === TOP ===","top -bn1 | head -15",
+    "echo === CONTAINERS ===","docker stats --no-stream --format \"table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\"",
+    "echo === OOM ===","(sudo dmesg -T 2>/dev/null | grep -iE \"out of memory|killed process\" | tail -5) || echo none",
+    "echo === UPLOADS/LOGS SIZE ===","sudo du -sh /home/ubuntu/ea-sys/logs /home/ubuntu/ea-sys/public/uploads 2>/dev/null"
+  ]' --query 'Command.CommandId' --output text)
+sleep 10
+aws ssm get-command-invocation --region ap-south-1 \
+  --command-id "$CMD_ID" --instance-id i-0b51ab1213d084640 \
+  --query 'StandardOutputContent' --output text
+```
+
+`docker stats` tells you **which container** — that's the fork in the road:
+
+| Hot container | Likely cause | Where to look |
+|---|---|---|
+| `ea-sys-mediamtx` | A **live stream is running** — RTMP→HLS remux is CPU-heavy. Expected during events. | Any session with `liveStreamEnabled`. Ends when the stream stops. |
+| `ea-sys-worker` | A cron job is doing real work — **cert PDF rendering** (pdfkit), **bulk email**, or **webinar sync**. Bursty by design. | `/logs` → search `worker:` ; `docker logs ea-sys-worker`. |
+| `ea-sys-blue`/`green` (web) | Traffic spike, a heavy report/PDF endpoint, or an N+1 query under load. | `/logs` for slow requests; CloudWatch Insights `durationMs` query. |
+| *None pinned, but app slow* | **CPU-credit throttling** (§3.1) or **DB connection exhaustion** (§3.4) — the box isn't busy, it's *waiting*. | `CPUCreditBalance`; Postgres/pooler. |
+| `top` shows `sshd`/unknown | **SSH brute-force** churn (fail2ban is mitigating). Rarely the real cause but visible. | Normal background noise; see `docs/EC2_HARDENING.html`. |
+
+### 3.3 Memory / OOM
+
+`free -h` low + a container with **recent uptime** in `docker ps` (it restarted)
++ an OOM line in `dmesg` = the kernel OOM-killed a container and Docker
+restarted it. The worker (pdfkit rendering large cert batches) and the web tier
+under a heavy export are the usual suspects.
+
+```bash
+# Confirm a container restarted recently (short "Up" time):
+# docker ps --format "{{.Names}}: {{.Status}}"   (via the §3.2 bundle)
+# Tail what it was doing just before:
+#   docker logs --tail 200 ea-sys-worker
+```
+Mitigations: lower batch sizes for the offending job, or **resize the box**
+(§3.5). The cert worker already drains 50 renders/tick — a smaller tick helps if
+rendering is the OOM trigger.
+
+### 3.4 App hangs / `P2024` / `worker:tick-wrapper-uncaught` (DB connection exhaustion)
+
+A "spike" that's really **the box waiting on Postgres**. Symptom: slow/hung
+requests, worker pages with `P2024` *"Timed out fetching a new connection from
+the connection pool"*. Root cause is usually several jobs ticking at the top of
+the minute on a shared Prisma pool. Levers (set in `DATABASE_URL`, shared by web
++ worker): **`connection_limit`** (concurrency headroom — the primary fix, but
+bounded by what pgbouncer/Postgres can serve) and **`pool_timeout`** (patience
+before P2024 — keep modest so the web side fails fast). Current values are
+`connection_limit=10&pool_timeout=15`. Full incident write-up + reasoning is in
+CLAUDE.md ("Worker connection-pool fix", June 10 2026). Distinguish from a
+Supabase-side outage: if `CPUUtilization` is low and `/logs` shows DB connection
+errors across *all* tiers, suspect the pooler/Supabase, not the box.
+
+### 3.5 When it's just under-provisioned — resize the box
+
+If the spikes are real load (not a bug) and credits are chronically drained,
+move off burstable or size up. Brief downtime; the **Elastic IP stays attached**.
+
+```bash
+aws ec2 stop-instances  --instance-ids i-0b51ab1213d084640 --region ap-south-1
+aws ec2 wait instance-stopped --instance-ids i-0b51ab1213d084640 --region ap-south-1
+aws ec2 modify-instance-attribute --instance-id i-0b51ab1213d084640 \
+  --instance-type '{"Value":"t3.xlarge"}' --region ap-south-1     # or c7a.large (non-burstable) for steady CPU
+aws ec2 start-instances --instance-ids i-0b51ab1213d084640 --region ap-south-1
+# Docker containers restart on boot via the compose restart policy; verify:
+curl -I https://events.meetingmindsgroup.com/api/health
+```
+> For predictable CPU-heavy load (lots of live streaming / cert rendering),
+> prefer a **non-burstable** type (`c7a.large` / `c6a.large`) over a bigger T —
+> no credits to exhaust. Match the DR box's `instance_type` in
+> `infra/dr/variables.tf` if you change it.
+
+### 3.6 Quick relief without a resize
+
+```bash
+# Restart just the worker (safe — Postgres advisory locks prevent double-runs):
+aws ssm send-command --region ap-south-1 --instance-ids i-0b51ab1213d084640 \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["docker restart ea-sys-worker"]'
+# Disk full from logs? They ship to CloudWatch + Postgres anyway:
+#   sudo truncate -s 0 /home/ubuntu/ea-sys/logs/app.log   (don't rm — the file is bind-mounted)
+# Reclaim Docker space (old images/build cache from past deploys):
+#   docker image prune -f && docker builder prune -f
+```
+
+---
+
+## 4. One-time / occasional infra
 
 These are setup operations you rarely run — full context in the linked docs.
 
@@ -281,7 +409,7 @@ aws iam list-attached-role-policies --role-name ea-sys-mumbai-ec2-role   # verif
 
 ---
 
-## 4. Gotchas worth memorising
+## 5. Gotchas worth memorising
 
 - **Always `--region`.** Mumbai = `ap-south-1`, Singapore/DR = `ap-southeast-1`,
   and SES + CloudWatch are in `ap-south-1`.
@@ -293,6 +421,11 @@ aws iam list-attached-role-policies --role-name ea-sys-mumbai-ec2-role   # verif
   break the blue-green state. Use `scripts/deploy.sh`.
 - **Untested backups aren't backups** — the quarterly restore drill
   (`scripts/dr-restore-drill.sh`, 15 Jul/Oct/Jan/Apr) exists for a reason.
+- **t3 = burstable.** "App is slow but CPU isn't maxed" usually means **CPU
+  credits exhausted** (throttled to ~30% baseline) — check `CPUCreditBalance`,
+  not just `CPUUtilization` (§3.1).
+- **A spike can be a wait, not a peak** — `P2024` connection-pool timeouts make
+  the app hang while the box looks idle (§3.4).
 
 ---
 
