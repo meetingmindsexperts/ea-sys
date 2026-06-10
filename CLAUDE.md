@@ -759,6 +759,10 @@ View file logs: `tail -f logs/app.log`
 
 ## Documentation
 
+- `docs/AWS_OPERATIONS.md` - **Master AWS CLI runbook** — daily ops (SSM access, instance health, CloudWatch logs, SES, S3) + disaster recovery (uploads/.env/file/DB restore, full regional failover), with the inventory of instance IDs / regions / buckets / roles. Aggregates the scattered AWS commands; cross-links the deep runbooks below.
+- `infra/dr/README.md` - Disaster-recovery deep runbook (Singapore break-glass box, surgical recovery, promotion/return)
+- `infra/cloudwatch/README.md` - CloudWatch agent setup + Insights queries + alarm pipeline
+- `docs/runbook-ses.md` - SES email runbook (sender verification, DMARC, bounce triage)
 - `docs/DEVELOPMENT_STATUS.md` - Feature status and roadmap
 - `docs/ZOOM_INTEGRATION.html` - Zoom SDK integration guide (architecture, setup, file list)
 - `.env.example` - Environment variable template
