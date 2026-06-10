@@ -336,11 +336,11 @@
   <h3>Starting state → Target state</h3>
   <table>
     <tr><th style="width:40%">Risk / gap</th><th>Before</th><th>After</th></tr>
-    <tr><td>Origin IP exposed</td><td>Public, reachable from any IP</td><td>Hidden behind Cloudflare; SG allows only CF CIDRs</td></tr>
+    <tr><td>Origin IP exposed</td><td>Public, reachable from any IP</td><td><em>Still public</em> — Cloudflare hiding was dropped; origin stays directly exposed</td></tr>
     <tr><td>SSH reachable from internet</td><td>Port 22 open to <code>0.0.0.0/0</code></td><td>Port 22 <strong>closed</strong>; shell access via AWS SSM</td></tr>
     <tr><td>OS security patches</td><td>Manual, 31 updates pending</td><td>Auto-installed daily via <code>unattended-upgrades</code></td></tr>
-    <tr><td>DDoS / bot defence</td><td>None</td><td>Cloudflare WAF + Bot Fight Mode (free tier)</td></tr>
-    <tr><td>Client IP in rate limiter</td><td>Reads spoofable <code>X-Forwarded-For</code></td><td>Reads trusted <code>CF-Connecting-IP</code></td></tr>
+    <tr><td>DDoS / bot defence</td><td>None</td><td>In-app IP rate limiting + fail2ban + nginx (no CDN) — see <code>docs/AWS_OPERATIONS.md</code></td></tr>
+    <tr><td>Client IP in rate limiter</td><td>Reads spoofable first <code>X-Forwarded-For</code></td><td>Reads nginx <code>X-Real-IP</code> (real socket peer); <code>CF-Connecting-IP</code> never trusted</td></tr>
     <tr><td>Rollback point</td><td>None</td><td>EBS snapshot baseline + planned AWS Backup schedule</td></tr>
     <tr><td>Disaster recovery</td><td>None — region outage = downtime until Mumbai recovers</td><td>Terraform module spins up Singapore replacement box in ~10 min</td></tr>
   </table>
@@ -391,6 +391,24 @@
     </div>
   </div>
   <p class="sub" style="font-size:13px;color:var(--muted);">Badges reflect a snapshot at the time of writing. Update as you progress through the steps.</p>
+
+  <div class="callout warn" style="border-color:#b91c1c;">
+    <strong>DECISION (2026-06-10): Cloudflare is NOT used — for prod or the Singapore DR box.</strong>
+    <p style="margin:8px 0 0;">The Cloudflare-based steps in this runbook were <strong>not adopted</strong>. The origin
+    stays <strong>directly exposed</strong> (DNS A record → the box's Elastic IP; no CDN/proxy in front).
+    Concretely:</p>
+    <ul style="margin:8px 0 0 16px;padding:0;">
+      <li><strong>Step 2 (Cloudflare) — DROPPED.</strong> Ignore it entirely.</li>
+      <li><strong>Step 3b (SG lockdown) — only the <em>close-port-22</em> part applies.</strong> The
+      "restrict 80/443 to Cloudflare CIDRs" part is void; 80/443 remain open to <code>0.0.0.0/0</code>.</li>
+      <li><strong>Step 5 (trust <code>CF-Connecting-IP</code>) — REVERTED.</strong> <code>getClientIp()</code> now
+      prefers nginx's <code>X-Real-IP</code> (the real socket peer) and never trusts <code>CF-Connecting-IP</code>
+      or the spoofable first <code>X-Forwarded-For</code> entry. See <code>src/lib/security.ts</code>.</li>
+    </ul>
+    <p style="margin:8px 0 0;">For current DDoS/bot posture see <code>docs/AWS_OPERATIONS.md</code>. The remaining
+    valuable steps here — EBS snapshot (1), SSM (3a), close port 22 (3b, partial), unattended-upgrades (4),
+    DR Terraform (6) — still stand.</p>
+  </div>
 </section>
 
 <!-- ========= CHEAT SHEET ========= -->
@@ -475,7 +493,12 @@ aws ssm describe-instance-information --region ap-south-1  # list SSM-registered
 
 <!-- ========= STEP 2 ========= -->
 <section id="step2">
-  <h2>Step 2 — Cloudflare in front of the box <span class="badge pending">Pending</span></h2>
+  <h2>Step 2 — Cloudflare in front of the box <span class="badge pending" style="background:#7f1d1d;color:#fff;">DROPPED — not using Cloudflare</span></h2>
+
+  <div class="callout warn" style="border-color:#b91c1c;">
+    <strong>This step was not adopted (decision 2026-06-10).</strong> EA-SYS does not use Cloudflare or any CDN.
+    The content below is retained for historical context only — do not follow it.
+  </div>
 
   <h4>Goal in one sentence</h4>
   <p>Route all traffic through Cloudflare so the origin IP is hidden, WAF filters bad requests, and Step 3b can safely lock the SG.</p>
@@ -648,15 +671,25 @@ sudo systemctl is-active fail2ban               # active (already installed)</co
 
 <!-- ========= STEP 5 ========= -->
 <section id="step5">
-  <h2>Step 5 — Code patch: trust CF-Connecting-IP <span class="badge done">Done (committed locally)</span></h2>
+  <h2>Step 5 — Code patch: client IP in the rate limiter <span class="badge pending" style="background:#7f1d1d;color:#fff;">REVERTED — not using Cloudflare</span></h2>
 
-  <h4>Goal in one sentence</h4>
-  <p>Make the app's rate limiter read the real client IP from Cloudflare's trusted header, not the spoofable <code>X-Forwarded-For</code>.</p>
+  <div class="callout warn" style="border-color:#b91c1c;">
+    <strong>The Cloudflare version of this patch was reverted (2026-06-10).</strong> Trusting
+    <code>CF-Connecting-IP</code> is <em>unsafe</em> when the origin is directly exposed (which it is) —
+    any client can forge that header to dodge rate limiting. The current implementation does the opposite.
+  </div>
 
-  <h4>The problem we're fixing</h4>
-  <p>When the origin is directly reachable (like today), an attacker could set <code>X-Forwarded-For: 1.2.3.4</code> on their request. Our <code>getClientIp()</code> trusted the first token, so rate limits would be counted against 1.2.3.4 instead of the attacker. They could burn your entire rate limit, trivially.</p>
-
-  <p>After Cloudflare is in front + SG locked to CF CIDRs, all traffic comes from Cloudflare. Cloudflare sets a header called <code>CF-Connecting-IP</code> containing the true client IP. We trust that first; fall back to the old logic as a safety net.</p>
+  <h4>What <code>getClientIp()</code> actually does now</h4>
+  <p>nginx is the only proxy in front of the app. It sets <code>X-Real-IP</code> to the real socket peer
+  (<code>$remote_addr</code>), overwriting anything the client sent, and <em>appends</em> the real peer to
+  <code>X-Forwarded-For</code> (<code>$proxy_add_x_forwarded_for</code>). So <code>getClientIp()</code>:</p>
+  <ul>
+    <li>Prefers <code>X-Real-IP</code> (trustworthy — nginx-set, not client-controlled).</li>
+    <li>Falls back to the <strong>last</strong> <code>X-Forwarded-For</code> entry (the nginx-appended peer); earlier entries are client-supplied.</li>
+    <li><strong>Never</strong> trusts <code>CF-Connecting-IP</code> or the <em>first</em> <code>X-Forwarded-For</code> entry.</li>
+  </ul>
+  <p>This closes the same spoofing hole the Cloudflare patch aimed at, without depending on a CDN. See
+  <code>src/lib/security.ts</code>.</p>
 
   <h4>The change</h4>
   <p>In <code>src/lib/security.ts</code>:</p>

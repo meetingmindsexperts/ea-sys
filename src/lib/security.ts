@@ -47,18 +47,25 @@ function getRateLimitStore(): Map<string, RateLimitEntry> {
 }
 
 export function getClientIp(req: Request): string {
-  // Cloudflare sets CF-Connecting-IP to the true client IP. Trustworthy when
-  // the security group only allows 80/443 from Cloudflare ranges — direct
-  // connections can't reach the origin to spoof this header.
-  const cfIp = req.headers.get("cf-connecting-ip");
-  if (cfIp) return cfIp;
+  // nginx is the ONLY proxy in front of the app and sets `X-Real-IP` to the
+  // real socket peer (`$remote_addr`), overwriting anything the client sent —
+  // so it's the trustworthy source. We are NOT behind a CDN/Cloudflare, so we
+  // must NOT trust `CF-Connecting-IP` or the *first* `X-Forwarded-For` entry:
+  // on a directly-exposed origin both are attacker-supplied, and a client
+  // could forge a different value per request to bypass IP rate limiting.
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
 
+  // Fallback only if X-Real-IP is somehow absent: nginx APPENDS the real peer
+  // to X-Forwarded-For (`$proxy_add_x_forwarded_for`), so the trustworthy
+  // value is the LAST entry — earlier entries are client-controlled.
   const forwardedFor = req.headers.get("x-forwarded-for");
   if (forwardedFor) {
-    return forwardedFor.split(",")[0]?.trim() || "unknown";
+    const parts = forwardedFor.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
   }
 
-  return req.headers.get("x-real-ip") || "unknown";
+  return "unknown";
 }
 
 export function checkRateLimit({

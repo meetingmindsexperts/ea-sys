@@ -40,7 +40,7 @@ variable "dr_kms_key_arn" {
 }
 
 variable "http_allow_cidrs" {
-  description = "CIDRs allowed to reach ports 80/443 on the DR box. Default is wide-open (matches Mumbai's current posture). When a CDN (CloudFront, Cloudflare) is added, tighten to the CDN's IP ranges."
+  description = "CIDRs allowed to reach ports 80/443 on the DR box. Default is wide-open (matches Mumbai's direct-exposure posture — no CDN/proxy in front). Tighten to an allowlist if you ever add one."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

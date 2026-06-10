@@ -9,7 +9,7 @@ RTO target: **~10 minutes** from `terraform apply` to serving traffic.
 
 | File | Purpose |
 |---|---|
-| `main.tf` | EC2 + EIP + SG + IAM in Singapore. SG allows 80/443 from Cloudflare only, no port 22. |
+| `main.tf` | EC2 + EIP + SG + IAM in Singapore. SG allows 80/443 per `var.http_allow_cidrs` (default wide-open, matching Mumbai's direct-exposure posture), no port 22 (SSM for shell). |
 | `user-data.sh` | First-boot bootstrap. Installs Docker, clones the repo, fetches `.env` from S3, runs `scripts/deploy.sh`. |
 | `variables.tf` | `region`, `instance_type`, `git_ref`, `github_repo`, `dr_bucket_name`, `dr_kms_key_arn`. |
 | `outputs.tf` | `public_ip`, `instance_id`, `ssm_session_command`. |
@@ -500,18 +500,17 @@ For honesty:
 4. **Update DNS at the registrar.**
    - At your domain registrar (GoDaddy/etc.) → DNS → `events` A record → replace value with the new IP.
    - TTL is usually 1 hour; lower it to 60 seconds before a known-risky change for faster failover.
-   - When a CDN (CloudFront/Cloudflare) is later added, this step updates the CDN origin instead of DNS directly, and tighten `http_allow_cidrs` in `terraform.tfvars` to the CDN's IP ranges.
+   - DNS points **directly** at the box's EIP (no CDN/proxy in front, matching prod).
 
 5. **Verify traffic is serving.**
    ```bash
    curl -I https://events.meetingmindsgroup.com/api/health
    # Expect: 200, database: connected
    ```
-   Check Cloudflare Analytics → traffic moving from Mumbai origin to Singapore origin.
+   Confirm the new IP is resolving (`dig +short events.meetingmindsgroup.com`).
 
 6. **Issue a proper TLS cert** (the bootstrap uses a self-signed cert for the
-   break-glass window — Cloudflare Full(strict) accepts it short-term because
-   CF validates cert-expiry but not CN match exactly; however, swap ASAP):
+   break-glass window — browsers warn until this runs, so swap ASAP):
    ```bash
    aws ssm start-session --target $(terraform output -raw instance_id) --region ap-southeast-1
    sudo certbot --nginx -d events.meetingmindsgroup.com \

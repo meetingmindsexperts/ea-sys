@@ -7,7 +7,7 @@
 #   bash scripts/switch-region.sh status    # Show current DNS target
 #
 # Prerequisites:
-#   - AWS CLI configured with Route 53 permissions (or update for GoDaddy/Cloudflare)
+#   - AWS CLI configured with Route 53 permissions (or update for GoDaddy/your registrar)
 #   - Set env vars: HOSTED_ZONE_ID, MUMBAI_EC2_IP, UAE_EC2_IP
 #
 # To add UAE back to deploy.yml:

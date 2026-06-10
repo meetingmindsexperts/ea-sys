@@ -133,7 +133,7 @@ rsync -avz ubuntu@<UAE_IP>:/home/ubuntu/ea-sys/public/uploads/ /home/ubuntu/ea-s
 
 # Option B: If UAE is unreachable, photos will 404 until region recovers.
 # The app still works — just profile photos won't load.
-# Consider moving to S3/Cloudflare R2 for cross-region photo access.
+# Consider moving to S3 for cross-region photo access.
 ```
 
 ## Step 7: Switch DNS

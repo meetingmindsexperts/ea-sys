@@ -105,9 +105,9 @@ UPSTREAM
 
 # On first boot we don't yet have a TLS cert — so temporarily swap the HTTPS
 # server block's `listen 443 ssl` for `listen 443` and comment the cert lines.
-# Cloudflare's Full(strict) still works IF we put self-signed here. For the
-# break-glass window we accept that for a few minutes until certbot runs.
-# Simplest approach: generate a self-signed cert the nginx config can point at.
+# Generate a self-signed cert so nginx can serve HTTPS during the break-glass
+# window; browsers will warn until certbot issues a real Let's Encrypt cert
+# (step 2 below, after DNS points here).
 mkdir -p /etc/letsencrypt/live/events.meetingmindsgroup.com
 openssl req -x509 -nodes -days 30 -newkey rsa:2048 \
   -keyout /etc/letsencrypt/live/events.meetingmindsgroup.com/privkey.pem \
@@ -144,6 +144,6 @@ sudo -u ubuntu -H bash scripts/deploy.sh || {
 
 echo "[bootstrap] complete: $(date -u)"
 echo "[bootstrap] next steps (manual, from runbook):"
-echo "  1. Point Cloudflare DNS at this box's EIP."
+echo "  1. Point the registrar DNS A record (events.meetingmindsgroup.com) at this box's EIP."
 echo "  2. Once DNS propagates, swap self-signed cert for Let's Encrypt:"
 echo "     certbot --nginx -d events.meetingmindsgroup.com --non-interactive --agree-tos -m <email>"

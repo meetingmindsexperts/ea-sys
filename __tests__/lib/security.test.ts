@@ -4,32 +4,47 @@ import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/securi
 // ── getClientIp ────────────────────────────────────────────────────────────
 
 describe("getClientIp", () => {
-  it("returns first IP from x-forwarded-for", () => {
-    const req = new Request("http://localhost", {
-      headers: { "x-forwarded-for": "1.2.3.4" },
-    });
-    expect(getClientIp(req)).toBe("1.2.3.4");
-  });
-
-  it("returns first IP from comma-separated x-forwarded-for", () => {
-    const req = new Request("http://localhost", {
-      headers: { "x-forwarded-for": "1.2.3.4, 5.6.7.8, 9.10.11.12" },
-    });
-    expect(getClientIp(req)).toBe("1.2.3.4");
-  });
-
-  it("trims whitespace from x-forwarded-for", () => {
-    const req = new Request("http://localhost", {
-      headers: { "x-forwarded-for": "  1.2.3.4  , 5.6.7.8" },
-    });
-    expect(getClientIp(req)).toBe("1.2.3.4");
-  });
-
-  it("falls back to x-real-ip when no x-forwarded-for", () => {
+  it("prefers x-real-ip (nginx sets it to the real socket peer)", () => {
     const req = new Request("http://localhost", {
       headers: { "x-real-ip": "10.0.0.1" },
     });
     expect(getClientIp(req)).toBe("10.0.0.1");
+  });
+
+  it("x-real-ip wins over x-forwarded-for", () => {
+    const req = new Request("http://localhost", {
+      headers: { "x-real-ip": "10.0.0.1", "x-forwarded-for": "1.2.3.4" },
+    });
+    expect(getClientIp(req)).toBe("10.0.0.1");
+  });
+
+  it("falls back to the LAST x-forwarded-for entry (nginx-appended real peer)", () => {
+    const req = new Request("http://localhost", {
+      headers: { "x-forwarded-for": "1.2.3.4, 5.6.7.8, 9.10.11.12" },
+    });
+    expect(getClientIp(req)).toBe("9.10.11.12");
+  });
+
+  it("trims whitespace on the x-forwarded-for fallback", () => {
+    const req = new Request("http://localhost", {
+      headers: { "x-forwarded-for": "  1.2.3.4  ,  5.6.7.8  " },
+    });
+    expect(getClientIp(req)).toBe("5.6.7.8");
+  });
+
+  it("IGNORES a spoofed cf-connecting-ip (we are not behind Cloudflare)", () => {
+    const req = new Request("http://localhost", {
+      headers: { "cf-connecting-ip": "6.6.6.6", "x-real-ip": "10.0.0.1" },
+    });
+    expect(getClientIp(req)).toBe("10.0.0.1");
+  });
+
+  it("does NOT let a client forge the rate-limit key via x-forwarded-for", () => {
+    // Attacker prepends a fake IP; nginx still appends the real peer last.
+    const req = new Request("http://localhost", {
+      headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.9" },
+    });
+    expect(getClientIp(req)).toBe("203.0.113.9");
   });
 
   it('returns "unknown" when no IP headers present', () => {

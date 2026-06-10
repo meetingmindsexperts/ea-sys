@@ -1,5 +1,5 @@
 output "public_ip" {
-  description = "Elastic IP of the DR box. Point Cloudflare DNS here during promotion."
+  description = "Elastic IP of the DR box. Point the registrar DNS A record here during promotion."
   value       = aws_eip.dr.public_ip
 }
 
