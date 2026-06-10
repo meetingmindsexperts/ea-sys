@@ -212,6 +212,9 @@ Honest list of where the platform is exposed. Each row notes whether it's alread
 | **Sentry alert rule not configured in Sentry web UI** | Sentry captures errors but doesn't email | Medium | One-time 5-min setup pending |
 | **CloudWatch metric-filter alarm not yet enabled** | Logs are flowing to CloudWatch (June 8, 2026) — the alarm + SNS topic on `{ $.level >= 50 }` would add a sixth notification path for error-rate spikes specifically | Low | Setup scripted in `infra/cloudwatch/README.md` §3 |
 | **SES sender `meetingmindsexperts.com` only verified — `meetingmindsgroup.com` not** | Causes occasional rejections when an event uses `@meetingmindsgroup.com` from-address | Low | Documented workaround (use `meetingmindsexperts.com` from-address); domain verification is an alternative |
+| **L3/L4 volumetric DDoS** | **Unmitigated by design** — single directly-exposed EC2, no CDN/proxy (Cloudflare explicitly not used). AWS Shield Standard (free, automatic) is the only absorption. | Medium | A real volumetric flood would take the box down. Mitigation = front it with a CDN/edge — full "add Cloudflare later" playbook in [AWS_OPERATIONS.md §4.2](AWS_OPERATIONS.md). Not pursued today by decision. |
+| **L7 bot / abuse (floods, scraping, fake signups)** | **Mitigated** — nginx per-IP `limit_req`/`limit_conn` (live, runs before Node, survives restarts) + fail2ban (`sshd` jail; **nginx jail added**) + in-app `checkRateLimit` (~80 IP/userId/org/key buckets). | Low–Medium | No CAPTCHA/proof-of-human yet (Turnstile on public forms is the next increment). The in-app limiter is in-memory + per-container (resets on deploy) — durable fix is a Redis/Upstash store; nginx limiting covers the gap. |
+| **No WAF (AWS or host)** | **Confirmed by audit** (June 10, 2026) — no AWS WAF in the account (nothing to attach to without an ALB/CDN), no host ModSecurity. Prior "WAF on EC2" belief was a mix-up with fail2ban/ufw. | Low | AWS WAF requires an ALB/CDN; deferred with the no-CDN decision. nginx rate limiting + fail2ban cover crude L7 abuse. Revisit if a CDN is adopted (Cloudflare WAF comes free). |
 | **Automated security scanning (ZAP / Snyk / dependabot beyond default)** | Default Dependabot + GitHub secret scanning active; deeper scanning intentionally deferred | Low | Backlog item — adopt when team size > 2 or external regulator/customer asks |
 | **No formal SOC 2 / ISO 27001 / HITRUST attestation** | Not pursued | Low (for now) | Worth revisiting if MMG sells events to customers who require it |
 
@@ -322,6 +325,7 @@ These are the measurable indicators that the platform is being maintained well. 
 These existing documents in the repository provide deeper context:
 
 - [`docs/HANDOVER.md`](HANDOVER.md) — full technical handover for a new engineer taking over the codebase
+- [`docs/AWS_OPERATIONS.md`](AWS_OPERATIONS.md) — master AWS CLI runbook (daily ops, perf troubleshooting, **§4 security / DDoS-bot posture + add-Cloudflare-later playbook**, disaster recovery)
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — system architecture, component interactions
 - [`docs/ROADMAP.md`](ROADMAP.md) — feature timeline, completed work, current release notes, deferred items
 - [`docs/MUMBAI_SETUP.md`](MUMBAI_SETUP.md) — Mumbai EC2 server setup procedure

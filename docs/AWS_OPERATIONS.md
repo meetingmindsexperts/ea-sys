@@ -468,7 +468,7 @@ origin-side:
 | **Host WAF (ModSecurity)** | **None** — nginx not built with it, no modsec config. | — |
 | **nginx rate limiting** | **LIVE** — `limit_req` + `limit_conn` keyed on `$binary_remote_addr` (the real client IP, since no proxy is in front). | See §4.1. |
 | **In-app rate limiting** | `checkRateLimit` across ~80 buckets keyed by **IP / userId / org / API-key / OAuth-token**. | In-memory + per-container → resets on deploy, not shared across blue/green. Best-effort. |
-| **fail2ban** | **One jail: `sshd`** (SSH brute-force). Does NOT watch nginx/HTTP. | `fail2ban-client status` |
+| **fail2ban** | **`sshd`** jail (SSH brute-force) **+ `nginx-rate-limit`** jail — bans IPs that repeatedly trip the nginx 429 limit. | `fail2ban-client status`; config + runbook in `infra/fail2ban/` |
 | **ufw + Security Group** | Both **active but open** on 22/80/443 to `0.0.0.0/0`. 22 stays open (GitHub Actions deploy needs it; fail2ban + SG guard it). | — |
 | **Payments** | Stripe **Radar** (fraud/card-testing) — confirm it's enabled in the Stripe dashboard. | — |
 
@@ -501,7 +501,25 @@ for i in $(seq 1 400); do curl -s -o /dev/null -w "%{http_code}\n" \
 # expect 200s then 429s. On the box: tail -f /var/log/nginx/error.log | grep limiting
 ```
 
-### 4.2 Adding a CDN / Cloudflare later (not currently used)
+### 4.2 fail2ban — ban repeat rate-limit offenders
+
+The nginx layer (§4.1) *throttles*; the `nginx-rate-limit` fail2ban jail
+*escalates* — an IP that keeps tripping the 429 limit gets dropped at the
+firewall (default: 100+ rejected requests in 120s → 30-min ban). Config +
+installer + full runbook live in [`infra/fail2ban/`](../infra/fail2ban/README.md).
+
+```bash
+bash /home/ubuntu/ea-sys/infra/fail2ban/setup.sh   # idempotent install + reload
+sudo fail2ban-client status nginx-rate-limit       # armed? currently-banned list
+sudo fail2ban-client set nginx-rate-limit unbanip <IP>   # false-positived your office
+```
+
+Same **shared-NAT caveat** as §4.1: a ban blocks the whole IP, so thresholds are
+high to avoid banning a venue-WiFi crowd; whitelist trusted IPs via `ignoreip`.
+The deploy SSH (port 22) is covered by the separate `sshd` jail, so this can't
+interfere with GitHub Actions.
+
+### 4.3 Adding a CDN / Cloudflare later (not currently used)
 
 If you ever put Cloudflare (or any proxy/CDN) in front, the origin stops seeing
 the real client IP — every request arrives from a **Cloudflare edge IP**, and the
