@@ -505,19 +505,26 @@ for i in $(seq 1 400); do curl -s -o /dev/null -w "%{http_code}\n" \
 
 The nginx layer (§4.1) *throttles*; the `nginx-rate-limit` fail2ban jail
 *escalates* — an IP that keeps tripping the 429 limit gets dropped at the
-firewall (default: 100+ rejected requests in 120s → 30-min ban). Config +
+firewall (default: 100+ rejected requests in 120s → 30-min ban). **Applied +
+verified live** (status shows `File list: /var/log/nginx/error.log`). Config +
 installer + full runbook live in [`infra/fail2ban/`](../infra/fail2ban/README.md).
 
 ```bash
 bash /home/ubuntu/ea-sys/infra/fail2ban/setup.sh   # idempotent install + reload
 sudo fail2ban-client status nginx-rate-limit       # armed? currently-banned list
+sudo fail2ban-client get nginx-rate-limit logpath  # MUST be /var/log/nginx/error.log
 sudo fail2ban-client set nginx-rate-limit unbanip <IP>   # false-positived your office
 ```
 
+**Backend gotcha (fixed):** Ubuntu's `jail.d/defaults-debian.conf` sets
+`backend = systemd` globally; nginx logs to a **file**, so the jail must override
+with `backend = auto` or it reads the (empty-for-nginx) journal and never bans —
+if `get … logpath` ever says *"No file is currently monitored"*, that's the cause.
+
 Same **shared-NAT caveat** as §4.1: a ban blocks the whole IP, so thresholds are
-high to avoid banning a venue-WiFi crowd; whitelist trusted IPs via `ignoreip`.
-The deploy SSH (port 22) is covered by the separate `sshd` jail, so this can't
-interfere with GitHub Actions.
+high to avoid banning a venue-WiFi crowd; whitelist trusted IPs via `ignoreip`
+(the operator office egress IP is already in there). The deploy SSH (port 22) is
+covered by the separate `sshd` jail, so this can't interfere with GitHub Actions.
 
 ### 4.3 Adding a CDN / Cloudflare later (not currently used)
 
