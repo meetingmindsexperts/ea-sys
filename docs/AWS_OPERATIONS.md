@@ -385,6 +385,74 @@ aws ssm send-command --region ap-south-1 --instance-ids i-0b51ab1213d084640 \
 #   docker image prune -f && docker builder prune -f
 ```
 
+### 3.7 Processes & threads — going deeper
+
+When "which container" (§3.2) isn't enough and you need to know **which
+process/thread inside it** is hot or stuck.
+
+**Mental model for EA-SYS:** the web + worker containers each run **one Node
+process** (`next start` / `npx tsx worker/index.ts`). Node is a **single main
+thread** (the event loop) plus a small **libuv thread pool** (default 4 threads,
+`UV_THREADPOOL_SIZE`) used for `fs`, `crypto`, DNS, and zlib. So:
+- **One thread pinned at ~100% + the app unresponsive** = something is **blocking
+  the event loop** synchronously (a big PDF render with pdfkit, a huge JSON
+  parse/stringify, sync crypto). This is the common Node failure mode.
+- **All ~4 pool threads busy** = the libuv pool is saturated (lots of concurrent
+  `fs`/`crypto` — e.g. a cert batch). Raising `UV_THREADPOOL_SIZE` can help, but
+  fixing the workload (smaller batches) is usually right.
+
+**See processes inside a container without installing anything** — `docker top`
+runs on the host, so it works even though the `node:slim` images have no `ps`:
+
+```bash
+# Via SSM. Maps container processes to HOST PIDs (the namespaced PID differs).
+docker top ea-sys-worker -eLf        # -L = one row per THREAD; -e = env-less full listing
+# Per-thread CPU on the host for that Node PID (H = threads):
+top -H -p "$(docker inspect -f '{{.State.Pid}}' ea-sys-worker)" -bn1 | head -25
+```
+
+**What is a process/thread actually doing / blocked on** (use the **host PID**
+from `docker inspect` above; `/proc` needs no extra tooling):
+
+```bash
+PID=$(docker inspect -f '{{.State.Pid}}' ea-sys-worker)
+cat /proc/$PID/status | grep -E 'State|Threads|VmRSS'   # State: R(run) S(sleep) D(uninterruptible I/O) Z(zombie); thread count; RSS
+sudo cat /proc/$PID/stack                                # kernel stack — where it's parked (often a futex/io wait)
+ls /proc/$PID/fd | wc -l                                 # open file descriptors (sockets+files)
+# Heavier tools (install on demand — not on the box by default):
+sudo apt-get install -y strace lsof sysstat
+sudo strace -p $PID -f -e trace=network,desc -tt        # live syscalls (Ctrl-C to stop) — what it's syscalling on
+sudo lsof -p $PID | grep -E 'TCP|ESTAB' | head           # open sockets — stuck DB/HTTP connections
+pidstat -t -p $PID 1 5                                   # per-thread CPU sampled over 5s
+```
+
+**Reading the signals:**
+
+| Symptom | Means | Likely EA-SYS cause |
+|---|---|---|
+| `State: D` (uninterruptible sleep), high **load avg** but low **%CPU** | Blocked on I/O — *load counts D-state*, so load can be 4 while CPU is 10%. | Postgres/pooler wait (see §3.4), or disk I/O. |
+| One thread `R` at 100%, event loop unresponsive | **Sync work blocking the event loop**. | Big pdfkit render, large JSON, sync crypto on the main thread. |
+| `Threads:` climbing, never settling | Thread/leak or pool churn. | Rare — investigate the libuv pool / a native addon. |
+| `ls /proc/$PID/fd` near the `ulimit -n` ceiling; `EMFILE` in logs | **File-descriptor / socket exhaustion** — leaked DB/HTTP connections or open file handles. | Unclosed streams, a connection leak (cross-check §3.4 pool). `ulimit -n` shows the cap. |
+| `State: Z` (defunct) under `docker top` | **Zombie** — a child exited, parent didn't reap. | Usually harmless unless they pile up; means a spawned subprocess isn't being waited on. |
+| `strace` shows it spinning on `epoll_wait`/`futex` doing nothing | Idle/waiting (fine) — not your culprit. | — |
+
+**Node-specific deep dive (CPU/heap profile of the live process):** the app
+already streams structured timings to `/logs` (`worker:tick-start`/`-end`
+durations, request `durationMs`) — check those first; they usually pinpoint the
+slow path without touching the process. If you need a real profile, the
+container would need `--inspect` enabled (not on in prod) — prefer reproducing
+locally with `node --prof` / `--cpu-prof` against the same code, or add a
+temporary timing log around the suspect path and redeploy. Don't attach a
+debugger to the live prod Node process.
+
+> **Tool availability:** `ps`, `top`, `/proc` are always there on the host;
+> `htop`, `strace`, `lsof`, `pidstat` (sysstat) are **not installed by default**
+> — `sudo apt-get install -y htop strace lsof sysstat` first, or stick to
+> `docker top` + `/proc` which need nothing. Inside `node:slim` containers there
+> are almost no tools, so inspect from the **host** (via `docker inspect` PID),
+> not `docker exec`.
+
 ---
 
 ## 4. One-time / occasional infra
