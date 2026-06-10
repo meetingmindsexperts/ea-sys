@@ -22,6 +22,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         slug: true,
         eventType: true,
         bannerImage: true,
+        timezone: true,
         settings: true,
         organization: { select: { name: true } },
       },
@@ -111,6 +112,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         slug: event.slug,
         eventType: event.eventType,
         bannerImage: event.bannerImage,
+        timezone: event.timezone,
         organization: event.organization,
       },
       session: {

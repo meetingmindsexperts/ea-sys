@@ -8,6 +8,11 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
+import {
+  isSessionWithinEventDates,
+  localDateInTz,
+  resolveTimezone,
+} from "@/lib/event-time";
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -94,7 +99,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             select: {
               role: true,
               speaker: {
-                select: { id: true, firstName: true, lastName: true, status: true },
+                select: { id: true, title: true, firstName: true, lastName: true, status: true },
               },
             },
           },
@@ -108,7 +113,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               speakers: {
                 select: {
                   speaker: {
-                    select: { id: true, firstName: true, lastName: true, status: true },
+                    select: { id: true, title: true, firstName: true, lastName: true, status: true },
                   },
                 },
               },
@@ -205,7 +210,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: eventId,
           organizationId: session.user.organizationId!,
         },
-        select: { id: true, startDate: true, endDate: true },
+        select: { id: true, startDate: true, endDate: true, timezone: true },
       }),
       trackId
         ? db.track.findFirst({ where: { id: trackId, eventId } })
@@ -225,17 +230,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Validate session times fall within event dates
+    // Validate session times fall within event dates — compared as LOCAL
+    // dates in the EVENT's timezone (not the server's), matching the MCP
+    // path. Without this, a late-evening / early-morning session on a
+    // boundary day was wrongly rejected because its UTC instant fell on
+    // the adjacent calendar day.
     const sessionStart = new Date(startTime);
     const sessionEnd = new Date(endTime);
-    const eventStart = new Date(event.startDate);
-    const eventEnd = new Date(event.endDate);
-    // Compare dates only (ignore time component) — allow sessions on any event day
-    eventStart.setHours(0, 0, 0, 0);
-    eventEnd.setHours(23, 59, 59, 999);
-    if (sessionStart < eventStart || sessionEnd > eventEnd) {
+    if (sessionEnd <= sessionStart) {
+      return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });
+    }
+    const tz = resolveTimezone(event.timezone);
+    if (!isSessionWithinEventDates(sessionStart, sessionEnd, event.startDate, event.endDate, tz)) {
       return NextResponse.json(
-        { error: `Session must fall within event dates (${eventStart.toLocaleDateString()} – ${eventEnd.toLocaleDateString()})` },
+        {
+          error: `Session must fall within event dates (${localDateInTz(event.startDate, tz)} to ${localDateInTz(event.endDate, tz)} ${tz})`,
+        },
         { status: 400 }
       );
     }
@@ -312,7 +322,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: {
             role: true,
             speaker: {
-              select: { id: true, firstName: true, lastName: true, status: true },
+              select: { id: true, title: true, firstName: true, lastName: true, status: true },
             },
           },
         },
@@ -326,7 +336,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             speakers: {
               select: {
                 speaker: {
-                  select: { id: true, firstName: true, lastName: true, status: true },
+                  select: { id: true, title: true, firstName: true, lastName: true, status: true },
                 },
               },
             },

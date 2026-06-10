@@ -123,7 +123,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
     sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
 
     const topics = Array.isArray(input.topics)
-      ? (input.topics as { title: string; duration?: number; speakerIds?: string[] }[]).slice(0, 50)
+      ? (input.topics as { title: string; duration?: number; abstractId?: string; speakerIds?: string[] }[]).slice(0, 50)
       : [];
     topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
 
@@ -158,6 +158,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
         trackId: input.trackId ? String(input.trackId) : null,
         location: input.location ? String(input.location) : null,
         description: input.description ? String(input.description) : null,
+        capacity: input.capacity != null ? Number(input.capacity) : null,
         speakers: sessionSpeakerData.length > 0
           ? { create: sessionSpeakerData }
           : undefined,
@@ -166,6 +167,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
               create: topics.map((t, i) => ({
                 title: t.title,
                 duration: t.duration || null,
+                abstractId: t.abstractId || null,
                 sortOrder: i,
                 speakers: t.speakerIds?.length
                   ? { create: t.speakerIds.map((sid) => ({ speakerId: sid })) }
@@ -495,6 +497,7 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
         },
         trackId: { type: "string", description: "Track ID to assign the session to" },
         location: { type: "string", description: "Room or venue location" },
+        capacity: { type: "number", description: "Max attendees for this session" },
         description: { type: "string" },
         speakerIds: {
           type: "array",
@@ -520,6 +523,7 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
             properties: {
               title: { type: "string", description: "Topic title" },
               duration: { type: "number", description: "Duration in minutes" },
+              abstractId: { type: "string", description: "Optional abstract ID to link this topic to" },
               speakerIds: { type: "array", items: { type: "string" }, description: "Speaker IDs for this topic" },
             },
             required: ["title"],
@@ -547,6 +551,89 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
         },
       },
       required: ["sessionId", "title"],
+    },
+  },
+  {
+    name: "update_session",
+    description:
+      "Update a session's metadata (name, description, startTime, endTime, location, capacity, trackId, status). Validates startTime/endTime fall within the event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session / replace_session_speakers for those.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID to update" },
+        name: { type: "string" },
+        description: { type: "string" },
+        startTime: { type: "string", description: "ISO 8601 datetime" },
+        endTime: { type: "string", description: "ISO 8601 datetime" },
+        location: { type: "string" },
+        capacity: { type: "number" },
+        trackId: { type: "string", description: "Track ID, or null to unassign" },
+        status: { type: "string", enum: ["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"] },
+      },
+      required: ["sessionId"],
+    },
+  },
+  {
+    name: "add_speaker_to_session",
+    description:
+      "Assign a speaker to a session with a role. Idempotent: same role is a no-op; a different role updates the existing assignment. Use for day-of speaker swaps.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string" },
+        speakerId: { type: "string" },
+        role: { type: "string", enum: ["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"], description: "Defaults to SPEAKER" },
+      },
+      required: ["sessionId", "speakerId"],
+    },
+  },
+  {
+    name: "remove_speaker_from_session",
+    description:
+      "Remove a speaker from a session. Idempotent — returns alreadyRemoved=true when the speaker wasn't assigned.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string" },
+        speakerId: { type: "string" },
+      },
+      required: ["sessionId", "speakerId"],
+    },
+  },
+  {
+    name: "replace_session_speakers",
+    description:
+      "Replace ALL speakers on a session in one atomic operation. Pass the new full speaker list; assignments=[] clears all. Max 100 assignments.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string" },
+        assignments: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              speakerId: { type: "string" },
+              role: { type: "string", enum: ["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"], description: "Defaults to SPEAKER" },
+            },
+            required: ["speakerId"],
+          },
+          description: "Full replacement speaker list with per-speaker roles",
+        },
+      },
+      required: ["sessionId", "assignments"],
+    },
+  },
+  {
+    name: "list_live_sessions_now",
+    description:
+      "List sessions currently live (now between startTime and endTime). Optional withinMinutes extends the window to sessions starting within N minutes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        withinMinutes: { type: "number", description: "Also include sessions starting within this many minutes" },
+      },
+      required: [],
     },
   },
 ];

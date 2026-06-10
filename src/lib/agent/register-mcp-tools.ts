@@ -326,9 +326,10 @@ export function registerAllMcpTools(
     { name: "create_session", description: "Create a session.", params: {
       name: z.string(), startTime: z.string(), endTime: z.string(),
       trackId: z.string().optional(), location: z.string().optional(), description: z.string().optional(),
+      capacity: z.number().optional(),
       speakerIds: z.array(z.string()).optional(),
       sessionRoles: z.array(z.object({ speakerId: z.string(), role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]) })).optional(),
-      topics: z.array(z.object({ title: z.string(), duration: z.number().optional(), speakerIds: z.array(z.string()).optional() })).optional(),
+      topics: z.array(z.object({ title: z.string(), duration: z.number().optional(), abstractId: z.string().optional(), speakerIds: z.array(z.string()).optional() })).optional(),
     }},
     { name: "add_topic_to_session", description: "Add a topic to a session.", params: {
       sessionId: z.string(), title: z.string(), duration: z.number().optional(), speakerIds: z.array(z.string()).optional(),

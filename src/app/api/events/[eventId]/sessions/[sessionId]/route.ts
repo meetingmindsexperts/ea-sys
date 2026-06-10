@@ -8,6 +8,11 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
+import {
+  isSessionWithinEventDates,
+  localDateInTz,
+  resolveTimezone,
+} from "@/lib/event-time";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -58,7 +63,7 @@ const sessionSelect = {
     select: {
       role: true,
       speaker: {
-        select: { id: true, firstName: true, lastName: true, status: true },
+        select: { id: true, title: true, firstName: true, lastName: true, status: true },
       },
     },
   },
@@ -72,7 +77,7 @@ const sessionSelect = {
       speakers: {
         select: {
           speaker: {
-            select: { id: true, firstName: true, lastName: true, status: true },
+            select: { id: true, title: true, firstName: true, lastName: true, status: true },
           },
         },
       },
@@ -137,7 +142,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const [event, existingSession] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true, startDate: true, endDate: true },
+        select: { id: true, startDate: true, endDate: true, timezone: true },
       }),
       db.eventSession.findFirst({
         where: { id: sessionId, eventId },
@@ -165,17 +170,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Validate session times fall within event dates (if times are being updated)
+    // Validate session times fall within event dates (if times are being
+    // updated) — compared as LOCAL dates in the EVENT's timezone, matching
+    // the create route + MCP. See src/lib/event-time.ts.
     if (data.startTime || data.endTime) {
       const sessionStart = new Date(data.startTime || existingSession.startTime);
       const sessionEnd = new Date(data.endTime || existingSession.endTime);
-      const eventStart = new Date(event.startDate);
-      const eventEnd = new Date(event.endDate);
-      eventStart.setHours(0, 0, 0, 0);
-      eventEnd.setHours(23, 59, 59, 999);
-      if (sessionStart < eventStart || sessionEnd > eventEnd) {
+      if (sessionEnd <= sessionStart) {
+        return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });
+      }
+      const tz = resolveTimezone(event.timezone);
+      if (!isSessionWithinEventDates(sessionStart, sessionEnd, event.startDate, event.endDate, tz)) {
         return NextResponse.json(
-          { error: `Session must fall within event dates (${eventStart.toLocaleDateString()} – ${eventEnd.toLocaleDateString()})` },
+          {
+            error: `Session must fall within event dates (${localDateInTz(event.startDate, tz)} to ${localDateInTz(event.endDate, tz)} ${tz})`,
+          },
           { status: 400 }
         );
       }

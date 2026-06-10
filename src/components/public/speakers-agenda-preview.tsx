@@ -12,6 +12,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
+import { DEFAULT_EVENT_TIMEZONE, formatTimeInTz } from "@/lib/event-time";
 
 /**
  * Speakers + Agenda preview block for the public registration pages.
@@ -56,6 +57,7 @@ interface AgendaData {
   id: string;
   name: string;
   slug: string;
+  timezone: string;
   sessions: Session[];
 }
 
@@ -249,7 +251,7 @@ export function SpeakersAndAgendaPreview({ slug }: SpeakersAndAgendaPreviewProps
                       className="flex items-start gap-3 py-2 border-t border-slate-100 first:border-t-0"
                     >
                       <div className="shrink-0 text-xs text-slate-500 font-medium w-20">
-                        {format(new Date(session.startTime), "h:mm a")}
+                        {formatTimeInTz(new Date(session.startTime), data.timezone ?? DEFAULT_EVENT_TIMEZONE)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900">

@@ -27,6 +27,12 @@ import {
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { formatPersonName } from "@/lib/utils";
+import {
+  DEFAULT_EVENT_TIMEZONE,
+  formatDateInTz,
+  formatTimeInTz,
+  tzLabel,
+} from "@/lib/event-time";
 
 // The live-stream player is client-only (hls.js pulls ArrayBuffer refs
 // from window) so we dynamically import it. The Zoom Component View embed
@@ -125,6 +131,7 @@ interface EventDetail {
   slug: string;
   eventType?: string | null;
   bannerImage?: string;
+  timezone?: string | null;
   organization?: { name: string; logo?: string };
 }
 
@@ -338,12 +345,16 @@ export default function PublicSessionPage() {
             <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />
-                {format(new Date(session.startTime), "EEEE, MMMM d, yyyy")}
+                {formatDateInTz(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}
               </span>
               <span className="flex items-center gap-1.5">
                 <Clock className="h-4 w-4" />
-                {format(new Date(session.startTime), "h:mm a")} &ndash;{" "}
-                {format(new Date(session.endTime), "h:mm a")}
+                {formatTimeInTz(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)} &ndash;{" "}
+                {formatTimeInTz(new Date(session.endTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}
+                {(() => {
+                  const lbl = tzLabel(new Date(session.startTime), event?.timezone ?? DEFAULT_EVENT_TIMEZONE);
+                  return lbl ? <span className="text-muted-foreground/70"> {lbl}</span> : null;
+                })()}
               </span>
               {session.location && (
                 <span className="flex items-center gap-1.5">
@@ -622,6 +633,11 @@ export default function PublicSessionPage() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
+                        {speaker.role && speaker.role !== "SPEAKER" && (
+                          <span className="inline-block mb-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                            {speaker.role.charAt(0) + speaker.role.slice(1).toLowerCase()}
+                          </span>
+                        )}
                         <p className="font-medium">
                           {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </p>

@@ -53,7 +53,7 @@ import {
   Check,
   RefreshCw,
 } from "lucide-react";
-import { formatTime } from "@/lib/utils";
+import { formatTime, formatPersonName } from "@/lib/utils";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -76,6 +76,7 @@ interface Track {
 
 interface Speaker {
   id: string;
+  title?: string | null;
   firstName: string;
   lastName: string;
   status: string;
@@ -1597,7 +1598,7 @@ function SessionCard({
                 {session.speakers.map((s, i) => (
                   <div key={i}>
                     <span className="font-medium text-foreground/80">{s.role !== "SPEAKER" ? `${s.role}: ` : ""}</span>
-                    {s.speaker.firstName} {s.speaker.lastName}
+                    {formatPersonName(s.speaker.title, s.speaker.firstName, s.speaker.lastName)}
                   </div>
                 ))}
               </div>
@@ -1608,7 +1609,7 @@ function SessionCard({
                   <div key={t.id} className="text-xs">
                     <span className="font-medium text-foreground/80">{t.title}</span>
                     {t.speakers.length > 0 && (
-                      <span> — {t.speakers.map((ts) => `${ts.speaker.firstName} ${ts.speaker.lastName}`).join(", ")}</span>
+                      <span> — {t.speakers.map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName)).join(", ")}</span>
                     )}
                   </div>
                 ))}

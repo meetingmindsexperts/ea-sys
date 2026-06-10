@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         slug: true,
         startDate: true,
         endDate: true,
+        timezone: true,
         supportEmail: true,
         settings: true,
         organization: { select: { name: true, logo: true } },
@@ -59,6 +60,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             track: { select: { id: true, name: true, color: true } },
             speakers: {
               select: {
+                role: true,
                 speaker: {
                   select: {
                     id: true,
@@ -71,6 +73,22 @@ export async function GET(req: Request, { params }: RouteParams) {
                   },
                 },
               },
+            },
+            topics: {
+              select: {
+                id: true,
+                title: true,
+                duration: true,
+                sortOrder: true,
+                speakers: {
+                  select: {
+                    speaker: {
+                      select: { id: true, title: true, firstName: true, lastName: true },
+                    },
+                  },
+                },
+              },
+              orderBy: { sortOrder: "asc" },
             },
           },
           orderBy: { startTime: "asc" },
@@ -94,6 +112,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       slug: event.slug,
       startDate: event.startDate,
       endDate: event.endDate,
+      timezone: event.timezone,
       supportEmail: event.supportEmail,
       organization: event.organization,
       tracks: event.tracks,

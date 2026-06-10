@@ -17,6 +17,7 @@ import {
   Mail,
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
+import { formatTimeInTz, tzLabel } from "@/lib/event-time";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,21 @@ interface Speaker {
   photo: string | null;
 }
 
+interface TopicSpeaker {
+  id: string;
+  title: string | null;
+  firstName: string;
+  lastName: string;
+}
+
+interface Topic {
+  id: string;
+  title: string;
+  duration: number | null;
+  sortOrder: number;
+  speakers: Array<{ speaker: TopicSpeaker }>;
+}
+
 interface Session {
   id: string;
   name: string;
@@ -46,7 +62,8 @@ interface Session {
   capacity: number | null;
   status: string;
   track: Track | null;
-  speakers: Array<{ speaker: Speaker }>;
+  speakers: Array<{ role: string; speaker: Speaker }>;
+  topics: Topic[];
 }
 
 interface EventData {
@@ -55,6 +72,7 @@ interface EventData {
   slug: string;
   startDate: string;
   endDate: string;
+  timezone: string;
   supportEmail: string | null;
   organization: { name: string; logo: string | null };
   tracks: Track[];
@@ -69,14 +87,6 @@ function formatDateHeading(dateStr: string) {
     month: "long",
     day: "numeric",
     year: "numeric",
-  });
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
   });
 }
 
@@ -341,6 +351,14 @@ export default function PublicAgendaPage() {
           </div>
         ) : (
           <div className="space-y-10 print:space-y-8">
+            <p className="flex items-center gap-1.5 text-xs text-slate-400">
+              <Clock className="h-3 w-3" />
+              All times shown in event time
+              {(() => {
+                const lbl = tzLabel(new Date(eventData.startDate), eventData.timezone);
+                return lbl ? ` (${lbl})` : "";
+              })()}
+            </p>
             {/* When "All Days" selected, show every date group */}
             {(selectedDate === null ? sessionsByDate : sessionsByDate.filter(([d]) => d === resolvedDate)).map(
               ([day, daySessions]) => {
@@ -368,7 +386,7 @@ export default function PublicAgendaPage() {
                     {/* Sessions for this day */}
                     <div className="space-y-3 print:space-y-2">
                       {dayFiltered.map((session) => (
-                        <SessionRow key={session.id} session={session} />
+                        <SessionRow key={session.id} session={session} timezone={eventData.timezone} />
                       ))}
                     </div>
                   </div>
@@ -408,7 +426,7 @@ export default function PublicAgendaPage() {
 
 // ── Session Row Component ─────────────────────────────────────────────────
 
-function SessionRow({ session }: { session: Session }) {
+function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
   const [expanded, setExpanded] = useState(false);
   const duration = getDurationMin(session.startTime, session.endTime);
   const color = session.track?.color || "#6B7280";
@@ -427,10 +445,10 @@ function SessionRow({ session }: { session: Session }) {
           {/* Time column */}
           <div className="shrink-0 w-24 pt-0.5 text-right print:w-20">
             <p className="text-sm font-semibold text-slate-800 tabular-nums">
-              {formatTime(session.startTime)}
+              {formatTimeInTz(new Date(session.startTime), timezone)}
             </p>
             <p className="text-xs text-slate-400 tabular-nums">
-              {formatTime(session.endTime)}
+              {formatTimeInTz(new Date(session.endTime), timezone)}
             </p>
             <p className="text-xs text-slate-400 mt-0.5">{duration} min</p>
           </div>
@@ -474,7 +492,7 @@ function SessionRow({ session }: { session: Session }) {
                 {/* Speakers (always visible) */}
                 {session.speakers.length > 0 && (
                   <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                    {session.speakers.map(({ speaker }) => (
+                    {session.speakers.map(({ role, speaker }) => (
                       <div
                         key={speaker.id}
                         className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 rounded-full px-2.5 py-0.5"
@@ -495,6 +513,11 @@ function SessionRow({ session }: { session: Session }) {
                             </span>
                           </div>
                         )}
+                        {role && role !== "SPEAKER" && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                            {role.charAt(0) + role.slice(1).toLowerCase()}
+                          </span>
+                        )}
                         <span className="text-xs text-slate-700 font-medium">
                           {formatPersonName(speaker.title, speaker.firstName, speaker.lastName)}
                         </span>
@@ -506,6 +529,31 @@ function SessionRow({ session }: { session: Session }) {
                       </div>
                     ))}
                   </div>
+                )}
+
+                {/* Topics — agenda items within the session */}
+                {session.topics.length > 0 && (
+                  <ul className="mt-2.5 space-y-1 border-l-2 border-slate-100 pl-3">
+                    {session.topics.map((topic) => (
+                      <li key={topic.id} className="text-xs leading-snug">
+                        <span className="font-medium text-slate-700">{topic.title}</span>
+                        {topic.duration ? (
+                          <span className="text-slate-400"> · {topic.duration} min</span>
+                        ) : null}
+                        {topic.speakers.length > 0 && (
+                          <span className="text-slate-500">
+                            {" "}
+                            —{" "}
+                            {topic.speakers
+                              .map(({ speaker }) =>
+                                formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
+                              )
+                              .join(", ")}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 
