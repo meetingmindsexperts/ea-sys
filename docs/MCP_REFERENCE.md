@@ -154,7 +154,11 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `list_abstract_themes` | Categories |
 | `create_abstract_theme` | Create a category |
 | `list_review_criteria` | Scoring criteria with weights |
-| `create_review_criterion` | Create a criterion (weight 1-10) |
+| `create_review_criterion` | Create a criterion (integer weight 1-100; weights are meant to sum to 100 across criteria) |
+| `update_review_criterion` | Update a criterion's name/weight/sortOrder |
+| `delete_review_criterion` | Delete a criterion |
+| `assign_reviewer_to_abstract` | Assign a reviewer to a specific abstract; **upserts** the role on re-call (PRIMARY/SECONDARY/CONSULTING) |
+| `unassign_reviewer_from_abstract` | Remove a per-abstract reviewer assignment (preserves any submission) |
 | `list_reviewers` | Users assigned via `event.settings.reviewerUserIds` |
 
 ### Accommodation (6)
