@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { meanOverallScore } from "@/lib/abstract-review";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -46,6 +47,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const trackId = searchParams.get("trackId");
     const speakerId = searchParams.get("speakerId");
+    // Cap the result set so a large CFP can't return an unbounded payload
+    // (mirrors the MCP list_abstracts cap). Default 200, max 500.
+    const limitParam = Number(searchParams.get("limit"));
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 200;
 
     // For SUBMITTER, restrict to their own abstracts via speaker.userId
     const submitterFilter = session.user.role === "SUBMITTER"
@@ -77,6 +82,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           submissions: { select: { overallScore: true } },
         },
         orderBy: { submittedAt: "desc" },
+        take: limit,
       }),
     ]);
 
@@ -85,18 +91,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const enriched = abstracts.map((a) => {
-      const scores = a.submissions
-        .map((s) => s.overallScore)
-        .filter((s): s is number => s != null);
-      const meanOverallScore = scores.length
-        ? Math.round((scores.reduce((x, y) => x + y, 0) / scores.length) * 10) / 10
-        : null;
       const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
       delete rest.submissions;
       return {
         ...rest,
         reviewCount: a.submissions.length,
-        meanOverallScore,
+        // Shared rounding so the list mean matches the detail aggregate.
+        meanOverallScore: meanOverallScore(a.submissions.map((s) => s.overallScore)),
       };
     });
 

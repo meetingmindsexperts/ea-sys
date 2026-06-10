@@ -72,6 +72,7 @@ const registerSchema = z
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().min(1, "Last name is required"),
     email: z.string().email("Valid email is required"),
+    additionalEmail: z.string().email("Valid email is required").optional().or(z.literal("")),
     organization: z.string().min(1, "Organization is required"),
     jobTitle: z.string().min(1, "Position is required"),
     phone: z.string().min(1, "Mobile number is required"),
@@ -104,7 +105,7 @@ const STEPS = [
 
 const STEP_FIELDS: Record<string, (keyof RegisterForm)[]> = {
   identity: ["title", "firstName", "lastName", "email"],
-  details: ["organization", "jobTitle", "phone", "city", "country", "specialty", "customSpecialty", "role"],
+  details: ["organization", "jobTitle", "phone", "additionalEmail", "city", "country", "specialty", "customSpecialty", "role"],
   security: ["password", "confirmPassword"],
 };
 
@@ -123,7 +124,7 @@ export default function SubmitAbstractPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       title: "", role: "",
-      firstName: "", lastName: "", email: "",
+      firstName: "", lastName: "", email: "", additionalEmail: "",
       organization: "", jobTitle: "", phone: "",
       city: "", country: "", specialty: "", customSpecialty: "",
       password: "", confirmPassword: "",
@@ -193,6 +194,7 @@ export default function SubmitAbstractPage() {
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
+          additionalEmail: data.additionalEmail || undefined,
           password: data.password,
           organization: data.organization,
           jobTitle: data.jobTitle,
@@ -460,6 +462,14 @@ export default function SubmitAbstractPage() {
                             <Phone className="h-3 w-3" /> Mobile Number <span className="text-red-400">*</span>
                           </FormLabel>
                           <FormControl><Input placeholder="+1 234 567 8900" className="rounded-lg border-slate-200" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    <FormField control={form.control} name="additionalEmail"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-medium text-slate-600">Additional Email</FormLabel>
+                          <FormControl><Input type="email" placeholder="alternate@example.com" className="rounded-lg border-slate-200" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />

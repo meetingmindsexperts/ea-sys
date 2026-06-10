@@ -183,6 +183,20 @@ export function consolidateReviewNotes(submissions: SubmissionSummary[]): string
     .join("\n\n");
 }
 
+/**
+ * Mean of a set of already-fetched overall scores, rounded the same way as
+ * `computeSubmissionAggregates`. For LIST endpoints that already loaded each
+ * abstract's `submissions.overallScore` and must NOT do a per-abstract DB
+ * round-trip — keeps the list mean identical to the detail aggregate without
+ * an N+1. Returns null when there are no numeric scores.
+ */
+export function meanOverallScore(
+  scores: Array<number | null | undefined>,
+): number | null {
+  const nums = scores.filter((s): s is number => typeof s === "number");
+  return nums.length ? roundHalf(mean(nums)) : null;
+}
+
 // ── tiny stats helpers ─────────────────────────────────────────────────────
 
 function mean(values: number[]): number {

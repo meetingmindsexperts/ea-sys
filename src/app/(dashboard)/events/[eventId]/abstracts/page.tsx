@@ -54,6 +54,11 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import {
+  PRESENTATION_TYPE_OPTIONS,
+  abstractStatusColor,
+  abstractStatusLabel,
+} from "./abstract-enums";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -363,16 +368,6 @@ export default function AbstractsPage() {
     });
   };
 
-  const statusColors: Record<string, string> = {
-    DRAFT: "bg-gray-100 text-gray-800",
-    SUBMITTED: "bg-blue-100 text-blue-800",
-    UNDER_REVIEW: "bg-yellow-100 text-yellow-800",
-    ACCEPTED: "bg-green-100 text-green-800",
-    REJECTED: "bg-red-100 text-red-800",
-    REVISION_REQUESTED: "bg-orange-100 text-orange-800",
-    WITHDRAWN: "bg-gray-100 text-gray-500",
-  };
-
   const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
   const stats = {
@@ -550,10 +545,9 @@ export default function AbstractsPage() {
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                          <SelectItem value="POSTER">Poster Presentation</SelectItem>
-                          <SelectItem value="VIDEO">Video Presentation</SelectItem>
-                          <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
+                          {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -899,8 +893,9 @@ export default function AbstractsPage() {
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                      <SelectItem value="POSTER">Poster Presentation</SelectItem>
+                      {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1017,10 +1012,10 @@ export default function AbstractsPage() {
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold">{abstract.title}</h3>
                         <Badge
-                          className={statusColors[abstract.status]}
+                          className={abstractStatusColor(abstract.status)}
                           variant="outline"
                         >
-                          {abstract.status.replace("_", " ")}
+                          {abstractStatusLabel(abstract.status)}
                         </Badge>
                         {abstract.presentationType && (
                           <Badge variant="secondary" className="text-xs">

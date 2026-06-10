@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import {
   computeSubmissionAggregates,
   computeWeightedOverallScore,
+  meanOverallScore,
   readRequiredReviewCount,
   type CriterionScore,
 } from "@/lib/abstract-review";
@@ -70,7 +71,11 @@ const createReviewCriterion: ToolExecutor = async (input, ctx) => {
     const name = String(input.name ?? "").trim();
     const weight = Number(input.weight ?? 1);
     if (!name) return { error: "name is required" };
-    if (weight < 1 || weight > 10) return { error: "weight must be between 1 and 10" };
+    // Weights are meant to sum to 100 across the event's criteria — match
+    // the REST route's 1–100 range (was wrongly capped at 10 here).
+    if (!Number.isInteger(weight) || weight < 1 || weight > 100) {
+      return { error: "weight must be an integer between 1 and 100" };
+    }
 
     const count = await db.reviewCriterion.count({ where: { eventId: ctx.eventId } });
     const criterion = await db.reviewCriterion.create({
@@ -80,6 +85,72 @@ const createReviewCriterion: ToolExecutor = async (input, ctx) => {
   } catch (err) {
     apiLogger.error({ err }, "agent:create_review_criterion failed");
     return { error: "Failed to create review criterion" };
+  }
+};
+
+const updateReviewCriterion: ToolExecutor = async (input, ctx) => {
+  try {
+    const criterionId = String(input.criterionId ?? "").trim();
+    if (!criterionId) return { error: "criterionId is required" };
+
+    const existing = await db.reviewCriterion.findFirst({
+      where: { id: criterionId, eventId: ctx.eventId },
+      select: { id: true },
+    });
+    if (!existing) return { error: `Review criterion ${criterionId} not found in this event` };
+
+    const data: { name?: string; weight?: number; sortOrder?: number } = {};
+    if (input.name != null) {
+      const name = String(input.name).trim();
+      if (!name) return { error: "name cannot be empty" };
+      data.name = name.slice(0, 200);
+    }
+    if (input.weight != null) {
+      const weight = Number(input.weight);
+      if (!Number.isInteger(weight) || weight < 1 || weight > 100) {
+        return { error: "weight must be an integer between 1 and 100" };
+      }
+      data.weight = weight;
+    }
+    if (input.sortOrder != null) {
+      const sortOrder = Number(input.sortOrder);
+      if (!Number.isInteger(sortOrder) || sortOrder < 0) {
+        return { error: "sortOrder must be a non-negative integer" };
+      }
+      data.sortOrder = sortOrder;
+    }
+    if (Object.keys(data).length === 0) {
+      return { error: "Provide at least one of name, weight, sortOrder" };
+    }
+
+    const criterion = await db.reviewCriterion.update({
+      where: { id: criterionId },
+      data,
+      select: { id: true, name: true, weight: true, sortOrder: true },
+    });
+    return { success: true, criterion };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:update_review_criterion failed");
+    return { error: "Failed to update review criterion" };
+  }
+};
+
+const deleteReviewCriterion: ToolExecutor = async (input, ctx) => {
+  try {
+    const criterionId = String(input.criterionId ?? "").trim();
+    if (!criterionId) return { error: "criterionId is required" };
+
+    const existing = await db.reviewCriterion.findFirst({
+      where: { id: criterionId, eventId: ctx.eventId },
+      select: { id: true },
+    });
+    if (!existing) return { error: `Review criterion ${criterionId} not found in this event` };
+
+    await db.reviewCriterion.delete({ where: { id: criterionId } });
+    return { success: true };
+  } catch (err) {
+    apiLogger.error({ err }, "agent:delete_review_criterion failed");
+    return { error: "Failed to delete review criterion" };
   }
 };
 
@@ -112,19 +183,14 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
     // Fold a lightweight aggregate onto each row so the list UI + Claude
     // don't have to make a second call just to show scores.
     const enriched = abstracts.map((a) => {
-      const overalls = a.submissions
-        .map((s) => s.overallScore)
-        .filter((s): s is number => s != null);
-      const meanOverall = overalls.length
-        ? Math.round((overalls.reduce((x, y) => x + y, 0) / overalls.length) * 10) / 10
-        : null;
       // Strip the submissions array — agent callers only want the rollup.
       const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
       delete rest.submissions;
       return {
         ...rest,
         reviewCount: a.submissions.length,
-        meanOverallScore: meanOverall,
+        // Shared rounding — identical to the detail aggregate + REST list.
+        meanOverallScore: meanOverallScore(a.submissions.map((s) => s.overallScore)),
       };
     });
     return { abstracts: enriched, total: enriched.length };
@@ -792,9 +858,34 @@ export const ABSTRACT_TOOL_DEFINITIONS: Tool[] = [
       type: "object" as const,
       properties: {
         name: { type: "string", description: "Criterion name (e.g. Originality, Methodology)" },
-        weight: { type: "number", description: "Weight for scoring (e.g. 1, 2, 3). Higher = more important" },
+        weight: { type: "number", description: "Integer weight 1–100 for scoring; weights are meant to sum to 100 across the event's criteria. Higher = more important." },
       },
       required: ["name", "weight"],
+    },
+  },
+  {
+    name: "update_review_criterion",
+    description: "Update a review criterion (name, weight, and/or sortOrder). Provide at least one field to change.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        criterionId: { type: "string", description: "ID of the criterion to update" },
+        name: { type: "string" },
+        weight: { type: "number", description: "Integer weight 1–100 (weights are meant to sum to 100 across criteria)" },
+        sortOrder: { type: "number", description: "Display order (non-negative integer)" },
+      },
+      required: ["criterionId"],
+    },
+  },
+  {
+    name: "delete_review_criterion",
+    description: "Delete a review criterion from this event.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        criterionId: { type: "string", description: "ID of the criterion to delete" },
+      },
+      required: ["criterionId"],
     },
   },
   {
@@ -841,6 +932,8 @@ export const ABSTRACT_EXECUTORS: Record<string, ToolExecutor> = {
   create_abstract_theme: createAbstractTheme,
   list_review_criteria: listReviewCriteria,
   create_review_criterion: createReviewCriterion,
+  update_review_criterion: updateReviewCriterion,
+  delete_review_criterion: deleteReviewCriterion,
   list_abstracts: listAbstracts,
   update_abstract_status: updateAbstractStatus,
   list_reviewers: listReviewers,

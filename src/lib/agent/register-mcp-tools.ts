@@ -353,7 +353,9 @@ export function registerAllMcpTools(
       paymentStatusFilter: z.enum(["UNASSIGNED", "UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED"]).optional(),
     }},
     { name: "create_abstract_theme", description: "Create an abstract theme.", params: { name: z.string() }},
-    { name: "create_review_criterion", description: "Create a review criterion.", params: { name: z.string(), weight: z.number() }},
+    { name: "create_review_criterion", description: "Create a review criterion (weight 1-100; weights are meant to sum to 100 across criteria).", params: { name: z.string(), weight: z.number() }},
+    { name: "update_review_criterion", description: "Update a review criterion's name, weight (1-100), and/or sortOrder. Provide at least one field.", params: { criterionId: z.string(), name: z.string().optional(), weight: z.number().optional(), sortOrder: z.number().optional() }},
+    { name: "delete_review_criterion", description: "Delete a review criterion.", params: { criterionId: z.string() }},
     { name: "update_abstract_status", description: "Update abstract status. ACCEPTED/REJECTED require event.settings.requiredReviewCount submissions first; set force=true to bypass (logged as chair-override).", params: {
       abstractId: z.string(), status: z.enum(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]),
       force: z.boolean().optional(),

@@ -30,6 +30,11 @@ import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
+import {
+  PRESENTATION_TYPE_OPTIONS,
+  abstractStatusColor,
+  abstractStatusLabel,
+} from "../../abstract-enums";
 
 interface Track {
   id: string;
@@ -37,15 +42,6 @@ interface Track {
   color: string;
 }
 
-const statusColors: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
-  SUBMITTED: "bg-blue-100 text-blue-700",
-  UNDER_REVIEW: "bg-amber-100 text-amber-700",
-  ACCEPTED: "bg-green-100 text-green-700",
-  REJECTED: "bg-red-100 text-red-700",
-  REVISION_REQUESTED: "bg-orange-100 text-orange-700",
-  WITHDRAWN: "bg-gray-100 text-gray-500",
-};
 
 const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
 
@@ -174,8 +170,8 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             {canEdit ? "Edit Abstract" : "View Abstract"}
           </h1>
           <div className="flex items-center gap-2 mt-1">
-            <Badge className={statusColors[status]} variant="outline">
-              {status.replace("_", " ")}
+            <Badge className={abstractStatusColor(status)} variant="outline">
+              {abstractStatusLabel(status)}
             </Badge>
             {(abstract.presentationType as string) && (
               <Badge variant="secondary" className="text-xs">
@@ -333,10 +329,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                    <SelectItem value="POSTER">Poster Presentation</SelectItem>
-                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
-                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
+                    {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -29,6 +29,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import Link from "next/link";
+import { PRESENTATION_TYPE_OPTIONS } from "../abstract-enums";
 
 interface Speaker {
   id: string;
@@ -253,10 +254,9 @@ export default function NewAbstractPage() {
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ORAL">Oral Presentation</SelectItem>
-                    <SelectItem value="POSTER">Poster Presentation</SelectItem>
-                    <SelectItem value="VIDEO">Video Presentation</SelectItem>
-                    <SelectItem value="WORKSHOP">Workshop Presentation</SelectItem>
+                    {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
