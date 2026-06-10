@@ -15,7 +15,7 @@ Five jobs, one process:
 
 | Job | Schedule | Lock ID | Source of truth |
 |---|---|---|---|
-| `cert-issue` | `* * * * *` (every minute) | 1001 | `src/lib/certificates/issue-worker.ts` → `tickAllRuns` |
+| `cert-issue` | `*/3 * * * *` (every 3 min) | 1001 | `src/lib/certificates/issue-worker.ts` → `tickAllRuns` |
 | `scheduled-emails` | `* * * * *` (every minute) | 1002 | `src/lib/scheduled-emails-worker.ts` → `runScheduledEmailsTick` |
 | `webinar-recordings` | `*/5 * * * *` (every 5 min) | 1003 | `src/lib/webinar-recordings-worker.ts` → `runWebinarRecordingsTick` |
 | `webinar-attendance` | `*/10 * * * *` (every 10 min) | 1004 | `src/lib/webinar-attendance-worker.ts` → `runWebinarAttendanceTick` |

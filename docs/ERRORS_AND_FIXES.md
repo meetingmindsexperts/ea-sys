@@ -2,7 +2,7 @@
 
 A comprehensive record of every significant error, bug, and issue encountered in the project, organized by category. Each entry includes the root cause, the fix applied, and the files affected.
 
-**Last updated:** 2026-06-08
+**Last updated:** 2026-06-10
 
 ---
 
@@ -453,6 +453,25 @@ Full details in `docs/VERCEL_COMPATIBILITY.md`.
 **Fix:** Middleware uses `console.warn` with structured JSON format instead of Pino.
 
 **File:** `src/middleware.ts`
+
+---
+
+### R7 — Worker tick pages on transient Prisma connection errors (advisory-lock acquire)
+
+**Root cause:** The worker's `withJobLock` runs `pg_try_advisory_lock` via `$queryRaw` **outside** the job's own try/catch, so a transient DB-connection error on that acquire escaped to the scheduler's last-resort catch and fired a `worker:tick-wrapper-uncaught` alert — paging a human for a self-healing blip. Two variants hit this, neither recognized by `classifyPrismaError`, so both logged at `error` (alert) instead of `warn`:
+
+- **2026-06-09 — `EDBHANDLEREXITED` / `Error { kind: Closed }`:** Supabase's pooler (Supavisor) dropped a connection the worker had held open; the next query on the dead connection threw. (job: `webinar-recordings`)
+- **2026-06-10 — `P2024` pool exhaustion:** the worker's Prisma pool defaults to `physical_cores × 2 + 1 = 3` (the `t3.large` is 1 physical core; `DATABASE_URL` set no `connection_limit`), and several minute-cadence jobs (`cert-issue` + `scheduled-emails` + `webinar-recordings` at `:05`) ticking concurrently on that 3-connection pool starved `cert-issue`'s lock-acquire past `pool_timeout`. (job: `cert-issue`)
+
+**Fix (layered):**
+1. `withJobLock` wraps the acquire `$queryRaw`: a **retryable** connection error (per `classifyPrismaError`) becomes a quiet skip (`worker:lock-acquire-transient-skip`, warn) that retries next tick; non-retryable errors still re-throw.
+2. `classifyPrismaError` gained `DB connection closed` (EDBHANDLEREXITED / `kind: Closed`) and `DB connection pool timeout` (P2024) as retryable, **and** the connector `$on("error")` log level is now gated on the `retryable` flag — retryable transients log at `warn` (below the SES alert threshold), real problems stay `error`.
+3. `cert-issue` poller `* * * * *` → `*/3 * * * *` — fewer idle lock-acquire polls + fewer collisions with the every-minute `scheduled-emails`.
+4. Env (operational, on the box): `DATABASE_URL` pool widened to `connection_limit=10&pool_timeout=15` (was the default 3 / 10s). Shared `.env` so web + worker both widen; safe through pgbouncer (it multiplexes).
+
+**Known limitation (P3):** advisory locks are *session*-scoped but run through the Supabase *transaction* pooler, so the singleton guarantee doesn't truly hold across two concurrent workers — fine today (single worker), must be fixed before running a 2nd (e.g. Singapore DR failover) by pointing the worker at `DIRECT_URL`. Documented in `worker/lib/advisory-lock.ts`.
+
+**Files:** `worker/lib/advisory-lock.ts`, `src/lib/db.ts`, `worker/jobs/cert-issue.ts`; `.env` `DATABASE_URL` (operational, not in git). Commits `80c4850` (EDBHANDLEREXITED), `e90c989` (P2024 + poller).
 
 ---
 
