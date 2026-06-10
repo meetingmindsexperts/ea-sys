@@ -88,6 +88,24 @@ describe("withJobLock", () => {
     expect(last.payload.classification).toBe("DB connection closed");
   });
 
+  it("P1: swallows a transient pool-timeout (P2024) on ACQUIRE — warn + skip, no throw", async () => {
+    queryRawMock.mockRejectedValueOnce(
+      new Error(
+        "Invalid `prisma.$queryRaw()` invocation: Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 15, connection limit: 10)",
+      ),
+    );
+    const fn = vi.fn();
+
+    const result = await withJobLock(42, "cert-issue", fn);
+
+    expect(result).toBeNull();
+    expect(fn).not.toHaveBeenCalled();
+    const last = loggerCalls[loggerCalls.length - 1];
+    expect(last.level).toBe("warn");
+    expect(last.payload.msg).toBe("worker:lock-acquire-transient-skip");
+    expect(last.payload.classification).toBe("DB connection pool timeout");
+  });
+
   it("re-throws a NON-retryable acquire error (real problems still surface)", async () => {
     queryRawMock.mockRejectedValueOnce(
       new Error("FATAL: password authentication failed for user 'foo'"),

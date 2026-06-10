@@ -53,6 +53,19 @@ export function classifyPrismaError(message: string): {
   ) {
     return { category: "DB connection closed", retryable: true };
   }
+  // Prisma connection-pool exhaustion (P2024): every pooled client
+  // connection is checked out and the wait exceeded pool_timeout. The
+  // worker's tight pool hits this when several minute-cadence jobs
+  // overlap. Transient — the next tick usually finds a free connection,
+  // so the worker's withJobLock skips the tick gracefully rather than
+  // paging.
+  if (
+    /Timed out fetching a new connection from the connection pool|connection pool timeout|\bP2024\b/i.test(
+      m,
+    )
+  ) {
+    return { category: "DB connection pool timeout", retryable: true };
+  }
   if (/authentication failed|password authentication/i.test(m)) {
     return { category: "DB authentication failed", retryable: false };
   }

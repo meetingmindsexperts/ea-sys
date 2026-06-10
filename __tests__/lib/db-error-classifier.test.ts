@@ -133,6 +133,17 @@ describe("Prisma error classifier — connectivity errors", () => {
     expect(payload.msg).toBe("DB connection closed");
     expect(payload.retryable).toBe(true);
   });
+
+  // The cert-issue incident: the worker's pool (limit 3) was saturated by
+  // overlapping minute-cadence jobs, so a lock-acquire $queryRaw waited
+  // out pool_timeout and threw Prisma P2024.
+  it("classifies 'Timed out fetching a new connection from the connection pool' (P2024) as retryable DB connection pool timeout", async () => {
+    const payload = await fireError(
+      "Invalid `prisma.$queryRaw()` invocation: Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 3)",
+    );
+    expect(payload.msg).toBe("DB connection pool timeout");
+    expect(payload.retryable).toBe(true);
+  });
 });
 
 describe("Prisma error classifier — alert-level gating on `retryable`", () => {
