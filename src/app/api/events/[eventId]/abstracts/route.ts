@@ -80,6 +80,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           // dashboard card can render meanOverallScore + reviewCount without
           // an extra per-row fetch. Only pick fields needed for the mean.
           submissions: { select: { overallScore: true } },
+          _count: { select: { reviewers: true } },
         },
         orderBy: { submittedAt: "desc" },
         take: limit,
@@ -96,6 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return {
         ...rest,
         reviewCount: a.submissions.length,
+        assignedReviewerCount: a._count.reviewers,
         // Shared rounding so the list mean matches the detail aggregate.
         meanOverallScore: meanOverallScore(a.submissions.map((s) => s.overallScore)),
       };

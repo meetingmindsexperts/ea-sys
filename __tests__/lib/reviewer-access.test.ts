@@ -265,3 +265,57 @@ describe("Reviewer: abstracts-only access", () => {
     expect(where.id).toBe("evt-1");
   });
 });
+
+// ── Per-abstract reviewer assignment: schema + upsert decision ──────────────
+// Mirrors src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route.ts
+
+const assignReviewerSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(["PRIMARY", "SECONDARY", "CONSULTING"]).optional(),
+  conflictFlag: z.boolean().optional(),
+});
+
+/** Mirrors the route's upsert decision: update only when something changed. */
+function assignmentChange(
+  existing: { role: string; conflictFlag: boolean },
+  incoming: { role?: string; conflictFlag?: boolean },
+) {
+  const roleChanged = incoming.role !== undefined && incoming.role !== existing.role;
+  const conflictChanged =
+    incoming.conflictFlag !== undefined && incoming.conflictFlag !== existing.conflictFlag;
+  return { roleChanged, conflictChanged, isNoOp: !roleChanged && !conflictChanged };
+}
+
+describe("Abstract reviewer: assign schema", () => {
+  it("requires userId, accepts optional role + conflictFlag", () => {
+    expect(assignReviewerSchema.safeParse({ userId: "u1" }).success).toBe(true);
+    expect(assignReviewerSchema.safeParse({ userId: "u1", role: "PRIMARY" }).success).toBe(true);
+    expect(assignReviewerSchema.safeParse({ userId: "u1", conflictFlag: true }).success).toBe(true);
+    expect(assignReviewerSchema.safeParse({ role: "PRIMARY" }).success).toBe(false);
+    expect(assignReviewerSchema.safeParse({ userId: "u1", role: "CHAIR" }).success).toBe(false);
+  });
+});
+
+describe("Abstract reviewer: upsert decision", () => {
+  const existing = { role: "SECONDARY", conflictFlag: false };
+
+  it("no-ops when nothing is provided", () => {
+    expect(assignmentChange(existing, {}).isNoOp).toBe(true);
+  });
+  it("no-ops when the same role is provided", () => {
+    expect(assignmentChange(existing, { role: "SECONDARY" }).isNoOp).toBe(true);
+  });
+  it("updates on a role change", () => {
+    const r = assignmentChange(existing, { role: "PRIMARY" });
+    expect(r.roleChanged).toBe(true);
+    expect(r.isNoOp).toBe(false);
+  });
+  it("updates on a conflict-flag toggle", () => {
+    const r = assignmentChange(existing, { conflictFlag: true });
+    expect(r.conflictChanged).toBe(true);
+    expect(r.isNoOp).toBe(false);
+  });
+  it("no-ops when the conflict flag matches", () => {
+    expect(assignmentChange(existing, { conflictFlag: false }).isNoOp).toBe(true);
+  });
+});

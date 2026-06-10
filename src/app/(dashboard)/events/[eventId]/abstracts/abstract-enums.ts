@@ -46,3 +46,10 @@ export const PRESENTATION_TYPE_LABELS: Record<PresentationType, string> = {
   VIDEO: "Video",
   WORKSHOP: "Workshop",
 };
+
+/** Per-abstract reviewer assignment roles (AbstractReviewer.role). */
+export const ABSTRACT_REVIEWER_ROLE_OPTIONS: { value: "PRIMARY" | "SECONDARY" | "CONSULTING"; label: string }[] = [
+  { value: "PRIMARY", label: "Primary" },
+  { value: "SECONDARY", label: "Secondary" },
+  { value: "CONSULTING", label: "Consulting" },
+];

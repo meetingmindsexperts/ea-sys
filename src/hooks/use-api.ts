@@ -63,6 +63,8 @@ export const queryKeys = {
   accommodations: (eventId: string) => ["events", eventId, "accommodations"] as const,
   promoCodes: (eventId: string) => ["events", eventId, "promo-codes"] as const,
   reviewers: (eventId: string) => ["events", eventId, "reviewers"] as const,
+  abstractReviewers: (eventId: string, abstractId: string) =>
+    ["events", eventId, "abstracts", abstractId, "reviewers"] as const,
   contacts: ["contacts"] as const,
   contact: (contactId: string) => ["contacts", contactId] as const,
   billingAccounts: ["billing-accounts"] as const,
@@ -431,6 +433,61 @@ export function useRemoveReviewer(eventId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
+  });
+}
+
+// ── Per-abstract reviewer assignments ──────────────────────────────────────
+
+export type AbstractReviewerRole = "PRIMARY" | "SECONDARY" | "CONSULTING";
+
+export interface AbstractReviewerRow {
+  assignmentId: string;
+  role: AbstractReviewerRole;
+  assignedAt: string;
+  conflictFlag: boolean;
+  user: { id: string; firstName: string; lastName: string; email: string };
+  hasSubmitted: boolean;
+  submission: { id: string; overallScore: number | null; submittedAt: string; updatedAt: string } | null;
+}
+
+export function useAbstractReviewers(eventId: string, abstractId: string) {
+  return useQuery({
+    queryKey: queryKeys.abstractReviewers(eventId, abstractId),
+    queryFn: () =>
+      fetchApi<{ reviewers: AbstractReviewerRow[]; total: number }>(
+        `/api/events/${eventId}/abstracts/${abstractId}/reviewers`,
+      ),
+    enabled: !!eventId && !!abstractId,
+  });
+}
+
+export function useAssignAbstractReviewer(eventId: string, abstractId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { userId: string; role?: AbstractReviewerRole; conflictFlag?: boolean }) =>
+      fetchApi(`/api/events/${eventId}/abstracts/${abstractId}/reviewers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
+    },
+  });
+}
+
+export function useUnassignAbstractReviewer(eventId: string, abstractId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      fetchApi(`/api/events/${eventId}/abstracts/${abstractId}/reviewers/${userId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractReviewers(eventId, abstractId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
     },
   });
 }

@@ -317,16 +317,44 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
     if (!user) return { error: `User ${userId} not found`, code: "USER_NOT_FOUND" };
 
+    // Upsert role on an existing assignment (parity with the REST route) so
+    // the agent can flip Primary↔Secondary without unassign+reassign.
     const existing = await db.abstractReviewer.findUnique({
       where: { abstractId_userId: { abstractId, userId } },
       select: { id: true, role: true },
     });
     if (existing) {
+      if (existing.role === role) {
+        return {
+          alreadyAssigned: true,
+          existingAssignmentId: existing.id,
+          currentRole: existing.role,
+          message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
+        };
+      }
+      const updated = await db.abstractReviewer.update({
+        where: { abstractId_userId: { abstractId, userId } },
+        data: { role: role as never },
+        select: { id: true, role: true, assignedAt: true },
+      });
+      apiLogger.info({ abstractId, userId, role, previousRole: existing.role }, "abstract-reviewer:updated");
+      db.auditLog.create({
+        data: {
+          eventId: ctx.eventId,
+          userId: ctx.userId,
+          action: "UPDATE",
+          entityType: "AbstractReviewer",
+          entityId: updated.id,
+          changes: { source: "mcp", abstractId, reviewerUserId: userId, role, previousRole: existing.role },
+        },
+      }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
       return {
-        alreadyAssigned: true,
-        existingAssignmentId: existing.id,
-        currentRole: existing.role,
-        message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
+        success: true,
+        updated: true,
+        assignment: {
+          ...updated,
+          reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+        },
       };
     }
 

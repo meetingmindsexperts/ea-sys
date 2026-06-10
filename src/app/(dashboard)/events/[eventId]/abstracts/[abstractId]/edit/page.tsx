@@ -35,6 +35,7 @@ import {
   abstractStatusColor,
   abstractStatusLabel,
 } from "../../abstract-enums";
+import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 
 interface Track {
   id: string;
@@ -389,6 +390,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
               )}
             </CardContent>
           </Card>
+
+          {/* Per-abstract reviewer assignment (admin/organizer only — the
+              card self-hides for submitters). */}
+          <AbstractReviewersCard eventId={eventId} abstractId={abstractId} />
         </div>
       </div>
     </div>

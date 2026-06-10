@@ -74,18 +74,77 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // Idempotent: return existing assignment on dup (audit's dedup-UX pattern)
+    // Upsert: if already assigned, update role/conflictFlag when the caller
+    // passed a changed value (lets the UI flip Primary↔Secondary or toggle
+    // COI without an unassign+reassign round-trip). If nothing changed, it's
+    // an idempotent no-op that reports the current state.
     const existing = await db.abstractReviewer.findUnique({
       where: { abstractId_userId: { abstractId, userId: validated.data.userId } },
-      select: { id: true, role: true },
+      select: { id: true, role: true, conflictFlag: true },
     });
     if (existing) {
+      const roleChanged =
+        validated.data.role !== undefined && validated.data.role !== existing.role;
+      const conflictChanged =
+        validated.data.conflictFlag !== undefined &&
+        validated.data.conflictFlag !== existing.conflictFlag;
+
+      if (!roleChanged && !conflictChanged) {
+        return NextResponse.json(
+          {
+            alreadyAssigned: true,
+            existingAssignmentId: existing.id,
+            currentRole: existing.role,
+            message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
+          },
+          { status: 200 },
+        );
+      }
+
+      const updated = await db.abstractReviewer.update({
+        where: { abstractId_userId: { abstractId, userId: validated.data.userId } },
+        data: {
+          ...(roleChanged && { role: validated.data.role }),
+          ...(conflictChanged && { conflictFlag: validated.data.conflictFlag }),
+        },
+        select: { id: true, role: true, assignedAt: true, conflictFlag: true },
+      });
+
+      apiLogger.info({
+        msg: "abstract-reviewer:updated",
+        eventId,
+        abstractId,
+        reviewerUserId: validated.data.userId,
+        role: updated.role,
+      });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "UPDATE",
+            entityType: "AbstractReviewer",
+            entityId: updated.id,
+            changes: {
+              source: "api",
+              abstractId,
+              reviewerUserId: validated.data.userId,
+              role: updated.role,
+              conflictFlag: updated.conflictFlag,
+              ip: getClientIp(req),
+            },
+          },
+        })
+        .catch((err) => apiLogger.error({ err, eventId, abstractId }, "update-reviewer:audit-log-failed"));
+
       return NextResponse.json(
         {
-          alreadyAssigned: true,
-          existingAssignmentId: existing.id,
-          currentRole: existing.role,
-          message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
+          success: true,
+          updated: true,
+          assignment: {
+            ...updated,
+            reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+          },
         },
         { status: 200 },
       );

@@ -36,6 +36,7 @@ import {
   User,
   Loader2,
   Pencil,
+  UserPlus,
   Trash2,
   Copy,
   Check,
@@ -59,6 +60,7 @@ import {
   abstractStatusColor,
   abstractStatusLabel,
 } from "./abstract-enums";
+import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 
 /** Strip HTML tags for display (handles legacy HTML content) */
 function stripHtml(html: string): string {
@@ -95,6 +97,8 @@ interface Abstract {
   /** Server-computed aggregate from AbstractReviewSubmission rows (Sprint B) */
   reviewCount?: number;
   meanOverallScore?: number | null;
+  /** Count of per-abstract reviewer assignments (AbstractReviewer rows). */
+  assignedReviewerCount?: number;
 }
 
 export default function AbstractsPage() {
@@ -130,6 +134,8 @@ export default function AbstractsPage() {
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
+  // Per-abstract reviewer-assignment dialog target.
+  const [reviewersForAbstract, setReviewersForAbstract] = useState<Abstract | null>(null);
 
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -953,6 +959,29 @@ export default function AbstractsPage() {
         </Dialog>
       )}
 
+      {/* Per-abstract reviewer assignment (admin only — same card as the
+          abstract edit page). */}
+      <Dialog
+        open={!!reviewersForAbstract}
+        onOpenChange={(open) => !open && setReviewersForAbstract(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Assign reviewers
+              {reviewersForAbstract && (
+                <span className="block text-sm font-normal text-muted-foreground mt-0.5 line-clamp-1">
+                  {reviewersForAbstract.title}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {reviewersForAbstract && (
+            <AbstractReviewersCard eventId={eventId} abstractId={reviewersForAbstract.id} />
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Abstracts List */}
       <div>
         <h2 className="text-lg font-semibold mb-4">
@@ -1096,14 +1125,30 @@ export default function AbstractsPage() {
                         // Admin / Reviewer actions
                         <>
                           {isAdmin && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditDialog(abstract)}
-                            >
-                              <Pencil className="mr-1 h-4 w-4" />
-                              Edit
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditDialog(abstract)}
+                              >
+                                <Pencil className="mr-1 h-4 w-4" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setReviewersForAbstract(abstract)}
+                              >
+                                <UserPlus className="mr-1 h-4 w-4" />
+                                Reviewers
+                                {typeof abstract.assignedReviewerCount === "number" &&
+                                  abstract.assignedReviewerCount > 0 && (
+                                    <span className="ml-1 rounded-full bg-primary/10 px-1.5 text-xs text-primary">
+                                      {abstract.assignedReviewerCount}
+                                    </span>
+                                  )}
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="outline"
