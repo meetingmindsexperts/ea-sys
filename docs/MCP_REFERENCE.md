@@ -133,7 +133,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | Tool | Description |
 |---|---|
 | `list_sessions` | Filter by track |
-| `create_session` | Includes topics + per-session roles; validates times fall within event dates (Asia/Dubai-aware) |
+| `create_session` | Includes topics (with optional per-topic `abstractId`) + per-session roles + `capacity`; validates times fall within event dates in the event's timezone |
 | `update_session` | Name/description/times/location/capacity/trackId/status with same tz-aware date validation |
 | `add_topic_to_session` | Append a topic with speaker assignments |
 | `list_live_sessions_now` | Currently running sessions + optional lookahead window |
