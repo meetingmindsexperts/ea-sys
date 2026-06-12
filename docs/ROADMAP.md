@@ -339,6 +339,26 @@ shippable, none blocking v1:
 | **Auto-revert on non-payment** | `attendeeIsGuarantor` stores intent; reverting an unpaid third-party reg to attendee-owed is a manual finance action in v1. A dunning/age-out cron is v2. |
 | **Quote/confirmation email recipient** | v1 redirects the invoice/quote **PDF** bill-to to the payer, but the confirmation email is still addressed `to: <attendee>` (so the doctor gets a "please pay" quote). v1.1: when a payer is set, send the quote to the payer's billing email (and suppress the attendee "pay now" copy unless `attendeeIsGuarantor`). Flagged by the pre-commit review as a UX/flow nicety, not a correctness/security defect. |
 
+### Hybrid attendance (in-person/virtual) follow-ups (v1.1 — shipped v1 June 12, 2026)
+
+v1 is live: HYBRID events let registrants choose venue vs online; virtual gets
+no barcode/badge, is uncapped (skips `soldCount`), is priced via the flat
+`TicketType.virtualPrice`, and the confirmation email swaps the barcode for a
+"joining instructions will be sent" message. Wired through the public form +
+API, the service (admin REST + MCP), the admin full-page Add form, MCP
+`create_registration`, and CSV import. Consciously deferred, each independently
+shippable, none blocking v1:
+
+| Item | Note |
+|---|---|
+| **Admin mode-change qrCode minting** | ⚠ The one real correctness gap. Switching an existing registration **virtual→in-person** (via the detail sheet / PUT) leaves `qrCode` null, so they can't be badged or checked in. v1.1: mint a qrCode lazily on the transition (and the reverse — in-person→virtual — keeps the qrCode for audit but suppresses badge/check-in). |
+| **Quick-Add dialog picker** | The fast add-registration *dialog* has no mode picker (consistent with its existing pricingTier/sponsor gap — the full-page form is the surface). |
+| **Check-in UI for virtual** | Scanner already can't match a virtual reg (no qrCode), but the registrations-list "Check In" action should be hidden/disabled for virtual, and the check-in/attendance-rate KPIs should be computed over in-person only so on-site numbers aren't diluted. |
+| **Dashboard in-person/virtual split** | Add an in-person vs virtual headcount tile (and "expected at venue" = in-person count). The `@@index([eventId, attendanceMode])` is already in place for the groupBy. |
+| **Registrant self-service portal mode display** | `/my-registration` should show the attendee's mode (and any change is admin-only). |
+| **Tier-windowed virtual pricing** | v1 virtual price is **flat** per ticket type (pricing tiers apply to in-person only). If virtual needs Early-Bird-style time-windowed pricing, that's a `PricingTier.virtualPrice` extension — scope separately. |
+| **Virtual attendance certificates** | An *attendance* certificate for a virtual attendee should gate on **Zoom attendance** (the webinar attendance sync), not desk check-in — the cert eligibility assumption changes for virtual. |
+
 ### registration-detail-sheet.tsx — staged refactor remainder (trigger-driven, May 20, 2026)
 
 Steps A–E of the staged refactor shipped (commits `8ad760b`, `25b3299`,
