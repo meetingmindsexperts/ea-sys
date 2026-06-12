@@ -193,6 +193,25 @@ describe("MCP create_registration — REST parity", () => {
     expect(mockEmail.sendRegistrationConfirmation).not.toHaveBeenCalled();
   });
 
+  it("rejects an invalid attendanceMode before touching the DB", async () => {
+    const result = await REGISTRATION_EXECUTORS.create_registration(
+      { ...baseInput, attendanceMode: "HOLOGRAM" },
+      CTX,
+    ) as { error?: string };
+    expect(result.error).toMatch(/attendanceMode/i);
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
+  it("threads attendanceMode=VIRTUAL to the service (no qrCode, mode persisted)", async () => {
+    await REGISTRATION_EXECUTORS.create_registration(
+      { ...baseInput, attendanceMode: "VIRTUAL" },
+      CTX,
+    );
+    const regCreate = mockDb.registration.create.mock.calls[0][0] as { data: { qrCode: unknown; attendanceMode: unknown } };
+    expect(regCreate.data.attendanceMode).toBe("VIRTUAL");
+    expect(regCreate.data.qrCode).toBeNull();
+  });
+
   it("skips confirmation email for free tickets (defaults to COMPLIMENTARY)", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue(freeTicket);
     await REGISTRATION_EXECUTORS.create_registration(

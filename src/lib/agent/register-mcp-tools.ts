@@ -340,6 +340,7 @@ export function registerAllMcpTools(
       additionalEmail: z.string().optional().describe("Secondary CC inbox auto-CC'd on registration emails."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),
+      attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]).optional().describe("IN_PERSON (default) or VIRTUAL. Only meaningful on HYBRID events — VIRTUAL gets no entry barcode/badge, is uncapped (skips the seat count), and is priced via the ticket's virtualPrice."),
       paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional(),
       sponsorId: z.string().optional().describe("Sponsor id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE."),
       billingAccountId: z.string().optional().describe("\"Charge to another account\" — id of an active org BillingAccount (the attendee's hospital / a pharma grant). Invoice is addressed to that payer instead of the attendee. Orthogonal to paymentStatus (money still owed until the payer settles). Managed in Settings → Billing."),

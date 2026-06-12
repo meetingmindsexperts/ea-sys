@@ -100,6 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       registrationStatus: headers.indexOf("registrationstatus"),
       paymentStatus: headers.indexOf("paymentstatus"),
       sponsor: headers.indexOf("sponsor"),
+      attendanceMode: headers.indexOf("attendancemode"),
     };
 
     if (idx.email === -1 || idx.firstName === -1 || idx.lastName === -1) {
@@ -240,6 +241,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
 
+      // Attendance mode (optional column; defaults IN_PERSON). VIRTUAL ⇒ no
+      // qrCode/badge and uncapped (skips the seat count), matching the
+      // registration service + public-register behavior.
+      const rowModeRaw = getField(fields, idx.attendanceMode)?.toUpperCase().replace(/[\s-]/g, "_");
+      let rowAttendanceMode: "IN_PERSON" | "VIRTUAL" = "IN_PERSON";
+      if (rowModeRaw) {
+        if (rowModeRaw !== "IN_PERSON" && rowModeRaw !== "VIRTUAL") {
+          errors.push(`Row ${rowNum}: invalid attendanceMode "${rowModeRaw}" (allowed: IN_PERSON, VIRTUAL)`);
+          continue;
+        }
+        rowAttendanceMode = rowModeRaw;
+      }
+      const rowIsVirtual = rowAttendanceMode === "VIRTUAL";
+
       // Find matching ticket type
       let ticketType = defaultTicketType;
       if (registrationType) {
@@ -292,20 +307,24 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
-          // Check capacity and increment soldCount
-          const currentTicket = await tx.ticketType.findUnique({
-            where: { id: ticketType.id },
-            select: { quantity: true, soldCount: true },
-          });
-          if (currentTicket && currentTicket.soldCount >= currentTicket.quantity) {
-            throw new Error("CAPACITY_EXCEEDED");
+          // Check capacity and increment soldCount — skipped for virtual
+          // (uncapped; online attendees don't consume physical seats).
+          if (!rowIsVirtual) {
+            const currentTicket = await tx.ticketType.findUnique({
+              where: { id: ticketType.id },
+              select: { quantity: true, soldCount: true },
+            });
+            if (currentTicket && currentTicket.soldCount >= currentTicket.quantity) {
+              throw new Error("CAPACITY_EXCEEDED");
+            }
+            await tx.ticketType.update({
+              where: { id: ticketType.id },
+              data: { soldCount: { increment: 1 } },
+            });
           }
-          await tx.ticketType.update({
-            where: { id: ticketType.id },
-            data: { soldCount: { increment: 1 } },
-          });
 
-          const generatedBarcode = generateBarcode();
+          // Virtual ⇒ no entry barcode.
+          const generatedBarcode = rowIsVirtual ? null : generateBarcode();
           const serialId = await getNextSerialId(tx, eventId);
           // Per-row registrationStatus / paymentStatus overrides fall back to
           // the prior defaults when the CSV columns are absent. requiresApproval
@@ -324,6 +343,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               createdSource: "CSV_IMPORT",
               status: rowRegistrationStatus ?? defaultStatus,
               paymentStatus: rowPaymentStatus ?? defaultPaymentStatus,
+              attendanceMode: rowAttendanceMode,
               sponsorId: rowSponsorId,
               qrCode: generatedBarcode,
               notes: getField(fields, idx.notes) || null,

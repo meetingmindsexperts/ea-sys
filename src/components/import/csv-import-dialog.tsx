@@ -26,10 +26,10 @@ const ENTITY_CONFIG = {
   registrations: {
     label: "Registrations",
     required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId", "registrationStatus", "paymentStatus", "sponsor"],
+    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId", "registrationStatus", "paymentStatus", "sponsor", "attendanceMode"],
     // Sample shows a sponsor-paid row: paymentStatus=INCLUSIVE + sponsor
     // name (must already exist on the event's Sponsors page).
-    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", "", "CONFIRMED", "INCLUSIVE", "Abbott"],
+    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", "", "CONFIRMED", "INCLUSIVE", "Abbott", "IN_PERSON"],
   },
   speakers: {
     label: "Speakers",
@@ -148,7 +148,9 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 + <code>sponsor</code> columns override the defaults; use{" "}
                 <code>paymentStatus=INCLUSIVE</code> with a sponsor name for
                 sponsor-paid attendees (the sponsor must already exist on the
-                event&#39;s Sponsors page).
+                event&#39;s Sponsors page). On hybrid events, set{" "}
+                <code>attendanceMode=VIRTUAL</code> for online attendees (no
+                badge/barcode; defaults to IN_PERSON).
               </>
             )}
           </DialogDescription>

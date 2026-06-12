@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
-import { useTickets, useBillingAccounts, useEventTags } from "@/hooks/use-api";
+import { useTickets, useBillingAccounts, useEventTags, useEvent } from "@/hooks/use-api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
@@ -55,11 +55,14 @@ export default function NewRegistrationPage() {
   // dialog and the filter, so the operator sees a consistent set of
   // existing tags across all entry points.
   const tagsQuery = useEventTags(eventId);
+  const { data: eventData } = useEvent(eventId);
+  const isHybridEvent = (eventData as { eventType?: string } | undefined)?.eventType === "HYBRID";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     ticketTypeId: string;
     pricingTierId: string;
+    attendanceMode: "IN_PERSON" | "VIRTUAL";
     paymentStatus: PaymentStatus;
     billingAccountId: string;
     payerReference: string;
@@ -69,6 +72,7 @@ export default function NewRegistrationPage() {
   }>({
     ticketTypeId: "",
     pricingTierId: "",
+    attendanceMode: "IN_PERSON",
     paymentStatus: PaymentStatus.UNASSIGNED,
     billingAccountId: "",
     payerReference: "",
@@ -140,6 +144,9 @@ export default function NewRegistrationPage() {
               ? formData.pricingTierId
               : undefined,
           paymentStatus: formData.paymentStatus,
+          // Only send a virtual mode on hybrid events (the picker is hidden
+          // otherwise, so this stays IN_PERSON for non-hybrid events).
+          attendanceMode: isHybridEvent ? formData.attendanceMode : undefined,
           // "Charge to another account" — orthogonal to paymentStatus.
           billingAccountId: formData.billingAccountId || undefined,
           payerReference:
@@ -225,6 +232,29 @@ export default function NewRegistrationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Hybrid events: how this attendee will attend. Virtual ⇒ no
+                barcode/badge, uncapped, priced via the ticket's virtualPrice. */}
+            {isHybridEvent && (
+              <div className="mb-4 space-y-2">
+                <Label>Attendance</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    { value: "IN_PERSON", label: "In-Person", desc: "Venue + entry barcode" },
+                    { value: "VIRTUAL", label: "Virtual", desc: "Online; no badge, joining link emailed" },
+                  ] as const).map((opt) => {
+                    const selected = formData.attendanceMode === opt.value;
+                    return (
+                      <button key={opt.value} type="button"
+                        onClick={() => setFormData((p) => ({ ...p, attendanceMode: opt.value, pricingTierId: opt.value === "VIRTUAL" ? "" : p.pricingTierId }))}
+                        className={`text-left rounded-lg border-2 p-3 transition-colors ${selected ? "border-primary bg-primary/[0.03]" : "border-border hover:border-muted-foreground/30"}`}>
+                        <p className="text-sm font-medium">{opt.label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ticketType">Type</Label>

@@ -218,12 +218,18 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid additionalEmail format "${rawAdditionalEmail}"` };
     }
 
+    const rawMode = input.attendanceMode ? String(input.attendanceMode).toUpperCase() : undefined;
+    if (rawMode && rawMode !== "IN_PERSON" && rawMode !== "VIRTUAL") {
+      return { error: `Invalid attendanceMode "${rawMode}". Must be IN_PERSON or VIRTUAL.` };
+    }
+
     const result = await createRegistration({
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
       ticketTypeId,
       pricingTierId: input.pricingTierId ? String(input.pricingTierId) : undefined,
+      attendanceMode: rawMode as "IN_PERSON" | "VIRTUAL" | undefined,
       attendee: {
         title: (rawTitle as RegistrationTitle | undefined) ?? null,
         role: (rawRole as RegistrationAttendeeRole | undefined) ?? null,
@@ -1129,6 +1135,7 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
         lastName: { type: "string" },
         ticketTypeId: { type: "string", description: "ID of the ticket type (use list_ticket_types to get IDs)" },
         pricingTierId: { type: "string", description: "Optional pricing tier ID" },
+        attendanceMode: { type: "string", enum: ["IN_PERSON", "VIRTUAL"], description: "IN_PERSON (default) or VIRTUAL. Only meaningful on HYBRID events. VIRTUAL ⇒ no entry barcode/badge, uncapped (skips seat count), priced via the ticket's virtualPrice." },
         status: {
           type: "string",
           enum: ["PENDING", "CONFIRMED", "WAITLISTED"],
