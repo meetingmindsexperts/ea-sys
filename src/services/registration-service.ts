@@ -22,7 +22,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
-import { PaymentStatus, RegistrationStatus } from "@prisma/client";
+import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
@@ -211,6 +211,14 @@ export interface CreateRegistrationInput {
    */
   attendeeIsGuarantor?: boolean;
 
+  /**
+   * Venue vs online. Only a real choice on HYBRID events; defaults to
+   * IN_PERSON. VIRTUAL ⇒ no entry barcode/qrCode is minted, the ticket-type
+   * seat count is NOT incremented (virtual is uncapped), and the price
+   * resolves to `ticketType.virtualPrice` (flat) when set.
+   */
+  attendanceMode?: AttendanceMode;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
 
@@ -276,6 +284,8 @@ export async function createRegistration(
   const billingAccountIdInput = input.billingAccountId ?? null;
   const payerReference = input.payerReference?.trim() || null;
   const attendeeIsGuarantor = input.attendeeIsGuarantor ?? false;
+  const attendanceMode: AttendanceMode = input.attendanceMode ?? AttendanceMode.IN_PERSON;
+  const isVirtual = attendanceMode === AttendanceMode.VIRTUAL;
 
   // Normalize attendee inputs. Empty-string-to-null so direct-to-service
   // callers match REST + MCP behavior without having to pre-clean.
@@ -376,6 +386,7 @@ export async function createRegistration(
             id: true,
             name: true,
             price: true,
+            virtualPrice: true,
             currency: true,
             quantity: true,
             soldCount: true,
@@ -397,6 +408,18 @@ export async function createRegistration(
       message: "Registration type not found or inactive",
     };
   }
+
+  // Effective price for THIS registration: virtual uses the flat
+  // `virtualPrice` when set (null ⇒ fall back to the in-person price);
+  // in-person uses the base price (pricing-tier resolution below still
+  // applies to in-person). Drives the free/paid email gate + the quote.
+  const effectiveTicketPrice = ticketType
+    ? Number(
+        isVirtual && ticketType.virtualPrice != null
+          ? ticketType.virtualPrice
+          : ticketType.price,
+      )
+    : 0;
 
   // Sales-window + sold-out pre-check. The atomic guard inside the tx
   // is the race-safety net — this pre-check short-circuits for the
@@ -463,8 +486,10 @@ export async function createRegistration(
   }
 
   // Default paymentStatus: UNASSIGNED for paid tickets, COMPLIMENTARY for
-  // free (no ticket type OR price === 0). Caller override takes priority.
-  const isFree = !ticketType || Number(ticketType.price) === 0;
+  // free (no ticket type OR effective price === 0). Caller override takes
+  // priority. Uses the effective price so a free virtual ticket defaults
+  // to COMPLIMENTARY even when the in-person price is non-zero.
+  const isFree = !ticketType || effectiveTicketPrice === 0;
   const defaultPaymentStatus: ManualPaymentStatus = isFree
     ? PaymentStatus.COMPLIMENTARY
     : PaymentStatus.UNASSIGNED;
@@ -588,7 +613,10 @@ export async function createRegistration(
 
       // Atomic soldCount increment with sold-out guard inside the tx —
       // prevents overbooking under concurrent admin + public + MCP registrations.
-      if (ticketType && ticketTypeId) {
+      // VIRTUAL is uncapped: it does NOT consume a physical seat, so we skip
+      // the increment AND the sold-out guard (a sold-out venue can still take
+      // virtual signups).
+      if (ticketType && ticketTypeId && !isVirtual) {
         const updated = await tx.ticketType.updateMany({
           where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
           data: { soldCount: { increment: 1 } },
@@ -598,7 +626,11 @@ export async function createRegistration(
         }
       }
 
-      const qrCode = generateBarcode();
+      // Entry barcode only for in-person attendees — virtual has nothing to
+      // scan at a venue, so qrCode stays null (Postgres allows many nulls in
+      // the @unique index). It's minted lazily if an admin later flips the
+      // registration to in-person.
+      const qrCode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, eventId);
       // Map the caller identity (already in service input) to the
       // RegistrationCreatedSource enum so the detail sheet can
@@ -618,6 +650,7 @@ export async function createRegistration(
           createdSource,
           status: finalStatus,
           paymentStatus: finalPaymentStatus,
+          attendanceMode,
           sponsorId,
           billingAccountId,
           payerReference,
@@ -728,15 +761,17 @@ export async function createRegistration(
     apiLogger.error({ err }, "registration-service:notify-admins-failed"),
   );
 
-  // Send confirmation + quote PDF when the registrant still owes money.
-  // Quote PDF auto-attaches inside sendRegistrationConfirmation when
-  // ticketPrice > 0 && organizationName. Skip for free + already-settled
-  // + Stripe-driven states.
-  if (
-    ticketType &&
-    Number(ticketType.price) > 0 &&
-    OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus)
-  ) {
+  // When to send the confirmation:
+  //   • IN_PERSON: only when money is still owed (quote PDF auto-attaches) —
+  //     unchanged behavior; free in-person gets no email here.
+  //   • VIRTUAL: ALWAYS (when there's a ticket type) — even free — because the
+  //     registrant needs the "joining instructions coming" message. The quote
+  //     PDF still attaches only if the effective (virtual) price > 0.
+  // The barcode block self-skips for virtual (null qrCode); email.ts adds the
+  // joining-instructions block when attendanceMode is VIRTUAL.
+  const owesMoney =
+    effectiveTicketPrice > 0 && OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus);
+  if (ticketType && (owesMoney || isVirtual)) {
     sendRegistrationConfirmation({
       to: email,
       additionalEmail,
@@ -745,6 +780,7 @@ export async function createRegistration(
       title: attendeeTitle,
       organization,
       jobTitle,
+      attendanceMode,
       eventName: event.name,
       eventDate: event.startDate,
       eventVenue: event.venue || "",
@@ -756,7 +792,7 @@ export async function createRegistration(
       eventId: event.id,
       organizationId: event.organizationId,
       eventSlug: event.slug,
-      ticketPrice: Number(ticketType.price),
+      ticketPrice: effectiveTicketPrice,
       ticketCurrency: ticketType.currency,
       taxRate: event.taxRate ? Number(event.taxRate) : null,
       taxLabel: event.taxLabel,

@@ -118,6 +118,7 @@ export interface Registration {
   serialId: number | null;
   status: RegistrationStatus;
   paymentStatus: PaymentStatus;
+  attendanceMode?: "IN_PERSON" | "VIRTUAL";
   // Sponsor attribution — set when paymentStatus = INCLUSIVE. References
   // an entry in Event.settings.sponsors[].id (JSON, not a foreign-key
   // relation).

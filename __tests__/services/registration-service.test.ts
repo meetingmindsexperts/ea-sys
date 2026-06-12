@@ -817,3 +817,59 @@ describe("createRegistration — INCLUSIVE sponsor attribution", () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attendance mode (hybrid: in-person vs virtual)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VIRTUAL_PRICED_TICKET = { ...PAID_TICKET, virtualPrice: 40 };
+
+describe("createRegistration — attendance mode", () => {
+  it("IN_PERSON (default): mints a qrCode + increments soldCount (regression)", async () => {
+    await createRegistration({ ...BASE_INPUT });
+    expect(mockGenerateBarcode).toHaveBeenCalled();
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalled();
+    const regCreate = mockDb.registration.create.mock.calls[0][0];
+    expect(regCreate.data.attendanceMode).toBe("IN_PERSON");
+    expect(regCreate.data.qrCode).toBe("BARCODE-TEST-123");
+  });
+
+  it("VIRTUAL: no qrCode minted (generateBarcode not called; qrCode null)", async () => {
+    await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
+    expect(mockGenerateBarcode).not.toHaveBeenCalled();
+    const regCreate = mockDb.registration.create.mock.calls[0][0];
+    expect(regCreate.data.qrCode).toBeNull();
+    expect(regCreate.data.attendanceMode).toBe("VIRTUAL");
+  });
+
+  it("VIRTUAL is uncapped: soldCount is NOT incremented", async () => {
+    await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("VIRTUAL: confirmation email fires with attendanceMode=VIRTUAL + the flat virtualPrice", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(VIRTUAL_PRICED_TICKET);
+    await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
+    expect(mockSendConfirmation).toHaveBeenCalledTimes(1);
+    const emailArg = mockSendConfirmation.mock.calls[0][0];
+    expect(emailArg.attendanceMode).toBe("VIRTUAL");
+    expect(emailArg.ticketPrice).toBe(40);
+  });
+
+  it("VIRTUAL with virtualPrice=0 (free online): defaults COMPLIMENTARY and STILL emails (joining message)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PAID_TICKET, virtualPrice: 0 });
+    await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
+    const regCreate = mockDb.registration.create.mock.calls[0][0];
+    expect(regCreate.data.paymentStatus).toBe("COMPLIMENTARY");
+    // Free in-person would NOT email, but free virtual must (it carries the
+    // "joining instructions coming" message).
+    expect(mockSendConfirmation).toHaveBeenCalledTimes(1);
+    expect(mockSendConfirmation.mock.calls[0][0].attendanceMode).toBe("VIRTUAL");
+  });
+
+  it("VIRTUAL with null virtualPrice falls back to the in-person price for the email", async () => {
+    // PAID_TICKET has no virtualPrice → falls back to price=100.
+    await createRegistration({ ...BASE_INPUT, attendanceMode: "VIRTUAL" });
+    expect(mockSendConfirmation.mock.calls[0][0].ticketPrice).toBe(100);
+  });
+});

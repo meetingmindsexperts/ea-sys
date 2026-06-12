@@ -2196,6 +2196,12 @@ export async function sendRegistrationConfirmation(params: {
   registrationId: string;
   serialId?: number | null;
   qrCode: string;
+  /**
+   * venue vs online. VIRTUAL ⇒ the entry-barcode block is replaced with a
+   * "joining instructions will be sent" message (a virtual registration also
+   * has no qrCode, so the barcode block self-skips anyway). Defaults IN_PERSON.
+   */
+  attendanceMode?: "IN_PERSON" | "VIRTUAL";
   eventId?: string;
   /**
    * Organization that owns the event. Threaded into the EmailLog row's
@@ -2321,10 +2327,21 @@ export async function sendRegistrationConfirmation(params: {
   // immutable qrCode via the same helper the badge uses (includetext so the
   // digits sit under the bars). Failure is non-fatal — the email still sends
   // without the barcode, and the badge/portal remain as fallbacks.
+  const isVirtual = params.attendanceMode === "VIRTUAL";
+
   let barcodeAttachment: NonNullable<SendEmailParams["attachments"]>[number] | null = null;
   let barcodeBlock = "";
   let barcodeBlockText = "";
-  if (params.qrCode) {
+  // Virtual attendees get a "joining instructions coming" note instead of a
+  // barcode. (A virtual registration also has no qrCode, so the block below
+  // self-skips — this is belt-and-braces in case a qrCode is ever present.)
+  if (isVirtual) {
+    barcodeBlock = `<div style="text-align:center; margin:24px 0; padding:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px;">
+        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#0369a1; font-weight:600;">VIRTUAL ATTENDANCE</p>
+        <p style="margin:0; font-size:14px; color:#0c4a6e;">You're registered to attend online. <strong>Joining instructions and your access link will be sent to you closer to the event.</strong></p>
+      </div>`;
+    barcodeBlockText = `\n\nVirtual attendance: You're registered to attend online. Joining instructions and your access link will be sent to you closer to the event.`;
+  } else if (params.qrCode) {
     try {
       const png = await renderBarcodePng(params.qrCode, { includetext: true });
       barcodeAttachment = {

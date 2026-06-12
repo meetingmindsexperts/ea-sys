@@ -36,6 +36,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         id: true,
         name: true,
         slug: true,
+        eventType: true,
         description: true,
         startDate: true,
         endDate: true,
@@ -73,6 +74,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             // Legacy fields for backward compat
             category: true,
             price: true,
+            virtualPrice: true,
             currency: true,
             quantity: true,
             soldCount: true,

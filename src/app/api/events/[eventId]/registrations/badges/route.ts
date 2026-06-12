@@ -47,9 +47,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       all?: boolean;
     };
 
+    // Virtual attendees have no venue presence (and no qrCode) — never badge
+    // them, even if explicitly selected.
     const where = all
-      ? { eventId, status: { not: "CANCELLED" as const } }
-      : { eventId, id: { in: registrationIds || [] } };
+      ? { eventId, status: { not: "CANCELLED" as const }, attendanceMode: { not: "VIRTUAL" as const } }
+      : { eventId, id: { in: registrationIds || [] }, attendanceMode: { not: "VIRTUAL" as const } };
 
     const allRegistrations = await db.registration.findMany({
       where,

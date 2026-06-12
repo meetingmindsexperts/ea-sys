@@ -15,6 +15,9 @@ import { refreshEventStats } from "@/lib/event-stats";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
+  // Venue vs online. Only meaningful on HYBRID events; the server ignores a
+  // VIRTUAL choice on non-hybrid events and falls back to IN_PERSON.
+  attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]).optional(),
   // Coerce "" → undefined so legacy (non-tier) tickets — whose client form
   // always submits pricingTierId: "" — aren't rejected by min(1).
   pricingTierId: z.preprocess(
@@ -121,6 +124,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
+    const attendanceModeInput = validated.data.attendanceMode;
 
     const emailRateLimit = checkRateLimit({
       key: `public-register:email:${email}`,
@@ -190,6 +194,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Virtual attendance is only honored on HYBRID events. A VIRTUAL choice on
+    // any other event type silently falls back to IN_PERSON. Virtual ⇒ no
+    // qrCode/badge, uncapped (skips capacity + soldCount), and priced via the
+    // ticket's flat `virtualPrice` (null ⇒ in-person price).
+    const isVirtual =
+      event.eventType === "HYBRID" && attendanceModeInput === "VIRTUAL";
+    const attendanceMode = isVirtual ? "VIRTUAL" : "IN_PERSON";
+
     // Resolve pricing tier (new flow) or fall back to legacy ticketType fields
     let pricingTier: { id: string; name: string; price: number | unknown; currency: string; quantity: number; soldCount: number; requiresApproval: boolean; salesStart: Date | null; salesEnd: Date | null } | null = null;
 
@@ -220,8 +232,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Early check (non-authoritative — the real check is inside the transaction)
-    if (capacitySource.soldCount >= capacitySource.quantity) {
+    // Early check (non-authoritative — the real check is inside the transaction).
+    // Virtual is uncapped, so a sold-out venue can still take virtual signups.
+    if (!isVirtual && capacitySource.soldCount >= capacitySource.quantity) {
       return NextResponse.json({ error: "Sold out" }, { status: 400 });
     }
 
@@ -306,22 +319,32 @@ export async function POST(req: Request, { params }: RouteParams) {
           })
         : await tx.attendee.create({ data: attendeeData });
 
-      // Atomically increment soldCount on the correct capacity source
-      if (pricingTier) {
-        const updated = await tx.pricingTier.updateMany({
-          where: { id: pricingTier.id, soldCount: { lt: pricingTier.quantity } },
-          data: { soldCount: { increment: 1 } },
-        });
-        if (updated.count === 0) throw new Error("SOLD_OUT");
-      } else {
-        const updated = await tx.ticketType.updateMany({
-          where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-          data: { soldCount: { increment: 1 } },
-        });
-        if (updated.count === 0) throw new Error("SOLD_OUT");
+      // Atomically increment soldCount on the correct capacity source.
+      // Virtual is uncapped → no increment, no sold-out guard (physical seats
+      // are unaffected by online attendees).
+      if (!isVirtual) {
+        if (pricingTier) {
+          const updated = await tx.pricingTier.updateMany({
+            where: { id: pricingTier.id, soldCount: { lt: pricingTier.quantity } },
+            data: { soldCount: { increment: 1 } },
+          });
+          if (updated.count === 0) throw new Error("SOLD_OUT");
+        } else {
+          const updated = await tx.ticketType.updateMany({
+            where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
+            data: { soldCount: { increment: 1 } },
+          });
+          if (updated.count === 0) throw new Error("SOLD_OUT");
+        }
       }
 
-      const originalPrice = pricingTier ? Number(pricingTier.price) : Number(ticketType.price);
+      // Virtual uses the ticket's flat virtualPrice (null ⇒ in-person price);
+      // pricing tiers apply to in-person only.
+      const originalPrice = isVirtual
+        ? Number(ticketType.virtualPrice ?? ticketType.price)
+        : pricingTier
+          ? Number(pricingTier.price)
+          : Number(ticketType.price);
       const effectiveApproval = pricingTier ? pricingTier.requiresApproval : ticketType.requiresApproval;
 
       // Promo code validation and redemption (inside transaction for atomicity)
@@ -380,16 +403,17 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const finalPrice = Math.max(0, originalPrice - discountAmount);
 
-      // Create registration
-      const generatedBarcode = generateBarcode();
+      // Create registration. Virtual ⇒ no entry barcode (nothing to scan).
+      const generatedBarcode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, event.id);
       const registration = await tx.registration.create({
         data: {
           eventId: event.id,
           ticketTypeId,
-          pricingTierId: pricingTier?.id || null,
+          pricingTierId: isVirtual ? null : pricingTier?.id || null,
           attendeeId: attendee.id,
           serialId,
+          attendanceMode,
           createdSource: "PUBLIC_REGISTER",
           status: effectiveApproval ? "PENDING" : "CONFIRMED",
           // A zero-price registration (free ticket, or a promo code that
@@ -584,6 +608,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           lastName,
           title: title || null,
           organization: organization || null,
+          attendanceMode,
           eventName: event.name,
           eventDate: event.startDate,
           eventVenue: event.venue || "",

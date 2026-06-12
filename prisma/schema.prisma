@@ -589,6 +589,10 @@ model TicketType {
   // Deprecated: kept for migration backward compat, will be removed
   category         String    @default("Standard")
   price            Decimal   @default(0) @db.Decimal(10, 2)
+  /// Flat price charged when a registrant picks VIRTUAL attendance on a
+  /// HYBRID event. null ⇒ virtual uses the in-person `price`. 0 ⇒ free
+  /// virtual. Pricing tiers (Early Bird, etc.) apply to IN_PERSON only in v1.
+  virtualPrice     Decimal?  @db.Decimal(10, 2)
   currency         String    @default("USD")
   quantity         Int       @default(999999)
   soldCount        Int       @default(0)
@@ -677,6 +681,9 @@ model Registration {
   serialId            Int?
   status              RegistrationStatus @default(PENDING)
   paymentStatus       PaymentStatus      @default(UNPAID)
+  /// venue vs online; only a choice on HYBRID events. VIRTUAL ⇒ no
+  /// qrCode/badge, uncapped (skips soldCount), no DTCM barcode.
+  attendanceMode      AttendanceMode     @default(IN_PERSON)
   qrCode              String?            @unique
   dtcmBarcode         String?            @unique
   badgeType           String?
@@ -762,6 +769,7 @@ model Registration {
   @@index([eventId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])
+  @@index([eventId, attendanceMode])
   @@index([pricingTierId])
   @@index([attendeeId])
   @@index([userId])
@@ -787,6 +795,16 @@ enum PaymentStatus {
   FAILED
   UNASSIGNED
   INCLUSIVE
+}
+
+/// Whether a registrant attends physically at the venue or online.
+/// Only surfaced as a choice on HYBRID events. IN_PERSON is the default
+/// and the back-compat value for every pre-existing registration.
+/// VIRTUAL registrations get NO entry barcode/badge and are uncapped
+/// (they don't consume the ticket-type seat count).
+enum AttendanceMode {
+  IN_PERSON
+  VIRTUAL
 }
 
 /// Identifies which entry path created a Registration. Used by the

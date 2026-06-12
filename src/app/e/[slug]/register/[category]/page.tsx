@@ -67,6 +67,7 @@ interface TicketType {
   description: string | null;
   category: string;
   price: string;
+  virtualPrice: string | null;
   currency: string;
   quantity: number;
   soldCount: number;
@@ -82,6 +83,7 @@ interface Event {
   id: string;
   name: string;
   slug: string;
+  eventType?: string | null;
   description: string | null;
   startDate: string;
   endDate: string;
@@ -114,6 +116,8 @@ interface RegTypeOption {
   regTypeName: string;
   description: string | null;
   price: number;
+  /** Flat price when attending virtually (null ⇒ same as in-person `price`). */
+  virtualPrice: number | null;
   currency: string;
   available: number;
   canPurchase: boolean;
@@ -122,6 +126,7 @@ interface RegTypeOption {
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1, "Please select a category"),
   pricingTierId: z.string().optional(),
+  attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]),
   title: z.string().min(1, "Title is required"),
   role: z.string().min(1, "Role is required"),
   firstName: z.string().min(1, "First name is required"),
@@ -214,7 +219,7 @@ function CategoryRegistrationContent() {
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
-      ticketTypeId: "", pricingTierId: "", title: "", role: "",
+      ticketTypeId: "", pricingTierId: "", attendanceMode: "IN_PERSON", title: "", role: "",
       firstName: "", lastName: "", email: "", additionalEmail: "",
       organization: "", jobTitle: "", phone: "", city: "", state: "", zipCode: "",
       country: "", specialty: "", customSpecialty: "", dietaryReqs: "",
@@ -250,6 +255,7 @@ function CategoryRegistrationContent() {
                 regTypeName: tt.name,
                 description: tt.description,
                 price: Number(tier.price),
+                virtualPrice: tt.virtualPrice != null ? Number(tt.virtualPrice) : null,
                 currency: tier.currency,
                 available: tier.available,
                 canPurchase: tier.canPurchase,
@@ -296,6 +302,7 @@ function CategoryRegistrationContent() {
               regTypeName: t.name,
               description: t.description,
               price: Number(t.price),
+              virtualPrice: t.virtualPrice != null ? Number(t.virtualPrice) : null,
               currency: t.currency,
               available: t.available,
               canPurchase: t.canPurchase,
@@ -456,7 +463,15 @@ function CategoryRegistrationContent() {
     );
   }
 
-  const purchasableOptions = regTypeOptions.filter((o) => o.canPurchase);
+  // On HYBRID events, when "Attend Virtually" is chosen, swap each option's
+  // displayed price for its flat virtualPrice (null ⇒ keep the in-person
+  // price). This keeps the card amount + tax/total in sync with what the
+  // server charges. (The server is authoritative regardless.)
+  const watchedMode = form.watch("attendanceMode");
+  const isVirtualMode = event.eventType === "HYBRID" && watchedMode === "VIRTUAL";
+  const purchasableOptions = regTypeOptions
+    .filter((o) => o.canPurchase)
+    .map((o) => (isVirtualMode && o.virtualPrice != null ? { ...o, price: o.virtualPrice } : o));
   const selectedTicketId = form.watch("ticketTypeId");
   const selectedSpecialty = form.watch("specialty");
   const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
@@ -927,6 +942,47 @@ function CategoryRegistrationContent() {
                         it would be misleading. */}
                     {!allOptionsFree && (
                       <p className="text-xs text-slate-500">You will have the option to pay now or you can select to pay at a later stage.</p>
+                    )}
+
+                    {/* Hybrid events: choose how to attend. Virtual gets no
+                        venue barcode/badge; joining instructions are emailed
+                        before the event. Drives pricing (flat virtual price)
+                        and the confirmation email server-side. */}
+                    {event?.eventType === "HYBRID" && (
+                      <FormField control={form.control} name="attendanceMode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <p className="text-sm font-semibold text-slate-700 mb-2">How would you like to attend?</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {([
+                                { value: "IN_PERSON", title: "Attend In-Person", desc: "Join us at the venue. You'll receive an entry barcode for check-in." },
+                                { value: "VIRTUAL", title: "Attend Virtually", desc: "Join online. Joining instructions and your access link are emailed before the event." },
+                              ] as const).map((opt) => {
+                                const isSelected = field.value === opt.value;
+                                return (
+                                  <button key={opt.value} type="button"
+                                    onClick={() => {
+                                      field.onChange(opt.value);
+                                      // Virtual is flat-priced — clear any tier selection.
+                                      if (opt.value === "VIRTUAL") form.setValue("pricingTierId", "");
+                                    }}
+                                    className={cn(
+                                      "text-left rounded-xl border-2 p-4 transition-all duration-150",
+                                      isSelected ? "border-primary bg-primary/[0.03] shadow-sm" : "border-slate-200 hover:border-slate-300"
+                                    )}>
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0", isSelected ? "border-primary bg-primary" : "border-slate-300")}>
+                                        {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                                      </div>
+                                      <p className="font-semibold text-slate-900">{opt.title}</p>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1.5 ml-7">{opt.desc}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </FormItem>
+                        )} />
                     )}
 
                     <FormField control={form.control} name="ticketTypeId"

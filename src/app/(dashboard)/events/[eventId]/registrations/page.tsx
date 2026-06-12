@@ -658,9 +658,16 @@ export default function RegistrationsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={PAYMENT_STATUS_COLORS[registration.paymentStatus]} variant="outline">
-                        {registration.paymentStatus}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge className={PAYMENT_STATUS_COLORS[registration.paymentStatus]} variant="outline">
+                          {registration.paymentStatus}
+                        </Badge>
+                        {registration.attendanceMode === "VIRTUAL" && (
+                          <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-200">
+                            Virtual
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(registration.createdAt)}
