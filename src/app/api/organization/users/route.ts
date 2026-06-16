@@ -93,15 +93,42 @@ export async function POST(req: Request) {
     const { firstName, lastName, role } = validated.data;
     const email = validated.data.email.toLowerCase();
 
-    // Check if user already exists
+    // Check if user already exists. NOTE: email is globally unique, so this
+    // matches a user in ANY org — including org-independent accounts
+    // (REGISTRANT created at public registration, SUBMITTER, REVIEWER, all with
+    // organizationId = null) and users in a DIFFERENT org. Those never appear
+    // in the team-members list (GET filters by organizationId), so a blocked
+    // invite can look like it "vanished". We log the collision with the
+    // existing account's role/org so it's diagnosable, and return a message
+    // that explains which case it is.
     const existingUser = await db.user.findUnique({
       where: { email },
+      select: { id: true, role: true, organizationId: true },
     });
 
     if (existingUser) {
+      const sameOrg = existingUser.organizationId === session.user.organizationId;
+      apiLogger.warn({
+        msg: "organization/users:invite-email-in-use",
+        email,
+        invitedRole: role,
+        invitedByUserId: session.user.id,
+        organizationId: session.user.organizationId,
+        existingUserId: existingUser.id,
+        existingRole: existingUser.role,
+        existingHasOrg: existingUser.organizationId != null,
+        existingSameOrg: sameOrg,
+      });
+
+      const message = sameOrg
+        ? "This email is already a team member of your organization."
+        : existingUser.organizationId == null
+          ? `This email already has an account (currently a ${existingUser.role}, e.g. a registrant/submitter/reviewer) and can't be re-invited as a team member. Contact an admin to convert that account.`
+          : "This email already belongs to a user in another organization.";
+
       return NextResponse.json(
-        { error: "User with this email already exists" },
-        { status: 400 }
+        { error: message, code: "EMAIL_IN_USE" },
+        { status: 409 }
       );
     }
 
