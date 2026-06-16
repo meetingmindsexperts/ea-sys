@@ -13,6 +13,7 @@ import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
 import { renderBarcodePng } from "./barcode";
+import { formatDateInTz } from "./event-time";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -2017,6 +2018,74 @@ export function getSamplePreviewVariables(
     paymentBlock: "",
     ...overrides,
   };
+}
+
+/** Minimal event shape `buildEventPreviewVariables` needs (a Prisma `select`). */
+export interface PreviewEventData {
+  name: string;
+  startDate: Date;
+  endDate?: Date | null;
+  venue?: string | null;
+  address?: string | null;
+  city?: string | null;
+  timezone?: string | null;
+  supportEmail?: string | null;
+  organization?: { name: string } | null;
+  ticketTypes?: { name: string }[] | null;
+}
+
+interface PreviewUserData {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}
+
+/**
+ * Build template-preview / test-email variables from REAL event data, so a
+ * preview or test reflects the actual event (name, dates, venue, organizer,
+ * ticket type) instead of "Sample Conference 2026". Event-level fields come
+ * from the event; the greeting (firstName/lastName) uses the recipient (the
+ * test goes to the signed-in user); deeply entity-specific fields
+ * (abstractTitle, reviewNotes, amounts) stay as the sample placeholders since
+ * a generic preview isn't tied to a specific attendee/abstract. `extra`
+ * overrides win last (e.g. customSubject/customMessage from the bulk preview).
+ */
+export function buildEventPreviewVariables(
+  event: PreviewEventData,
+  user: PreviewUserData,
+  extra?: Partial<Record<string, string | number>>,
+): Record<string, string | number> {
+  const tz = event.timezone ?? null;
+  const start = formatDateInTz(event.startDate, tz ?? "");
+  const multiDay =
+    event.endDate != null &&
+    formatDateInTz(event.endDate, tz ?? "") !== start;
+  const eventDate = multiDay
+    ? `${start} – ${formatDateInTz(event.endDate as Date, tz ?? "")}`
+    : start;
+  const daysUntilEvent = Math.max(
+    0,
+    Math.ceil((event.startDate.getTime() - Date.now()) / 86_400_000),
+  );
+
+  const realOverrides: Partial<Record<string, string | number>> = {
+    eventName: event.name,
+    eventDate,
+    eventVenue: event.venue || "",
+    eventAddress: [event.address, event.city].filter(Boolean).join(", "),
+    organizerName:
+      event.organization?.name ||
+      `${user.firstName || "Event"} ${user.lastName || "Organizer"}`.trim(),
+    organizerEmail: event.supportEmail || user.email || "organizer@example.com",
+    daysUntilEvent,
+    // Greet the actual recipient (the test goes to the signed-in user).
+    ...(user.firstName ? { firstName: user.firstName } : {}),
+    ...(user.lastName ? { lastName: user.lastName } : {}),
+    // First real registration type, if the event has one.
+    ...(event.ticketTypes?.[0]?.name ? { ticketType: event.ticketTypes[0].name } : {}),
+  };
+
+  return getSamplePreviewVariables({ ...realOverrides, ...extra });
 }
 
 // ── Helper to load event template from DB (with fallback to default) ───────────

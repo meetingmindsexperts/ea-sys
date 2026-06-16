@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom, getSamplePreviewVariables } from "@/lib/email";
+import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ eventId: string; templateId: string }>;
@@ -152,7 +152,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       // so this must be tenant-isolated like the other handlers.
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { emailHeaderImage: true, emailFooterHtml: true, emailFromAddress: true, emailFromName: true, name: true },
+        select: {
+          // Full branding set — must match getEventTemplate so a test/preview
+          // renders the SAME header image, footer image, and footer HTML a real
+          // send does. (emailFooterImage was previously omitted → footer logo
+          // never showed in tests.)
+          emailHeaderImage: true, emailFooterImage: true, emailFooterHtml: true,
+          emailFromAddress: true, emailFromName: true, emailCcAddresses: true,
+          // Real event data so preview/test reflects the actual event.
+          name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
+          timezone: true, supportEmail: true,
+          organization: { select: { name: true } },
+          ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+        },
       }),
     ]);
 
@@ -166,20 +178,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const branding = {
       emailHeaderImage: event?.emailHeaderImage,
+      emailFooterImage: event?.emailFooterImage,
       emailFooterHtml: event?.emailFooterHtml,
       emailFromAddress: event?.emailFromAddress,
       emailFromName: event?.emailFromName,
+      emailCcAddresses: event?.emailCcAddresses ?? [],
       eventName: event?.name,
     };
 
     const body = await req.json();
     const { action } = body; // "preview" or "test"
 
-    // Build sample variables for preview
-    const sampleVars = getSamplePreviewVariables({
-      organizerName: `${session.user.firstName || "Event"} ${session.user.lastName || "Organizer"}`,
-      organizerEmail: session.user.email || "organizer@example.com",
-    });
+    // Render with REAL event data (name, dates, venue, organizer, ticket type)
+    // so the preview/test reflects this event, not generic samples.
+    const sampleVars = buildEventPreviewVariables(event, session.user);
 
     const renderedBody = renderTemplate(template.htmlContent, sampleVars);
     const renderedSubject = renderTemplatePlain(template.subject, sampleVars);

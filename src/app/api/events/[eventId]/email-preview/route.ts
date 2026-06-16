@@ -10,7 +10,7 @@ import {
   renderTemplatePlain,
   wrapWithBranding,
   inlineCss,
-  getSamplePreviewVariables,
+  buildEventPreviewVariables,
 } from "@/lib/email";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -47,7 +47,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         id: eventId,
         ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        // Real event data so the preview reflects the actual event.
+        name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
+        timezone: true, supportEmail: true,
+        organization: { select: { name: true } },
+        ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+      },
     });
 
     if (!event) {
@@ -62,9 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const sampleVars = getSamplePreviewVariables({
-      organizerName: `${session.user.firstName || "Event"} ${session.user.lastName || "Organizer"}`,
-      organizerEmail: session.user.email || "organizer@example.com",
+    const sampleVars = buildEventPreviewVariables(event, session.user, {
       ...(customSubject ? { subject: customSubject } : {}),
       ...(customMessage ? { message: customMessage } : {}),
     });
