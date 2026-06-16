@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+    # Docs-only pushes must NOT trigger a deploy — the deploy builds the image
+    # ON the box, and an on-box build can starve/freeze the host (see INC-001).
+    # A commit that touches any code still deploys; pure docs/markdown don't.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
 
 concurrency:

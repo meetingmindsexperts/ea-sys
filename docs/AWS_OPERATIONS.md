@@ -339,6 +339,29 @@ Mitigations: lower batch sizes for the offending job, or **resize the box**
 (§3.5). The cert worker already drains 50 renders/tick — a smaller tick helps if
 rendering is the OOM trigger.
 
+**Add swap (the missing cushion — see INC-001).** The box ships with **no swap**,
+so a transient memory spike (e.g. an on-box `docker compose build`) has zero
+buffer and freezes the whole OS instead of slowing down. A 4 GB swap file fixes
+that. Run on the box (SSM / Session Manager — no deploy, OS-only, idempotent):
+
+```bash
+# Skip if already present:  swapon --show   (empty = no swap)
+sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+# Persist across reboots (only add the line once):
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+# Prefer RAM; only swap under real pressure:
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf
+sudo sysctl vm.swappiness=10
+# Verify:
+swapon --show && free -h
+```
+Disk check first: `df -h /` — a 4 GB file needs 4 GB free (the box had ~12 GB
+free). This is a stopgap; the real fix is to **build the image in CI/ECR** so the
+prod host never runs a heavy build (see INC-001 action items).
+
 ### 3.4 App hangs / `P2024` / `worker:tick-wrapper-uncaught` (DB connection exhaustion)
 
 A "spike" that's really **the box waiting on Postgres**. Symptom: slow/hung

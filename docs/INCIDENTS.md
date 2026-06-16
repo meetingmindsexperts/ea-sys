@@ -18,10 +18,10 @@ The general method that worked for INC-001 is captured in
 | **Duration** | Site unreachable ~20 min; recovered ~3.5 min after the reboot signal |
 | **Severity** | SEV-1 — full outage (every page + API timing out) |
 | **Trigger** | A deploy ran `docker compose build` on the production host |
-| **Root cause** | The Next.js production build's memory, on a **t3.large (8 GB RAM) with NO swap** and the app already using ~4.4 GB, exhausted memory. With no swap cushion the kernel thrashed and **froze all of userland** (nginx, the app, *and the SSM agent*). |
-| **Why THIS deploy (not the prior months of on-box builds)** | Two things converged: (1) this was the **first build to compile `@scalar/api-reference-react`** (added in the `/api-docs` commit `49a1fc1`) — a **105 MB / +2,409 lock-line, Vue-bundling** dependency that **spiked peak build memory**; (2) the **baseline had crept up** — the always-on **worker** container (added ~June 4) + **mediamtx** put idle at ~4.4 GB, leaving only ~3.4 GB headroom. Older builds fit under the headroom; this heavier one crossed it, and with no swap that = a freeze, not a slow build. The swaplessness was the latent vulnerability; the heavy new dependency was the trigger. |
-| **Fix** | Rebooted the instance (`aws ec2 reboot-instances`). Came back clean. |
-| **Status** | Resolved. **Follow-up required: add swap, then re-run the deploy** (the new image never built — see below). |
+| **Root cause** | The **transient `docker build` memory peak** on a **t3.large (8 GB RAM) with NO swap**. *Idle usage is healthy — only ~1.4 GB* (web container ~230 MB, worker ~230 MB, **mediamtx just 11 MB**, dockerd 355 MB, CloudWatch agent 101 MB; mediamtx and "a leak" are NOT involved). But `next build` (webpack/turbopack, now bundling the heavy `@scalar` dep) **plus** the worker image, built by `docker compose build` **while the old containers are still up**, spikes peak memory toward/over 8 GB for a few seconds. With **zero swap there is no buffer for even a momentary spike** → the kernel thrashed and **froze all of userland** (nginx, the app, *and the SSM agent*). The earlier "~4.4 GB used" reading was taken *mid-build* (it included the build process) — not steady state. |
+| **Why THIS deploy (not the prior months of on-box builds)** | This was the **first build to compile `@scalar/api-reference-react`** (added in the `/api-docs` commit `49a1fc1`) — a **105 MB / +2,409 lock-line, Vue-bundling** dependency that **pushed the build's peak memory higher than any previous build**. Idle is only ~1.4 GB, so older builds' peaks fit under 8 GB; this heavier peak (build + the still-running old containers) momentarily crossed 8 GB, and **with no swap that = a freeze, not a slow build**. The swaplessness was the latent vulnerability; the heavy new dependency was the trigger. |
+| **Fix** | Rebooted the instance (`aws ec2 reboot-instances`); recovered clean in ~3.5 min. **Hardened (see below): added 4 GB swap + a deploy path-filter.** |
+| **Status** | **Resolved + hardened.** Site live, new code deployed, **4 GB swap added (persistent)**, and **docs-only pushes no longer trigger a deploy/build**. Remaining follow-ups (build-in-CI, mem alarm, uptime check) tracked below. |
 
 ### What the symptoms looked like
 - DNS fine (resolved to the Mumbai EIP everywhere). **Not DNS.**
@@ -60,17 +60,28 @@ Reboot cleared the memory pressure, killed the stuck build, and brought nginx +
 Docker (restart policy) + SSM back. `/api/health` was 200 ~3.5 min later. Same
 instance, same Elastic IP, same disk — no data loss (DB is external Supabase).
 
-### ⚠ Open item — the new image never deployed
-The box is healthy but running the **pre-deploy image**. **Adding swap MUST come
-before the next deploy**, or `docker compose build` will starve and freeze the box
-again identically.
+### Preventive measures applied (2026-06-16, same day)
+1. **4 GB swap file added + persisted** — `/swapfile` (created with `dd`, not
+   `fallocate` — the latter silently failed `swapon` with the sparse-extent bug),
+   `swapon` active, `/etc/fstab` entry so it survives reboot, `vm.swappiness=10`.
+   Verified `free -h` → `Swap: 4.0Gi`. *This is the cushion that turns a build
+   memory spike from a freeze into a brief slow-down.*
+2. **`deploy.yml` gained `paths-ignore`** for `**.md` / `docs/**` — **docs-only
+   pushes no longer trigger a deploy/build.** Today's outage was triggered by a
+   docs push kicking off an on-box build; this removes that entire class. Any
+   commit touching code still deploys.
+
+The new code (API docs + hybrid attendance) **did eventually deploy** — the
+post-reboot build re-ran with fresh memory and completed; `/api/openapi.json`
+returns 200.
 
 ### Action items (prevention)
 
 | # | Action | Why | Status |
 |---|---|---|---|
-| 1 | **Add a 4 GB swap file** (`/swapfile`, `swapon`, `fstab`, `vm.swappiness=10`) | The single missing cushion. A swapless box has no margin — a transient memory spike = instant freeze instead of a slow-down. | **TODO — do before any re-deploy** |
-| 2 | **Build the image in CI, not on the box** — GitHub Actions → build → push to ECR → box does `docker compose pull && up` (no on-host build) | Removes the heavy build from the prod host entirely — the actual root cause. The CLAUDE.md CI/CD section already describes this as the intended flow; the box is currently doing `docker compose build` locally instead. | TODO |
+| 1 | **Add a 4 GB swap file** (`/swapfile`, `swapon`, `fstab`, `vm.swappiness=10`) | The single missing cushion. A swapless box has no margin — a transient memory spike = instant freeze instead of a slow-down. | ✅ **DONE (2026-06-16)** |
+| 1b | **`deploy.yml` `paths-ignore` for docs** so docs pushes don't build on the box | Removes the exact trigger of INC-001 (a docs push started the build). | ✅ **DONE (2026-06-16)** |
+| 2 | **Build the image in CI, not on the box** — GitHub Actions → build → push to ECR → box does `docker compose pull && up` (no on-host build) | Removes the heavy build from the prod host entirely — the actual root cause. The CLAUDE.md CI/CD section already describes this as the intended flow; the box is currently doing `docker compose build` locally instead. | **TODO (the real fix)** |
 | 3 | **Ship memory + disk metrics to CloudWatch** (the agent currently ships *logs* only) + an alarm on `mem_available < 500 MB` | We were blind on memory during the incident — that's why diagnosis was slow. Metrics + alarm would have paged *before* the freeze. | TODO |
 | 4 | **External uptime check on `/api/health`** (Route 53 health check or UptimeRobot) → alert when the *site* is down even though the instance "looks ok" | EC2 status checks passed throughout — they don't catch a frozen-but-running box. Only a real HTTP probe does. | TODO |
 | 5 | **Cap container memory** (`mem_limit` in `docker-compose.prod.yml`) | So one container (or a build) can't consume all host RAM and take everything down. | Consider |
