@@ -25,9 +25,38 @@ import { toast } from "sonner";
 import { useBulkEmail, useEmailTemplates, usePreviewEmailBySlug, useScheduleBulkEmail } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import {
+  PAYMENT_STATUS_DISPLAY_ORDER,
+  PAYMENT_STATUS_LABELS,
+} from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 
 /** Prefix marking a Select value as a saved custom template (value = `template:<slug>`). */
 const SAVED_TEMPLATE_PREFIX = "template:";
+
+/**
+ * Effective filter set the dialog asks a page to count against (live recipient
+ * count). Mirrors the backend `where` dimensions. `paymentStatus` may be a
+ * comma-separated list (multi-value, e.g. the Welcome-Paid tile).
+ */
+export interface BulkEmailEffectiveFilters {
+  status?: string;
+  paymentStatus?: string;
+  ticketTypeId?: string;
+  agreementSigned?: string;
+  hasSession?: string;
+  sessionRole?: string;
+}
+
+/** Render a payment-filter value (single status, comma-list, or "all") as a label. */
+function formatPaymentLabel(value: string): string {
+  if (!value || value === "all") return "All payment statuses";
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => PAYMENT_STATUS_LABELS[p as keyof typeof PAYMENT_STATUS_LABELS] ?? p)
+    .join(" / ");
+}
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
@@ -71,6 +100,16 @@ interface BulkEmailDialogProps {
    * type for the current recipient (callers ensure this).
    */
   defaultEmailType?: string;
+  /**
+   * Optional live-count function. Given the dialog's current effective
+   * filters (including the in-dialog payment dropdown), returns how many
+   * recipients an "all"-mode send would actually reach. When provided, it
+   * drives the displayed count so tile-initiated sends and in-dialog filter
+   * overrides show the true number (not the page's advanced-filter total).
+   * Omit for audiences without row data (abstracts/reviewers) — falls back
+   * to `recipientCount`. Not used in "selected" mode.
+   */
+  recipientCountFor?: (filters: BulkEmailEffectiveFilters) => number;
 }
 
 const speakerEmailTypes: EmailTypeOption[] = [
@@ -189,6 +228,7 @@ export function BulkEmailDialog({
   hasSessionFilter,
   sessionRoleFilter,
   defaultEmailType,
+  recipientCountFor,
 }: BulkEmailDialogProps) {
   const [emailType, setEmailType] = useState<string>(
     defaultEmailType ?? getDefaultEmailType(recipientType)
@@ -261,6 +301,28 @@ export function BulkEmailDialog({
   )?.name;
   const isCustom = emailType === "custom";
   const label = getRecipientLabel(recipientType);
+
+  // Live recipient count. In "all" mode, ask the page to count against the
+  // dialog's current effective filters (so tiles + the in-dialog payment
+  // override show the true number); fall back to the static prop when no
+  // counter is provided. "selected" mode always shows the selected count.
+  const effectiveFilters: BulkEmailEffectiveFilters = {
+    status: statusFilter,
+    paymentStatus:
+      recipientType === "registrations" && localPaymentFilter !== "all"
+        ? localPaymentFilter
+        : undefined,
+    ticketTypeId: ticketTypeFilter,
+    agreementSigned: agreementSignedFilter,
+    hasSession: hasSessionFilter,
+    sessionRole: sessionRoleFilter,
+  };
+  const displayCount =
+    selectionMode === "selected"
+      ? recipientCount
+      : recipientCountFor
+        ? recipientCountFor(effectiveFilters)
+        : recipientCount;
 
   const totalAttachmentSize = attachments.reduce((sum, a) => sum + a.size, 0);
 
@@ -437,8 +499,8 @@ export function BulkEmailDialog({
           </DialogTitle>
           <DialogDescription>
             {selectionMode === "all"
-              ? `Send to all ${recipientCount} ${label}`
-              : `Send to ${recipientCount} selected ${recipientCount === 1 ? label.slice(0, -1) : label}`}
+              ? `Send to all ${displayCount} ${label}`
+              : `Send to ${displayCount} selected ${displayCount === 1 ? label.slice(0, -1) : label}`}
           </DialogDescription>
         </DialogHeader>
 
@@ -580,13 +642,20 @@ export function BulkEmailDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All payment statuses</SelectItem>
-                  <SelectItem value="UNPAID">Unpaid</SelectItem>
-                  <SelectItem value="UNASSIGNED">Unassigned</SelectItem>
-                  <SelectItem value="PENDING">Pending</SelectItem>
-                  <SelectItem value="PAID">Paid</SelectItem>
-                  <SelectItem value="COMPLIMENTARY">Complimentary</SelectItem>
-                  <SelectItem value="REFUNDED">Refunded</SelectItem>
-                  <SelectItem value="FAILED">Failed</SelectItem>
+                  {/* Synthetic option for a multi-value filter (e.g. the
+                      Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
+                      Without it the trigger would render blank. Picking any
+                      single status below overrides it. */}
+                  {localPaymentFilter.includes(",") && (
+                    <SelectItem value={localPaymentFilter}>
+                      {formatPaymentLabel(localPaymentFilter)}
+                    </SelectItem>
+                  )}
+                  {PAYMENT_STATUS_DISPLAY_ORDER.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {PAYMENT_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -620,13 +689,13 @@ export function BulkEmailDialog({
           {/* Recipient summary */}
           <div className="rounded-md border p-3 text-sm">
             <p className="font-medium">
-              {recipientCount} {recipientCount === 1 ? "recipient" : "recipients"}
+              {displayCount} {displayCount === 1 ? "recipient" : "recipients"}
             </p>
             {statusFilter && statusFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by status: {statusFilter}</p>
             )}
             {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
-              <p className="text-muted-foreground">Filtered by payment: {localPaymentFilter}</p>
+              <p className="text-muted-foreground">Filtered by payment: {formatPaymentLabel(localPaymentFilter)}</p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>

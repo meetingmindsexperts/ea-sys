@@ -47,7 +47,11 @@ import {
   useEmailTemplates,
 } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
-import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
+import {
+  PAYMENT_STATUS_DISPLAY_ORDER,
+  PAYMENT_STATUS_LABELS,
+} from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -198,11 +202,10 @@ const REGISTRATION_TILES: RegistrationTile[] = [
     label: "Welcome Paid",
     description: "Paid / complimentary / inclusive registrants",
     icon: Mail,
-    // Multi-value filter not expressible in current schema — page filter is
-    // single-value. Tile keeps the predicate broad (PAID/COMPLIMENTARY/
-    // INCLUSIVE), but the dialog payload narrows to PAID; organizer can
-    // re-send for COMPLIMENTARY / INCLUSIVE via Advanced filters.
-    filters: { status: "CONFIRMED", paymentStatus: "PAID" },
+    // Multi-value paymentStatus (comma list) — the backend resolves it to a
+    // SQL IN, so the send now reaches all three settled states, matching the
+    // tile's count + the `matches` predicate below.
+    filters: { status: "CONFIRMED", paymentStatus: "PAID,COMPLIMENTARY,INCLUSIVE" },
     defaultEmailType: "confirmation",
     matches: (r) =>
       r.status === "CONFIRMED" &&
@@ -348,6 +351,46 @@ export default function CommunicationsPage() {
         return reviewers.length;
     }
   }
+
+  // Live recipient counts the dialog calls with its current effective filters
+  // (so a tile or an in-dialog payment override shows the true number, not the
+  // advanced-filter total). Mirror the send `where` dimensions; paymentStatus
+  // may be a comma-separated multi-value list.
+  function countRegistrations(f: BulkEmailEffectiveFilters): number {
+    const payStatuses =
+      f.paymentStatus && f.paymentStatus !== "all"
+        ? f.paymentStatus.split(",").map((s) => s.trim()).filter(Boolean)
+        : null;
+    return registrations.filter((r) => {
+      if (f.status && f.status !== "all" && r.status !== f.status) return false;
+      if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
+      if (f.ticketTypeId && f.ticketTypeId !== "all" && r.ticketType?.id !== f.ticketTypeId) return false;
+      return true;
+    }).length;
+  }
+
+  function countSpeakers(f: BulkEmailEffectiveFilters): number {
+    return speakers.filter((s) => {
+      if (f.status && f.status !== "all" && s.status !== f.status) return false;
+      if (f.agreementSigned === "signed" && !s.agreementAcceptedAt) return false;
+      if (f.agreementSigned === "unsigned" && s.agreementAcceptedAt) return false;
+      const sessionCount = s._count?.sessions ?? s.sessions?.length ?? 0;
+      if (f.hasSession === "yes" && sessionCount === 0) return false;
+      if (f.hasSession === "no" && sessionCount > 0) return false;
+      if (f.sessionRole) {
+        const roles = s.sessions?.map((x) => x.role) ?? [];
+        if (!roles.includes(f.sessionRole)) return false;
+      }
+      return true;
+    }).length;
+  }
+
+  const recipientCountFor =
+    activeAudience === "registrations"
+      ? countRegistrations
+      : activeAudience === "speakers"
+        ? countSpeakers
+        : undefined;
 
   function openEmailDialog(audience: RecipientType) {
     setActiveAudience(audience);
@@ -631,11 +674,11 @@ export default function CommunicationsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All ({registrations.length})</SelectItem>
-                    <SelectItem value="PAID">Paid ({paidRegistrations.length})</SelectItem>
-                    <SelectItem value="UNPAID">Unpaid ({unpaidRegistrations.length})</SelectItem>
-                    <SelectItem value="COMPLIMENTARY">
-                      Complimentary ({registrations.filter((r) => r.paymentStatus === "COMPLIMENTARY").length})
-                    </SelectItem>
+                    {PAYMENT_STATUS_DISPLAY_ORDER.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {PAYMENT_STATUS_LABELS[status]} ({registrations.filter((r) => r.paymentStatus === status).length})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -915,6 +958,7 @@ export default function CommunicationsPage() {
         hasSessionFilter={activeHasSessionFilter}
         sessionRoleFilter={activeSessionRoleFilter}
         defaultEmailType={activeDefaultEmailType}
+        recipientCountFor={recipientCountFor}
       />
     </div>
   );

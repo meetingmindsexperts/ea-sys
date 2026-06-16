@@ -7,7 +7,7 @@
  * ever written (by either the immediate or the schedule route).
  */
 import { describe, it, expect } from "vitest";
-import { bulkEmailSchema } from "@/lib/bulk-email";
+import { bulkEmailSchema, parsePaymentStatusFilter } from "@/lib/bulk-email";
 
 const base = {
   recipientType: "registrations" as const,
@@ -53,5 +53,38 @@ describe("bulkEmailSchema — template send", () => {
       filters: { templateSlug: "sponsor-thank-you", status: "CHECKED_IN" },
     });
     expect(r.success).toBe(true);
+  });
+
+  it("accepts a comma-separated multi-value paymentStatus filter", () => {
+    const r = bulkEmailSchema.safeParse({
+      recipientType: "registrations",
+      emailType: "confirmation",
+      filters: { paymentStatus: "PAID,COMPLIMENTARY,INCLUSIVE" },
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("parsePaymentStatusFilter", () => {
+  it("parses a single value", () => {
+    expect(parsePaymentStatusFilter("PAID")).toEqual(["PAID"]);
+  });
+
+  it("parses a comma-separated multi-value list", () => {
+    expect(parsePaymentStatusFilter("PAID,COMPLIMENTARY,INCLUSIVE")).toEqual([
+      "PAID",
+      "COMPLIMENTARY",
+      "INCLUSIVE",
+    ]);
+  });
+
+  it("trims whitespace and drops blanks + invalid values", () => {
+    expect(parsePaymentStatusFilter("PAID, , JUNK ,UNPAID")).toEqual(["PAID", "UNPAID"]);
+  });
+
+  it("returns [] for undefined, empty, or \"all\" (no filter)", () => {
+    expect(parsePaymentStatusFilter(undefined)).toEqual([]);
+    expect(parsePaymentStatusFilter("")).toEqual([]);
+    expect(parsePaymentStatusFilter("all")).toEqual([]);
   });
 });

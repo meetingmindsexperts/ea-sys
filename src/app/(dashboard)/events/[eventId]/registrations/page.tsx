@@ -64,7 +64,7 @@ import {
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
-import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import {
   Dialog,
@@ -235,6 +235,24 @@ export default function RegistrationsPage() {
 
     return matchesSearch && matchesStatus && matchesPayment && matchesTicket;
   });
+
+  // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
+  // SEND semantics (status + payment + ticket) and deliberately EXCLUDES the
+  // search box — free-text search isn't sent to the backend, so counting it
+  // would over-report vs what actually goes out. paymentStatus may be a
+  // comma-separated multi-value list.
+  const countRegistrationsForEmail = (f: BulkEmailEffectiveFilters): number => {
+    const payStatuses =
+      f.paymentStatus && f.paymentStatus !== "all"
+        ? f.paymentStatus.split(",").map((s) => s.trim()).filter(Boolean)
+        : null;
+    return registrations.filter((r) => {
+      if (f.status && f.status !== "all" && r.status !== f.status) return false;
+      if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
+      if (f.ticketTypeId && f.ticketTypeId !== "all" && r.ticketType?.id !== f.ticketTypeId) return false;
+      return true;
+    }).length;
+  };
 
   // Pagination
   const totalFiltered = filteredRegistrations.length;
@@ -825,6 +843,7 @@ export default function RegistrationsPage() {
         statusFilter={statusFilter}
         paymentStatusFilter={paymentFilter}
         ticketTypeFilter={ticketFilter}
+        recipientCountFor={countRegistrationsForEmail}
       />
 
       {/* Send Registration Form confirmation. The backend route silently

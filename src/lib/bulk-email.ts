@@ -210,7 +210,9 @@ export const bulkEmailSchema = z.object({
   filters: z
     .object({
       status: z.string().max(50).optional(),
-      paymentStatus: z.string().max(50).optional(),
+      // May be a single PaymentStatus or a comma-separated list (multi-value,
+      // e.g. the Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
+      paymentStatus: z.string().max(200).optional(),
       ticketTypeId: z.string().max(100).optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
@@ -235,6 +237,22 @@ export const bulkEmailSchema = z.object({
 const speakerStatusSchema = z.nativeEnum(SpeakerStatus);
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
+
+/**
+ * Parse a `filters.paymentStatus` value into a list of valid PaymentStatus
+ * enums. Accepts a single value ("PAID") or a comma-separated multi-value list
+ * ("PAID,COMPLIMENTARY,INCLUSIVE", e.g. the Welcome-Paid tile). Whitespace is
+ * trimmed and anything that isn't a real PaymentStatus (incl. "all") is
+ * dropped — so an empty result means "no payment filter".
+ */
+export function parsePaymentStatusFilter(value: string | undefined): PaymentStatus[] {
+  return (value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((v) => paymentStatusSchema.safeParse(v))
+    .flatMap((r) => (r.success ? [r.data] : []));
+}
 
 // Max total attachment size: 10MB
 export const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -486,14 +504,19 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   } else {
     const parsedStatus = filters?.status ? registrationStatusSchema.safeParse(filters.status) : null;
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
-    const parsedPaymentStatus = filters?.paymentStatus ? paymentStatusSchema.safeParse(filters.paymentStatus) : null;
-    const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
+    // paymentStatus may be a single value or a comma-separated multi-value
+    // list (e.g. the Welcome-Paid tile → PAID,COMPLIMENTARY,INCLUSIVE).
+    const paymentStatuses = parsePaymentStatusFilter(filters?.paymentStatus);
     const registrations = await db.registration.findMany({
       where: {
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
-        ...(paymentStatus && { paymentStatus }),
+        ...(paymentStatuses.length === 1
+          ? { paymentStatus: paymentStatuses[0] }
+          : paymentStatuses.length > 1
+            ? { paymentStatus: { in: paymentStatuses } }
+            : {}),
         ...(filters?.ticketTypeId ? { ticketTypeId: filters.ticketTypeId } : {}),
       },
       select: {

@@ -27,7 +27,7 @@ import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filte
 import { formatPersonName } from "@/lib/utils";
 import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
-import { BulkEmailDialog } from "@/components/bulk-email-dialog";
+import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { useSpeakers, useEvent, useBulkTagSpeakers } from "@/hooks/use-api";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -96,6 +96,21 @@ export default function SpeakersPage() {
 
     return matchesSearch && matchesStatus;
   });
+
+  // Live recipient count for the bulk-email dialog's "all" mode. Mirrors the
+  // SEND semantics and excludes the search box (not sent to the backend). This
+  // page only filters speakers by status; agreement/session dims are handled
+  // for forward-compat if ever passed.
+  const countSpeakersForEmail = (f: BulkEmailEffectiveFilters): number => {
+    return speakers.filter((s) => {
+      if (f.status && f.status !== "all" && s.status !== f.status) return false;
+      if (f.agreementSigned === "signed" && !s.agreementAcceptedAt) return false;
+      if (f.agreementSigned === "unsigned" && s.agreementAcceptedAt) return false;
+      if (f.hasSession === "yes" && s._count.sessions === 0) return false;
+      if (f.hasSession === "no" && s._count.sessions > 0) return false;
+      return true;
+    }).length;
+  };
 
   // Pagination
   const totalSpeakers = filteredSpeakers.length;
@@ -513,6 +528,7 @@ export default function SpeakersPage() {
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredSpeakers.length}
         selectionMode={selectedIds.size > 0 ? "selected" : "all"}
         statusFilter={statusFilter}
+        recipientCountFor={countSpeakersForEmail}
       />
     </div>
   );
