@@ -823,6 +823,7 @@ export default function RegistrationsPage() {
         recipientCount={selectedIds.size > 0 ? selectedIds.size : filteredRegistrations.length}
         selectionMode={selectedIds.size > 0 ? "selected" : "all"}
         statusFilter={statusFilter}
+        paymentStatusFilter={paymentFilter}
         ticketTypeFilter={ticketFilter}
       />
 

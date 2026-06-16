@@ -193,16 +193,26 @@ export function BulkEmailDialog({
   const [emailType, setEmailType] = useState<string>(
     defaultEmailType ?? getDefaultEmailType(recipientType)
   );
-  // Reset emailType on the closed → open transition only (so users
-  // who change the dropdown mid-dialog don't lose their selection on
-  // a re-render). Uses React's documented "store info from previous
-  // render" pattern instead of useEffect+setState (banned by
+  // W2-F4 — local payment-status filter control. Seed from the prop so
+  // pages that already pass a value (e.g. the registrations list payment
+  // filter, or an "Email all unpaid" link) render the dropdown
+  // pre-selected AND send with that filter applied. Registrations
+  // recipient only. Re-seeded on every open below — useState only inits
+  // on first mount, but this dialog is mounted once and toggled, so
+  // without the re-seed a stale value from the previous open would drive
+  // the send (the bug: page filtered to UNPAID, dialog still sent to all).
+  const [localPaymentFilter, setLocalPaymentFilter] = useState<string>(paymentStatusFilter ?? "all");
+  // Reset emailType + payment filter on the closed → open transition only
+  // (so users who change a control mid-dialog don't lose it on a
+  // re-render). Uses React's documented "store info from previous render"
+  // pattern instead of useEffect+setState (banned by
   // react-hooks/set-state-in-effect under React 19).
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
       setEmailType(defaultEmailType ?? getDefaultEmailType(recipientType));
+      setLocalPaymentFilter(paymentStatusFilter ?? "all");
     }
   }
   const [customSubject, setCustomSubject] = useState("");
@@ -210,10 +220,6 @@ export function BulkEmailDialog({
   const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [scheduledFor, setScheduledFor] = useState<string>("");
-  // W2-F4 — local payment-status filter control. Seed from the prop so
-  // pages that already pass a value (e.g. via "Email all unpaid" link)
-  // render the dropdown pre-selected. Registrations recipient only.
-  const [localPaymentFilter, setLocalPaymentFilter] = useState<string>(paymentStatusFilter ?? "all");
   // survey-invitation only — TTL (days) for the minted survey link.
   const [surveyExpiryDays, setSurveyExpiryDays] = useState<string>("7");
   const fileInputRef = useRef<HTMLInputElement>(null);
