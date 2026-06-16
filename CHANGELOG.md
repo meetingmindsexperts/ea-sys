@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — ONSITE role + internal-domain org membership + promote-on-invite (June 16)
+
+- **Onsite Staff (`ONSITE`)** — org-bound registration-desk role: add a
+  registration, check attendees in, view the list, print badges. Money hidden
+  (like MEMBER). Enforced at API (`denyReviewer` allow-list on create/check-in/
+  badge routes), middleware, sidebar/header, list + detail sheet. Invitable via
+  Settings → Users. Additive enum migration `20260616120000_add_onsite_role`.
+- **Invite "already exists" now logs + explains** — was a silent 400; now logs
+  `organization/users:invite-email-in-use` and returns a 409 naming the case.
+- **Internal-domain membership** — anyone registering on an internal domain
+  (`meetingmindsdubai.com`) gets the event's org attached even as a REGISTRANT
+  (`src/lib/internal-domains.ts`). Team-members list filters to `TEAM_ROLES` so
+  they don't show as staff.
+- **Promote-on-invite** — inviting an email that already exists as an
+  org-independent (or org-bound non-team) account now attaches the org + sets
+  the team role in place, keeping its password + registrations, instead of
+  blocking. A different org's user is still refused.
+
+Tests +11. tsc 0, eslint 0, vitest 1581/1581, build 0.
+
+### Changed — Self-hosted API reference, dropped @scalar (June 16)
+
+`/api-docs` replaced the broken browser-only `@scalar/api-reference-react`
+viewer (rendered nothing in prod; the 105 MB build-weight behind INC-001) with
+a server-rendered reference built from our own OpenAPI spec — sidebar, endpoint
+cards, `$ref`-resolving schema view, per-endpoint curl, no runtime deps.
+
 ### Fixed — Communications bulk-email filter correctness (June 16)
 
 Two rounds on the registrations/Communications bulk-email filters. Backend
