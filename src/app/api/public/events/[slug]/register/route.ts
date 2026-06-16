@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { isInternalEmail } from "@/lib/internal-domains";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -553,7 +554,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               firstName,
               lastName,
               role: "REGISTRANT",
-              organizationId: null,
+              // Internal-domain registrants belong to the org from the start
+              // (so they can later be promoted to a team role without the
+              // global-email check blocking them). External attendees stay
+              // org-independent.
+              organizationId: isInternalEmail(email) ? event.organizationId : null,
               specialty: specialty || null,
               termsAcceptedAt: new Date(),
               termsAcceptedIp: clientIpForTerms,

@@ -291,7 +291,14 @@ export default function SettingsPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          if (data.invitationSent) {
+          if (data.promoted) {
+            // Existing account (e.g. an internal-domain registrant) was
+            // promoted to a team role rather than a fresh invite being sent.
+            toast.success(
+              data.message || `${userFormData.email}'s existing account was added to the team.`,
+              { duration: 5000 }
+            );
+          } else if (data.invitationSent) {
             toast.success(
               `Invitation sent to ${userFormData.email}! They will receive an email to set up their account.`,
               { duration: 5000 }

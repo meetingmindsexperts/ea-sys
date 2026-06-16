@@ -10,6 +10,19 @@ import { canViewFinance } from "@/lib/finance-visibility";
 const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE"];
 
 /**
+ * Org-bound "team member" roles — the ones shown under Settings → Users and
+ * assignable via invite. REGISTRANT/SUBMITTER/REVIEWER are org-relationship
+ * roles (an internal registrant can be org-bound but is NOT a team member),
+ * so they're excluded.
+ */
+export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE"] as const;
+
+/** True when a role is an org team-member role (vs an attendee/reviewer role). */
+export function isTeamRole(role: string | null | undefined): boolean {
+  return !!role && (TEAM_ROLES as readonly string[]).includes(role);
+}
+
+/**
  * Returns a 403 Forbidden response if the user has a restricted role
  * (REVIEWER, SUBMITTER, REGISTRANT, MEMBER, or ONSITE).
  * These roles are only allowed limited operations — all other

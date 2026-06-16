@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { isInternalEmail } from "@/lib/internal-domains";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
@@ -377,7 +378,10 @@ export async function POST(req: Request, { params }: RouteParams) {
               firstName,
               lastName,
               role: "REGISTRANT",
-              organizationId: null,
+              // Internal-domain registrants belong to the org from the start
+              // (promotable to a team role later); external attendees stay
+              // org-independent.
+              organizationId: isInternalEmail(email) ? registration.event.organizationId : null,
               specialty,
               termsAcceptedAt: new Date(),
               termsAcceptedIp: clientIp,

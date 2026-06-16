@@ -7,6 +7,18 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
+import { TEAM_ROLES, isTeamRole } from "@/lib/auth-guards";
+import { isInternalEmail } from "@/lib/internal-domains";
+import { UserRole } from "@prisma/client";
+
+/** Human label for a team role (used in invite emails + promote messages). */
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "Admin",
+  ORGANIZER: "Organizer",
+  MEMBER: "Member",
+  ONSITE: "Onsite Staff",
+  REVIEWER: "Reviewer",
+};
 
 const inviteUserSchema = z.object({
   email: z.string().email().max(255),
@@ -31,8 +43,14 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Team members only — an org can also contain org-bound REGISTRANTs
+    // (internal-domain attendees), which are NOT staff and must not appear in
+    // the Users list. Filter to actual team roles.
     const users = await db.user.findMany({
-      where: { organizationId: session.user.organizationId! },
+      where: {
+        organizationId: session.user.organizationId!,
+        role: { in: [...TEAM_ROLES] as UserRole[] },
+      },
       select: {
         id: true,
         email: true,
@@ -108,27 +126,83 @@ export async function POST(req: Request) {
 
     if (existingUser) {
       const sameOrg = existingUser.organizationId === session.user.organizationId;
-      apiLogger.warn({
-        msg: "organization/users:invite-email-in-use",
-        email,
-        invitedRole: role,
-        invitedByUserId: session.user.id,
-        organizationId: session.user.organizationId,
-        existingUserId: existingUser.id,
-        existingRole: existingUser.role,
-        existingHasOrg: existingUser.organizationId != null,
-        existingSameOrg: sameOrg,
+      const orgIndependent = existingUser.organizationId == null;
+
+      // Already a team member of THIS org — manage them from the list instead.
+      if (sameOrg && isTeamRole(existingUser.role)) {
+        apiLogger.warn({
+          msg: "organization/users:invite-already-team-member",
+          email,
+          existingUserId: existingUser.id,
+          existingRole: existingUser.role,
+          organizationId: session.user.organizationId,
+        });
+        return NextResponse.json(
+          { error: "This email is already a team member of your organization.", code: "ALREADY_TEAM_MEMBER" },
+          { status: 409 }
+        );
+      }
+
+      // Belongs to a DIFFERENT organization — we don't absorb other orgs' users.
+      if (!orgIndependent && !sameOrg) {
+        apiLogger.warn({
+          msg: "organization/users:invite-foreign-org",
+          email,
+          existingUserId: existingUser.id,
+          existingRole: existingUser.role,
+          existingOrg: existingUser.organizationId,
+          organizationId: session.user.organizationId,
+        });
+        return NextResponse.json(
+          { error: "This email already belongs to a user in another organization.", code: "EMAIL_IN_OTHER_ORG" },
+          { status: 409 }
+        );
+      }
+
+      // PROMOTE: an org-independent account (REGISTRANT/SUBMITTER/REVIEWER) — or
+      // an org-bound non-team account already in THIS org (e.g. an
+      // internal-domain registrant) — is attached to our org and given the
+      // invited team role. The user keeps their existing password and any
+      // linked registrations; this is how an internal attendee becomes staff
+      // without the global-email check blocking the invite.
+      const promoted = await db.user.update({
+        where: { id: existingUser.id },
+        data: { organizationId: session.user.organizationId!, role },
+        select: { id: true, email: true, firstName: true, lastName: true, role: true, createdAt: true },
       });
 
-      const message = sameOrg
-        ? "This email is already a team member of your organization."
-        : existingUser.organizationId == null
-          ? `This email already has an account (currently a ${existingUser.role}, e.g. a registrant/submitter/reviewer) and can't be re-invited as a team member. Contact an admin to convert that account.`
-          : "This email already belongs to a user in another organization.";
+      apiLogger.info({
+        msg: "organization/users:invite-promoted-existing",
+        email,
+        userId: promoted.id,
+        fromRole: existingUser.role,
+        toRole: role,
+        organizationId: session.user.organizationId,
+        invitedByUserId: session.user.id,
+        wasInternalDomain: isInternalEmail(email),
+      });
+
+      db.auditLog
+        .create({
+          data: {
+            userId: session.user.id,
+            action: "PROMOTE_USER",
+            entityType: "User",
+            entityId: promoted.id,
+            changes: { email, fromRole: existingUser.role, toRole: role, ip: getClientIp(req) },
+          },
+        })
+        .catch((err: unknown) =>
+          apiLogger.error({ err, msg: "Failed to write PROMOTE_USER audit log", id: promoted.id })
+        );
 
       return NextResponse.json(
-        { error: message, code: "EMAIL_IN_USE" },
-        { status: 409 }
+        {
+          ...promoted,
+          promoted: true,
+          message: `${promoted.firstName || "User"}'s existing account was promoted to ${ROLE_LABELS[role] ?? role}.`,
+        },
+        { status: 200 }
       );
     }
 
@@ -155,16 +229,7 @@ export async function POST(req: Request) {
       ? `${session.user.firstName} ${session.user.lastName}`
       : session.user.email || "A team member";
 
-    const roleDisplayName =
-      role === "ADMIN"
-        ? "Admin"
-        : role === "ORGANIZER"
-          ? "Organizer"
-          : role === "MEMBER"
-            ? "Member"
-            : role === "ONSITE"
-              ? "Onsite Staff"
-              : "Reviewer";
+    const roleDisplayName = ROLE_LABELS[role] ?? role;
 
     const emailTemplate = emailTemplates.userInvitation({
       recipientName: `${firstName} ${lastName}`,
