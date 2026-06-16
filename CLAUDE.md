@@ -767,6 +767,7 @@ View file logs: `tail -f logs/app.log`
 
 ## Documentation
 
+- `docs/INCIDENTS.md` - **Incident log & outage post-mortems** (INC-001: on-box `docker build` froze the swapless t3.large) + a reusable "how to diagnose a frozen box" appendix. Read this before/after any prod incident.
 - `docs/AWS_OPERATIONS.md` - **Master AWS CLI runbook** — daily ops (SSM access, instance health, CloudWatch logs, SES, S3) + **performance troubleshooting** (CPU/memory/disk spikes, the t3 CPU-credit-throttle trap, which-container triage, DB pool exhaustion, process/thread forensics via docker top + /proc) + **security/DDoS-bot posture** (§4: WAF audit findings, live nginx rate limiting, add-Cloudflare-later playbook) + disaster recovery (uploads/.env/file/DB restore, full regional failover), with the inventory of instance IDs / regions / buckets / roles. Aggregates the scattered AWS commands; cross-links the deep runbooks below.
 - `infra/dr/README.md` - Disaster-recovery deep runbook (Singapore break-glass box, surgical recovery, promotion/return)
 - `infra/cloudwatch/README.md` - CloudWatch agent setup + Insights queries + alarm pipeline
