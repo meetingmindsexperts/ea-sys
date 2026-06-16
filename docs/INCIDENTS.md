@@ -18,7 +18,8 @@ The general method that worked for INC-001 is captured in
 | **Duration** | Site unreachable ~20 min; recovered ~3.5 min after the reboot signal |
 | **Severity** | SEV-1 — full outage (every page + API timing out) |
 | **Trigger** | A deploy ran `docker compose build` on the production host |
-| **Root cause** | The Next.js production build's memory/CPU/IO, on a **t3.large (8 GB RAM) with NO swap** and the app already using ~4.4 GB, exhausted memory. With no swap cushion the kernel thrashed and **froze all of userland** (nginx, the app, *and the SSM agent*). |
+| **Root cause** | The Next.js production build's memory, on a **t3.large (8 GB RAM) with NO swap** and the app already using ~4.4 GB, exhausted memory. With no swap cushion the kernel thrashed and **froze all of userland** (nginx, the app, *and the SSM agent*). |
+| **Why THIS deploy (not the prior months of on-box builds)** | Two things converged: (1) this was the **first build to compile `@scalar/api-reference-react`** (added in the `/api-docs` commit `49a1fc1`) — a **105 MB / +2,409 lock-line, Vue-bundling** dependency that **spiked peak build memory**; (2) the **baseline had crept up** — the always-on **worker** container (added ~June 4) + **mediamtx** put idle at ~4.4 GB, leaving only ~3.4 GB headroom. Older builds fit under the headroom; this heavier one crossed it, and with no swap that = a freeze, not a slow build. The swaplessness was the latent vulnerability; the heavy new dependency was the trigger. |
 | **Fix** | Rebooted the instance (`aws ec2 reboot-instances`). Came back clean. |
 | **Status** | Resolved. **Follow-up required: add swap, then re-run the deploy** (the new image never built — see below). |
 
@@ -74,9 +75,11 @@ again identically.
 | 4 | **External uptime check on `/api/health`** (Route 53 health check or UptimeRobot) → alert when the *site* is down even though the instance "looks ok" | EC2 status checks passed throughout — they don't catch a frozen-but-running box. Only a real HTTP probe does. | TODO |
 | 5 | **Cap container memory** (`mem_limit` in `docker-compose.prod.yml`) | So one container (or a build) can't consume all host RAM and take everything down. | Consider |
 | 6 | If builds stay on-box: **constrain build memory** (`NODE_OPTIONS=--max-old-space-size`, lower concurrency) and `nice`/`ionice` it | Reduces the build's blast radius until #2 lands. | Consider |
+| 7 | **Lighten the `/api-docs` viewer** — the 105 MB `@scalar/api-reference-react` bundle is what spiked *this* build. Serve the spec + a tiny standalone/CDN Scalar script, or Redoc, so the heavy package leaves the build graph. | Removes the specific trigger of INC-001 (build weight is otherwise permanent). | Consider |
 
 **Quickest risk reduction:** #1 (swap) immediately, then #2 (build off-box). #1
-alone would likely have turned this SEV-1 freeze into a slow deploy.
+alone would likely have turned this SEV-1 freeze into a slow deploy. #7 removes
+the specific trigger if you'd rather not carry the heavy build dependency.
 
 ---
 
