@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -51,13 +52,17 @@ interface RouteParams {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    // Fetch params and auth in parallel for faster response
-    const [{ eventId }, session] = await Promise.all([
+    // Fetch params and auth in parallel for faster response. Supports BOTH
+    // API-key auth (orgCtx — for programmatic "build the program from the API"
+    // use, same trust level as the speakers/registrations GETs) and session
+    // auth (dashboard).
+    const [{ eventId }, orgCtx, session] = await Promise.all([
       params,
+      getOrgContext(req),
       auth(),
     ]);
 
-    if (!session?.user) {
+    if (!orgCtx && !session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -66,10 +71,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
+    // API key → scope to the key's org; session → role-scoped event access.
+    const eventWhere = orgCtx
+      ? { id: eventId, organizationId: orgCtx.organizationId }
+      : buildEventAccessWhere(session!.user, eventId);
+
     // Fetch event validation and sessions in parallel
     const [event, sessions] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: eventWhere,
         select: { id: true },
       }),
       db.eventSession.findMany({
