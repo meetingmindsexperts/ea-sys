@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -86,6 +86,72 @@ const registerSchema = z.object({
 );
 
 type RegisterForm = z.infer<typeof registerSchema>;
+
+/**
+ * Branded chrome — event banner + info strip + footer — shared by every
+ * render state of this page so the loading/error/success screens carry the
+ * same event branding as the main form. This markup lives here ONCE; render
+ * states wrap their content in <BrandedShell> rather than re-inlining it.
+ */
+function BrandedShell({ event, children }: { event: Event; children: ReactNode }) {
+  const locationParts = [event.venue, event.city, event.country].filter(Boolean);
+  return (
+    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
+      {/* Banner */}
+      {event.bannerImage ? (
+        <div className="relative w-full bg-white">
+          <div className="max-w-[1400px] mx-auto">
+            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
+              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border-b border-slate-100">
+          <div className="h-1 bg-gradient-primary" />
+        </div>
+      )}
+
+      {/* Event Info Strip */}
+      <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
+            <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
+            <div className="flex items-center gap-1.5 text-base text-slate-500">
+              <Calendar className="h-4 w-4 text-primary/70" />
+              <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-base text-slate-500">
+              <Clock className="h-4 w-4 text-primary/70" />
+              <span>{format(new Date(event.startDate), "h:mm a")}</span>
+            </div>
+            {locationParts.length > 0 && (
+              <div className="flex items-center gap-1.5 text-base text-slate-500">
+                <MapPin className="h-4 w-4 text-primary/70" />
+                <span>{locationParts.join(", ")}</span>
+              </div>
+            )}
+            {event.abstractSettings?.abstractDeadline && (
+              <div className="flex items-center gap-1.5 text-base text-amber-600 font-medium">
+                <FileText className="h-4 w-4" />
+                <span>Deadline: {format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {children}
+
+      {/* Footer */}
+      {event.footerHtml && (
+        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
+          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AbstractRegisterPage() {
   const params = useParams();
@@ -209,22 +275,30 @@ export default function AbstractRegisterPage() {
   }
 
   if (error || !event) {
-    return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
-            <AlertCircle className="h-7 w-7 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
-          <p className="text-slate-500 text-base">Please check the link or contact the event organizer.</p>
+    const errorCard = (
+      <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
+        <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-red-50 flex items-center justify-center">
+          <AlertCircle className="h-7 w-7 text-red-500" />
         </div>
+        <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || "Event not found"}</h2>
+        <p className="text-slate-500 text-base">Please check the link or contact the event organizer.</p>
       </div>
+    );
+    // A business error (e.g. submissions closed) has the event loaded — keep
+    // the page branded. Only a hard load failure (!event) gets the bare card.
+    return event ? (
+      <BrandedShell event={event}>
+        <div className="flex-1 flex items-center justify-center p-4">{errorCard}</div>
+      </BrandedShell>
+    ) : (
+      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">{errorCard}</div>
     );
   }
 
   if (success) {
     return (
-      <div className="min-h-screen bg-[#f8f9fb] flex items-center justify-center p-4">
+      <BrandedShell event={event}>
+        <div className="flex-1 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
           <div className="mx-auto mb-5 h-16 w-16 rounded-full bg-emerald-50 flex items-center justify-center">
             <CheckCircle2 className="h-9 w-9 text-emerald-500" />
@@ -255,56 +329,13 @@ export default function AbstractRegisterPage() {
             </Button>
           </Link>
         </div>
-      </div>
+        </div>
+      </BrandedShell>
     );
   }
 
-  const locationParts = [event.venue, event.city, event.country].filter(Boolean);
-
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
-      {/* Banner */}
-      {event.bannerImage ? (
-        <div className="relative w-full bg-white">
-          <div className="max-w-[1400px] mx-auto">
-            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white border-b border-slate-100">
-          <div className="h-1 bg-gradient-primary" />
-        </div>
-      )}
-
-      {/* Event Info Strip */}
-      <div className="bg-white border-b border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3">
-            <h2 className="text-base font-semibold text-slate-800 mr-auto">{event.name}</h2>
-            <div className="flex items-center gap-1.5 text-base text-slate-500">
-              <Calendar className="h-4 w-4 text-primary/70" />
-              <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-base text-slate-500">
-              <Clock className="h-4 w-4 text-primary/70" />
-              <span>{format(new Date(event.startDate), "h:mm a")}</span>
-            </div>
-            {locationParts.length > 0 && (
-              <div className="flex items-center gap-1.5 text-base text-slate-500">
-                <MapPin className="h-4 w-4 text-primary/70" />
-                <span>{locationParts.join(", ")}</span>
-              </div>
-            )}
-            {event.abstractSettings?.abstractDeadline && (
-              <div className="flex items-center gap-1.5 text-base text-amber-600 font-medium">
-                <FileText className="h-4 w-4" />
-                <span>Deadline: {format(new Date(event.abstractSettings.abstractDeadline), "MMM d, yyyy")}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+    <BrandedShell event={event}>
 
       {/* Main Content */}
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6">
@@ -572,14 +603,6 @@ export default function AbstractRegisterPage() {
           </div>
         </div>
       </div>
-
-      {/* Footer */}
-      {event.footerHtml && (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
-          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
-        </div>
-      )}
-    </div>
+    </BrandedShell>
   );
 }
