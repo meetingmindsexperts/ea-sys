@@ -1,34 +1,29 @@
 /**
  * Internal-domain detection drives org-attach at registration + promote-on-
- * invite. All three company domains are internal with NO verification:
- * meetingmindsdubai.com (primary) + meetingmindsexperts.com /
- * meetingmindsgroup.com (temp-account domains, admin-deletable).
+ * invite. Two tiers: meetingmindsdubai.com is internal but must VERIFY email
+ * before org-attach; meetingmindsexperts.com / meetingmindsgroup.com are
+ * TRUSTED temp-account domains (org immediately, no verification).
  */
 import { describe, it, expect } from "vitest";
-import { isInternalEmail, INTERNAL_EMAIL_DOMAINS } from "@/lib/internal-domains";
+import {
+  isInternalEmail,
+  isTrustedInternalEmail,
+  needsEmailVerification,
+  INTERNAL_EMAIL_DOMAINS,
+} from "@/lib/internal-domains";
 import { isTeamRole, TEAM_ROLES } from "@/lib/auth-guards";
 
-describe("isInternalEmail", () => {
-  it("matches the internal domains (case-insensitive, trimmed)", () => {
-    expect(isInternalEmail("zaid@meetingmindsdubai.com")).toBe(true);
+describe("isInternalEmail (either tier)", () => {
+  it("matches all internal domains (case-insensitive, trimmed)", () => {
     expect(isInternalEmail("Zaid@MeetingMindsDubai.com")).toBe(true);
     expect(isInternalEmail(" zaid@meetingmindsdubai.com ")).toBe(true);
+    expect(isInternalEmail("temp@meetingmindsexperts.com")).toBe(true);
+    expect(isInternalEmail("temp@meetingmindsgroup.com")).toBe(true);
   });
 
-  it("treats the temp-account domains as internal too (no verification)", () => {
-    expect(isInternalEmail("temp1@meetingmindsexperts.com")).toBe(true);
-    expect(isInternalEmail("temp2@meetingmindsgroup.com")).toBe(true);
-    expect(isInternalEmail("TEMP@MeetingMindsGroup.com")).toBe(true);
-  });
-
-  it("does NOT match external domains", () => {
+  it("does NOT match external domains or lookalikes", () => {
     expect(isInternalEmail("a@gmail.com")).toBe(false);
-    expect(isInternalEmail("a@outlook.com")).toBe(false);
-  });
-
-  it("does not match a subdomain or a lookalike that merely contains the domain", () => {
     expect(isInternalEmail("a@evil-meetingmindsdubai.com")).toBe(false);
-    expect(isInternalEmail("a@meetingmindsdubai.com.evil.com")).toBe(false);
     expect(isInternalEmail("a@meetingmindsgroup.com.attacker.io")).toBe(false);
   });
 
@@ -39,12 +34,31 @@ describe("isInternalEmail", () => {
     expect(isInternalEmail("not-an-email")).toBe(false);
   });
 
-  it("internal domains are the three company domains", () => {
+  it("covers exactly the three company domains", () => {
     expect([...INTERNAL_EMAIL_DOMAINS]).toEqual([
       "meetingmindsdubai.com",
       "meetingmindsexperts.com",
       "meetingmindsgroup.com",
     ]);
+  });
+});
+
+describe("verified vs trusted tiers", () => {
+  it("meetingmindsdubai.com needs verification (real mailbox)", () => {
+    expect(needsEmailVerification("zaid@meetingmindsdubai.com")).toBe(true);
+    expect(isTrustedInternalEmail("zaid@meetingmindsdubai.com")).toBe(false);
+  });
+
+  it("temp-account domains are trusted — org immediately, no verification", () => {
+    for (const e of ["t@meetingmindsexperts.com", "t@meetingmindsgroup.com"]) {
+      expect(isTrustedInternalEmail(e)).toBe(true);
+      expect(needsEmailVerification(e)).toBe(false);
+    }
+  });
+
+  it("external emails are neither", () => {
+    expect(needsEmailVerification("a@gmail.com")).toBe(false);
+    expect(isTrustedInternalEmail("a@gmail.com")).toBe(false);
   });
 });
 

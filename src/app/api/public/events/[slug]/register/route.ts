@@ -8,7 +8,8 @@ import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { isInternalEmail } from "@/lib/internal-domains";
+import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
+import { sendEmailVerification } from "@/lib/email-verification";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -554,11 +555,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               firstName,
               lastName,
               role: "REGISTRANT",
-              // Internal-domain registrants belong to the org from the start
-              // (so they can later be promoted to a team role without the
-              // global-email check blocking them). External attendees stay
-              // org-independent.
-              organizationId: isInternalEmail(email) ? event.organizationId : null,
+              // TRUSTED internal domains (temp accounts) belong to the org from
+              // the start. VERIFIED internal domains (meetingmindsdubai.com) are
+              // org-null until they verify their email (link sent below).
+              // External attendees stay org-independent.
+              organizationId: isTrustedInternalEmail(email) ? event.organizationId : null,
               specialty: specialty || null,
               termsAcceptedAt: new Date(),
               termsAcceptedIp: clientIpForTerms,
@@ -569,6 +570,11 @@ export async function POST(req: Request, { params }: RouteParams) {
             where: { attendee: { email }, userId: null },
             data: { userId: newUser.id },
           });
+          // Verified-internal domain (real mailbox) → send a verify link; the
+          // org attaches when they click it. Best-effort (won't fail signup).
+          if (needsEmailVerification(email)) {
+            void sendEmailVerification({ email, name: `${firstName} ${lastName}` });
+          }
           // Notify admins of new signup (non-blocking)
           notifyEventAdmins(event.id, {
             type: "SIGNUP",

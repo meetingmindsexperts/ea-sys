@@ -1960,6 +1960,39 @@ Complete Your Registration: ${params.completionLink}
 ${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}`,
     };
   },
+
+  emailVerification: (params: {
+    recipientName: string;
+    verifyLink: string;
+    expiresIn?: string;
+  }) => {
+    const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Verify your email</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Confirm this address belongs to you</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
+    <p>Please confirm your email address to link your account to the Meeting Minds team. Your registration works either way — verifying just connects you as an internal member.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${escapeHtml(params.verifyLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Verify my email</a>
+    </div>
+    ${params.expiresIn ? `<p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Note:</strong> This link will expire in ${escapeHtml(params.expiresIn)}.</p>` : ""}
+    <p style="color: #6b7280; font-size: 14px;">If you didn't create this account, you can safely ignore this email.</p>
+  </div>`;
+    return {
+      subject: "Verify your email — Meeting Minds",
+      htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
+      textContent: `Verify your email — Meeting Minds
+
+Hi ${params.recipientName},
+
+Please confirm your email address to link your account to the Meeting Minds team:
+${params.verifyLink}
+
+${params.expiresIn ? `Note: This link will expire in ${params.expiresIn}.` : ""}
+
+If you didn't create this account, you can safely ignore this email.`,
+    };
+  },
 };
 
 // ── Legacy compatibility: emailTemplates ───────────────────────────────────────
@@ -1973,6 +2006,8 @@ export const emailTemplates = {
     systemTemplates.passwordReset(params),
   registrationCompletion: (params: Parameters<typeof systemTemplates.registrationCompletion>[0]) =>
     systemTemplates.registrationCompletion(params),
+  emailVerification: (params: Parameters<typeof systemTemplates.emailVerification>[0]) =>
+    systemTemplates.emailVerification(params),
 };
 
 // ── Sample preview variables for email template preview ──────────────────────
