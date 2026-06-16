@@ -22,8 +22,12 @@ import {
 } from "@/components/ui/select";
 import { Calendar, Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { useBulkEmail, usePreviewEmailBySlug, useScheduleBulkEmail } from "@/hooks/use-api";
+import { useBulkEmail, useEmailTemplates, usePreviewEmailBySlug, useScheduleBulkEmail } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+
+/** Prefix marking a Select value as a saved custom template (value = `template:<slug>`). */
+const SAVED_TEMPLATE_PREFIX = "template:";
 
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
@@ -144,6 +148,10 @@ const MAX_FILES = 5;
 // Static map: emailType → template slug used by the preview endpoint.
 // Speaker invitations use a dedicated template; other types reuse common slugs.
 function emailTypeToSlug(emailType: string, recipientType: RecipientType): string | null {
+  // Saved custom template — the slug is encoded in the option value.
+  if (emailType.startsWith(SAVED_TEMPLATE_PREFIX)) {
+    return emailType.slice(SAVED_TEMPLATE_PREFIX.length);
+  }
   switch (emailType) {
     case "invitation":
       return recipientType === "speakers" ? "speaker-invitation" : "custom-notification";
@@ -219,7 +227,32 @@ export function BulkEmailDialog({
   // Computed once on mount; server-side validation re-checks at submit time.
   const [minScheduledFor] = useState(() => computeMinScheduledFor());
 
-  const emailTypes = getEmailTypes(recipientType);
+  // Active custom templates (organizer-created, not system defaults) become
+  // selectable send options — this is the bridge that makes them appear in the
+  // dropdown for every recipient type and on the Communications page. Inactive
+  // and system templates are excluded (the latter are already covered by the
+  // built-in options above).
+  const { data: templatesData } = useEmailTemplates(eventId);
+  const customTemplates = (
+    (templatesData?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
+  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
+
+  const emailTypes: EmailTypeOption[] = [
+    ...getEmailTypes(recipientType),
+    ...customTemplates.map((t) => ({
+      value: `${SAVED_TEMPLATE_PREFIX}${t.slug}`,
+      label: t.name,
+      description: "Your saved template",
+    })),
+  ];
+
+  const isSavedTemplate = emailType.startsWith(SAVED_TEMPLATE_PREFIX);
+  const savedTemplateSlug = isSavedTemplate
+    ? emailType.slice(SAVED_TEMPLATE_PREFIX.length)
+    : undefined;
+  const savedTemplateName = customTemplates.find(
+    (t) => t.slug === savedTemplateSlug
+  )?.name;
   const isCustom = emailType === "custom";
   const label = getRecipientLabel(recipientType);
 
@@ -305,7 +338,9 @@ export function BulkEmailDialog({
     const payload = {
       recipientType,
       recipientIds: selectionMode === "selected" ? recipientIds : undefined,
-      emailType,
+      // A saved custom template sends as emailType "template" with the slug
+      // carried in filters.templateSlug (so it survives schedule → worker).
+      emailType: isSavedTemplate ? "template" : emailType,
       customSubject: isCustom ? customSubject.trim() : undefined,
       customMessage: isCustom
         ? customMessage.trim()
@@ -339,6 +374,9 @@ export function BulkEmailDialog({
         ...(emailType === "survey-invitation"
           ? { surveyExpiryDays: Number(surveyExpiryDays) }
           : {}),
+        // Saved custom template — slug rides in filters so scheduled sends
+        // reconstruct it from the persisted ScheduledEmail.filters JSON.
+        ...(isSavedTemplate && savedTemplateSlug ? { templateSlug: savedTemplateSlug } : {}),
       },
     };
 
@@ -355,7 +393,7 @@ export function BulkEmailDialog({
       } else {
         const result = await bulkEmail.mutateAsync({
           ...payload,
-          emailType: payload.emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom",
+          emailType: payload.emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom" | "template" | "survey-invitation",
         });
         if (result.success) {
           toast.success(result.message);
@@ -464,6 +502,12 @@ export function BulkEmailDialog({
               )}
               {emailType === "reminder" && (
                 <p>This will send an event reminder with venue details and a countdown to the event date.</p>
+              )}
+              {isSavedTemplate && (
+                <p>
+                  This will send your saved{savedTemplateName ? ` “${savedTemplateName}”` : ""} template,
+                  rendered with this event&apos;s details and branding for each recipient.
+                </p>
               )}
             </div>
           )}

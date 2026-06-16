@@ -55,7 +55,20 @@ export type BulkEmailType =
    * recipient type — speakers/reviewers/abstracts have no
    * Registration-bound survey.
    */
-  | "survey-invitation";
+  | "survey-invitation"
+  /**
+   * Send a saved custom email template (one an organizer created under
+   * Communications → Email Templates that is NOT one of the system
+   * defaults). The specific template is identified by
+   * `filters.templateSlug`; the body/subject come from that active
+   * `EmailTemplate` row via `getEventTemplate`. Renders with the same
+   * per-recipient variables as the built-in templated sends. Works for
+   * every recipient type. This is the bridge that makes an active custom
+   * template selectable + sendable from the bulk-email dialog and the
+   * Communications page (custom templates were previously creatable but
+   * orphaned — no send path referenced them).
+   */
+  | "template";
 
 export const WEBINAR_EMAIL_TYPES = [
   "webinar-confirmation",
@@ -115,6 +128,17 @@ export interface BulkEmailFilters {
    * back to the default on scheduled sends).
    */
   surveyExpiryDays?: SurveyExpiryDays;
+  /**
+   * `emailType: "template"` only — slug of the saved custom EmailTemplate
+   * to send. Rides inside `filters` (rather than a top-level param) for
+   * the same reason as `surveyExpiryDays`: the scheduled-send worker
+   * reconstructs the send from the persisted `ScheduledEmail.filters`
+   * JSON, so riding here makes immediate + scheduled sends identical with
+   * NO new column and NO worker change. Resolved via
+   * `getEventTemplate(eventId, templateSlug)`, which returns the row only
+   * when it is active — an inactive/missing custom template is rejected.
+   */
+  templateSlug?: string;
 }
 
 export interface BulkEmailInput {
@@ -169,6 +193,7 @@ export const bulkEmailSchema = z.object({
     "webinar-live-now",
     "webinar-thank-you",
     "survey-invitation",
+    "template",
   ]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
@@ -191,8 +216,20 @@ export const bulkEmailSchema = z.object({
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
+      templateSlug: z.string().min(1).max(100).optional(),
     })
     .optional(),
+}).superRefine((data, ctx) => {
+  // A saved-template send must carry the slug to load. Enforced at the
+  // schema layer so both the immediate route and the schedule route
+  // reject a malformed payload before persisting a ScheduledEmail row.
+  if (data.emailType === "template" && !data.filters?.templateSlug) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["filters", "templateSlug"],
+      message: "filters.templateSlug is required when emailType is \"template\"",
+    });
+  }
 });
 
 const speakerStatusSchema = z.nativeEnum(SpeakerStatus);
@@ -504,17 +541,43 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     "webinar-thank-you": "webinar-thank-you",
     "survey-invitation": "survey-invitation",
   };
-  const templateSlug = slugMap[emailType];
-  if (!templateSlug) {
-    throw new BulkEmailError(
-      `Bulk send for "${emailType}" is not supported — send from the abstract detail page instead`,
-      400
-    );
+  // Resolve the template slug. A "template" send carries a custom slug in
+  // filters.templateSlug and loads the active EmailTemplate directly; every
+  // other type maps to a fixed system slug.
+  const isCustomTemplate = emailType === "template";
+  let templateSlug: string;
+  if (isCustomTemplate) {
+    if (!filters?.templateSlug) {
+      // The schema's superRefine already guards this at both routes; kept
+      // here so direct (non-route) callers can't slip a malformed send by.
+      throw new BulkEmailError("A saved-template send requires filters.templateSlug", 400);
+    }
+    templateSlug = filters.templateSlug;
+  } else {
+    const mapped = slugMap[emailType];
+    if (!mapped) {
+      throw new BulkEmailError(
+        `Bulk send for "${emailType}" is not supported — send from the abstract detail page instead`,
+        400
+      );
+    }
+    templateSlug = mapped;
   }
 
-  const tpl = (await getEventTemplate(eventId, templateSlug)) || getDefaultTemplate(templateSlug);
+  // For a custom template there is NO system default to fall back to, so an
+  // inactive or missing custom slug must hard-fail (don't blast a batch with
+  // an empty body). getEventTemplate already returns null for an inactive or
+  // missing row; the explicit `null` makes the no-fallback intent clear.
+  const tpl =
+    (await getEventTemplate(eventId, templateSlug)) ||
+    (isCustomTemplate ? null : getDefaultTemplate(templateSlug));
   if (!tpl) {
-    throw new BulkEmailError(`Email template not found for slug: ${templateSlug}`, 500);
+    throw new BulkEmailError(
+      isCustomTemplate
+        ? `Saved template "${templateSlug}" was not found or is inactive — activate it under Communications → Email Templates`
+        : `Email template not found for slug: ${templateSlug}`,
+      isCustomTemplate ? 400 : 500
+    );
   }
 
   const daysUntil = event.startDate
@@ -683,6 +746,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // hydration of the per-recipient vars.
       vars.subject = customSubject!;
       vars.message = customMessage!;
+    } else if (emailType === "template") {
+      // A saved custom template defines its own subject + body, but may also
+      // reference {{subject}} / {{message}} placeholders for an optional
+      // per-send note. Both are optional here (the template, not the
+      // operator, owns the content), so default to empty.
+      vars.subject = customSubject ?? "";
+      vars.message = customMessage ?? "";
     }
 
     if (emailType === "survey-invitation") {

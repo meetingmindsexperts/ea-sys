@@ -44,7 +44,9 @@ import {
   useAbstracts,
   useReviewers,
   useTickets,
+  useEmailTemplates,
 } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -254,6 +256,14 @@ export default function CommunicationsPage() {
   const abstractsQuery = useAbstracts(eventId);
   const reviewersQuery = useReviewers(eventId);
   const ticketsQuery = useTickets(eventId);
+  const templatesQuery = useEmailTemplates(eventId);
+
+  // Active organizer-created templates (excludes system defaults) — surfaced
+  // as one-click tiles so a custom template an organizer activated is
+  // reachable here, not just buried in the dialog's Email Type dropdown.
+  const customTemplates = (
+    (templatesQuery.data?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
+  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
 
   const registrations = (registrationsQuery.data ?? []) as RegistrationItem[];
   const speakers = (speakersQuery.data ?? []) as SpeakerItem[];
@@ -414,6 +424,45 @@ export default function CommunicationsPage() {
     }
     setActiveDefaultEmailType(tile.defaultEmailType);
     setEmailDialogOpen(true);
+  }
+
+  // Open the dialog for an audience pre-selected to a saved custom template.
+  // Sends to ALL of that audience (no extra filter) — the organizer can
+  // narrow via Advanced filters or selected recipients before sending.
+  function openTemplateDialog(audience: RecipientType, slug: string) {
+    setActiveAudience(audience);
+    setActiveStatusFilter(undefined);
+    setActivePaymentStatusFilter(undefined);
+    setActiveTicketTypeFilter(undefined);
+    setActiveAgreementSignedFilter(undefined);
+    setActiveHasSessionFilter(undefined);
+    setActiveSessionRoleFilter(undefined);
+    setActiveDefaultEmailType(`template:${slug}`);
+    setEmailDialogOpen(true);
+  }
+
+  // One-click tiles for the event's active custom templates, scoped to an
+  // audience. Rendered under the Registrations and Speakers cards.
+  function renderSavedTemplates(audience: RecipientType) {
+    if (customTemplates.length === 0) return null;
+    return (
+      <div className="space-y-2 border-t pt-3">
+        <p className="text-xs font-medium text-muted-foreground">Your templates</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {customTemplates.map((t) => (
+            <button
+              key={t.slug}
+              type="button"
+              onClick={() => openTemplateDialog(audience, t.slug)}
+              className="flex items-center gap-2 rounded-lg border p-3 text-left transition hover:border-primary hover:bg-muted/50"
+            >
+              <FileEdit className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate text-sm font-medium">{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -622,6 +671,8 @@ export default function CommunicationsPage() {
             </div>
               </div>
             </details>
+
+            {renderSavedTemplates("registrations")}
           </CardContent>
         </Card>
 
@@ -769,6 +820,8 @@ export default function CommunicationsPage() {
             </div>
               </div>
             </details>
+
+            {renderSavedTemplates("speakers")}
           </CardContent>
         </Card>
 

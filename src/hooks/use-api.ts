@@ -1109,11 +1109,15 @@ export function useBulkEmail(eventId: string) {
     mutationFn: (data: {
       recipientType: "speakers" | "registrations" | "reviewers" | "abstracts";
       recipientIds?: string[];
-      emailType: "invitation" | "agreement" | "confirmation" | "reminder" | "custom" | "abstract-accepted" | "abstract-rejected" | "abstract-revision" | "abstract-reminder";
+      // Matches bulkEmailSchema.emailType — includes "template" (saved custom
+      // template), "survey-invitation", and the webinar-* types. Kept as a
+      // permissive string (like useScheduleBulkEmail) so the dialog doesn't
+      // have to re-enumerate the union here.
+      emailType: string;
       customSubject?: string;
       customMessage?: string;
       attachments?: Array<{ name: string; content: string; contentType?: string }>;
-      filters?: { status?: string; ticketTypeId?: string };
+      filters?: Record<string, unknown>;
     }) =>
       // Immediate send now ENQUEUES (202) and returns a job id; the
       // scheduled-emails worker drains it within ~60s. The caller polls
