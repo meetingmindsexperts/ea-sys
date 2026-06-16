@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Active custom email templates are sendable + real test `{{registrationId}}` (June 16)
+
+A custom email template an organizer created **and activated** under
+Communications → Email Templates was previously orphaned — creatable but
+not selectable anywhere to send. The bulk-email dialog and Communications
+tiles offered a hardcoded list of built-in types, and `executeBulkEmail`
+threw "not supported" for any non-default slug.
+
+- **New `emailType: "template"`** carries the slug in `filters.templateSlug`
+  (same round-trip pattern as `surveyExpiryDays`), so scheduled sends
+  reconstruct it from `ScheduledEmail.filters` with **no migration and no
+  worker change**. A schema `superRefine` requires the slug; an
+  inactive/missing custom slug hard-fails with a clear 400.
+- The **bulk-email dialog** lists the event's active custom templates as
+  "Your saved template" options for every recipient type (covers Email All
+  on registrations + speakers and the Communications page), and the
+  **Communications page** surfaces them as one-click "Your templates" tiles.
+- New client-safe `src/lib/email-template-slugs.ts` classifies system vs
+  custom slugs; a drift test pins it to `DEFAULT_TEMPLATES`.
+- **Test/preview `{{registrationId}}`** now uses the most-recent real
+  registration's confirmation number (padded serial, else last-8 of id),
+  falling back to the static `"9999"` when no registrations exist — matching
+  how event name/dates/venue already render real data.
+
+Tests +11. tsc 0, eslint 0, vitest 1565/1565, build 0. Commits `0dbfc77`,
+`7300ed4`.
+
 ### Added — Workflow tiles on Communications page (May 14)
 
 The 4-filter intersection model on the Speakers card (and 3-filter on
