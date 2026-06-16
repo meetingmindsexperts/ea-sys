@@ -60,6 +60,29 @@ describe("buildEventPreviewVariables", () => {
     expect(v.ticketType).toBe("VIP Pass"); // no ticket types → sample default kept
   });
 
+  it("uses a real registration's padded serial for registrationId", () => {
+    const v = buildEventPreviewVariables(
+      { ...baseEvent, registrations: [{ id: "ckxyz12345678", serialId: 7 }] },
+      USER,
+    );
+    expect(v.registrationId).toBe("007");
+  });
+
+  it("falls back to last-8 of the id when the registration has no serial", () => {
+    const v = buildEventPreviewVariables(
+      { ...baseEvent, registrations: [{ id: "ckabcdEFGH1234", serialId: null }] },
+      USER,
+    );
+    expect(v.registrationId).toBe("EFGH1234");
+  });
+
+  it("falls back to the static \"9999\" when the event has no registrations", () => {
+    expect(buildEventPreviewVariables(baseEvent, USER).registrationId).toBe("9999");
+    expect(
+      buildEventPreviewVariables({ ...baseEvent, registrations: [] }, USER).registrationId,
+    ).toBe("9999");
+  });
+
   it("keeps entity-specific samples (abstract/payment) that have no event source", () => {
     const v = buildEventPreviewVariables(baseEvent, USER);
     expect(v.abstractTitle).toBe("Sample Abstract Title");

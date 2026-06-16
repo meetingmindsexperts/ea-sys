@@ -2032,6 +2032,13 @@ export interface PreviewEventData {
   supportEmail?: string | null;
   organization?: { name: string } | null;
   ticketTypes?: { name: string }[] | null;
+  /**
+   * Up to one representative registration so {{registrationId}} reflects a
+   * real confirmation number (padded serial, same shape a real send uses).
+   * When the event has no registrations yet, the builder falls back to the
+   * static "9999" placeholder.
+   */
+  registrations?: { id: string; serialId: number | null }[] | null;
 }
 
 interface PreviewUserData {
@@ -2068,7 +2075,18 @@ export function buildEventPreviewVariables(
     Math.ceil((event.startDate.getTime() - Date.now()) / 86_400_000),
   );
 
+  // Confirmation number from a real registration, formatted the same way a
+  // real send does (padded serial, else last-8 of the id). No registrations
+  // yet → static "9999" placeholder.
+  const reg = event.registrations?.[0];
+  const registrationId = reg
+    ? reg.serialId != null
+      ? String(reg.serialId).padStart(3, "0")
+      : reg.id.slice(-8).toUpperCase()
+    : "9999";
+
   const realOverrides: Partial<Record<string, string | number>> = {
+    registrationId,
     eventName: event.name,
     eventDate,
     eventVenue: event.venue || "",

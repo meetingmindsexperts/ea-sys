@@ -54,6 +54,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         timezone: true, supportEmail: true,
         organization: { select: { name: true } },
         ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+        // One real registration so {{registrationId}} shows a real
+        // confirmation number (falls back to "9999" if none exist).
+        registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
 
