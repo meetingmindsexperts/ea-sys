@@ -292,7 +292,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    // ONSITE (registration-desk staff) is allowed to create registrations.
+    const denied = denyReviewer(session, { allow: ["ONSITE"] });
     if (denied) return denied;
 
     const validated = createRegistrationSchema.safeParse(body);

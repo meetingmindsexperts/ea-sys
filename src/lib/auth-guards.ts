@@ -2,19 +2,34 @@ import { NextResponse } from "next/server";
 import { canViewFinance } from "@/lib/finance-visibility";
 
 /**
+ * Roles with no general write access. By default every POST/PUT/DELETE on a
+ * non-abstract resource is blocked for these. ONSITE (registration-desk staff)
+ * is in this set too — it is allowed ONLY on the specific create-registration,
+ * check-in, and badge-print routes, which opt it back in via `opts.allow`.
+ */
+const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE"];
+
+/**
  * Returns a 403 Forbidden response if the user has a restricted role
- * (REVIEWER, SUBMITTER, REGISTRANT, or MEMBER).
+ * (REVIEWER, SUBMITTER, REGISTRANT, MEMBER, or ONSITE).
  * These roles are only allowed limited operations — all other
  * write operations (POST, PUT, DELETE) on non-abstract resources must
  * call this guard before proceeding.
  *
+ * Pass `opts.allow` to let a specific restricted role through on a route it is
+ * permitted to write (e.g. ONSITE on registration-create / check-in / badges).
+ *
  * Usage:
- *   const denied = denyReviewer(session);
+ *   const denied = denyReviewer(session);                        // block all restricted
+ *   const denied = denyReviewer(session, { allow: ["ONSITE"] }); // …but let ONSITE write here
  *   if (denied) return denied;
  */
-export function denyReviewer(session: { user?: { role?: string } } | null) {
+export function denyReviewer(
+  session: { user?: { role?: string } } | null,
+  opts?: { allow?: string[] },
+) {
   const role = session?.user?.role;
-  if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT" || role === "MEMBER") {
+  if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;

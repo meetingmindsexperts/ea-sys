@@ -29,7 +29,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    // ONSITE (registration-desk staff) is allowed to print badges.
+    const denied = denyReviewer(session, { allow: ["ONSITE"] });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

@@ -167,6 +167,9 @@ export function RegistrationDetailSheet({
   const queryClient = useQueryClient();
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  // ONSITE (registration-desk) may check attendees in + print badges, but not
+  // edit, delete, or email a registration. (The API enforces this too.)
+  const isOnsite = userSession?.user?.role === "ONSITE";
   // MEMBER (read-only viewer) sees no money — the Billing & Payments tab
   // and the Payment Summary are hidden. Payment STATUS badge stays
   // (operational, not financial).
@@ -491,10 +494,12 @@ export function RegistrationDetailSheet({
                 <div className="flex flex-wrap gap-2 mt-3">
                   {!isEditing ? (
                     <>
-                      <Button size="sm" variant="secondary" onClick={startEditing}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Edit
-                      </Button>
+                      {!isOnsite && (
+                        <Button size="sm" variant="secondary" onClick={startEditing}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                      )}
                       {selectedRegistration.status !== "CHECKED_IN" &&
                         selectedRegistration.status !== "CANCELLED" && (
                           <Button
@@ -507,16 +512,18 @@ export function RegistrationDetailSheet({
                             Check In
                           </Button>
                         )}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="text-red-600 hover:text-red-700"
-                        onClick={handleDeleteClick}
-                        disabled={deleteRegistration.isPending}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
+                      {!isOnsite && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-red-600 hover:text-red-700"
+                          onClick={handleDeleteClick}
+                          disabled={deleteRegistration.isPending}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -970,8 +977,9 @@ export function RegistrationDetailSheet({
                   </div>
                 )}
 
-              {/* Registration Type + Badge Type (side by side) */}
-              {!isReviewer ? (
+              {/* Registration Type + Badge Type (side by side). ONSITE gets the
+                  read-only branch — the editable Selects mutate on change. */}
+              {!isReviewer && !isOnsite ? (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Registration Type</Label>
@@ -1181,8 +1189,10 @@ export function RegistrationDetailSheet({
                 );
               })()}
 
-              {/* Registration Status + Payment Status (side by side) */}
-              {!isReviewer && (
+              {/* Registration Status + Payment Status (side by side) — these
+                  Selects mutate on change, so they're hidden for ONSITE (desk
+                  staff can't change status/payment; the API blocks it too). */}
+              {!isReviewer && !isOnsite && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Registration Status</Label>
@@ -1869,7 +1879,9 @@ export function RegistrationDetailSheet({
                   "rounded-xl border border-slate-200 bg-white px-5 py-4",
                   activeTab !== "activity" && "hidden",
                 )}>
-                  <div className="grid grid-cols-3 gap-2">
+                  {/* ONSITE keeps Print Badge only — Download Quote (finance)
+                      and Send Email are hidden + the grid collapses to 1 col. */}
+                  <div className={cn("grid gap-2", isOnsite ? "grid-cols-1" : "grid-cols-3")}>
                   <Button
                     variant="outline"
                     size="sm"
@@ -1879,11 +1891,14 @@ export function RegistrationDetailSheet({
                     {printingBadge ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <IdCard className="mr-2 h-4 w-4" />}
                     Print Badge
                   </Button>
+                  {!isOnsite && (
                   <Button variant="outline" size="sm" asChild>
                     <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>
                       <Download className="mr-2 h-4 w-4" /> Download Quote
                     </a>
                   </Button>
+                  )}
+                  {!isOnsite && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button size="sm" variant="outline" disabled={sendEmail.isPending}>
@@ -1921,6 +1936,7 @@ export function RegistrationDetailSheet({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  )}
                   </div>
                 </section>
               )}

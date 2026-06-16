@@ -146,6 +146,46 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // ONSITE: registration-desk staff. Allowed UI = the events list + a chosen
+  // event's Registrations + Check-In pages. Everything else (other event
+  // sections, dashboard, settings, logs, contacts, new-event) is redirected.
+  // API routes carry their own per-route guards (denyReviewer/denyFinance).
+  if (role === "ONSITE") {
+    if (pathname.startsWith("/api/")) {
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    if (
+      pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/logs") ||
+      pathname.startsWith("/contacts") ||
+      pathname === "/events/new"
+    ) {
+      const redirectUrl = req.nextUrl.clone();
+      redirectUrl.pathname = "/events";
+      return NextResponse.redirect(redirectUrl);
+    }
+    const onsiteEventPath = pathname.match(/^\/events\/[^/]+(?:\/(.*))?$/);
+    if (!onsiteEventPath) {
+      // /events (list) and non-event paths under the matcher are fine.
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    const sub = onsiteEventPath[1] ?? "";
+    const onsiteAllowed =
+      sub === "registrations" ||
+      sub.startsWith("registrations/") ||
+      sub === "check-in" ||
+      sub.startsWith("check-in/");
+    if (onsiteAllowed) {
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    // Any other event subpath (incl. the event landing) → that event's
+    // registrations page.
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = `${pathname.split("/").slice(0, 3).join("/")}/registrations`;
+    return NextResponse.redirect(redirectUrl);
+  }
+
   const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
   if (!isRestricted) {

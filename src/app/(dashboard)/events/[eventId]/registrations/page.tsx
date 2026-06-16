@@ -85,6 +85,9 @@ export default function RegistrationsPage() {
   const eventId = params.eventId as string;
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
+  // ONSITE (registration-desk) can add registrations, print badges, and check
+  // in — but not bulk-email, import, edit, delete, or manage tags/types.
+  const isOnsite = userSession?.user?.role === "ONSITE";
 
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
@@ -334,7 +337,7 @@ export default function RegistrationsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          {!isReviewer && (
+          {!isReviewer && !isOnsite && (
             <Button
               variant="outline"
               size="sm"
@@ -359,7 +362,8 @@ export default function RegistrationsPage() {
           </Button>
           {!isReviewer && (
             <>
-              {registrations.length > 0 && (
+              {/* Management-only actions — hidden for ONSITE (desk staff). */}
+              {!isOnsite && registrations.length > 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -369,13 +373,14 @@ export default function RegistrationsPage() {
                   {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
                 </Button>
               )}
-              <CSVImportButton eventId={eventId} entityType="registrations" />
+              {!isOnsite && <CSVImportButton eventId={eventId} entityType="registrations" />}
               {/* DTCM barcode import is Dubai-only — only surface it when the
                   event is flagged (Settings → Registration). Keeps the import
                   path consistent with the now-gated DTCM field. */}
-              {event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
+              {!isOnsite && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
+              {/* ONSITE keeps badge printing + add registration. */}
               <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
-              <ImportContactsButton eventId={eventId} mode="registration" />
+              {!isOnsite && <ImportContactsButton eventId={eventId} mode="registration" />}
               <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -388,7 +393,7 @@ export default function RegistrationsPage() {
       </div>
 
       {/* Bulk Selection Toolbar */}
-      {selectedIds.size > 0 && !isReviewer && (
+      {selectedIds.size > 0 && !isReviewer && !isOnsite && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
@@ -589,7 +594,7 @@ export default function RegistrationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {!isReviewer && (
+                  {!isReviewer && !isOnsite && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
@@ -616,7 +621,7 @@ export default function RegistrationsPage() {
                     className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(registration.id) ? "bg-primary/5" : ""}`}
                     onClick={() => handleRowClick(registration)}
                   >
-                    {!isReviewer && (
+                    {!isReviewer && !isOnsite && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(registration.id)}

@@ -168,6 +168,7 @@ export function Sidebar() {
   const isReviewer    = session?.user?.role === "REVIEWER";
   const isSubmitter   = session?.user?.role === "SUBMITTER";
   const isRegistrant  = session?.user?.role === "REGISTRANT";
+  const isOnsite      = session?.user?.role === "ONSITE";
   const isRestricted  = isReviewer || isSubmitter;
 
   // Fetch all orgs for SUPER_ADMIN switcher
@@ -179,7 +180,7 @@ export function Sidebar() {
 
   // Fetch event to know eventType (cached by React Query across navigation).
   // Skip fetch on non-event pages and for restricted roles whose sidebar doesn't branch.
-  const { data: currentEvent } = useEvent(isEventPage && !isRestricted ? (eventId as string) : "");
+  const { data: currentEvent } = useEvent(isEventPage && !isRestricted && !isOnsite ? (eventId as string) : "");
   const webinarFilter = webinarModuleFilter(currentEvent?.eventType ?? null);
 
   const handleOrgSwitch = (orgId: string | null) => {
@@ -198,26 +199,37 @@ export function Sidebar() {
       ]
     : navigation.filter((item) => ["Events"].includes(item.name));
   const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
+  // ONSITE (registration-desk) sees only the events list + a chosen event's
+  // Registrations + Check-In. Everything else is hidden here and redirected by
+  // the middleware.
+  const onsiteEventItems = eventNavigation.filter((item) =>
+    ["Registrations", "Check-In"].includes(item.name)
+  );
+  const eventsOnlyNavigation = navigation.filter((item) => ["Events"].includes(item.name));
 
   const isAdmin = session?.user?.role === "ADMIN" || isSuperAdmin;
 
-  const baseNavigation = isRestricted
-    ? restrictedNavigation
-    : navigation.filter((item) => {
-        if (item.superAdminOnly && !isSuperAdmin) return false;
-        if (item.adminOnly && !isAdmin) return false;
-        return true;
-      });
+  const baseNavigation = isOnsite
+    ? eventsOnlyNavigation
+    : isRestricted
+      ? restrictedNavigation
+      : navigation.filter((item) => {
+          if (item.superAdminOnly && !isSuperAdmin) return false;
+          if (item.adminOnly && !isAdmin) return false;
+          return true;
+        });
 
   // Build sections for event nav
-  const visibleEventSections = isRestricted
-    ? [{ label: "Abstracts", items: restrictedEventItems }]
-    : eventNavigationSections
-        .map((section) => ({
-          ...section,
-          items: section.items.filter(webinarFilter),
-        }))
-        .filter((section) => section.items.length > 0);
+  const visibleEventSections = isOnsite
+    ? [{ label: "Manage", items: onsiteEventItems }]
+    : isRestricted
+      ? [{ label: "Abstracts", items: restrictedEventItems }]
+      : eventNavigationSections
+          .map((section) => ({
+            ...section,
+            items: section.items.filter(webinarFilter),
+          }))
+          .filter((section) => section.items.length > 0);
 
   const flatEventItems = visibleEventSections.flatMap((s) =>
     s.items.map((item) => ({ ...item, href: `/events/${eventId}${item.href}` }))

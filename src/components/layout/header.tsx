@@ -18,6 +18,7 @@ import {
   Check,
   X,
   Ticket,
+  ScanBarcode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,6 +115,18 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "Edit personal details",   allowed: true },
       { label: "Make payment",            allowed: true },
       { label: "Manage events",           allowed: false },
+    ],
+  },
+  ONSITE: {
+    label: "Onsite Staff",
+    description: "Registration & check-in",
+    color: "bg-cyan-100 text-cyan-700",
+    icon: ScanBarcode,
+    permissions: [
+      { label: "Add registrations",        allowed: true },
+      { label: "Check attendees in",       allowed: true },
+      { label: "Print badges",             allowed: true },
+      { label: "View prices & payments",   allowed: false },
     ],
   },
 };

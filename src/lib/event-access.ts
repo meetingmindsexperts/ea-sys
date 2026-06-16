@@ -50,6 +50,10 @@ export function buildEventAccessWhere(
     return { ...(eventId && { id: eventId }) };
   }
 
+  // Default (ADMIN / ORGANIZER / ONSITE): org-bound, all events in the org.
+  // ONSITE (registration-desk staff) reads every org event the same as
+  // ORGANIZER — its restriction is on *writes* (denyReviewer) + finance
+  // (canViewFinance) + navigation (middleware/sidebar), not event visibility.
   return {
     ...(eventId && { id: eventId }),
     organizationId: user.organizationId!,

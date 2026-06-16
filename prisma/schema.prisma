@@ -126,6 +126,11 @@ enum UserRole {
   REVIEWER
   SUBMITTER
   REGISTRANT
+  // Onsite Staff — org-bound, registration-desk role. Can ONLY create
+  // registrations + check attendees in + view the registrations list + print
+  // badges. Money is hidden (treated like MEMBER for finance). Blocked from
+  // everything else.
+  ONSITE
 }
 
 enum Title {

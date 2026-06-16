@@ -73,4 +73,26 @@ describe("denyReviewer", () => {
   it("returns null for session with user but no role", () => {
     expect(denyReviewer({ user: {} })).toBeNull();
   });
+
+  // ONSITE (registration-desk staff) is restricted by default …
+  it("returns 403 for ONSITE role by default", async () => {
+    const result = denyReviewer({ user: { role: "ONSITE" } });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+    expect(await result!.json()).toEqual({ error: "Forbidden" });
+  });
+
+  // … but is let through on the routes it is permitted to write.
+  it("returns null for ONSITE when allowed (create / check-in / badges)", () => {
+    expect(denyReviewer({ user: { role: "ONSITE" } }, { allow: ["ONSITE"] })).toBeNull();
+  });
+
+  it("still blocks other restricted roles even when ONSITE is allowed", () => {
+    expect(denyReviewer({ user: { role: "MEMBER" } }, { allow: ["ONSITE"] })).not.toBeNull();
+    expect(denyReviewer({ user: { role: "REVIEWER" } }, { allow: ["ONSITE"] })).not.toBeNull();
+  });
+
+  it("does not affect privileged roles when an allow-list is passed", () => {
+    expect(denyReviewer({ user: { role: "ORGANIZER" } }, { allow: ["ONSITE"] })).toBeNull();
+  });
 });

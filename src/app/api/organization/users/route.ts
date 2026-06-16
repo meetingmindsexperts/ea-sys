@@ -12,7 +12,10 @@ const inviteUserSchema = z.object({
   email: z.string().email().max(255),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  role: z.enum(["ADMIN", "ORGANIZER", "REVIEWER"]),
+  // MEMBER + ONSITE were offered in the Settings dropdown but missing here
+  // (MEMBER invites would have 400'd); both are now accepted. All of these are
+  // org-bound team roles created under the inviter's organization.
+  role: z.enum(["ADMIN", "ORGANIZER", "MEMBER", "REVIEWER", "ONSITE"]),
 });
 
 export async function GET() {
@@ -125,7 +128,16 @@ export async function POST(req: Request) {
       ? `${session.user.firstName} ${session.user.lastName}`
       : session.user.email || "A team member";
 
-    const roleDisplayName = role === "ADMIN" ? "Admin" : role === "ORGANIZER" ? "Organizer" : "Reviewer";
+    const roleDisplayName =
+      role === "ADMIN"
+        ? "Admin"
+        : role === "ORGANIZER"
+          ? "Organizer"
+          : role === "MEMBER"
+            ? "Member"
+            : role === "ONSITE"
+              ? "Onsite Staff"
+              : "Reviewer";
 
     const emailTemplate = emailTemplates.userInvitation({
       recipientName: `${firstName} ${lastName}`,

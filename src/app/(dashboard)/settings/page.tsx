@@ -359,6 +359,7 @@ export default function SettingsPage() {
     ORGANIZER: "bg-blue-100 text-blue-800",
     MEMBER: "bg-amber-100 text-amber-800",
     REVIEWER: "bg-green-100 text-green-800",
+    ONSITE: "bg-cyan-100 text-cyan-800",
   };
 
   if (loading) {
@@ -822,6 +823,7 @@ export default function SettingsPage() {
                               <SelectItem value="ORGANIZER">Organizer</SelectItem>
                               <SelectItem value="MEMBER">Member</SelectItem>
                               <SelectItem value="REVIEWER">Reviewer</SelectItem>
+                              <SelectItem value="ONSITE">Onsite Staff</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
