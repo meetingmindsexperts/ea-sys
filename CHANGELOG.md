@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Communications bulk-email filter correctness (June 16)
+
+Two rounds on the registrations/Communications bulk-email filters. Backend
+filtering was correct throughout — these were display/wiring gaps.
+
+- **Payment filter dropped on "Email All"** (`26f8c50`): the registrations
+  list applied its Payment Status filter to the visible rows + count, but the
+  dialog mount omitted `paymentStatusFilter`, so the send ignored payment.
+  Now passed through; the dialog re-seeds its payment control on every open.
+- **Misleading recipient count** (#1+#4, `50e27b6`): the dialog showed the
+  page's advanced-filter total even when a tile or the in-dialog payment
+  dropdown targeted a smaller cohort. New `recipientCountFor(filters)`
+  callback — each page counts its own rows against the live effective
+  filters, so "all"-mode sends show the true number. List-page count mirrors
+  SEND semantics (status+payment+ticket) and excludes the search box.
+- **Welcome-Paid silently narrowed** (#2): badge counted PAID+COMPLIMENTARY
+  +INCLUSIVE but sent PAID-only. `paymentStatus` now accepts a comma list →
+  Prisma `IN` (`parsePaymentStatusFilter`); the tile sends all three.
+- **Payment dropdowns enum-driven** (#3): Communications advanced + dialog
+  dropdowns now expose all statuses (UNASSIGNED/PENDING/INCLUSIVE/REFUNDED/
+  FAILED were missing).
+
+Tests +6. tsc 0, eslint 0, vitest 1570/1570, build 0.
+
 ### Added — Active custom email templates are sendable + real test `{{registrationId}}` (June 16)
 
 A custom email template an organizer created **and activated** under
