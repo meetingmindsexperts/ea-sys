@@ -7,14 +7,20 @@
  * be promoted to a team role later without the global-email-uniqueness check
  * blocking them, while still keeping their own registrations.
  *
- * For now the only internal domain is `meetingmindsdubai.com`.
- * `meetingmindsexperts.com` / `meetingmindsgroup.com` are deliberately NOT here
- * yet — they're slated to become verified "temp" domains (email verification
- * required) in a later pass.
+ * All three domains are trusted with NO email verification:
+ *   - `meetingmindsdubai.com` — primary internal domain.
+ *   - `meetingmindsexperts.com` / `meetingmindsgroup.com` — "temp" account
+ *     domains. The addresses may not be real mailboxes (short-lived accounts
+ *     for event-day staff/volunteers), so they deliberately skip verification;
+ *     an admin deletes the accounts from Settings → Users when they're done.
  *
  * Leaf module: no imports, safe for any bundle / runtime.
  */
-export const INTERNAL_EMAIL_DOMAINS = ["meetingmindsdubai.com"] as const;
+export const INTERNAL_EMAIL_DOMAINS = [
+  "meetingmindsdubai.com",
+  "meetingmindsexperts.com",
+  "meetingmindsgroup.com",
+] as const;
 
 /** Extract the lowercased domain part of an email, or "" if malformed. */
 function emailDomain(email: string): string {
