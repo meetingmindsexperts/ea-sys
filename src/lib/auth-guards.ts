@@ -10,6 +10,17 @@ import { canViewFinance } from "@/lib/finance-visibility";
 const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE"];
 
 /**
+ * Roles permitted to operate the REGISTRATION DESK — create a registration,
+ * check attendees in, edit a registration, record a payment, print badges.
+ * MEMBER + ONSITE are otherwise restricted from writes, so the registration-
+ * domain write routes opt them back in via `denyReviewer(session, { allow:
+ * REGISTRATION_DESK_ALLOW })`. Deliberately NOT including: deleting a
+ * registration, bulk operations, or any non-registration domain — those stay
+ * admin/organizer-only.
+ */
+export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER"] as const;
+
+/**
  * Org-bound "team member" roles — the ones shown under Settings → Users and
  * assignable via invite. REGISTRANT/SUBMITTER/REVIEWER are org-relationship
  * roles (an internal registrant can be org-bound but is NOT a team member),
@@ -39,7 +50,7 @@ export function isTeamRole(role: string | null | undefined): boolean {
  */
 export function denyReviewer(
   session: { user?: { role?: string } } | null,
-  opts?: { allow?: string[] },
+  opts?: { allow?: readonly string[] },
 ) {
   const role = session?.user?.role;
   if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {

@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
@@ -292,8 +292,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // ONSITE (registration-desk staff) is allowed to create registrations.
-    const denied = denyReviewer(session, { allow: ["ONSITE"] });
+    // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
     const validated = createRegistrationSchema.safeParse(body);

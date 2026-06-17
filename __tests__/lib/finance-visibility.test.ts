@@ -1,10 +1,11 @@
 /**
- * The MEMBER role is an org-bound read-only viewer that must NOT see
- * financial data. canViewFinance() is the single boundary; the agent
- * redaction pass, the denyFinance guard, and API field-stripping all
- * derive from it. These tests pin the contract — especially that
- * `paymentStatus` (operational label) SURVIVES redaction while amounts /
- * invoices / billing do NOT.
+ * canViewFinance() is the single finance-visibility boundary; the agent
+ * redaction pass, the denyFinance guard, and API field-stripping all derive
+ * from it. As of June 17, 2026 MEMBER + ONSITE are registration-desk operators
+ * who record payments, so they SEE money; only REVIEWER/SUBMITTER/REGISTRANT
+ * (and unknown roles) are denied. The redaction-logic tests below are
+ * role-agnostic — they pin that `paymentStatus` survives while amounts /
+ * invoices / billing are stripped, whenever redaction IS applied.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -14,14 +15,15 @@ import {
 } from "@/lib/finance-visibility";
 
 describe("canViewFinance", () => {
-  it("permits SUPER_ADMIN / ADMIN / ORGANIZER", () => {
+  it("permits SUPER_ADMIN / ADMIN / ORGANIZER and the desk operators MEMBER / ONSITE", () => {
     expect(canViewFinance("SUPER_ADMIN")).toBe(true);
     expect(canViewFinance("ADMIN")).toBe(true);
     expect(canViewFinance("ORGANIZER")).toBe(true);
+    expect(canViewFinance("MEMBER")).toBe(true);
+    expect(canViewFinance("ONSITE")).toBe(true);
   });
 
-  it("denies MEMBER and every restricted role", () => {
-    expect(canViewFinance("MEMBER")).toBe(false);
+  it("denies the abstract/attendee roles", () => {
     expect(canViewFinance("REVIEWER")).toBe(false);
     expect(canViewFinance("SUBMITTER")).toBe(false);
     expect(canViewFinance("REGISTRANT")).toBe(false);

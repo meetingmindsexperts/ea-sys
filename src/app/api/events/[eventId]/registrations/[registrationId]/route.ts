@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum } from "@/lib/schemas";
@@ -204,7 +204,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    // Registration-desk roles (ONSITE + MEMBER) can edit a registration (incl.
+    // payment status). DELETE stays admin/organizer-only (see below).
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
     // Parallelize event access check + registration lookup. `settings` is

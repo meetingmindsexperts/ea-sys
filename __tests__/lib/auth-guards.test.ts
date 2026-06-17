@@ -9,7 +9,7 @@ vi.mock("next/server", () => ({
   },
 }));
 
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 
 describe("denyReviewer", () => {
   it("returns 403 for REVIEWER role", async () => {
@@ -94,5 +94,22 @@ describe("denyReviewer", () => {
 
   it("does not affect privileged roles when an allow-list is passed", () => {
     expect(denyReviewer({ user: { role: "ORGANIZER" } }, { allow: ["ONSITE"] })).toBeNull();
+  });
+
+  // Registration-desk roles (ONSITE + MEMBER) are blocked by default …
+  it("blocks ONSITE + MEMBER by default", () => {
+    expect(denyReviewer({ user: { role: "ONSITE" } })).not.toBeNull();
+    expect(denyReviewer({ user: { role: "MEMBER" } })).not.toBeNull();
+  });
+
+  // … and both pass on the registration-desk routes (REGISTRATION_DESK_ALLOW).
+  it("lets ONSITE + MEMBER through with REGISTRATION_DESK_ALLOW", () => {
+    expect(denyReviewer({ user: { role: "ONSITE" } }, { allow: REGISTRATION_DESK_ALLOW })).toBeNull();
+    expect(denyReviewer({ user: { role: "MEMBER" } }, { allow: REGISTRATION_DESK_ALLOW })).toBeNull();
+  });
+
+  it("still blocks abstract/attendee roles even with REGISTRATION_DESK_ALLOW", () => {
+    expect(denyReviewer({ user: { role: "REVIEWER" } }, { allow: REGISTRATION_DESK_ALLOW })).not.toBeNull();
+    expect(denyReviewer({ user: { role: "REGISTRANT" } }, { allow: REGISTRATION_DESK_ALLOW })).not.toBeNull();
   });
 });

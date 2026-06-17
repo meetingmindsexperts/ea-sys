@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { createPaidInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
@@ -105,7 +105,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    // Registration-desk roles (ONSITE + MEMBER) can record a payment.
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
     const parsed = recordPaymentSchema.safeParse(body);

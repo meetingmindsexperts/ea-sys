@@ -1,22 +1,21 @@
 /**
- * Unit tests pinning the finance boundary on the three registrant-scoped
- * routes that expose financial PDFs / data:
+ * Finance boundary on the three registrant-scoped routes that expose
+ * financial PDFs / data:
  *   - GET /api/registrant/registrations/[id]/quote
  *   - GET /api/registrant/registrations/[id]/invoices
  *   - GET /api/registrant/registrations/[id]/invoices/[invoiceId]/pdf
  *
- * Pre-fix (audit-hardening HIGH, May 18 review): the non-registrant
- * branch scoped only by org. A MEMBER (org-bound read-only viewer) has
- * an organizationId, so passed straight through and got the financial
- * PDF — a direct breach of the canViewFinance() boundary.
+ * History:
+ *   - May 18, 2026 (audit HIGH): the non-registrant branch scoped only by org,
+ *     so any org member got the financial PDF. Fixed by running denyFinance()
+ *     before the DB query.
+ *   - June 17, 2026: MEMBER + ONSITE became registration-desk operators who
+ *     SEE money (canViewFinance now includes them), so they PASS the guard. The
+ *     guard still blocks genuinely non-finance roles (REVIEWER/SUBMITTER/
+ *     REGISTRANT via the non-owner branch). REGISTRANT owners stay exempt
+ *     (viewing your own quote/invoice is the point of the portal).
  *
- * Post-fix (Core Stability Pass #1, June 2026): the non-registrant
- * branch runs denyFinance() before the DB query. REGISTRANT branch is
- * owner-scoped and stays exempt — viewing your own quote/invoice is
- * the whole point of the registrant portal.
- *
- * These tests must keep passing — they are the regression net for the
- * exact class of bug we just closed.
+ * These tests are the regression net for the denyFinance boundary.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -44,18 +43,16 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-// PDF generators throw if reached — proves the finance guard fired BEFORE
-// any PDF work happened. If MEMBER ever slips through again, the test
-// will fail with a clear "generator was called" error rather than a
-// confusing 500 from the mock.
+// PDF generators throw if reached — proves the finance guard fired BEFORE any
+// PDF work happened for a blocked role.
 vi.mock("@/lib/quote-pdf", () => ({
   buildQuotePDFFromRegistration: vi.fn(() => {
-    throw new Error("PDF generator should not be reached for MEMBER");
+    throw new Error("PDF generator should not be reached for a blocked role");
   }),
 }));
 vi.mock("@/lib/invoice-service", () => ({
   generatePDFForInvoice: vi.fn(() => {
-    throw new Error("PDF generator should not be reached for MEMBER");
+    throw new Error("PDF generator should not be reached for a blocked role");
   }),
 }));
 
@@ -63,6 +60,15 @@ import { GET as quoteGET } from "@/app/api/registrant/registrations/[registratio
 import { GET as invoicesGET } from "@/app/api/registrant/registrations/[registrationId]/invoices/route";
 import { GET as invoicePdfGET } from "@/app/api/registrant/registrations/[registrationId]/invoices/[invoiceId]/pdf/route";
 
+// REVIEWER is non-finance and org-independent (organizationId=null) and not a
+// REGISTRANT owner, so it's rejected by the non-registrant branch's
+// "must have an org" guard with a plain 403. (Since every org-BOUND role is now
+// finance-visible, the denyFinance/FINANCE_FORBIDDEN path is defense-in-depth
+// that no current role reaches.)
+const blockedSession = {
+  user: { id: "user-reviewer", role: "REVIEWER", organizationId: null },
+};
+// MEMBER is now a finance role — it must PASS the guard.
 const memberSession = {
   user: { id: "user-member", role: "MEMBER", organizationId: "org-1" },
 };
@@ -82,24 +88,28 @@ beforeEach(() => {
 });
 
 describe("registrant /quote — finance boundary", () => {
-  it("MEMBER is blocked with 403 FINANCE_FORBIDDEN before any DB read", async () => {
-    mockAuth.mockResolvedValue(memberSession);
+  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
+    mockAuth.mockResolvedValue(blockedSession);
     const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { code?: string };
-    expect(body.code).toBe("FINANCE_FORBIDDEN");
-    // The DB must not have been touched — the guard ran first.
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Forbidden");
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("MEMBER now PASSES the finance guard (it records payments — reaches the lookup)", async () => {
+    mockAuth.mockResolvedValue(memberSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
+    expect(res.status).toBe(404); // not 403 — guard let it through, row just absent
+    expect(mockDb.registration.findFirst).toHaveBeenCalled();
   });
 
   it("REGISTRANT owner is NOT blocked by denyFinance (owner-scoped exempt branch)", async () => {
     mockAuth.mockResolvedValue(registrantSession);
-    // Force the query to return null so we exit cleanly without invoking the
-    // PDF mock (which would throw). The point of the test is "we got past
-    // the finance guard," not "we generated a PDF."
     mockDb.registration.findFirst.mockResolvedValue(null);
     const res = await quoteGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
-    expect(res.status).toBe(404); // not 403 — the guard let us through, the row just didn't exist
+    expect(res.status).toBe(404);
     expect(mockDb.registration.findFirst).toHaveBeenCalled();
   });
 
@@ -113,14 +123,22 @@ describe("registrant /quote — finance boundary", () => {
 });
 
 describe("registrant /invoices — finance boundary", () => {
-  it("MEMBER is blocked with 403 FINANCE_FORBIDDEN before any DB read", async () => {
-    mockAuth.mockResolvedValue(memberSession);
+  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
+    mockAuth.mockResolvedValue(blockedSession);
     const res = await invoicesGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { code?: string };
-    expect(body.code).toBe("FINANCE_FORBIDDEN");
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Forbidden");
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
     expect(mockDb.invoice.findMany).not.toHaveBeenCalled();
+  });
+
+  it("MEMBER passes the finance guard and reaches the lookup", async () => {
+    mockAuth.mockResolvedValue(memberSession);
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const res = await invoicesGET(req(), { params: Promise.resolve({ registrationId: "r1" }) });
+    expect(res.status).toBe(404);
+    expect(mockDb.registration.findFirst).toHaveBeenCalled();
   });
 
   it("REGISTRANT owner reaches the registration lookup", async () => {
@@ -133,14 +151,14 @@ describe("registrant /invoices — finance boundary", () => {
 });
 
 describe("registrant /invoices/[invoiceId]/pdf — finance boundary", () => {
-  it("MEMBER is blocked with 403 FINANCE_FORBIDDEN before any DB read", async () => {
-    mockAuth.mockResolvedValue(memberSession);
+  it("an org-independent non-registrant is blocked with 403 before any DB read", async () => {
+    mockAuth.mockResolvedValue(blockedSession);
     const res = await invoicePdfGET(req(), {
       params: Promise.resolve({ registrationId: "r1", invoiceId: "inv1" }),
     });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { code?: string };
-    expect(body.code).toBe("FINANCE_FORBIDDEN");
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Forbidden");
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
     expect(mockDb.invoice.findFirst).not.toHaveBeenCalled();
   });

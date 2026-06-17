@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -21,7 +21,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: ["ONSITE"] });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
     const event = await db.event.findFirst({
@@ -137,7 +137,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // ONSITE (registration-desk staff) is allowed to check attendees in.
-    const denied = denyReviewer(session, { allow: ["ONSITE"] });
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

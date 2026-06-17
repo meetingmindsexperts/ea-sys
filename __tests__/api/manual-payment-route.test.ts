@@ -48,9 +48,14 @@ vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),
 }));
 vi.mock("@/lib/auth-guards", () => ({
-  denyReviewer: (session: { user?: { role?: string } } | null) => {
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER"],
+  denyReviewer: (
+    session: { user?: { role?: string } } | null,
+    opts?: { allow?: readonly string[] },
+  ) => {
     const role = session?.user?.role;
-    if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {
+    const restricted = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE"];
+    if (role && restricted.includes(role) && !opts?.allow?.includes(role)) {
       return { status: 403, json: async () => ({ error: "Forbidden" }) };
     }
     return null;

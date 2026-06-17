@@ -1,21 +1,22 @@
 /**
- * Finance visibility — the MEMBER role is an org-bound read-only viewer
- * that must NOT see financial data (amounts, invoices, billing, bank/tax,
- * pricing). Only SUPER_ADMIN / ADMIN / ORGANIZER see money.
+ * Finance visibility — who can see financial data (amounts, invoices, billing,
+ * bank/tax, pricing).
  *
- * Decision record (organizer, May 2026):
- *   - Payment STATUS label (PAID / UNPAID / COMPLIMENTARY / INCLUSIVE) is
- *     OPERATIONAL, not financial — MEMBER keeps it (knowing who's actually
- *     coming is viewer-relevant). Amounts / invoices / billing / bank /
- *     tax / prices are financial — MEMBER never sees them.
- *   - One flat MEMBER role (no scoped finance-viewer variant).
+ * Decision record:
+ *   - May 2026: only SUPER_ADMIN / ADMIN / ORGANIZER saw money; MEMBER was a
+ *     read-only viewer with money hidden.
+ *   - June 17, 2026 (organizer): MEMBER + ONSITE are registration-desk
+ *     operators who **record payments**, so they now SEE money (amounts,
+ *     prices, the Record Payment flow, quotes). They remain blocked from
+ *     non-registration *writes* via `denyReviewer` — finance visibility and
+ *     write permission are separate boundaries.
  *
  * This module is the single source of truth. UI conditional rendering,
  * API field-stripping, the agent redaction pass, and the denyFinance
  * guard all derive from `canViewFinance()` so the boundary can't drift.
  */
 
-const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE"]);
 
 /** True when the role is permitted to see financial data. Fails closed —
  *  an unknown / missing role gets `false`. */

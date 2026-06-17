@@ -85,9 +85,14 @@ export default function RegistrationsPage() {
   const eventId = params.eventId as string;
   const { data: userSession } = useSession();
   const isReviewer = userSession?.user?.role === "REVIEWER";
-  // ONSITE (registration-desk) can add registrations, print badges, and check
-  // in — but not bulk-email, import, edit, delete, or manage tags/types.
+  // Registration-desk operators (ONSITE + MEMBER) can add registrations, print
+  // badges, check in, and edit/record-payment via the detail sheet — but NOT
+  // the bulk/import/share write actions on this list (those stay admin/
+  // organizer). MEMBER additionally has full read elsewhere; ONSITE is
+  // nav-restricted. On this list both get the same (no-bulk) treatment.
   const isOnsite = userSession?.user?.role === "ONSITE";
+  const isMember = userSession?.user?.role === "MEMBER";
+  const isDeskOperator = isOnsite || isMember;
 
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
@@ -337,7 +342,7 @@ export default function RegistrationsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          {!isReviewer && !isOnsite && (
+          {!isReviewer && !isDeskOperator && (
             <Button
               variant="outline"
               size="sm"
@@ -363,7 +368,7 @@ export default function RegistrationsPage() {
           {!isReviewer && (
             <>
               {/* Management-only actions — hidden for ONSITE (desk staff). */}
-              {!isOnsite && registrations.length > 0 && (
+              {!isDeskOperator && registrations.length > 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -373,14 +378,14 @@ export default function RegistrationsPage() {
                   {selectedIds.size > 0 ? `Email (${selectedIds.size})` : "Email All"}
                 </Button>
               )}
-              {!isOnsite && <CSVImportButton eventId={eventId} entityType="registrations" />}
+              {!isDeskOperator && <CSVImportButton eventId={eventId} entityType="registrations" />}
               {/* DTCM barcode import is Dubai-only — only surface it when the
                   event is flagged (Settings → Registration). Keeps the import
                   path consistent with the now-gated DTCM field. */}
-              {!isOnsite && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
+              {!isDeskOperator && event?.requiresDtcmBarcode && <BarcodeImportDialog eventId={eventId} />}
               {/* ONSITE keeps badge printing + add registration. */}
               <BadgeDialog eventId={eventId} selectedIds={selectedIds} totalCount={registrations.length} />
-              {!isOnsite && <ImportContactsButton eventId={eventId} mode="registration" />}
+              {!isDeskOperator && <ImportContactsButton eventId={eventId} mode="registration" />}
               <Button asChild className="btn-gradient shadow-sm">
                 <Link href={`/events/${eventId}/registrations/new`}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -393,7 +398,7 @@ export default function RegistrationsPage() {
       </div>
 
       {/* Bulk Selection Toolbar */}
-      {selectedIds.size > 0 && !isReviewer && !isOnsite && (
+      {selectedIds.size > 0 && !isReviewer && !isDeskOperator && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-3 shadow-sm">
           <span className="text-sm font-medium">
             {selectedIds.size} registration{selectedIds.size !== 1 ? "s" : ""} selected
@@ -594,7 +599,7 @@ export default function RegistrationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {!isReviewer && !isOnsite && (
+                  {!isReviewer && !isDeskOperator && (
                     <TableHead className="w-10">
                       <Checkbox
                         checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
@@ -621,7 +626,7 @@ export default function RegistrationsPage() {
                     className={`cursor-pointer hover:bg-muted/50 ${selectedIds.has(registration.id) ? "bg-primary/5" : ""}`}
                     onClick={() => handleRowClick(registration)}
                   >
-                    {!isReviewer && !isOnsite && (
+                    {!isReviewer && !isDeskOperator && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedIds.has(registration.id)}
