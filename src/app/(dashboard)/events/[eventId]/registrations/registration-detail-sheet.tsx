@@ -36,6 +36,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -70,7 +71,11 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+
+/** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
+const SAVED_TEMPLATE_PREFIX = "template:";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
@@ -177,6 +182,12 @@ export function RegistrationDetailSheet({
   // includes them, so the Billing tab + Payment Summary + amounts show.
   const showFinance = canViewFinance(userSession?.user?.role);
   const { data: regTypes = [] } = useTickets(eventId);
+  // Active custom email templates — added as "Send Email" dropdown options so a
+  // single registration can be sent a saved template, not just the built-ins.
+  const { data: emailTemplatesData } = useEmailTemplates(eventId);
+  const customTemplates = (
+    (emailTemplatesData?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
+  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
   // Sponsor list — used by the INCLUSIVE picker below + the "Sponsored by:"
   // display in the Payment Summary. Cheap query, cached at the event level.
   const { data: sponsorsRes } = useSponsors(eventId);
@@ -292,7 +303,11 @@ export function RegistrationDetailSheet({
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
-    const slug = EMAIL_TYPE_TO_SLUG[selectedEmailType];
+    // Saved custom templates preview by their own slug; built-ins map via
+    // EMAIL_TYPE_TO_SLUG.
+    const slug = selectedEmailType.startsWith(SAVED_TEMPLATE_PREFIX)
+      ? selectedEmailType.slice(SAVED_TEMPLATE_PREFIX.length)
+      : EMAIL_TYPE_TO_SLUG[selectedEmailType];
     if (!slug) return;
     try {
       const result = await previewMutation.mutateAsync({ slug });
@@ -306,6 +321,14 @@ export function RegistrationDetailSheet({
   // Open the email-confirmation dialog with a specific email type.
   // Four dropdown items used to inline this 2-line state-set pair;
   // collapsing it here also gives the call sites a single name.
+  // Human label for the confirm dialog — built-ins map via EMAIL_TYPE_LABELS,
+  // a saved custom template ("template:<slug>") resolves to its display name.
+  const selectedEmailLabel = selectedEmailType.startsWith(SAVED_TEMPLATE_PREFIX)
+    ? customTemplates.find(
+        (t) => t.slug === selectedEmailType.slice(SAVED_TEMPLATE_PREFIX.length),
+      )?.name ?? "Custom Template"
+    : EMAIL_TYPE_LABELS[selectedEmailType];
+
   const openEmailDialog = (type: string) => {
     setSelectedEmailType(type);
     setEmailConfirmOpen(true);
@@ -315,7 +338,16 @@ export function RegistrationDetailSheet({
   // Send button's onClick is a one-liner.
   const handleConfirmSendEmail = () => {
     if (selectedRegistration) {
-      sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
+      // A saved custom template is encoded as "template:<slug>" → send via
+      // templateSlug; built-in types send via `type`.
+      if (selectedEmailType.startsWith(SAVED_TEMPLATE_PREFIX)) {
+        sendEmail.mutate({
+          id: selectedRegistration.id,
+          templateSlug: selectedEmailType.slice(SAVED_TEMPLATE_PREFIX.length),
+        });
+      } else {
+        sendEmail.mutate({ id: selectedRegistration.id, type: selectedEmailType });
+      }
       setEmailConfirmOpen(false);
     }
   };
@@ -371,8 +403,8 @@ export function RegistrationDetailSheet({
   };
 
   const sendEmail = useMutation({
-    mutationFn: ({ id, type }: { id: string; type: string }) =>
-      apiPostJson(`/api/events/${eventId}/registrations/${id}/email`, { type }),
+    mutationFn: ({ id, type, templateSlug }: { id: string; type?: string; templateSlug?: string }) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${id}/email`, templateSlug ? { templateSlug } : { type }),
     onSuccess: () => {
       toast.success("Email sent");
     },
@@ -1919,6 +1951,19 @@ export function RegistrationDetailSheet({
                       <DropdownMenuItem onClick={() => openEmailDialog("custom")}>
                         Custom Notification
                       </DropdownMenuItem>
+                      {/* Active saved custom templates — sendable to this one
+                          registration via templateSlug (encoded as
+                          "template:<slug>" so handleConfirmSendEmail can route
+                          it to the templateSlug path). */}
+                      {customTemplates.length > 0 && <DropdownMenuSeparator />}
+                      {customTemplates.map((t) => (
+                        <DropdownMenuItem
+                          key={t.slug}
+                          onClick={() => openEmailDialog(`${SAVED_TEMPLATE_PREFIX}${t.slug}`)}
+                        >
+                          {t.name}
+                        </DropdownMenuItem>
+                      ))}
                       {/* Token-gated completion link — only meaningful for
                           registrations that haven't been linked to a user
                           yet. The action is hidden once the registrant
@@ -2214,7 +2259,7 @@ export function RegistrationDetailSheet({
           <DialogTitle>Send Email</DialogTitle>
           <DialogDescription asChild>
             <span>
-              Send <strong>{EMAIL_TYPE_LABELS[selectedEmailType]}</strong> to{" "}
+              Send <strong>{selectedEmailLabel}</strong> to{" "}
               {selectedRegistration ? formatPersonName(
                 selectedRegistration.attendee?.title,
                 selectedRegistration.attendee?.firstName || "",

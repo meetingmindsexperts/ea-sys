@@ -19,6 +19,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
   Mail,
   Users,
   Mic,
@@ -36,8 +46,10 @@ import {
   RotateCcw,
   Clock,
   ClipboardList,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react";
+import { resolvePastedIds } from "@/app/(dashboard)/events/[eventId]/registrations/resolve-pasted-ids";
 import {
   useRegistrations,
   useSpeakers,
@@ -59,9 +71,12 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 type RecipientType = "speakers" | "registrations" | "reviewers" | "abstracts";
 
 interface RegistrationItem {
+  id: string;
+  serialId: number | null;
   status: string;
   paymentStatus: string;
   ticketType?: { id: string; name: string };
+  attendee?: { email?: string | null } | null;
 }
 
 interface SpeakerItem {
@@ -302,6 +317,17 @@ export default function CommunicationsPage() {
   const [activeHasSessionFilter, setActiveHasSessionFilter] = useState<string | undefined>();
   const [activeSessionRoleFilter, setActiveSessionRoleFilter] = useState<string | undefined>();
   const [activeDefaultEmailType, setActiveDefaultEmailType] = useState<string | undefined>();
+  // When the organizer picks specific recipients ("Select by IDs"), the dialog
+  // runs in "selected" mode over these ids instead of an audience-wide filter.
+  const [activeRecipientIds, setActiveRecipientIds] = useState<string[]>([]);
+  const [activeSelectionMode, setActiveSelectionMode] = useState<"all" | "selected">("all");
+
+  // "Select by IDs" — paste a CSV column of registration #s / IDs / emails to
+  // email exactly those registrations (the workflow the organizer used on the
+  // registrations list: copy a column from a spreadsheet, bulk-act on it).
+  const [selectByIdsOpen, setSelectByIdsOpen] = useState(false);
+  const [pasteIds, setPasteIds] = useState("");
+  const [matchResult, setMatchResult] = useState<{ matched: string[]; unmatched: string[] } | null>(null);
 
   // Computed counts
   const paidRegistrations = registrations.filter(
@@ -394,6 +420,8 @@ export default function CommunicationsPage() {
 
   function openEmailDialog(audience: RecipientType) {
     setActiveAudience(audience);
+    setActiveSelectionMode("all");
+    setActiveRecipientIds([]);
     if (audience === "registrations") {
       // Pass the page-level filters through so the dialog pre-selects
       // the same values the organizer just picked here.
@@ -449,6 +477,8 @@ export default function CommunicationsPage() {
     tile: SpeakerTile | RegistrationTile
   ) {
     setActiveAudience(audience);
+    setActiveSelectionMode("all");
+    setActiveRecipientIds([]);
     setActiveStatusFilter(tile.filters.status);
     if (audience === "registrations") {
       const f = tile.filters as RegistrationTile["filters"];
@@ -474,6 +504,8 @@ export default function CommunicationsPage() {
   // narrow via Advanced filters or selected recipients before sending.
   function openTemplateDialog(audience: RecipientType, slug: string) {
     setActiveAudience(audience);
+    setActiveSelectionMode("all");
+    setActiveRecipientIds([]);
     setActiveStatusFilter(undefined);
     setActivePaymentStatusFilter(undefined);
     setActiveTicketTypeFilter(undefined);
@@ -481,6 +513,30 @@ export default function CommunicationsPage() {
     setActiveHasSessionFilter(undefined);
     setActiveSessionRoleFilter(undefined);
     setActiveDefaultEmailType(`template:${slug}`);
+    setEmailDialogOpen(true);
+  }
+
+  const handleMatchPastedIds = () =>
+    setMatchResult(resolvePastedIds(pasteIds, registrations));
+
+  // Resolve the pasted ids → open the dialog in "selected" mode over exactly
+  // those registrations. Always registrations audience (the paste box is on the
+  // registrations card and matches registration #s / emails).
+  function applyPastedSelection() {
+    const result = matchResult ?? resolvePastedIds(pasteIds, registrations);
+    if (result.matched.length === 0) return;
+    setActiveAudience("registrations");
+    setActiveSelectionMode("selected");
+    setActiveRecipientIds(result.matched);
+    setActiveStatusFilter(undefined);
+    setActivePaymentStatusFilter(undefined);
+    setActiveTicketTypeFilter(undefined);
+    setActiveAgreementSignedFilter(undefined);
+    setActiveHasSessionFilter(undefined);
+    setActiveSessionRoleFilter(undefined);
+    setActiveDefaultEmailType(undefined);
+    setSelectByIdsOpen(false);
+    setMatchResult(null);
     setEmailDialogOpen(true);
   }
 
@@ -632,6 +688,19 @@ export default function CommunicationsPage() {
                 );
               })}
             </div>
+
+            {/* Select by IDs — paste a spreadsheet column to email exactly
+                those registrations. */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => { setPasteIds(""); setMatchResult(null); setSelectByIdsOpen(true); }}
+              disabled={registrations.length === 0}
+            >
+              <ListChecks className="mr-2 h-4 w-4" />
+              Select by IDs
+            </Button>
 
             {/* Advanced filters — escape hatch for ad-hoc segments */}
             <details className="group rounded-lg border [&[open]>summary>svg]:rotate-90">
@@ -943,14 +1012,78 @@ export default function CommunicationsPage() {
       <ScheduledEmailsList eventId={eventId} />
 
       {/* Bulk Email Dialog */}
+      {/* Select by IDs — paste a list, email exactly those registrations */}
+      <Dialog open={selectByIdsOpen} onOpenChange={(o) => { setSelectByIdsOpen(o); if (!o) setMatchResult(null); }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListChecks className="h-5 w-5" />
+              Select by IDs
+            </DialogTitle>
+            <DialogDescription>
+              Paste registration numbers, full IDs, or emails — one per line or separated by commas.
+              The matching registrations open in the email composer, ready to send.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-2">
+              <Label htmlFor="comm-paste-ids">IDs / emails</Label>
+              <Textarea
+                id="comm-paste-ids"
+                value={pasteIds}
+                onChange={(e) => { setPasteIds(e.target.value); setMatchResult(null); }}
+                placeholder={"002\n005\njane@example.com"}
+                rows={7}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Matches a registration #, the full registration ID, or the attendee email.
+              </p>
+            </div>
+            {matchResult && (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">
+                  {matchResult.matched.length} matched
+                  {matchResult.unmatched.length > 0 && ` · ${matchResult.unmatched.length} not found`}
+                </p>
+                {matchResult.unmatched.length > 0 && (
+                  <p className="mt-1 break-words text-xs text-muted-foreground">
+                    Not found: {matchResult.unmatched.slice(0, 30).join(", ")}
+                    {matchResult.unmatched.length > 30 ? ` … (+${matchResult.unmatched.length - 30})` : ""}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSelectByIdsOpen(false); setMatchResult(null); }}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={handleMatchPastedIds} disabled={!pasteIds.trim()}>
+              Match
+            </Button>
+            <Button
+              onClick={applyPastedSelection}
+              disabled={!pasteIds.trim() || (matchResult != null && matchResult.matched.length === 0)}
+            >
+              Email{matchResult ? ` ${matchResult.matched.length}` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <BulkEmailDialog
         open={emailDialogOpen}
         onOpenChange={setEmailDialogOpen}
         eventId={eventId}
         recipientType={activeAudience}
-        recipientIds={[]}
-        recipientCount={getAudienceCount(activeAudience)}
-        selectionMode="all"
+        recipientIds={activeRecipientIds}
+        recipientCount={
+          activeSelectionMode === "selected"
+            ? activeRecipientIds.length
+            : getAudienceCount(activeAudience)
+        }
+        selectionMode={activeSelectionMode}
         statusFilter={activeStatusFilter}
         paymentStatusFilter={activePaymentStatusFilter}
         ticketTypeFilter={activeTicketTypeFilter}

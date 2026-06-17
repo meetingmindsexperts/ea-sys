@@ -12,6 +12,11 @@ import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 
 const sendEmailSchema = z.object({
   type: z.enum(["confirmation", "reminder", "payment-reminder", "custom"]).default("confirmation"),
+  // Optional slug of a saved CUSTOM email template (one created under
+  // Communications → Email Templates). When present, that active template is
+  // sent instead of a built-in type — same as the bulk path. Renders with the
+  // standard registration variables.
+  templateSlug: z.string().min(1).max(100).optional(),
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   daysUntilEvent: z.number().optional(),
@@ -80,7 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, customSubject, customMessage, daysUntilEvent } = validated.data;
+    const { type, templateSlug, customSubject, customMessage, daysUntilEvent } = validated.data;
 
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
@@ -138,9 +143,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       vars.message = customMessage;
     }
 
-    const tpl = await getEventTemplate(eventId, slugMap[type]) || getDefaultTemplate(slugMap[type]);
+    // A saved custom template (templateSlug) loads directly and has NO default
+    // fallback — an inactive/missing one is a clear 400 rather than a blank send.
+    const isCustomTemplate = !!templateSlug;
+    const slug = templateSlug ?? slugMap[type];
+    const tpl =
+      (await getEventTemplate(eventId, slug)) ||
+      (isCustomTemplate ? null : getDefaultTemplate(slug));
     if (!tpl) {
-      return NextResponse.json({ error: "Email template not found" }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: isCustomTemplate
+            ? `Template "${slug}" was not found or is inactive — activate it under Communications → Email Templates`
+            : "Email template not found",
+        },
+        { status: isCustomTemplate ? 400 : 500 }
+      );
     }
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
@@ -157,14 +175,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       ),
       ...rendered,
       from: brandingFrom(branding),
-      emailType: `registration_${type.replace(/-/g, "_")}`,
+      emailType: isCustomTemplate ? "registration_template" : `registration_${type.replace(/-/g, "_")}`,
       stream: "transactional",
       logContext: {
         organizationId: session.user.organizationId ?? null,
         eventId,
         entityType: "REGISTRATION",
         entityId: registration.id,
-        templateSlug: `registration-${type}`,
+        templateSlug: isCustomTemplate ? slug : `registration-${type}`,
         triggeredByUserId: session.user.id,
       },
     });
