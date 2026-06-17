@@ -401,7 +401,11 @@ export function Sidebar() {
             ) : (
               // Expanded: sectioned with labels
               visibleEventSections.map((section, si) => (
-                <div key={section.label || "top"} className={cn(si > 0 && "pt-3")}>
+                // Key by index, not label — TWO sections have an empty label
+                // (Overview at top, Analytics at bottom). Keying both as "top"
+                // collided, breaking React reconciliation so the Overview row
+                // leaked a duplicate on every client-side navigation.
+                <div key={`section-${si}`} className={cn(si > 0 && "pt-3")}>
                   {section.label && (
                     <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
                       {section.label}
