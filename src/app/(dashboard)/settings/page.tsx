@@ -177,6 +177,10 @@ export default function SettingsPage() {
     firstName: "",
     lastName: "",
     role: "ORGANIZER",
+    // "email" = send an invitation link (default). "password" = admin sets a
+    // password now, account active immediately, no email (for temp accounts).
+    deliveryMode: "email" as "email" | "password",
+    password: "",
   });
 
   const isAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "SUPER_ADMIN";
@@ -284,14 +288,33 @@ export default function SettingsPage() {
           toast.error(data.error || "Failed to update user");
         }
       } else {
+        if (userFormData.deliveryMode === "password" && userFormData.password.length < 8) {
+          toast.error("Password must be at least 8 characters.");
+          setIsSubmittingUser(false);
+          return;
+        }
         const res = await fetch("/api/organization/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(userFormData),
+          body: JSON.stringify({
+            email: userFormData.email,
+            firstName: userFormData.firstName,
+            lastName: userFormData.lastName,
+            role: userFormData.role,
+            // Only send a password when the admin chose to set one — otherwise
+            // the normal email-invitation flow runs.
+            ...(userFormData.deliveryMode === "password" ? { password: userFormData.password } : {}),
+          }),
         });
         const data = await res.json();
         if (res.ok) {
-          if (data.promoted) {
+          if (data.passwordSet) {
+            // Admin set a password directly — no email sent.
+            toast.success(
+              data.message || `Account created for ${userFormData.email}. Share the credentials with them.`,
+              { duration: 6000 }
+            );
+          } else if (data.promoted) {
             // Existing account (e.g. an internal-domain registrant) was
             // promoted to a team role rather than a fresh invite being sent.
             toast.success(
@@ -346,6 +369,8 @@ export default function SettingsPage() {
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
+      deliveryMode: "email",
+      password: "",
     });
     setIsUserDialogOpen(true);
   };
@@ -357,6 +382,8 @@ export default function SettingsPage() {
       firstName: "",
       lastName: "",
       role: "ORGANIZER",
+      deliveryMode: "email",
+      password: "",
     });
   };
 
@@ -835,11 +862,62 @@ export default function SettingsPage() {
                           </Select>
                         </div>
                         {!editingUser && (
-                          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg text-sm">
-                            <Mail className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">
-                              An invitation email will be sent to set up their account
-                            </span>
+                          <div className="space-y-3">
+                            <div className="space-y-2">
+                              <Label>Account setup</Label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setUserFormData({ ...userFormData, deliveryMode: "email" })}
+                                  className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                                    userFormData.deliveryMode === "email"
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-input hover:bg-accent"
+                                  }`}
+                                >
+                                  <Mail className="h-4 w-4" />
+                                  Send email invite
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setUserFormData({ ...userFormData, deliveryMode: "password", password: "" })
+                                  }
+                                  className={`flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors ${
+                                    userFormData.deliveryMode === "password"
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-input hover:bg-accent"
+                                  }`}
+                                >
+                                  <Key className="h-4 w-4" />
+                                  Set password now
+                                </button>
+                              </div>
+                            </div>
+                            {userFormData.deliveryMode === "email" ? (
+                              <p className="text-xs text-muted-foreground">
+                                An invitation email is sent so they can set their own password.
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                <Label htmlFor="user-password">Password</Label>
+                                <Input
+                                  id="user-password"
+                                  type="text"
+                                  value={userFormData.password}
+                                  onChange={(e) =>
+                                    setUserFormData({ ...userFormData, password: e.target.value })
+                                  }
+                                  placeholder="At least 8 characters"
+                                  minLength={8}
+                                  autoComplete="off"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  No email is sent. Share this email + password with them directly — useful for temp
+                                  accounts without a real mailbox. They can sign in immediately.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
                         <div className="flex justify-end gap-2">
@@ -855,7 +933,11 @@ export default function SettingsPage() {
                             {isSubmittingUser && (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             )}
-                            {editingUser ? "Save Changes" : "Send Invitation"}
+                            {editingUser
+                              ? "Save Changes"
+                              : userFormData.deliveryMode === "password"
+                                ? "Create Account"
+                                : "Send Invitation"}
                           </Button>
                         </div>
                       </form>

@@ -28,6 +28,11 @@ const inviteUserSchema = z.object({
   // (MEMBER invites would have 400'd); both are now accepted. All of these are
   // org-bound team roles created under the inviter's organization.
   role: z.enum(["ADMIN", "ORGANIZER", "MEMBER", "REVIEWER", "ONSITE"]),
+  // Optional admin-set password. When present, the account is created active +
+  // verified with NO invitation email — for temp accounts whose address may not
+  // be a real mailbox (e.g. event-day staff). The admin hands over the
+  // credentials directly. When absent, the normal email-invitation flow runs.
+  password: z.string().min(8).max(200).optional(),
 });
 
 export async function GET() {
@@ -108,7 +113,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { firstName, lastName, role } = validated.data;
+    const { firstName, lastName, role, password } = validated.data;
     const email = validated.data.email.toLowerCase();
 
     // Check if user already exists. NOTE: email is globally unique, so this
@@ -203,6 +208,56 @@ export async function POST(req: Request) {
           message: `${promoted.firstName || "User"}'s existing account was promoted to ${ROLE_LABELS[role] ?? role}.`,
         },
         { status: 200 }
+      );
+    }
+
+    // ── Admin-set-password path (no invitation email) ──────────────────────
+    // For temp accounts whose address may not be a real mailbox: create the
+    // account active + verified with the admin-chosen password. No email/token.
+    // The admin hands the email + password to the person directly.
+    if (password) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      const user = await db.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            organizationId: session.user.organizationId,
+            email,
+            firstName,
+            lastName,
+            role,
+            passwordHash,
+            emailVerified: new Date(),
+          },
+          select: { id: true, email: true, firstName: true, lastName: true, role: true, createdAt: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CREATE_USER",
+            entityType: "User",
+            entityId: newUser.id,
+            changes: { email, firstName, lastName, role, mode: "password", ip: getClientIp(req) },
+          },
+        });
+        return newUser;
+      });
+
+      apiLogger.info({
+        msg: "organization/users:created-with-password",
+        email,
+        role,
+        userId: user.id,
+        organizationId: session.user.organizationId,
+        invitedByUserId: session.user.id,
+      });
+
+      return NextResponse.json(
+        {
+          ...user,
+          passwordSet: true,
+          message: `Account created. Share the email and password with ${firstName} — they can sign in now.`,
+        },
+        { status: 201 }
       );
     }
 
