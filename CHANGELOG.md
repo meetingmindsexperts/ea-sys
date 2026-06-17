@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Team invite "set password now" mode (June 17)
+
+The Settings → Users invite was email-only (account gets a throwaway password +
+an `/accept-invitation` setup link). Temp accounts on non-mailbox addresses
+(`@meetingmindsexperts.com` / `@meetingmindsgroup.com`) never received the email
+and so could never log in. The invite dialog now offers a delivery choice for
+new users: **Send email invite** (default, unchanged) or **Set password now** —
+the admin types a password and the account is created active + verified with no
+email; they sign in immediately with the handed-over credentials. Backend
+`POST /api/organization/users` accepts an optional `password` (min 8) for new
+emails (promote still wins for existing accounts); returns `passwordSet: true`.
+tsc 0, eslint 0, vitest 1583/1583, build 0.
+
 ### Added — ONSITE role + internal-domain org membership + promote-on-invite (June 16)
 
 - **Onsite Staff (`ONSITE`)** — org-bound registration-desk role: add a
