@@ -21,6 +21,7 @@ import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
+import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { getTitleLabel } from "./utils";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
@@ -86,6 +87,12 @@ export interface BulkEmailAttachment {
   name: string;
   content: string; // base64
   contentType?: string;
+  /**
+   * Inline image content-id. When set, the attachment is referenced from the
+   * HTML body as `cid:<contentId>` (used by the entry-barcode token) instead
+   * of being a downloadable attachment.
+   */
+  contentId?: string;
 }
 
 export interface BulkEmailFilters {
@@ -276,6 +283,13 @@ interface ResolvedRecipient {
   title?: string | null;
   ticketType?: string;
   serialId?: number | null;
+  /**
+   * Entry barcode + attendance mode — registrations recipients only, used to
+   * render the {{entryBarcode}} token per recipient. Null/absent for
+   * speakers/reviewers/abstracts (they have no entry barcode).
+   */
+  qrCode?: string | null;
+  attendanceMode?: "IN_PERSON" | "VIRTUAL" | null;
 }
 
 /**
@@ -522,6 +536,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       select: {
         id: true,
         serialId: true,
+        qrCode: true,
+        attendanceMode: true,
         ticketType: { select: { name: true } },
         attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
       },
@@ -535,6 +551,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       title: r.attendee.title,
       ticketType: r.ticketType?.name,
       serialId: r.serialId,
+      qrCode: r.qrCode,
+      attendanceMode: r.attendanceMode,
     }));
   }
 
@@ -601,6 +619,20 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         : `Email template not found for slug: ${templateSlug}`,
       isCustomTemplate ? 400 : 500
     );
+  }
+
+  // Entry-barcode token: render the per-recipient {{entryBarcode}} image only
+  // when the template body carries the token (organizer opt-in). For
+  // non-registration audiences the token can't resolve (they have no qrCode),
+  // so log once that it did nothing rather than silently dropping it.
+  const templateWantsBarcode = templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent);
+  if (templateWantsBarcode && recipientType !== "registrations") {
+    apiLogger.warn({
+      msg: "bulk-email:entry-barcode-unavailable",
+      eventId,
+      recipientType,
+      count: recipients.length,
+    });
   }
 
   const daysUntil = event.startDate
@@ -750,6 +782,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       presentationDetails: "",
       presentationDetailsText: "",
       sessionDetails: "",
+      // Entry-barcode token defaults — overridden below for registrations
+      // recipients when the template uses {{entryBarcode}} and the recipient
+      // has a qrCode. Empty otherwise so the placeholder disappears.
+      entryBarcode: "",
+      entryBarcodeText: "",
     };
 
     if (isSpeakerContextNeeded) {
@@ -822,18 +859,47 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.recordingBlockText = webinarEnrichment.recordingBlockText;
     }
 
-    return renderAndWrap(
-      tpl,
-      vars,
-      branding,
-      new Set([
-        "presentationDetails",
-        "organizerSignature",
-        "personalMessage",
-        "passcodeBlock",
-        "recordingBlock",
-      ]),
-    );
+    // Per-recipient entry barcode for the {{entryBarcode}} token — only for
+    // registrations recipients with a qrCode (virtual / non-registration
+    // recipients leave the token empty). Render failure is non-fatal: log and
+    // send without the barcode rather than dropping the whole email.
+    let barcodeAttachment: BulkEmailAttachment | undefined;
+    if (templateWantsBarcode && recipientType === "registrations" && recipient.qrCode) {
+      try {
+        const bc = await buildEntryBarcode({
+          qrCode: recipient.qrCode,
+          attendanceMode: recipient.attendanceMode,
+        });
+        if (bc) {
+          vars.entryBarcode = bc.html;
+          vars.entryBarcodeText = bc.text;
+          barcodeAttachment = bc.attachment;
+        }
+      } catch (err) {
+        apiLogger.warn({
+          msg: "bulk-email:entry-barcode-render-failed",
+          eventId,
+          registrationId: recipient.id,
+          err,
+        });
+      }
+    }
+
+    return {
+      ...renderAndWrap(
+        tpl,
+        vars,
+        branding,
+        new Set([
+          "presentationDetails",
+          "organizerSignature",
+          "personalMessage",
+          "passcodeBlock",
+          "recordingBlock",
+        ]),
+      ),
+      barcodeAttachment,
+    };
   };
 
   // ── Send in batches of 25 ──
@@ -853,6 +919,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           // Per-recipient personalized attachment for speaker agreements.
           // Precedence: explicit .docx upload wins; else inline HTML → PDF.
           let recipientAttachments: BulkEmailAttachment[] | undefined = attachments;
+          // Inline entry-barcode image (cid:reg-barcode) when the template's
+          // {{entryBarcode}} token resolved for this recipient.
+          if (emailContent.barcodeAttachment) {
+            recipientAttachments = [
+              ...(recipientAttachments ?? []),
+              emailContent.barcodeAttachment,
+            ];
+          }
           if (agreementMode === "docx") {
             const doc = await generateSpeakerAgreementDocx({
               eventId,

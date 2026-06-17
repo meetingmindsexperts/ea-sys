@@ -12,7 +12,7 @@ import juice from "juice";
 import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
-import { renderBarcodePng } from "./barcode";
+import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatDateInTz } from "./event-time";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -766,6 +766,9 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Webinar enrichment in bulk-email.ts.
   "passcodeBlock",
   "recordingBlock",
+  // Organizer-controlled entry-barcode token (see src/lib/email-barcode.ts).
+  // The value is always our own generated <img cid:reg-barcode> block or "".
+  "entryBarcode",
 ]);
 
 /**
@@ -989,6 +992,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "registrationId", description: "Confirmation number" },
     { key: "paymentBlock", description: "Payment pending block (auto-generated for paid tickets)" },
+    { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
   ],
   "speaker-invitation": [
     { key: "title", description: "Speaker title prefix (e.g. Dr.)" },
@@ -1028,6 +1032,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventVenue", description: "Event venue" },
     { key: "eventAddress", description: "Event address" },
     { key: "daysUntilEvent", description: "Number of days until event" },
+    { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
   ],
   "abstract-submission-confirmation": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1102,6 +1107,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "amount", description: "Amount due (e.g. USD 100.00)" },
     { key: "paymentBlock", description: "Pay Now button (auto-generated)" },
+    { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
   ],
 };
 
@@ -2426,6 +2432,12 @@ export async function sendRegistrationConfirmation(params: {
       ? String(params.serialId).padStart(3, "0")
       : params.registrationId,
     paymentBlock,
+    // Entry-barcode token defaults to empty so {{entryBarcode}} /
+    // {{entryBarcodeText}} collapse cleanly when the organizer hasn't opted
+    // the barcode in (or the recipient is virtual / has no qrCode). Overridden
+    // below once the template + barcode are resolved.
+    entryBarcode: "",
+    entryBarcodeText: "",
   };
 
   // Try DB template first, fall back to default
@@ -2445,54 +2457,49 @@ export async function sendRegistrationConfirmation(params: {
 
   // Entry barcode — embedded INLINE (cid:reg-barcode) so it renders offline
   // in the recipient's inbox and stays scannable at the registration desk
-  // even months later, with no auth and no remote fetch. Rendered from the
-  // immutable qrCode via the same helper the badge uses (includetext so the
-  // digits sit under the bars). Failure is non-fatal — the email still sends
-  // without the barcode, and the badge/portal remain as fallbacks.
-  const isVirtual = params.attendanceMode === "VIRTUAL";
-
+  // with no auth and no remote fetch. Now ORGANIZER-CONTROLLED: it renders
+  // only where the template carries the {{entryBarcode}} token (default
+  // templates don't, so it's off until an organizer opts in). Failure is
+  // non-fatal — the email still sends without the barcode.
   let barcodeAttachment: NonNullable<SendEmailParams["attachments"]>[number] | null = null;
-  let barcodeBlock = "";
-  let barcodeBlockText = "";
-  // Virtual attendees get a "joining instructions coming" note instead of a
-  // barcode. (A virtual registration also has no qrCode, so the block below
-  // self-skips — this is belt-and-braces in case a qrCode is ever present.)
-  if (isVirtual) {
-    barcodeBlock = `<div style="text-align:center; margin:24px 0; padding:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px;">
-        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#0369a1; font-weight:600;">VIRTUAL ATTENDANCE</p>
-        <p style="margin:0; font-size:14px; color:#0c4a6e;">You're registered to attend online. <strong>Joining instructions and your access link will be sent to you closer to the event.</strong></p>
-      </div>`;
-    barcodeBlockText = `\n\nVirtual attendance: You're registered to attend online. Joining instructions and your access link will be sent to you closer to the event.`;
-  } else if (params.qrCode) {
+  if (templateUsesEntryBarcode(template.htmlContent, template.textContent)) {
     try {
-      const png = await renderBarcodePng(params.qrCode, { includetext: true });
-      barcodeAttachment = {
-        name: "entry-barcode.png",
-        content: png.toString("base64"),
-        contentType: "image/png",
-        contentId: "reg-barcode",
-      };
-      barcodeBlock = `<div style="text-align:center; margin:24px 0; padding:16px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px;">
-        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#6b7280; font-weight:600;">YOUR ENTRY BARCODE</p>
-        <img src="cid:reg-barcode" alt="Entry barcode" style="display:block; margin:0 auto; max-width:280px; height:auto;" />
-        <p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in.</p>
-      </div>`;
-      barcodeBlockText = `\n\nYour entry barcode: ${params.qrCode}\nShow this at the registration desk for check-in.`;
+      const bc = await buildEntryBarcode({
+        qrCode: params.qrCode,
+        attendanceMode: params.attendanceMode,
+      });
+      if (bc) {
+        vars.entryBarcode = bc.html;
+        vars.entryBarcodeText = bc.text;
+        barcodeAttachment = bc.attachment;
+      }
     } catch (err) {
       apiLogger.error({ err, msg: "Failed to render entry barcode for confirmation email", registrationId: params.registrationId });
     }
   }
 
-  // Render HTML with raw paymentBlock (contains HTML), text with plain text
-  // version. The barcode block is appended after the template body so it
-  // shows regardless of whether a DB-overridden template includes a
-  // placeholder for it.
+  // Virtual attendees always get a "joining instructions coming" note —
+  // decoupled from the (now token-gated) barcode so virtual UX never
+  // regresses when an organizer hasn't added the barcode token.
+  let virtualNoteBlock = "";
+  let virtualNoteText = "";
+  if (params.attendanceMode === "VIRTUAL") {
+    virtualNoteBlock = `<div style="text-align:center; margin:24px 0; padding:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px;">
+        <p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#0369a1; font-weight:600;">VIRTUAL ATTENDANCE</p>
+        <p style="margin:0; font-size:14px; color:#0c4a6e;">You're registered to attend online. <strong>Joining instructions and your access link will be sent to you closer to the event.</strong></p>
+      </div>`;
+    virtualNoteText = `\n\nVirtual attendance: You're registered to attend online. Joining instructions and your access link will be sent to you closer to the event.`;
+  }
+
+  // Render HTML with raw paymentBlock + entryBarcode (both contain HTML),
+  // text with plain-text versions. The {{entryBarcode}} token sits wherever
+  // the organizer placed it in the body; the virtual note is appended after.
   const subject = renderTemplatePlain(template.subject, vars);
-  const bodyHtml = renderTemplate(template.htmlContent, vars, new Set(["paymentBlock"])) + barcodeBlock;
+  const bodyHtml = renderTemplate(template.htmlContent, vars, new Set(["paymentBlock"])) + virtualNoteBlock;
   const wrapped = wrapWithBranding(bodyHtml, branding);
   const htmlContent = inlineCss(wrapped);
   const textVars = { ...vars, paymentBlock: paymentBlockText };
-  const textContent = renderTemplatePlain(template.textContent, textVars) + barcodeBlockText;
+  const textContent = renderTemplatePlain(template.textContent, textVars) + virtualNoteText;
 
   // Attachments: inline barcode (if rendered) + quote PDF for paid tickets.
   const attachments: NonNullable<SendEmailParams["attachments"]> = [];

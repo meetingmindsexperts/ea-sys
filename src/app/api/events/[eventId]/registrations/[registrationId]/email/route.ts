@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
@@ -112,6 +113,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       registrationId: registration.serialId != null
         ? String(registration.serialId).padStart(3, "0")
         : registration.id.slice(-8).toUpperCase(),
+      // Entry-barcode token defaults — overridden below when the template
+      // uses {{entryBarcode}} and this is an in-person registration.
+      entryBarcode: "",
+      entryBarcodeText: "",
     };
 
     const slugMap: Record<string, string> = {
@@ -182,6 +187,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Entry-barcode token: render this registration's barcode where the
+    // template carries {{entryBarcode}} (organizer opt-in). In-person only;
+    // render failure is non-fatal (log + send without it).
+    let barcodeAttachment:
+      | { name: string; content: string; contentType: string; contentId: string }
+      | null = null;
+    if (templateUsesEntryBarcode(tpl.htmlContent, tpl.textContent)) {
+      try {
+        const bc = await buildEntryBarcode({
+          qrCode: registration.qrCode,
+          attendanceMode: registration.attendanceMode,
+        });
+        if (bc) {
+          vars.entryBarcode = bc.html;
+          vars.entryBarcodeText = bc.text;
+          barcodeAttachment = bc.attachment;
+        }
+      } catch (err) {
+        apiLogger.warn({ msg: "events/registrations/email:entry-barcode-render-failed", eventId, registrationId, err });
+      }
+    }
+
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
     const rendered = renderAndWrap(tpl, vars, branding);
 
@@ -195,6 +222,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         [registration.attendee.additionalEmail],
       ),
       ...rendered,
+      attachments: barcodeAttachment ? [barcodeAttachment] : undefined,
       from: brandingFrom(branding),
       emailType: isCustomTemplate ? "registration_template" : `registration_${type.replace(/-/g, "_")}`,
       stream: "transactional",
