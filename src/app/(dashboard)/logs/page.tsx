@@ -15,7 +15,7 @@ import {
   Download,
   RefreshCw,
   Search,
-  ArrowDown,
+  ArrowUp,
   Terminal,
   AlertCircle,
   AlertTriangle,
@@ -53,7 +53,6 @@ export default function LogsPage() {
   const [logSource, setLogSource] = useState("docker");
   const [sourceLabel, setSourceLabel] = useState("docker");
 
-  const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchLogs = useCallback(async () => {
@@ -116,9 +115,11 @@ export default function LogsPage() {
     // Scroll detection
     const handleScroll = () => {
       if (!logsContainerRef.current) return;
-      const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      setShowScrollButton(!isNearBottom && logs.length > 0);
+      // Latest logs render at the TOP, so surface the jump button once the
+      // user has scrolled down toward older entries.
+      const { scrollTop } = logsContainerRef.current;
+      const isNearTop = scrollTop < 100;
+      setShowScrollButton(!isNearTop && logs.length > 0);
     };
 
     const container = logsContainerRef.current;
@@ -126,8 +127,8 @@ export default function LogsPage() {
     return () => container?.removeEventListener("scroll", handleScroll);
   }, [logs]);
 
-  const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToTop = () => {
+    logsContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const downloadLogs = () => {
@@ -444,7 +445,9 @@ export default function LogsPage() {
           </div>
         ) : (
           <div className="space-y-2 pb-20">
-            {filteredLogs.map((log, index) => (
+            {/* Display newest-first (latest at top). Exports keep the
+                chronological API order. */}
+            {[...filteredLogs].reverse().map((log, index) => (
               <div
                 key={index}
                 className={`
@@ -471,19 +474,18 @@ export default function LogsPage() {
                 </div>
               </div>
             ))}
-            <div ref={logsEndRef} />
           </div>
         )}
       </div>
 
-      {/* Scroll to Bottom Button */}
+      {/* Jump-to-Latest Button (latest logs are at the top) */}
       {showScrollButton && (
         <button
-          onClick={scrollToBottom}
+          onClick={scrollToTop}
           className="fixed bottom-8 right-8 z-20 bg-cyan-500 hover:bg-cyan-400 text-black font-mono text-sm px-4 py-2 rounded-lg shadow-lg shadow-cyan-500/50 flex items-center gap-2 transition-all duration-300 hover:shadow-cyan-400/60 hover:scale-105 animate-bounce-subtle"
         >
-          <ArrowDown className="w-4 h-4" />
-          New Logs
+          <ArrowUp className="w-4 h-4" />
+          Latest
         </button>
       )}
 
