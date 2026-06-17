@@ -79,6 +79,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const validated = sendEmailSchema.safeParse(body);
 
     if (!validated.success) {
+      apiLogger.warn({
+        msg: "events/registrations/email:zod-validation-failed",
+        eventId,
+        registrationId,
+        errors: validated.error.flatten(),
+      });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 }
@@ -134,6 +140,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (type === "custom") {
       if (!customSubject || !customMessage) {
+        apiLogger.warn({
+          msg: "events/registrations/email:custom-missing-fields",
+          eventId,
+          registrationId,
+          hasSubject: !!customSubject,
+          hasMessage: !!customMessage,
+        });
         return NextResponse.json(
           { error: "Custom emails require subject and message" },
           { status: 400 }
@@ -151,6 +164,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       (await getEventTemplate(eventId, slug)) ||
       (isCustomTemplate ? null : getDefaultTemplate(slug));
     if (!tpl) {
+      apiLogger.warn({
+        msg: "events/registrations/email:template-not-resolved",
+        eventId,
+        registrationId,
+        slug,
+        isCustomTemplate,
+      });
       return NextResponse.json(
         {
           error: isCustomTemplate
@@ -188,27 +208,43 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!result.success) {
+      apiLogger.warn({
+        msg: "events/registrations/email:send-failed",
+        eventId,
+        registrationId,
+        slug,
+        isCustomTemplate,
+        error: result.error,
+      });
       return NextResponse.json(
         { error: result.error || "Failed to send email" },
         { status: 500 }
       );
     }
 
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "EMAIL_SENT",
-        entityType: "Registration",
-        entityId: registration.id,
-        changes: {
-          emailType: type,
-          recipient: registration.attendee.email,
-          subject: rendered.subject,
-          ip: getClientIp(req),
+    // Fire-and-forget — the email already sent, so an audit-log write failure
+    // must not surface to the caller as a misleading "Failed to send email"
+    // 500 (mirrors the PATCH handler's pattern below).
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "EMAIL_SENT",
+          entityType: "Registration",
+          entityId: registration.id,
+          changes: {
+            emailType: isCustomTemplate ? "template" : type,
+            templateSlug: slug,
+            recipient: registration.attendee.email,
+            subject: rendered.subject,
+            ip: getClientIp(req),
+          },
         },
-      },
-    });
+      })
+      .catch((err) =>
+        apiLogger.warn({ msg: "events/registrations/email:audit-log-failed", eventId, registrationId, err })
+      );
 
     return NextResponse.json({
       success: true,
