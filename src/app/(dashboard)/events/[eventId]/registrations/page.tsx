@@ -43,7 +43,10 @@ import {
   Tag,
   ArrowRightLeft,
   Mail,
+  ListChecks,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
@@ -76,6 +79,7 @@ import {
 } from "@/components/ui/dialog";
 import { BarcodeImportDialog } from "./barcode-import-dialog";
 import { BadgeDialog } from "./badge-dialog";
+import { resolvePastedIds } from "./resolve-pasted-ids";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
@@ -139,6 +143,13 @@ export default function RegistrationsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  // "Select by IDs" — paste a list (registration #, full ID, or email) copied
+  // from a CSV and have it populate the selection, so the existing bulk
+  // Email / Tag / Change-Type actions run on exactly those rows (mirrors the
+  // EventsAir paste-IDs-then-bulk workflow).
+  const [selectByIdsOpen, setSelectByIdsOpen] = useState(false);
+  const [pasteIds, setPasteIds] = useState("");
+  const [matchResult, setMatchResult] = useState<{ matched: string[]; unmatched: string[] } | null>(null);
 
   const bulkTagRegistrations = useBulkTagRegistrations(eventId);
   const bulkUpdateType = useBulkUpdateRegistrationType(eventId);
@@ -306,6 +317,24 @@ export default function RegistrationsPage() {
 
   const clearSelection = () => setSelectedIds(new Set());
 
+  const handleMatchPastedIds = () => setMatchResult(resolvePastedIds(pasteIds, registrations));
+
+  const applyPastedSelection = () => {
+    const result = matchResult ?? resolvePastedIds(pasteIds, registrations);
+    if (result.matched.length === 0) {
+      toast.error("No matching registrations found for those IDs.");
+      return;
+    }
+    setSelectedIds(new Set(result.matched));
+    setSelectByIdsOpen(false);
+    setPasteIds("");
+    setMatchResult(null);
+    toast.success(
+      `Selected ${result.matched.length} registration${result.matched.length !== 1 ? "s" : ""}` +
+        (result.unmatched.length ? ` · ${result.unmatched.length} not found` : ""),
+    );
+  };
+
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
   if (loading) {
@@ -368,6 +397,16 @@ export default function RegistrationsPage() {
           {!isReviewer && (
             <>
               {/* Management-only actions — hidden for ONSITE (desk staff). */}
+              {!isDeskOperator && registrations.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setMatchResult(null); setSelectByIdsOpen(true); }}
+                >
+                  <ListChecks className="mr-2 h-4 w-4" />
+                  Select by IDs
+                </Button>
+              )}
               {!isDeskOperator && registrations.length > 0 && (
                 <Button
                   variant="secondary"
@@ -766,6 +805,66 @@ export default function RegistrationsPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
       />
+
+      {/* Select by IDs — paste a list, populate the selection */}
+      <Dialog open={selectByIdsOpen} onOpenChange={(o) => { setSelectByIdsOpen(o); if (!o) setMatchResult(null); }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListChecks className="h-5 w-5" />
+              Select by IDs
+            </DialogTitle>
+            <DialogDescription>
+              Paste registration numbers, full IDs, or emails — one per line or separated by commas.
+              The matching registrations get selected so you can bulk-email, tag, or change their type.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-2">
+              <Label htmlFor="paste-ids">IDs / emails</Label>
+              <Textarea
+                id="paste-ids"
+                value={pasteIds}
+                onChange={(e) => { setPasteIds(e.target.value); setMatchResult(null); }}
+                placeholder={"002\n005\njane@example.com"}
+                rows={7}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Matches a registration #, the full registration ID, or the attendee email.
+                {(statusFilter !== "all" || paymentFilter !== "all" || ticketFilter !== "all" || tagFilter.length > 0)
+                  ? " Note: only currently-loaded rows are matched — clear filters to match across all registrations."
+                  : ""}
+              </p>
+            </div>
+            {matchResult && (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">
+                  {matchResult.matched.length} matched
+                  {matchResult.unmatched.length > 0 && ` · ${matchResult.unmatched.length} not found`}
+                </p>
+                {matchResult.unmatched.length > 0 && (
+                  <p className="mt-1 break-words text-xs text-muted-foreground">
+                    Not found: {matchResult.unmatched.slice(0, 30).join(", ")}
+                    {matchResult.unmatched.length > 30 ? ` … (+${matchResult.unmatched.length - 30})` : ""}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setSelectByIdsOpen(false); setMatchResult(null); }}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={handleMatchPastedIds} disabled={!pasteIds.trim()}>
+              Match
+            </Button>
+            <Button onClick={applyPastedSelection} disabled={!pasteIds.trim()}>
+              Select{matchResult ? ` ${matchResult.matched.length}` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Tag Dialog */}
       <BulkTagDialog
