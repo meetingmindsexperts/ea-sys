@@ -646,6 +646,20 @@ function getApiInstance() { /* create on first call */ }
 
 ---
 
+### U7 — Sidebar "Overview" item duplicates + accumulates on every navigation (June 17, 2026)
+
+**Symptom:** The "Overview" entry in the event sidebar multiplied — 1, then 2, then 3, then 4 — every time the user went from an event into the dashboard and back. The duplicates even leaked onto the **top-level** nav (Overview rows appearing above Dashboard/Events). Only the **expanded** sidebar was affected; a **full page reload** reset it to 1.
+
+**Root cause:** **Duplicate React keys on two sibling sidebar sections.** `eventNavigationSections` has **two sections with `label: ""`** — the Overview group at the top and the Analytics group at the bottom (intentionally header-less). The render keyed sections with `key={section.label || "top"}`, so **both empty-label sections got the identical key `"top"`**. Duplicate sibling keys make React's list reconciliation undefined: on each client-side (router) navigation React failed to unmount the stale Overview section and **leaked a duplicate `<div>` that was never removed**, so it accumulated. The collapsed/flat list keyed by unique `item.name`, which is why only the expanded sidebar showed it; a full reload built fresh DOM, hence the reset to 1.
+
+**Fix:** Key each section by its array index — `key={`section-${si}`}` — so every section is unique + stable. ([src/components/layout/sidebar.tsx](../src/components/layout/sidebar.tsx), commit `fbff00e`.)
+
+**Verification:** Reproduced on the dev server via **client-side** navigation (the bug doesn't appear under full-reload navigation) — 3 event↔Events round-trips, counting sidebar "Overview" links each time. Before: 1→2→3. After: stays 1 (event) / 0 (Events).
+
+**Prevention:** Never key a `.map()` on a value that can repeat (an empty/optional label, a nullable field). Two siblings sharing a key is silently corrupting — React warns in dev but the symptom (leaked/duplicated DOM that grows across navigations, not on reload) looks like a data bug. Prefer the array index or a guaranteed-unique id for list keys when the natural key isn't provably unique.
+
+---
+
 ## 10. Package & Dependency Issues
 
 ### P1 — Tiptap v3 incompatibility (see B1)
