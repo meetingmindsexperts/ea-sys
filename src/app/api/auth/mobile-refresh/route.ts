@@ -24,6 +24,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "auth/mobile-refresh:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, ip });
       return NextResponse.json(
         { error: "Too many requests. Try again later." },
         { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const validated = refreshSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "auth/mobile-refresh:invalid-input", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Missing refresh token" },
         { status: 400 }

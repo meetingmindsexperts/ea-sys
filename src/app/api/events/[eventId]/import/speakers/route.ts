@@ -34,6 +34,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rateLimit.allowed) {
+      apiLogger.warn({ msg: "events/import-speakers:rate-limited", retryAfterSeconds: rateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Import limit reached. Maximum 10 imports per hour." },
         { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }

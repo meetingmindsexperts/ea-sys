@@ -121,6 +121,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000, // 50 contacts per hour per org
     });
     if (!contactLimit.allowed) {
+      apiLogger.warn({ msg: "contacts:rate-limited", retryAfterSeconds: contactLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Contact creation limit reached. Maximum 50 per hour." },
         { status: 429, headers: { "Retry-After": String(contactLimit.retryAfterSeconds) } }

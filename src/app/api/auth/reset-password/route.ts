@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "auth/reset-password:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
@@ -143,6 +144,7 @@ export async function GET(req: Request) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "auth/reset-password:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { valid: false, error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }

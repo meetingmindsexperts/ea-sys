@@ -34,6 +34,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
+      apiLogger.warn({ msg: "public/complete-registration:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds });
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 
@@ -199,6 +200,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
+      apiLogger.warn({ msg: "public/complete-registration:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds });
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 

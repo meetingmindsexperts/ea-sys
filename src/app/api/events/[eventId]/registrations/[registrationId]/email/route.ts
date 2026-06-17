@@ -46,6 +46,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!emailLimit.allowed) {
+      apiLogger.warn({ msg: "events/registrations/email:rate-limited", retryAfterSeconds: emailLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Email rate limit reached. Maximum 200 emails per hour." },
         { status: 429, headers: { "Retry-After": String(emailLimit.retryAfterSeconds) } }
@@ -289,6 +290,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!changeLimit.allowed) {
+      apiLogger.warn({ msg: "events/registrations/email:change-rate-limited", retryAfterSeconds: changeLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Email change rate limit reached. Maximum 30 per hour." },
         { status: 429, headers: { "Retry-After": String(changeLimit.retryAfterSeconds) } }

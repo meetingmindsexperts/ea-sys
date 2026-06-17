@@ -19,6 +19,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "mcp/oauth/revoke:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, ip });
       return withCors(
         req,
         NextResponse.json(

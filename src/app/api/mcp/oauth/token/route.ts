@@ -66,6 +66,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "mcp/oauth/token:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, clientId });
       return withCors(
         req,
         NextResponse.json(

@@ -34,6 +34,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rateLimit.allowed) {
+      apiLogger.warn({ msg: "events/import-registrations-send-completion-emails:rate-limited", retryAfterSeconds: rateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Rate limit reached. Maximum 5 bulk sends per hour." },
         { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }

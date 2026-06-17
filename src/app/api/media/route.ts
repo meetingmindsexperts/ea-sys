@@ -101,6 +101,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rateLimit.allowed) {
+      apiLogger.warn({ msg: "media:rate-limited", retryAfterSeconds: rateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Upload limit reached. Maximum 20 uploads per hour." },
         { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }

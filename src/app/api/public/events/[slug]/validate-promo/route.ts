@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "public/validate-promo:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, ip });
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
@@ -34,6 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const parsed = validatePromoSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "public/validate-promo:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json(
         { error: "Validation failed", details: parsed.error.flatten() },
         { status: 400 }

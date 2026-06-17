@@ -18,6 +18,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "public/event:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }

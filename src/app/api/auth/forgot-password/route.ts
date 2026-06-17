@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "auth/forgot-password:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         {
@@ -118,6 +119,7 @@ export async function POST(req: Request) {
     });
 
     if (!emailRateLimit.allowed) {
+      apiLogger.warn({ msg: "auth/forgot-password:rate-limited", retryAfterSeconds: emailRateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         {

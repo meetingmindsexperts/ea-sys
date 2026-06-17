@@ -97,6 +97,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000, // 10 invitations per hour per org
     });
     if (!inviteLimit.allowed) {
+      apiLogger.warn({ msg: "organization/users:rate-limited", retryAfterSeconds: inviteLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Invitation limit reached. Maximum 10 invitations per hour." },
         { status: 429, headers: { "Retry-After": String(inviteLimit.retryAfterSeconds) } }

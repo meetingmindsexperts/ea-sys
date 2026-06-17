@@ -318,6 +318,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         windowMs: 15 * 60 * 1000,
       });
       if (!previewLimit.allowed) {
+        apiLogger.warn({ msg: "public/survey:rate-limited", retryAfterSeconds: previewLimit.retryAfterSeconds });
         return NextResponse.json(
           { error: "Too many requests" },
           { status: 429, headers: { "Retry-After": String(previewLimit.retryAfterSeconds) } },
@@ -356,6 +357,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         windowMs: 15 * 60 * 1000,
       });
       if (!shareLimit.allowed) {
+        apiLogger.warn({ msg: "public/survey:rate-limited", retryAfterSeconds: shareLimit.retryAfterSeconds });
         return NextResponse.json(
           { error: "Too many requests" },
           { status: 429, headers: { "Retry-After": String(shareLimit.retryAfterSeconds) } },

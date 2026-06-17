@@ -93,6 +93,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const parsed = createPromoCodeSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "events/promo-codes:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json(
         { error: "Validation failed", details: parsed.error.flatten() },
         { status: 400 }

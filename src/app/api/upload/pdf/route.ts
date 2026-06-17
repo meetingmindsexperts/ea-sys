@@ -113,6 +113,7 @@ export async function POST(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "upload/pdf:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
         {
           error: "Too many uploads. Try again later.",

@@ -25,6 +25,7 @@ export async function POST(req: Request) {
       windowMs: 15 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "auth/mobile-login:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, ip });
       return NextResponse.json(
         { error: "Too many login attempts. Try again later." },
         { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const validated = loginSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "auth/mobile-login:invalid-input", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid email or password format" },
         { status: 400 }

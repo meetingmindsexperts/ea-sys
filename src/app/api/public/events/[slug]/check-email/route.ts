@@ -36,6 +36,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rate.allowed) {
+      apiLogger.warn({ msg: "public/check-email:rate-limited", retryAfterSeconds: rate.retryAfterSeconds, ip });
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } }
@@ -45,6 +46,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const body = await req.json().catch(() => null);
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "public/check-email:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
     const email = parsed.data.email.toLowerCase();

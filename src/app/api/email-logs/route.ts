@@ -26,6 +26,7 @@ export async function GET(req: Request) {
       entityId: searchParams.get("entityId"),
     });
     if (!parsed.success) {
+      apiLogger.warn({ msg: "email-logs:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json({ error: "Invalid query" }, { status: 400 });
     }
 

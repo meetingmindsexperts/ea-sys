@@ -63,6 +63,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "events/speaker-agreement-template:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
         { error: "Upload rate limit reached. Maximum 10 uploads per hour." },
         { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },

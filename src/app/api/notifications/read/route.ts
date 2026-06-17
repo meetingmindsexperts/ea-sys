@@ -19,6 +19,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const parsed = markReadSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "notifications/read:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json(
         { error: "Invalid request body. Provide { ids: string[] } or { all: true }" },
         { status: 400 }

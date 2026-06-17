@@ -42,6 +42,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const body = await req.json();
     const parsed = updateThemeSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "events/abstract-themes:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 

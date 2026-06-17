@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     });
 
     if (!importRateLimit.allowed) {
+      apiLogger.warn({ msg: "contacts/import:rate-limited", retryAfterSeconds: importRateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Import limit reached. Maximum 10 imports per hour." },
         { status: 429, headers: { "Retry-After": String(importRateLimit.retryAfterSeconds) } }

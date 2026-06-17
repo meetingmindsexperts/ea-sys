@@ -58,6 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
+      apiLogger.warn({ msg: "public/speaker-agreement:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 
@@ -163,6 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
+      apiLogger.warn({ msg: "public/speaker-agreement:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json({ error: "Too many requests" }, { status: 429 });
     }
 

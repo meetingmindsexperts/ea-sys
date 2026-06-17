@@ -42,6 +42,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!limit.allowed) {
+      apiLogger.warn({ msg: "public/document:rate-limited", retryAfterSeconds: limit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } }

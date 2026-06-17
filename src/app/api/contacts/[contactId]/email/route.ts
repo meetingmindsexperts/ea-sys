@@ -38,6 +38,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!changeLimit.allowed) {
+      apiLogger.warn({ msg: "contacts/email:rate-limited", retryAfterSeconds: changeLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Email change rate limit reached. Maximum 30 per hour." },
         { status: 429, headers: { "Retry-After": String(changeLimit.retryAfterSeconds) } }

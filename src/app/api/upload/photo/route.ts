@@ -51,6 +51,7 @@ export async function POST(req: Request) {
     });
 
     if (!uploadRateLimit.allowed) {
+      apiLogger.warn({ msg: "upload/photo:rate-limited", retryAfterSeconds: uploadRateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Upload limit reached. Maximum 20 photos per hour." },
         { status: 429, headers: { "Retry-After": String(uploadRateLimit.retryAfterSeconds) } }

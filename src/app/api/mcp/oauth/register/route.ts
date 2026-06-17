@@ -70,6 +70,7 @@ export async function POST(req: Request) {
 
     const parsed = registerRequestSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "mcp/oauth/register:invalid-input", errors: parsed.error.flatten() });
       return withCors(
         req,
         NextResponse.json(

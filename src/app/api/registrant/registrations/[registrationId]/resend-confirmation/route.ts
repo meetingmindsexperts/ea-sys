@@ -38,6 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "registrant/resend-confirmation:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
         { error: `Please wait ${Math.ceil(rl.retryAfterSeconds / 60)} minute(s) before requesting another copy.` },
         { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },

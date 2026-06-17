@@ -38,6 +38,7 @@ export async function GET(req: Request) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rl.allowed) {
+      apiLogger.warn({ msg: "admin/docs/search:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
       return NextResponse.json(
         {
           error: "Too many searches. Try again later.",

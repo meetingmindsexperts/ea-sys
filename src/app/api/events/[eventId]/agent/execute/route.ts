@@ -257,6 +257,7 @@ export async function POST(
     windowMs: 60 * 60 * 1000,
   });
   if (!rl.allowed) {
+    apiLogger.warn({ msg: "events/agent-execute:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
     return NextResponse.json(
       {
         error: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.`,

@@ -68,6 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const body = await req.json();
     const parsed = createCriterionSchema.safeParse(body);
     if (!parsed.success) {
+      apiLogger.warn({ msg: "events/review-criteria:invalid-input", errors: parsed.error.flatten() });
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 

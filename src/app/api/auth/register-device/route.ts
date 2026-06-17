@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const validated = deviceSchema.safeParse(body);
     if (!validated.success) {
+      apiLogger.warn({ msg: "auth/register-device:invalid-input", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid request body", details: validated.error.flatten() },
         { status: 400 }

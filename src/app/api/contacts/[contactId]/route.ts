@@ -131,6 +131,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000, // 100 updates per hour per org
     });
     if (!updateLimit.allowed) {
+      apiLogger.warn({ msg: "contacts/update:rate-limited", retryAfterSeconds: updateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Contact update limit reached. Maximum 100 per hour." },
         { status: 429, headers: { "Retry-After": String(updateLimit.retryAfterSeconds) } }

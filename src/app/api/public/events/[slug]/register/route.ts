@@ -91,6 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 1000,
     });
     if (!burstLimit.allowed) {
+      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: burstLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(burstLimit.retryAfterSeconds) } }
@@ -105,6 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!ipRateLimit.allowed) {
+      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: ipRateLimit.retryAfterSeconds, ip: clientIp });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipRateLimit.retryAfterSeconds) } }
@@ -135,6 +137,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!emailRateLimit.allowed) {
+      apiLogger.warn({ msg: "public/register:rate-limited", retryAfterSeconds: emailRateLimit.retryAfterSeconds });
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(emailRateLimit.retryAfterSeconds) } }
