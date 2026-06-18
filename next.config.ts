@@ -56,6 +56,17 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "*.eventsair.com",
       },
+      // Our own uploaded media is stored as ABSOLUTE URLs on the prod host
+      // (e.g. https://events.meetingmindsgroup.com/uploads/media/.../x.jpg).
+      // Even though it's same-origin, next/image treats an absolute URL as
+      // remote and refuses to optimize a host that isn't allowlisted — which
+      // silently broke public event/session banners. Scope to /uploads/** so
+      // only our served-upload paths are eligible.
+      {
+        protocol: "https",
+        hostname: "**.meetingmindsgroup.com",
+        pathname: "/uploads/**",
+      },
     ],
   },
 

@@ -21,10 +21,22 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true, settings: true },
-    });
+    // Fetch the event's per-event Zoom settings AND whether the ORG has Zoom
+    // credentials configured. The org-credentials endpoint is ADMIN-only, but
+    // an ORGANIZER legitimately manages per-event Zoom and needs to know
+    // whether the org is wired up — so we surface a non-secret boolean here
+    // (no keys/identifiers), letting the event-level card render for organizers
+    // without depending on the admin-only credentials route.
+    const [event, org] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: session.user.organizationId! },
+        select: { id: true, settings: true },
+      }),
+      db.organization.findUnique({
+        where: { id: session.user.organizationId! },
+        select: { settings: true },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -32,11 +44,15 @@ export async function GET(
 
     const settings = (event.settings as Record<string, unknown>) || {};
     const zoom = (settings.zoom as Record<string, unknown>) || {};
+    const orgZoom = ((org?.settings as Record<string, unknown>)?.zoom as Record<string, unknown>) || {};
 
     return NextResponse.json({
       enabled: zoom.enabled === true,
       defaultMeetingType: zoom.defaultMeetingType || "MEETING",
       autoCreateForSessions: zoom.autoCreateForSessions === true,
+      // True when the org has Server-to-Server OAuth configured (same check the
+      // admin credentials route uses for `configured`). Non-secret.
+      orgConfigured: !!orgZoom.clientId,
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:settings-fetch-failed");

@@ -4,31 +4,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Video, Loader2, Info } from "lucide-react";
+import { Video, Info } from "lucide-react";
 import { toast } from "sonner";
-import { useZoomCredentials, useZoomSettings, useUpdateZoomSettings } from "@/hooks/use-api";
+import { useZoomSettings, useUpdateZoomSettings } from "@/hooks/use-api";
 
 interface ZoomSettingsCardProps {
   eventId: string;
 }
 
 export function ZoomSettingsCard({ eventId }: ZoomSettingsCardProps) {
-  const { data: credentials } = useZoomCredentials();
   const { data: settings, isLoading } = useZoomSettings(eventId);
   const updateSettings = useUpdateZoomSettings(eventId);
 
-  // Only show if org has Zoom configured
-  if (!credentials?.configured) return null;
+  // While loading, render nothing (avoids a flash before we know whether the
+  // org has Zoom configured).
+  if (isLoading) return null;
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    );
-  }
+  // Only show if the org has Zoom configured. `orgConfigured` comes from the
+  // event-scoped settings route (open to organizers) — NOT the admin-only
+  // credentials endpoint, so ORGANIZERs can see + manage per-event Zoom.
+  if (!settings?.orgConfigured) return null;
 
   const handleToggle = async (enabled: boolean) => {
     try {

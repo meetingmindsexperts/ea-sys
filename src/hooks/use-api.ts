@@ -1572,6 +1572,7 @@ export function useZoomSettings(eventId: string) {
         enabled: boolean;
         defaultMeetingType: string;
         autoCreateForSessions: boolean;
+        orgConfigured: boolean;
       }>(`/api/events/${eventId}/zoom/settings`),
     enabled: !!eventId,
   });
