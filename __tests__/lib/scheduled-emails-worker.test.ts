@@ -9,21 +9,42 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger } = vi.hoisted(() => ({
-  mockDb: {
-    scheduledEmail: { updateMany: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-    user: { findMany: vi.fn() },
-    auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
-  },
-  mockExecuteBulkEmail: vi.fn(),
-  mockNotify: vi.fn().mockReturnValue({ catch: () => {} }),
-  mockLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-}));
+const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger, BulkEmailError, NO_RECIPIENTS_CODE } =
+  vi.hoisted(() => {
+    // Genuine error shape so the worker's
+    // `err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE`
+    // branch resolves correctly; only executeBulkEmail is stubbed.
+    class BulkEmailError extends Error {
+      status: number;
+      code?: string;
+      constructor(message: string, status = 400, code?: string) {
+        super(message);
+        this.status = status;
+        this.code = code;
+      }
+    }
+    return {
+      mockDb: {
+        scheduledEmail: { updateMany: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+        user: { findMany: vi.fn() },
+        auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+      },
+      mockExecuteBulkEmail: vi.fn(),
+      mockNotify: vi.fn().mockReturnValue({ catch: () => {} }),
+      mockLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+      BulkEmailError,
+      NO_RECIPIENTS_CODE: "NO_RECIPIENTS" as const,
+    };
+  });
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockLogger }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
-vi.mock("@/lib/bulk-email", () => ({ executeBulkEmail: mockExecuteBulkEmail }));
+vi.mock("@/lib/bulk-email", () => ({
+  executeBulkEmail: mockExecuteBulkEmail,
+  BulkEmailError,
+  NO_RECIPIENTS_CODE,
+}));
 
 import { runScheduledEmailsTick } from "@/lib/scheduled-emails-worker";
 
@@ -102,5 +123,63 @@ describe("scheduled-emails worker — recipientIds passthrough", () => {
       (c: unknown[]) => (c[0] as { msg?: string })?.msg === "scheduled-email:sent",
     );
     expect(sentLog?.[0]).toMatchObject({ retryCount: 2 });
+  });
+});
+
+describe("scheduled-emails worker — empty audience is a benign skip", () => {
+  it("marks a 0-recipient send SENT with zero counts (not FAILED) and logs info, not error", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      dueRow({ emailType: "webinar-thank-you", customSubject: null, customMessage: null }),
+    ]);
+    mockExecuteBulkEmail.mockRejectedValueOnce(
+      new BulkEmailError("No recipients found matching the criteria", 400, NO_RECIPIENTS_CODE),
+    );
+
+    const report = await runScheduledEmailsTick();
+
+    // Reported as a skip, not a failure.
+    expect(report.failed).toBe(0);
+    expect(report.results[0]).toMatchObject({ id: "se_1", status: "skipped", total: 0 });
+
+    // Row flipped to terminal SENT with zeroed counts and no error text.
+    expect(mockDb.scheduledEmail.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "se_1" },
+        data: expect.objectContaining({
+          status: "SENT",
+          totalCount: 0,
+          successCount: 0,
+          failureCount: 0,
+          lastError: null,
+        }),
+      }),
+    );
+
+    // Logged at info (no admin-alert page), and NOT at error.
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "scheduled-email:skipped-no-recipients", id: "se_1" }),
+    );
+    const failLog = mockLogger.error.mock.calls.find(
+      (c: unknown[]) => (c[0] as { msg?: string })?.msg === "scheduled-email:send-failed",
+    );
+    expect(failLog).toBeUndefined();
+  });
+
+  it("still marks a genuine send error FAILED and logs error", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+    mockExecuteBulkEmail.mockRejectedValueOnce(new Error("SES throttled"));
+
+    const report = await runScheduledEmailsTick();
+
+    expect(report.failed).toBe(1);
+    expect(mockDb.scheduledEmail.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "se_1" },
+        data: expect.objectContaining({ status: "FAILED", lastError: "SES throttled" }),
+      }),
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "scheduled-email:send-failed", id: "se_1" }),
+    );
   });
 });

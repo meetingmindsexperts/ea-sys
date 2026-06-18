@@ -35,6 +35,8 @@ import { apiLogger } from "@/lib/logger";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
   executeBulkEmail,
+  BulkEmailError,
+  NO_RECIPIENTS_CODE,
   type BulkEmailRecipientType,
   type BulkEmailType,
   type BulkEmailAttachment,
@@ -180,6 +182,33 @@ async function processRow(
       failed: result.failureCount,
     };
   } catch (err) {
+    // A scheduled send whose audience is empty at fire time is a no-op, not a
+    // failure: nothing to send, nobody to notify. Mark it terminally SENT with
+    // zero counts and log at info — NOT FAILED + error (which trips the admin
+    // alert). Common for auto-enqueued webinar sequences on events that have no
+    // registrations yet. The immediate "Send now" route still surfaces the same
+    // condition as a 400 so an operator gets feedback.
+    if (err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE) {
+      await db.scheduledEmail.update({
+        where: { id: row.id },
+        data: {
+          status: "SENT",
+          sentAt: new Date(),
+          totalCount: 0,
+          successCount: 0,
+          failureCount: 0,
+          lastError: null,
+        },
+      });
+      apiLogger.info({
+        msg: "scheduled-email:skipped-no-recipients",
+        id: row.id,
+        eventId: row.eventId,
+        retryCount: row.retryCount,
+      });
+      return { id: row.id, status: "skipped", total: 0, sent: 0, failed: 0 };
+    }
+
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.scheduledEmail.update({
       where: { id: row.id },

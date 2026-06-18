@@ -174,11 +174,23 @@ export interface BulkEmailResult {
 
 export class BulkEmailError extends Error {
   status: number;
-  constructor(message: string, status = 400) {
+  /**
+   * Optional machine-readable code so callers can branch on a specific
+   * failure without matching the message string. Currently used for
+   * "NO_RECIPIENTS" so the scheduled-email worker can treat an empty
+   * audience at fire time as a benign skip (not a paging FAILED) while the
+   * immediate-send route still surfaces it as a 400 to the operator.
+   */
+  code?: string;
+  constructor(message: string, status = 400, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
+
+/** Error code set on BulkEmailError when recipient resolution yields zero rows. */
+export const NO_RECIPIENTS_CODE = "NO_RECIPIENTS";
 
 // Shared Zod schema reused by both immediate-send and schedule routes
 export const bulkEmailSchema = z.object({
@@ -557,7 +569,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   }
 
   if (recipients.length === 0) {
-    throw new BulkEmailError("No recipients found matching the criteria", 400);
+    throw new BulkEmailError(
+      "No recipients found matching the criteria",
+      400,
+      NO_RECIPIENTS_CODE,
+    );
   }
 
   // ── Load template ──
