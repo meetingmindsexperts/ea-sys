@@ -228,6 +228,20 @@ async function graphqlQuery<T>(
 
 // ── Public API Methods ─────────────────────────────────────────────
 
+/**
+ * Run an arbitrary read-only GraphQL query against the EventsAir API.
+ * Additive escape hatch for schema introspection and discovery probes that
+ * don't yet have a dedicated typed fetcher. Does NOT mutate anything — it is a
+ * thin pass-through to the same query path the typed fetchers use.
+ */
+export async function rawGraphQL<T = unknown>(
+  creds: EventsAirCredentials,
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<T> {
+  return graphqlQuery<T>(creds, query, variables);
+}
+
 /** Test that the credentials are valid by obtaining a token */
 export async function testConnection(creds: EventsAirCredentials): Promise<boolean> {
   try {

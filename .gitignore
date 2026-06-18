@@ -95,3 +95,4 @@ cert-*.png
 
 # Claude Code runtime state — scheduled wakeup lockfile etc.
 .claude/scheduled_tasks.lock
+eventsair-introspect-output.txt
