@@ -204,9 +204,12 @@ export default function RegisterOverviewPage() {
       {/* Banner */}
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
-          <div className="max-w-[1400px] mx-auto">
+          {/* Edge-to-edge banner: capped near the image's natural width so it
+              stays crisp; height follows the image's aspect (no fixed-height
+              box / no object-contain letterboxing). Scales down on mobile. */}
+          <div className="max-w-[1120px] mx-auto">
             <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[200px] object-contain" priority unoptimized />
+              className="w-full h-auto" priority unoptimized />
           </div>
         </div>
       ) : (
