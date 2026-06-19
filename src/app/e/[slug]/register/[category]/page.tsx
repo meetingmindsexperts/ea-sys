@@ -2,7 +2,6 @@
 
 import { Suspense, useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -491,12 +490,14 @@ function CategoryRegistrationContent() {
       {/* Banner */}
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
-          {/* Edge-to-edge banner: capped near the image's natural width so it
-              stays crisp; height follows the image's aspect (no fixed-height
-              box / no object-contain letterboxing). Scales down on mobile. */}
+          {/* Auto height: a plain <img> sizes itself from the image's own
+              dimensions — no height prop, no fixed box, no crop, no distortion.
+              (next/image REQUIRES width+height props; that's where the
+              hardcoded height came from.) Adapts to any banner shape — upload a
+              ~1200x200 image and it auto-renders a ~190px band, no code change. */}
           <div className="max-w-[1120px] mx-auto">
-            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto" priority unoptimized />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={event.bannerImage} alt={event.name} className="block w-full h-auto" fetchPriority="high" />
           </div>
         </div>
       ) : (
