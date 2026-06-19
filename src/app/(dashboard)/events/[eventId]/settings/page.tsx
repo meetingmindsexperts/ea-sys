@@ -7,11 +7,11 @@ import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-s
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { isWebinar } from "@/lib/webinar";
-import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BrandingImageField } from "@/components/events/branding-image-field";
 import { TagInput } from "@/components/ui/tag-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -1200,35 +1200,16 @@ export default function EventSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="bannerImage">Banner Image URL</Label>
-                <Input
-                  id="bannerImage"
-                  value={brandingSettings.bannerImage}
-                  onChange={(e) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      bannerImage: e.target.value,
-                    })
-                  }
-                  placeholder="https://example.com/banner.jpg"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Enter a URL for your event banner image. Recommended size: 1200x400px.
-                </p>
-                {brandingSettings.bannerImage && (
-                  <div className="mt-4 border rounded-lg overflow-hidden">
-                    <Image
-                      src={brandingSettings.bannerImage}
-                      alt="Banner preview"
-                      width={1200}
-                      height={400}
-                      className="w-full h-48 object-contain"
-                      unoptimized
-                    />
-                  </div>
-                )}
-              </div>
+              <BrandingImageField
+                eventId={eventId}
+                label="Banner Image"
+                value={brandingSettings.bannerImage}
+                onChange={(url) =>
+                  setBrandingSettings({ ...brandingSettings, bannerImage: url })
+                }
+                hint="Shown atop your public event pages. Recommended size: 1200×400px. Uploads also appear in this event's Media library."
+                previewClassName="w-full h-48 object-contain"
+              />
 
               <div className="space-y-2">
                 <Label>Custom Footer</Label>
@@ -1321,65 +1302,37 @@ export default function EventSettingsPage() {
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="emailHeaderImage">Email Header Image URL</Label>
-                <Input
-                  id="emailHeaderImage"
-                  value={brandingSettings.emailHeaderImage}
-                  onChange={(e) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      emailHeaderImage: e.target.value,
-                    })
-                  }
-                  placeholder="https://example.com/email-header.png"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Top-of-email banner. <strong>Recommended size: 1200×300px</strong> (renders crisp at 600×150 on retina displays). Keep under 150KB. Renders responsive on Gmail / Outlook / Apple Mail.
-                </p>
-                {brandingSettings.emailHeaderImage && (
-                  <div className="mt-4 border rounded-lg overflow-hidden max-w-[600px]">
-                    <Image
-                      src={brandingSettings.emailHeaderImage}
-                      alt="Email header preview"
-                      width={600}
-                      height={150}
-                      className="w-full h-auto object-cover"
-                      unoptimized
-                    />
-                  </div>
-                )}
-              </div>
+              <BrandingImageField
+                eventId={eventId}
+                label="Email Header Image"
+                value={brandingSettings.emailHeaderImage}
+                onChange={(url) =>
+                  setBrandingSettings({ ...brandingSettings, emailHeaderImage: url })
+                }
+                hint={
+                  <>
+                    Top-of-email banner. <strong>Recommended size: 1200×300px</strong> (renders crisp at 600×150 on retina displays). Keep under 150KB. Renders responsive on Gmail / Outlook / Apple Mail. Uploads also appear in this event&apos;s Media library.
+                  </>
+                }
+                previewWrapClassName="max-w-[600px]"
+                previewClassName="w-full h-auto object-cover"
+              />
 
-              <div className="space-y-2">
-                <Label htmlFor="emailFooterImage">Email Footer Image URL</Label>
-                <Input
-                  id="emailFooterImage"
-                  value={brandingSettings.emailFooterImage}
-                  onChange={(e) =>
-                    setBrandingSettings({
-                      ...brandingSettings,
-                      emailFooterImage: e.target.value,
-                    })
-                  }
-                  placeholder="https://example.com/email-footer.png"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Bottom-of-email logo or sign-off image. Optional. <strong>Recommended size: 1200×200px</strong> (slim footer renders at 600×100 with retina sharpness). Keep under 100KB. Same responsive treatment as the header — fits the email body width across every client.
-                </p>
-                {brandingSettings.emailFooterImage && (
-                  <div className="mt-4 border rounded-lg overflow-hidden max-w-[600px]">
-                    <Image
-                      src={brandingSettings.emailFooterImage}
-                      alt="Email footer preview"
-                      width={600}
-                      height={100}
-                      className="w-full h-auto object-cover"
-                      unoptimized
-                    />
-                  </div>
-                )}
-              </div>
+              <BrandingImageField
+                eventId={eventId}
+                label="Email Footer Image"
+                value={brandingSettings.emailFooterImage}
+                onChange={(url) =>
+                  setBrandingSettings({ ...brandingSettings, emailFooterImage: url })
+                }
+                hint={
+                  <>
+                    Bottom-of-email logo or sign-off image. Optional. <strong>Recommended size: 1200×200px</strong> (slim footer renders at 600×100 with retina sharpness). Keep under 100KB. Same responsive treatment as the header — fits the email body width across every client. Uploads also appear in this event&apos;s Media library.
+                  </>
+                }
+                previewWrapClassName="max-w-[600px]"
+                previewClassName="w-full h-auto object-cover"
+              />
 
               <div className="space-y-2">
                 <Label>Email Footer</Label>

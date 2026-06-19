@@ -3,7 +3,12 @@
 /**
  * MediaPickerDialog — reusable media-library picker.
  *
- * Wraps the existing org-scoped `/api/media` endpoints (list / upload).
+ * Wraps the media-library endpoints (list / upload). By default it is
+ * org-scoped (`/api/media`); pass `eventId` to scope it to a single event's
+ * library (`/api/events/[eventId]/media`) — both endpoints return identical
+ * shapes (`{ mediaFiles }` for GET, the created `MediaFile` for POST), so an
+ * event-scoped upload lands in that event's media library automatically.
+ *
  * On select, calls `onSelect(url)` with the public `/uploads/media/...`
  * URL of the chosen file.
  *
@@ -43,22 +48,35 @@ interface MediaPickerDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Called with the chosen file's public URL. */
   onSelect: (url: string) => void;
+  /**
+   * When set, the picker browses + uploads to this event's media library
+   * (`/api/events/[eventId]/media`) instead of the org library (`/api/media`),
+   * so uploads here appear in the event's media library.
+   */
+  eventId?: string;
+  /** Dialog heading. Defaults to "Insert Image". */
+  title?: string;
 }
 
 export function MediaPickerDialog({
   open,
   onOpenChange,
   onSelect,
+  eventId,
+  title = "Insert Image",
 }: MediaPickerDialogProps) {
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const listUrl = eventId ? `/api/events/${eventId}/media?limit=100` : "/api/media?limit=100";
+  const uploadUrl = eventId ? `/api/events/${eventId}/media` : "/api/media";
+
   const fetchFiles = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/media?limit=100");
+      const res = await fetch(listUrl);
       if (!res.ok) {
         toast.error("Failed to load media");
         return;
@@ -70,7 +88,7 @@ export function MediaPickerDialog({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [listUrl]);
 
   useEffect(() => {
     if (open) fetchFiles();
@@ -81,7 +99,7 @@ export function MediaPickerDialog({
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/media", { method: "POST", body: formData });
+      const res = await fetch(uploadUrl, { method: "POST", body: formData });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast.error(err.error || "Upload failed");
@@ -114,7 +132,7 @@ export function MediaPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Insert Image</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             Choose from your media library or upload a new image. JPEG, PNG, or WebP. Max 2MB.
           </DialogDescription>
