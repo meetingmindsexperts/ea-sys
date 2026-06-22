@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -26,6 +26,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
+import { WaitingRoom } from "@/components/webinar/waiting-room";
 import { formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
@@ -73,6 +74,16 @@ type JoinAuthState =
   | { kind: "ok" }
   | { kind: "needs-login" }
   | { kind: "needs-registration" };
+
+interface LobbyStatus {
+  roomOpen: boolean;
+  ended: boolean;
+  viewingMode: "zoom" | "hls";
+  lobbyVideoUrl: string | null;
+  lobbyMessage: string | null;
+  startsAt: string;
+  endsAt: string;
+}
 
 interface SpeakerInfo {
   id: string;
@@ -175,6 +186,11 @@ export default function PublicSessionPage() {
   // so unauthenticated or unregistered visitors see a login / register CTA
   // in place of the Join button instead of an error screen.
   const [authState, setAuthState] = useState<JoinAuthState>({ kind: "ok" });
+  // Webinar waiting-room state, polled from lobby-status. Null until the first
+  // poll resolves (and only polled for WEBINAR events with a registered viewer).
+  const [lobby, setLobby] = useState<LobbyStatus | null>(null);
+  // Ensures the "room just opened → admit" side-effects fire once per opening.
+  const admittedRef = useRef(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -215,6 +231,58 @@ export default function PublicSessionPage() {
 
     fetchData();
   }, [slug, sessionId]);
+
+  // Webinar waiting room: poll lobby-status to learn when the producer opens
+  // the room. Only for WEBINAR events, and only once the viewer is a confirmed
+  // registrant (authState "ok") — unregistered visitors see the sign-in CTA,
+  // not the lobby. lobby-status is public + cached, so this scales to 5k.
+  const isWebinarEvent = event?.eventType === "WEBINAR";
+  useEffect(() => {
+    if (!isWebinarEvent || authState.kind !== "ok") return;
+    let active = true;
+    async function poll() {
+      try {
+        const res = await fetch(
+          `/api/public/events/${slug}/sessions/${sessionId}/lobby-status`,
+        );
+        if (res.ok && active) setLobby((await res.json()) as LobbyStatus);
+      } catch {
+        // transient — keep the last known state, retry next tick
+      }
+    }
+    poll();
+    // Jittered ~15–20s so a 5k crowd doesn't poll in lockstep.
+    const id = setInterval(poll, 15000 + Math.floor(Math.random() * 5000));
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [isWebinarEvent, authState.kind, slug, sessionId]);
+
+  // When the room opens, admit the attendee: (re)fetch join creds — they may
+  // have 403'd at page load while the room was still closed — and, for the
+  // Zoom-embed mode, auto-mount the embed (with the "Join now" CTA as the
+  // gesture fallback). The HLS branch renders from the refreshed joinInfo.
+  const roomOpen = Boolean(lobby?.roomOpen);
+  useEffect(() => {
+    if (!isWebinarEvent || !roomOpen || admittedRef.current) return;
+    admittedRef.current = true;
+    (async () => {
+      try {
+        if (!joinInfo) {
+          const res = await fetch(
+            `/api/public/events/${slug}/sessions/${sessionId}/zoom-join`,
+          );
+          if (res.ok) setJoinInfo((await res.json()) as JoinInfo);
+        }
+      } catch {
+        // leave the "Join now" CTA as the manual path
+      }
+      if (lobby?.viewingMode === "zoom") setIsJoining(true);
+    })();
+    // joinInfo intentionally omitted — admit runs once per opening via the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId]);
 
   // Determine session timing status
   const now = Date.now();
@@ -271,6 +339,19 @@ export default function PublicSessionPage() {
   // response was older or staff-initiated without an email on the user.
   const zoomUserName = joinInfo?.userName?.trim() || "Attendee";
   const zoomUserEmail = joinInfo?.userEmail || "";
+
+  // Show the branded waiting room when: this is a webinar, the viewer is a
+  // confirmed registrant, lobby state has loaded, the producer has NOT opened
+  // the room, and the session isn't already ended / replayable. When true, it
+  // replaces the live-video branches below until the room opens.
+  const showWaitingRoom =
+    isWebinarEvent &&
+    authState.kind === "ok" &&
+    lobby !== null &&
+    !roomOpen &&
+    !lobby.ended &&
+    !isPast &&
+    !hasRecording;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -416,6 +497,14 @@ export default function PublicSessionPage() {
 
           {/* Tab 1 — Live Video */}
           <TabsContent value="video" className="space-y-4">
+            {showWaitingRoom && lobby ? (
+              <WaitingRoom
+                startsAt={lobby.startsAt}
+                lobbyVideoUrl={lobby.lobbyVideoUrl}
+                lobbyMessage={lobby.lobbyMessage}
+              />
+            ) : (
+              <>
             {/* HLS stream takes precedence when configured — it's the
                  branded full-screen experience */}
             {joinInfo?.liveStreamEnabled && !isPast && (
@@ -533,6 +622,8 @@ export default function PublicSessionPage() {
                   </CardContent>
                 </Card>
               )}
+              </>
+            )}
           </TabsContent>
 
           {/* Tab 2 — Session Details */}

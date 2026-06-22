@@ -1675,6 +1675,9 @@ export interface WebinarConsoleData {
     waitingRoom?: boolean;
     autoRecording?: "none" | "local" | "cloud";
     automationEnabled?: boolean;
+    viewingMode?: "zoom" | "hls";
+    lobbyVideoUrl?: string;
+    lobbyMessage?: string;
   };
   anchorSession: {
     id: string;
@@ -1682,6 +1685,7 @@ export interface WebinarConsoleData {
     startTime: string;
     endTime: string;
     description: string | null;
+    status: "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
   } | null;
   zoomMeeting: {
     id: string;
@@ -1739,6 +1743,21 @@ export function useProvisionWebinar(eventId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.webinarSequence(eventId) });
+    },
+  });
+}
+
+/** Producer "Open the room / Go live" — sets the anchor session LIVE (open) or COMPLETED (close). */
+export function useToggleWebinarRoom(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (open: boolean) =>
+      fetchApi<{ open: boolean; sessionId: string; status: string }>(
+        `/api/events/${eventId}/webinar/room`,
+        { method: "POST", body: JSON.stringify({ open }), headers: { "Content-Type": "application/json" } },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.webinar(eventId) });
     },
   });
 }

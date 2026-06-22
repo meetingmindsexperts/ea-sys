@@ -53,6 +53,7 @@ import {
 import {
   useWebinar,
   useUpdateWebinarSettings,
+  useToggleWebinarRoom,
   useProvisionWebinar,
   useWebinarSequence,
   useReenqueueWebinarSequence,
@@ -67,6 +68,7 @@ import {
   useSyncSpeakersToPanelists,
   useResendPanelistInvite,
   OPTIMISTIC_PANELIST_PREFIX,
+  type WebinarConsoleData,
   type WebinarSequenceRow,
   type WebinarAttendeeRow,
   type WebinarPollRow,
@@ -76,6 +78,7 @@ import {
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 
 type AutoRecording = "none" | "local" | "cloud";
 
@@ -285,6 +288,11 @@ export default function WebinarConsolePage() {
             provisionPending={provision.isPending}
             onProvision={handleProvision}
             onCopy={handleCopy}
+          />
+          <LobbyCard
+            eventId={eventId}
+            webinar={data?.webinar ?? {}}
+            anchor={anchor ?? null}
           />
           <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
           <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
@@ -1818,6 +1826,184 @@ function QaCard({
             )}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LobbyCard({
+  eventId,
+  webinar,
+  anchor,
+}: {
+  eventId: string;
+  webinar: WebinarConsoleData["webinar"];
+  anchor: WebinarConsoleData["anchorSession"];
+}) {
+  const updateSettings = useUpdateWebinarSettings(eventId);
+  const toggleRoom = useToggleWebinarRoom(eventId);
+
+  const [viewingMode, setViewingMode] = useState<"zoom" | "hls">(
+    () => webinar.viewingMode ?? "zoom",
+  );
+  const [lobbyVideoUrl, setLobbyVideoUrl] = useState(() => webinar.lobbyVideoUrl ?? "");
+  const [lobbyMessage, setLobbyMessage] = useState(() => webinar.lobbyMessage ?? "");
+
+  const roomOpen = anchor?.status === "LIVE";
+  const videoInvalid =
+    lobbyVideoUrl.trim().length > 0 && !isValidLobbyVideoUrl(lobbyVideoUrl.trim());
+
+  const handleSave = async () => {
+    if (videoInvalid) {
+      toast.error("Holding video must be a YouTube or Vimeo link");
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({
+        viewingMode,
+        lobbyVideoUrl: lobbyVideoUrl.trim(),
+        lobbyMessage: lobbyMessage.trim(),
+      });
+      toast.success("Lobby settings saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save lobby settings");
+    }
+  };
+
+  const handleToggleRoom = async () => {
+    try {
+      const res = await toggleRoom.mutateAsync(!roomOpen);
+      toast.success(
+        res.open ? "Room opened — attendees are being let in" : "Room closed",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update the room");
+    }
+  };
+
+  if (!anchor) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PlayCircle className="h-5 w-5" />
+            Waiting Room
+          </CardTitle>
+          <CardDescription>
+            Run the provisioner to create the webinar session first.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <PlayCircle className="h-5 w-5" />
+              Waiting Room
+            </CardTitle>
+            <CardDescription>
+              Hold registered attendees in a branded lobby, then admit them when you go live.
+            </CardDescription>
+          </div>
+          <Badge
+            variant={roomOpen ? undefined : "outline"}
+            className={roomOpen ? "bg-red-100 text-red-800 border-red-200" : ""}
+          >
+            {roomOpen ? "Room OPEN" : "Room closed"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Open / close the room */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+          <div className="min-w-0">
+            <p className="font-medium">
+              {roomOpen
+                ? "Attendees are being admitted into the session"
+                : "Attendees are waiting in the lobby"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Opening the room admits everyone into the live{" "}
+              {viewingMode === "hls" ? "stream" : "webinar"}.
+            </p>
+          </div>
+          <Button
+            onClick={handleToggleRoom}
+            disabled={toggleRoom.isPending}
+            variant={roomOpen ? "outline" : "default"}
+            className={roomOpen ? "" : "bg-red-600 hover:bg-red-700"}
+          >
+            {toggleRoom.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <PlayCircle className="h-4 w-4 mr-2" />
+            )}
+            {roomOpen ? "Close the room" : "Open the room / Go live"}
+          </Button>
+        </div>
+
+        {/* Viewing mode */}
+        <div className="space-y-2">
+          <Label>How attendees watch</Label>
+          <Select value={viewingMode} onValueChange={(v) => setViewingMode(v as "zoom" | "hls")}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="zoom">Zoom embed — interactive, native Q&amp;A/chat</SelectItem>
+              <SelectItem value="hls">Custom stream — one-way broadcast, scales to thousands</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-muted-foreground">
+            {viewingMode === "zoom"
+              ? "Counts against your Zoom webinar capacity; supports Q&A moderation."
+              : "Unlimited viewers via the custom stream; no in-page Q&A. Needs the live stream enabled on the session."}
+          </p>
+        </div>
+
+        {/* Holding video */}
+        <div className="space-y-2">
+          <Label htmlFor="lobby-video">Holding video (YouTube or Vimeo)</Label>
+          <Input
+            id="lobby-video"
+            value={lobbyVideoUrl}
+            onChange={(e) => setLobbyVideoUrl(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=…"
+            className={videoInvalid ? "border-red-400" : ""}
+          />
+          <p className="text-sm text-muted-foreground">
+            Looped (muted) in the lobby until you open the room. Leave blank for a countdown only.
+            {videoInvalid && (
+              <span className="text-red-600 block">Must be a YouTube or Vimeo link.</span>
+            )}
+          </p>
+        </div>
+
+        {/* Lobby message */}
+        <div className="space-y-2">
+          <Label htmlFor="lobby-message">Lobby message (optional)</Label>
+          <Input
+            id="lobby-message"
+            value={lobbyMessage}
+            onChange={(e) => setLobbyMessage(e.target.value)}
+            maxLength={280}
+            placeholder="We'll begin shortly — thanks for joining early!"
+          />
+        </div>
+
+        <div className="flex justify-end pt-2 border-t">
+          <Button onClick={handleSave} disabled={updateSettings.isPending} variant="outline">
+            {updateSettings.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : null}
+            Save lobby settings
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

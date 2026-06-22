@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
+import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { enableWebinarQA } from "@/lib/zoom";
 
@@ -17,6 +18,17 @@ const updateWebinarSchema = z.object({
   waitingRoom: z.boolean().optional(),
   autoRecording: z.enum(["none", "local", "cloud"]).optional(),
   automationEnabled: z.boolean().optional(),
+  // Waiting room / lobby config
+  viewingMode: z.enum(["zoom", "hls"]).optional(),
+  // Empty string clears the field; otherwise must be a YouTube/Vimeo URL.
+  lobbyVideoUrl: z
+    .string()
+    .max(500)
+    .optional()
+    .refine((v) => !v || isValidLobbyVideoUrl(v), {
+      message: "Holding video must be a YouTube or Vimeo URL",
+    }),
+  lobbyMessage: z.string().max(280).optional(),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───
@@ -50,6 +62,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
               startTime: true,
               endTime: true,
               description: true,
+              status: true,
             },
           })
         : Promise.resolve(null),

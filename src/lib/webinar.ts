@@ -31,6 +31,13 @@ export function webinarModuleFilter(eventType: string | null | undefined) {
 
 export type WebinarAutoRecording = "none" | "local" | "cloud";
 
+/**
+ * How registered attendees watch the live webinar on our public session page.
+ * `zoom` = Zoom Meeting SDK embed (interactive, native Q&A/chat);
+ * `hls`  = one-way custom HLS stream via the LivePlayer (scales to 5k via CDN).
+ */
+export type WebinarViewingMode = "zoom" | "hls";
+
 export interface WebinarSettings {
   autoCreated?: boolean;
   sessionId?: string;
@@ -39,6 +46,13 @@ export interface WebinarSettings {
   waitingRoom?: boolean;
   autoRecording?: WebinarAutoRecording;
   automationEnabled?: boolean;
+  // ── Waiting room / lobby ────────────────────────────────────────
+  /** Which on-page renderer attendees get once the room is opened. */
+  viewingMode?: WebinarViewingMode;
+  /** YouTube/Vimeo URL looped in the waiting room before the room opens. */
+  lobbyVideoUrl?: string;
+  /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
+  lobbyMessage?: string;
 }
 
 export function readWebinarSettings(
