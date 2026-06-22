@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Server-side breakpoints: API routes, server components, src/lib/**,
+      // the worker, etc. Runs `npm run dev` (port 3113) in a JS debug
+      // terminal and auto-attaches. Set breakpoints in the gutter, then
+      // hit the route from the browser.
+      "name": "Next.js: debug server-side",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Client-side breakpoints: React components running in the browser.
+      // Start the dev server first (the config above, or `npm run dev`),
+      // THEN launch this to open Chrome attached to the debugger.
+      "name": "Next.js: debug client-side (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3113",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      // Debug whatever .ts file is currently open, under tsx — e.g. a
+      // one-off script in scripts/. `@/` path aliases resolve via tsconfig;
+      // .env is loaded so DATABASE_URL / NEXTAUTH_SECRET etc. are available.
+      "name": "Debug current tsx script",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "${file}"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
+    },
+    {
+      // Step through the Vitest test file currently open in the editor.
+      "name": "Debug Vitest (current file)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vitest", "run", "${relativeFile}"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
+    }
+  ]
+}

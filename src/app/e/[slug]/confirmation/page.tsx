@@ -3,12 +3,10 @@
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useParams } from "next/navigation";
 import Image from "next/image";
-import Link from "next/link";
 import {
   CheckCircle2,
   Clock,
   Mail,
-  ArrowLeft,
   Calendar,
   CreditCard,
   Loader2,
@@ -411,18 +409,6 @@ function ConfirmationContent() {
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="px-6 pb-8 space-y-3">
-              <Link href={`/e/${slug}`} className="block">
-                <Button
-                  variant="outline"
-                  className="w-full h-11 rounded-xl font-medium gap-2 border-slate-200 text-slate-700 hover:bg-slate-50"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Back to Event Page
-                </Button>
-              </Link>
-            </div>
           </div>
 
           {/* Organizer note */}
