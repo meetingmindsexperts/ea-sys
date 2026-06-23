@@ -218,6 +218,16 @@ The **24-hour re-sync cap** on attendance is important: without it, every webina
 
 Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, `{{recordingUrl}}` + conditional `{{passcodeBlock}}` / `{{recordingBlock}}` HTML fragments.
 
+> **`{{joinUrl}}` points at OUR gated session page, NOT the raw Zoom link.** The
+> attendee email enrichment in `executeBulkEmail` sets it to
+> `${appUrl}/e/{slug}/session/{anchorSessionId}` so the CTA lands attendees in
+> the waiting room (auth + registration-gated, producer-admitted) rather than
+> bypassing it straight into Zoom. **The separate panelist email
+> (`src/lib/webinar-panelist-email.ts`) keeps the real Zoom join URL** —
+> panelists/hosts join Zoom directly. (Producer-reported fix, June 23: a delivered
+> email can't be changed, so the fix applies to all sends after deploy — the
+> reminder/live-now emails build the URL at fire time.)
+
 **Enqueueing** — `enqueueWebinarSequenceForEvent()` creates 4 future `ScheduledEmail` rows (the immediate confirmation is sent directly from the register route). Past-dated phases are dropped; re-enqueue is idempotent.
 
 **Cron worker reuse** — webinar emails piggyback on the existing `/api/cron/scheduled-emails` worker; no new cron needed. `executeBulkEmail()` detects `webinarEmailType.startsWith('webinar-')` and enriches `vars` with the anchor Zoom meeting's fields in **one extra query per scheduled row**, not per recipient.
@@ -403,10 +413,18 @@ The attendee live-day flow is **producer-controlled**: registrants wait in a bra
 ### Config (`Event.settings.webinar` JSON — no schema change)
 `WebinarSettings` (in `src/lib/webinar.ts`) gained:
 - `viewingMode?: "zoom" | "hls"` — Zoom SDK embed (interactive, native Q&A) vs custom HLS stream (one-way, 5k via CDN). Default `"zoom"`.
-- `lobbyVideoUrl?: string` — a YouTube/Vimeo holding video, looped + muted in the lobby. Parsed/host-allowlisted by `src/lib/webinar/lobby-video.ts` → only `youtube-nocookie.com`/`player.vimeo.com` embeds are ever produced (no arbitrary `<iframe src>`). Validated on the webinar PUT.
+- `lobbyVideoUrl?: string` — a YouTube/Vimeo holding video, looped + muted in the lobby. Parsed/host-allowlisted by `src/lib/webinar/lobby-video.ts` → only `youtube-nocookie.com`/`player.vimeo.com` embeds are ever produced (no arbitrary `<iframe src>`). Validated on the webinar PUT. **Optional** — see the fallback below.
 - `lobbyMessage?: string` — optional copy shown under the holding video.
 
 Edited via the **LobbyCard** in the Webinar Console Setup tab.
+
+### Lobby visual — three-tier fallback (no blank state)
+The lobby top box (`src/components/webinar/waiting-room.tsx`) degrades gracefully so it always reads as a deliberate holding screen:
+1. **Valid `lobbyVideoUrl`** → the YouTube/Vimeo player (looped, muted, minimal chrome), delivered on the provider's CDN (scales to 5k).
+2. **No/invalid video, but the event has a banner** → the **event banner as a dimmed poster** (`opacity-40`) behind a spinner + "Waiting for the session to begin…" overlay (`posterUrl={event.bannerImage}`, no new field).
+3. **Neither** → a dark gradient + spinner placeholder.
+
+The **countdown** ("Starts in 4m 12s" → "Starting any moment") and the **lobby message** (custom `lobbyMessage`, or a sensible default) render below in all three cases. `parseLobbyVideo()` returns `null` for an empty / malformed / non-allowlisted URL, which is what selects tiers 2/3.
 
 ### "Open the room" (the admit signal)
 - `POST /api/events/[eventId]/webinar/room` `{ open }` (`denyReviewer` + org-scoped) sets the **anchor `EventSession.status`** → `LIVE` (open) / `COMPLETED` (close). The session status IS the room-open source of truth — no new column. Re-openable.
@@ -417,6 +435,9 @@ Edited via the **LobbyCard** in the Webinar Console Setup tab.
 - `GET .../sessions/[sessionId]/lobby-status` — **public, single query (session joined to event), 3s per-container micro-cache** so 5k pollers collapse to ~1 DB hit / 3s. Returns `{ roomOpen, ended, viewingMode, lobbyVideoUrl, lobbyMessage, startsAt, endsAt }`. DRAFT events auto-open (for testing).
 - The session page polls lobby-status (~15–20s, jittered). On `roomOpen → true` it **re-mints** join creds via `zoom-join` (a signature minted at page load is likely expired after a long lobby wait) and, for `zoom` mode, auto-mounts the embed (with a "Join now" CTA gesture fallback); `hls` mode renders `LivePlayer`. The admit latch (`admittedRef`) resets on close so a re-open re-admits, and releases on a failed re-fetch so the next poll retries.
 - **Overrun:** the HLS view stays mounted past the scheduled end while `roomOpen` (`liveWindowActive = !isPast || (isWebinarEvent && roomOpen)`) — webinars routinely overrun.
+
+### Attendee join path (auth redirect)
+The full path is: **email CTA → `/e/{slug}/session/{id}` → (sign in if needed → back to the session page) → waiting room → producer admits.** When a signed-out attendee opens the session page, it shows a login CTA → `/e/{slug}/login?redirect=/e/{slug}/session/{id}`. The event login (`src/app/e/[slug]/login/page.tsx`) honors a **safe same-origin path** in `redirect` (single leading `/`, open-redirect guarded) and pushes back there after sign-in. **Producer-reported fix, June 23:** previously the login only recognized the literal `redirect` values `"registration"`/`"abstracts"`, so a path-style redirect fell through to `/dashboard` and role-middleware bounced the REGISTRANT to `/my-registration` (looked like "it showed the registration page, not the webinar").
 
 ### Real-time presence (`WebinarPresence` table)
 - Additive migration `20260623000000_add_webinar_presence` — one row per `(sessionId, registrationId)` (`@@unique`), plus a write-once `Registration.webinarFirstJoinedAt`.
