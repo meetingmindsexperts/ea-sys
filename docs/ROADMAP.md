@@ -373,6 +373,33 @@ shippable, none blocking v1:
 | **Tier-windowed virtual pricing** | v1 virtual price is **flat** per ticket type (pricing tiers apply to in-person only). If virtual needs Early-Bird-style time-windowed pricing, that's a `PricingTier.virtualPrice` extension — scope separately. |
 | **Virtual attendance certificates** | An *attendance* certificate for a virtual attendee should gate on **Zoom attendance** (the webinar attendance sync), not desk check-in — the cert eligibility assumption changes for virtual. |
 
+### Webinar waiting room follow-ups (deferred from the June 23, 2026 code review)
+
+The webinar **waiting room** shipped (June 23): producer-gated "Open the room"
+admission, a branded lobby with a YouTube/Vimeo holding video + countdown,
+per-event viewing mode (Zoom embed vs custom HLS stream), real-time presence
+tracking (`WebinarPresence` + heartbeat + "Live now" console card + a "Joined"
+registrations badge), and 5k-ready HLS-via-CDN wiring. A two-agent adversarial
+review followed; the live/high findings were fixed in-band (commits `ebf766b`,
+`9cdac92`, `517e1d4` — presence upsert race, LivePlayer auto-recovery, close/
+re-open admit, hls-misconfig fallback, lobby-status micro-cache, MediaMTX probe
+cache, admit signature re-mint, overrun cutoff). These remain deferred:
+
+| Item | Note |
+|---|---|
+| **Never-opened-room warning (#6)** | DECISION: keep the producer-gated manual "Open the room" model (do NOT auto-open). Add a loud **"Room still closed — N attendees waiting"** alert on the Webinar Console once `now >= startTime`, and fix the lobby copy so the countdown doesn't imply imminence forever after T-0. |
+| **Operator visibility (#10)** | Surface in the LobbyCard that **DRAFT events auto-open** the room (for testing) while **PUBLISHED requires the manual click** — so "it worked in my test" doesn't surprise an operator at go-live. |
+| **Save-time hls/stream validation (#5 follow-up)** | The runtime fallback handles `viewingMode="hls"` with no `liveStreamEnabled`/`streamKey` (shows "getting the stream ready"). Better: validate at the webinar/room PUT that HLS mode requires the anchor session's live stream to be enabled, so it can't be misconfigured. |
+| **`lobby-status` eventType short-circuit (LOW)** | The public lobby-status route serves any session in a valid event; add a cheap `eventType === "WEBINAR"` guard to keep the surface tight. |
+| **Stale `session.status` badge (LOW, cosmetic)** | The public session page fetches `session.status` once at load; the Live/Ended badge can lag the producer's open/close until refresh. Admission itself is driven by the lobby poll, so this is display-only. |
+| **`LivePlayer` `onStreamStatusChange` ref (LOW)** | The init effect depends on the inline `onStreamStatusChange` prop; harmless on the public page (passed `undefined`), but a future caller passing a non-memoized handler would re-create the 10s poll interval. Wrap/ref it. |
+| **Shared rate limiter (LOW, pre-existing)** | The in-memory `checkRateLimit` store resets on every blue-green deploy and is per-container — at 5k that briefly drops rate protection mid-deploy. Real fix is the long-deferred Redis-backed limiter; for now: don't deploy during a live 5k webinar. |
+
+**Operational prerequisites (operator-run, not code):**
+- **Phase 0 — Zoom embed Join:** flip the org's Zoom **Active SDK Mode dev → Production** and add `events.meetingmindsgroup.com` to the **prod** Meeting-SDK app's Marketplace **Embed allowlist** (the embed code/deps are verified sound; this is the one config gap behind the earlier Join error). Required only for the **Zoom-embed** viewing mode.
+- **Verify the box's nginx `/stream/`** matches the now-committed `deploy/nginx.conf` block before any HLS-mode webinar (the live nginx is Certbot-managed and has diverged — the box is source of truth).
+- **CloudFront + Singapore DR origin failover** before a real **5k streamed** event — exact steps in `docs/LIVE_STREAMING.md §13`. The app is CDN-ready (`HLS_CDN_BASE` unset = direct origin, fine for dev/small events).
+
 ### registration-detail-sheet.tsx — staged refactor remainder (trigger-driven, May 20, 2026)
 
 Steps A–E of the staged refactor shipped (commits `8ad760b`, `25b3299`,

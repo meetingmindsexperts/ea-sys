@@ -18,8 +18,11 @@ Creating an event with `eventType = 'WEBINAR'` turns on a differentiated mode:
 5. **Hides** irrelevant modules (Accommodation, Check-In, Promo Codes, Abstracts, Reviewers) from the sidebar
 6. **Embeds Zoom in-page** on the public session URL via the `ZoomWebEmbed` Component View component — attendees watch without leaving the domain (no redirect to zoom.us)
 7. **Surfaces sponsors + topics + speaker bios** under a 3-tab layout (Live Video / Session Details / Sponsors) on the public session page
+8. **Waiting room + producer-gated admission** (June 23, 2026) — registered attendees land in a branded lobby (live countdown + optional YouTube/Vimeo holding video + message); a producer clicks **"Open the room / Go live"** on the console (sets the anchor session `LIVE`) to admit everyone into the live view
+9. **Per-event viewing mode** — attendees watch via the **Zoom SDK embed** (interactive, native Q&A; counts against Zoom capacity) **or** a **custom HLS stream** (one-way broadcast, scales to ~5,000 via CloudFront — see `LIVE_STREAMING.md`)
+10. **Real-time presence tracking** — a heartbeat records who's in the lobby / joined live; the console shows a **"Live now"** roster, and the registrations list shows a **"Joined"** badge (`WebinarPresence` table; distinct from the authoritative post-event `ZoomAttendance`)
 
-Non-webinar events are **untouched** — all logic is gated on `eventType`.
+Non-webinar events are **untouched** — all logic is gated on `eventType` + a registered viewer.
 
 ---
 
@@ -86,7 +89,9 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 
 | Path | Purpose |
 |---|---|
-| [src/lib/webinar.ts](../src/lib/webinar.ts) | `isWebinar()`, sidebar filter policy, `WebinarSettings` type |
+| [src/lib/webinar.ts](../src/lib/webinar.ts) | `isWebinar()`, sidebar filter policy, `WebinarSettings` type (incl. `viewingMode` / `lobbyVideoUrl` / `lobbyMessage`) |
+| [src/lib/webinar/lobby-video.ts](../src/lib/webinar/lobby-video.ts) | `parseLobbyVideo()` / `isValidLobbyVideoUrl()` — YouTube/Vimeo URL → host-allowlisted embed src (no arbitrary iframe) |
+| [src/components/webinar/waiting-room.tsx](../src/components/webinar/waiting-room.tsx) | Branded lobby — countdown + looped holding video + message |
 | [src/lib/webinar-provisioner.ts](../src/lib/webinar-provisioner.ts) | Entry point: creates anchor session + Zoom webinar + email sequence |
 | [src/lib/webinar-email-sequence.ts](../src/lib/webinar-email-sequence.ts) | Enqueue / clear / immediate-send helpers for the 5-phase sequence |
 | [src/lib/webinar-recording-sync.ts](../src/lib/webinar-recording-sync.ts) | Recording state machine |
@@ -101,7 +106,8 @@ No `Webinar` parent table — `eventType` is the switch. This keeps webinars ins
 | [src/components/zoom/zoom-embed.tsx](../src/components/zoom/zoom-embed.tsx) | Iframe fallback (not imported by default) — kept as belt-and-braces if Component View ever regresses |
 | [src/app/e/[slug]/session/[sessionId]/page.tsx](../src/app/e/%5Bslug%5D/session/%5BsessionId%5D/page.tsx) | **Public session page** — sticky CTA + Live Video / Session Details / Sponsors tabs. Dynamically imports `ZoomWebEmbed` and `LivePlayer` so the ~3 MB SDK bundle never hits first paint |
 | [src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts](../src/app/api/public/events/%5Bslug%5D/sessions/%5BsessionId%5D/detail/route.ts) | Public detail route — returns session metadata + topics (with per-topic speakers) + speakers with bios + sponsors |
-| `src/app/api/events/[eventId]/webinar/*` | REST surface: `route.ts` + `/sequence` + `/recording/fetch` + `/attendance` + `/engagement` + `/panelists` + `/panelists/sync-speakers` |
+| `src/app/api/events/[eventId]/webinar/*` | REST surface: `route.ts` + `/room` (producer open/close) + `/presence` (Live-now roster) + `/sequence` + `/recording/fetch` + `/attendance` + `/engagement` + `/panelists` + `/panelists/sync-speakers` |
+| `src/app/api/public/events/[slug]/sessions/[sessionId]/*` | Public per-session routes: `/zoom-join` (gated embed creds) + `/lobby-status` (cached room state) + `/presence` (heartbeat) + `/stream-status` (HLS liveness) |
 | `src/app/api/events/[eventId]/sponsors/route.ts` | Admin sponsors route — `GET` returns the list, `PUT` replaces the entire array (Zod-validated, URL scheme whitelisted, normalizes empty strings to undefined) |
 | `src/app/api/cron/webinar-recordings` + `/webinar-attendance` | Two cron workers |
 
@@ -387,6 +393,38 @@ Organizers manage sponsors at `/events/[id]/sponsors`:
 - `PUT` replaces the entire array (single atomic write, simpler than row-level CRUD for a settings JSON field). The server reassigns `sortOrder` from the array index so client-side drag history doesn't matter
 - URL schemes are whitelisted server-side: `logoUrl` accepts `http(s)://` or `/` (for locally-uploaded files), `websiteUrl` requires absolute `http(s)://`. Rejects `javascript:` / `data:` URLs
 - `SponsorEntry` type lives in `src/lib/webinar.ts` and is re-exported from `src/hooks/use-api.ts` — single source of truth
+
+---
+
+## Waiting room, producer-gated admission & real-time presence (June 23, 2026)
+
+The attendee live-day flow is **producer-controlled**: registrants wait in a branded lobby until a producer opens the room, then are admitted into the event's chosen viewing mode. None of this involves BigMarker — attendees watch on our gated session page.
+
+### Config (`Event.settings.webinar` JSON — no schema change)
+`WebinarSettings` (in `src/lib/webinar.ts`) gained:
+- `viewingMode?: "zoom" | "hls"` — Zoom SDK embed (interactive, native Q&A) vs custom HLS stream (one-way, 5k via CDN). Default `"zoom"`.
+- `lobbyVideoUrl?: string` — a YouTube/Vimeo holding video, looped + muted in the lobby. Parsed/host-allowlisted by `src/lib/webinar/lobby-video.ts` → only `youtube-nocookie.com`/`player.vimeo.com` embeds are ever produced (no arbitrary `<iframe src>`). Validated on the webinar PUT.
+- `lobbyMessage?: string` — optional copy shown under the holding video.
+
+Edited via the **LobbyCard** in the Webinar Console Setup tab.
+
+### "Open the room" (the admit signal)
+- `POST /api/events/[eventId]/webinar/room` `{ open }` (`denyReviewer` + org-scoped) sets the **anchor `EventSession.status`** → `LIVE` (open) / `COMPLETED` (close). The session status IS the room-open source of truth — no new column. Re-openable.
+- The console LobbyCard renders the **"Open the room / Go live" ↔ "Close the room"** button + a live `Room OPEN/closed` badge.
+
+### Lobby + auto-admit (public page)
+- `src/components/webinar/waiting-room.tsx` — branded lobby: live countdown + holding-video iframe + message. Shown when `eventType === WEBINAR` + the viewer is a confirmed registrant (`authState === "ok"`) + the room is **not** open + not past end (`showWaitingRoom`, gated on `!isPast`, NOT `lobby.ended`, so a mid-event close returns attendees to the lobby).
+- `GET .../sessions/[sessionId]/lobby-status` — **public, single query (session joined to event), 3s per-container micro-cache** so 5k pollers collapse to ~1 DB hit / 3s. Returns `{ roomOpen, ended, viewingMode, lobbyVideoUrl, lobbyMessage, startsAt, endsAt }`. DRAFT events auto-open (for testing).
+- The session page polls lobby-status (~15–20s, jittered). On `roomOpen → true` it **re-mints** join creds via `zoom-join` (a signature minted at page load is likely expired after a long lobby wait) and, for `zoom` mode, auto-mounts the embed (with a "Join now" CTA gesture fallback); `hls` mode renders `LivePlayer`. The admit latch (`admittedRef`) resets on close so a re-open re-admits, and releases on a failed re-fetch so the next poll retries.
+- **Overrun:** the HLS view stays mounted past the scheduled end while `roomOpen` (`liveWindowActive = !isPast || (isWebinarEvent && roomOpen)`) — webinars routinely overrun.
+
+### Real-time presence (`WebinarPresence` table)
+- Additive migration `20260623000000_add_webinar_presence` — one row per `(sessionId, registrationId)` (`@@unique`), plus a write-once `Registration.webinarFirstJoinedAt`.
+- `POST .../sessions/[sessionId]/presence` heartbeat (auth + registration-gated; org staff skipped) — **`upsert`** (INSERT … ON CONFLICT, no interactive transaction) so two-tab first-beats can't collide on the unique key and no pooled connection is held. Escalates `lobby→joined` only (never downgrades). The page beats every ~30–40s while open, paused when the tab is hidden.
+- `GET /api/events/[eventId]/webinar/presence` (org-scoped) → registrants present in the last 60s, split lobby/joined → the console **"Live now"** card. The registrations list shows a **"Joined"** badge (`webinarFirstJoinedAt`). **This is OUR-page presence, not Zoom viewing** — keep it distinct from the post-event `ZoomAttendance`.
+
+### 5k stream delivery
+HLS playback is **CDN-aware** via `HLS_CDN_BASE` (CloudFront) with the app origin as fallback (emitted by `stream-status` + `zoom-join`); `stream-status` keeps probing the MediaMTX origin internally (cached 3s so 5k pollers share one probe). `LivePlayer` fails over CDN → origin once on a fatal error, then resumes the recovery poll (auto-reconnect) rather than dead-ending. See `LIVE_STREAMING.md §13` for the operator-run CloudFront + Singapore-DR failover provisioning.
 
 ---
 

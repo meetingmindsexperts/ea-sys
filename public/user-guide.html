@@ -1306,6 +1306,40 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>The system <strong>auto-provisions</strong> everything you need: an anchor session, a Zoom webinar via your org&rsquo;s Zoom credentials, a 5-stage email sequence (confirmation, reminders at 24h/1h, &ldquo;Live now&rdquo;, post-event thank-you). The sidebar swaps out Accommodation / Check-In / Promo Codes / Abstracts and adds the <strong>Webinar Console</strong>.</p>
       </div>
 
+      <div class="sub" id="s11-flow">
+        <div class="sub-title">The live-day flow &mdash; start to finish</div>
+        <p>Attendees watch the webinar <strong>on your event page</strong> (no Zoom account or app needed). You decide exactly when to let them in. The full flow:</p>
+        <ol>
+          <li><strong>People register</strong> and get the confirmation email. The join link points to your gated session page &mdash; <em>not</em> a raw Zoom link &mdash; so only registered attendees can get in.</li>
+          <li><strong>They arrive early into the Waiting Room.</strong> Logged-in registrants who open the session page before you go live see a branded lobby: a countdown to start, your optional <strong>holding video</strong> (a YouTube or Vimeo link you set), and your welcome message. They&rsquo;re held here automatically.</li>
+          <li><strong>Backstage on Zoom</strong> (separate from this system) your producer opens the Zoom practice session, starts the webinar, admits and briefs the speakers, and starts the broadcast.</li>
+          <li><strong>You click &ldquo;Open the room / Go live&rdquo;</strong> on the Webinar Console. That admits <em>everyone</em> waiting in the lobby into the live view at once.</li>
+          <li><strong>Attendees watch live</strong> in whichever mode you picked (see below) &mdash; the page swaps the lobby for the live video automatically; no refresh needed.</li>
+          <li><strong>You moderate &amp; supervise</strong> the chat and Q&amp;A (available in <em>Zoom embed</em> mode), and watch the <strong>&ldquo;Live now&rdquo;</strong> roster on the console to see who&rsquo;s in the lobby vs joined.</li>
+          <li><strong>Close the room</strong> when you&rsquo;re done. (You can re-open it if you closed it by mistake or are pausing between segments.)</li>
+          <li><strong>After the event:</strong> the recording &amp; replay appear automatically, attendance is pulled from Zoom, and you <strong>send the feedback survey manually</strong> from Communications when you&rsquo;re ready.</li>
+        </ol>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">You must click &ldquo;Open the room&rdquo;</div><div class="c-text">Attendees stay in the waiting room until you open it &mdash; the room does <strong>not</strong> open automatically at the start time (this is intentional, so you control admission). If people are waiting and the video hasn&rsquo;t appeared, check that you&rsquo;ve clicked <strong>Open the room / Go live</strong>.</div></div></div>
+      </div>
+
+      <div class="sub" id="s11-lobby">
+        <div class="sub-title">Waiting room &amp; how attendees watch (Lobby settings)</div>
+        <p>On the Webinar Console <strong>Setup</strong> tab, the <strong>Waiting Room</strong> card controls the live experience:</p>
+        <ul>
+          <li><strong>How attendees watch</strong> &mdash; pick one per event:
+            <ul>
+              <li><strong>Zoom embed</strong> &mdash; interactive; attendees get Zoom&rsquo;s native <strong>Q&amp;A and chat</strong> right on the page, which you moderate. Counts against your Zoom webinar capacity. Choose this when you need Q&amp;A.</li>
+              <li><strong>Custom stream</strong> &mdash; a one-way broadcast that scales to very large audiences (thousands) cheaply, but has <strong>no in-page Q&amp;A</strong>. Requires live streaming to be enabled on the session.</li>
+            </ul>
+          </li>
+          <li><strong>Holding video</strong> &mdash; paste a YouTube or Vimeo link; it loops (muted) in the lobby until you open the room. Leave blank for a plain countdown.</li>
+          <li><strong>Lobby message</strong> &mdash; optional line shown under the video (e.g. &ldquo;We&rsquo;ll begin shortly&rdquo;).</li>
+          <li><strong>Open the room / Go live &amp; Close the room</strong> &mdash; the admit control, with a live <strong>Room OPEN / closed</strong> badge.</li>
+          <li><strong>Live now</strong> &mdash; a real-time roster of who&rsquo;s currently in the lobby vs joined. Registrants who&rsquo;ve joined also get a <strong>&ldquo;Joined&rdquo;</strong> badge on the Registrations list.</li>
+        </ul>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">One-time setup for the Zoom embed mode</div><div class="c-text">For attendees to watch the <strong>Zoom embed</strong> on the live domain, an admin sets the org&rsquo;s Zoom <strong>Active SDK Mode to Production</strong> (Settings &rarr; Zoom) and adds <code>events.meetingmindsgroup.com</code> to the Zoom app&rsquo;s allowed Embed domains. Do this once before your first embedded webinar. <strong>Custom stream</strong> mode doesn&rsquo;t need it.</div></div></div>
+      </div>
+
       <div class="sub" id="s11-2">
         <div class="sub-title">Webinar Console</div>
         <figure class="ss-img">
