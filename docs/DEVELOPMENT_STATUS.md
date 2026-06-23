@@ -425,6 +425,16 @@ Migration: `20260415000000_add_email_signature_and_agreement_template`. New deps
 
 ## Recent Updates (April 14, 2026)
 
+### Webinar Waiting Room (June 23, 2026) — Phases 1–4 ✅ shipped
+
+Producer-gated attendee admission for webinars, watched on our gated session page.
+- [x] **P1 — Lobby config + producer control:** `WebinarSettings.viewingMode`/`lobbyVideoUrl`/`lobbyMessage` (settings JSON); `POST /webinar/room` open/close → anchor `EventSession.status` LIVE/COMPLETED; Console **LobbyCard** (mode toggle, holding video, Open/Close room).
+- [x] **P2 — Waiting room:** `waiting-room.tsx` (countdown + YouTube/Vimeo holding video); public cached `/lobby-status`; session page polls + auto-admits on open into the chosen mode (embed/HLS) with a "Join now" CTA fallback.
+- [x] **P3 — Real-time presence:** `WebinarPresence` table (additive migration) + `webinarFirstJoinedAt`; `/sessions/[id]/presence` heartbeat (`upsert`, no transaction); `/webinar/presence` → "Live now" console card + "Joined" registrations badge.
+- [x] **P4 — 5k stream wiring:** `HLS_CDN_BASE` (CloudFront) with origin fallback; cached MediaMTX probe; `LivePlayer` CDN→origin failover + auto-recovery; nginx `/stream/` committed; CloudFront+DR steps in `LIVE_STREAMING.md §13` (operator-run).
+- [x] Two-agent adversarial review; all live/high/medium findings fixed in-band.
+- [ ] Deferred (ROADMAP backlog): never-opened-room warning, operator visibility, save-time hls validation, Redis limiter; operator prerequisites (Zoom sdkMode→prod, verify box nginx, CloudFront+DR before a real 5k stream).
+
 ### Webinar Events as First-Class (April 13–14, 2026) — Phases 1–5
 
 Turns `eventType === 'WEBINAR'` from a cosmetic label into a fully
