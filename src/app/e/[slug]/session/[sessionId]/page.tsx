@@ -560,6 +560,7 @@ export default function PublicSessionPage() {
                 startsAt={lobby.startsAt}
                 lobbyVideoUrl={lobby.lobbyVideoUrl}
                 lobbyMessage={lobby.lobbyMessage}
+                posterUrl={event?.bannerImage}
               />
             ) : (
               <>

@@ -11,6 +11,8 @@ interface WaitingRoomProps {
   lobbyVideoUrl?: string | null;
   /** Optional message under the video. */
   lobbyMessage?: string | null;
+  /** Event banner — used as a branded poster when no holding video is set. */
+  posterUrl?: string | null;
 }
 
 function useNow(intervalMs = 1000): number {
@@ -40,7 +42,7 @@ function formatRemaining(ms: number): string {
  * video and counts down to start. The parent polls `lobby-status` and swaps
  * this out for the live view the moment the room opens.
  */
-export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage }: WaitingRoomProps) {
+export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }: WaitingRoomProps) {
   const now = useNow();
   const remaining = new Date(startsAt).getTime() - now;
   const started = remaining <= 0;
@@ -48,7 +50,9 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage }: WaitingRo
 
   return (
     <div className="space-y-4">
-      {/* Holding video, or a branded placeholder when none is configured */}
+      {/* Three-tier visual: holding video → event-banner poster → gradient.
+          The "waiting…" overlay sits on all non-video states so the lobby
+          always reads as a deliberate holding screen, never a broken embed. */}
       {video ? (
         <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
           <iframe
@@ -60,9 +64,22 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage }: WaitingRo
           />
         </div>
       ) : (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-white">
-          <Loader2 className="h-8 w-8 animate-spin opacity-80" />
-          <p className="text-sm opacity-80">Waiting for the session to begin…</p>
+        <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-white">
+          {posterUrl && (
+            // Dimmed decorative poster behind a "waiting…" overlay. Plain <img>
+            // (not next/image) — the banner is a user-uploaded absolute/relative
+            // URL and optimization isn't worth it for a background image.
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={posterUrl}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover opacity-40"
+            />
+          )}
+          <Loader2 className="relative h-8 w-8 animate-spin opacity-90" />
+          <p className="relative text-sm font-medium opacity-90">
+            Waiting for the session to begin…
+          </p>
         </div>
       )}
 
