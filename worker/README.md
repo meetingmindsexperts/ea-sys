@@ -11,7 +11,7 @@ This README is the operator-side quick-reference.
 
 ## What it does
 
-Five jobs, one process:
+Six jobs, one process:
 
 | Job | Schedule | Lock ID | Source of truth |
 |---|---|---|---|
@@ -20,6 +20,13 @@ Five jobs, one process:
 | `webinar-recordings` | `*/5 * * * *` (every 5 min) | 1003 | `src/lib/webinar-recordings-worker.ts` → `runWebinarRecordingsTick` |
 | `webinar-attendance` | `*/10 * * * *` (every 10 min) | 1004 | `src/lib/webinar-attendance-worker.ts` → `runWebinarAttendanceTick` |
 | `oauth-cleanup` | `0 * * * *` (hourly at :00) | 1005 | `src/lib/mcp-oauth-cleanup-worker.ts` → `runMcpOAuthCleanupTick` |
+| `invoice-reconciliation` | `*/10 * * * *` (every 10 min) | 1006 | `src/lib/invoice-reconciliation-worker.ts` → `runInvoiceReconciliationTick` |
+
+> `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
+> invoices the Stripe webhook failed to create — it sweeps for PAID
+> registrations that have a PAID `Payment` but no `INVOICE` row and re-runs the
+> webhook's `createPaidInvoice` + `sendInvoiceEmail` path. Idempotent, bounded
+> (25/tick, 14-day look-back), per-row failure isolated.
 
 Each job is wrapped in a Postgres advisory lock
 (`worker/lib/advisory-lock.ts`) — multiple worker processes can run
@@ -43,7 +50,8 @@ worker/
 │   ├── scheduled-emails.ts    # → runScheduledEmailsTick
 │   ├── webinar-recordings.ts  # → runWebinarRecordingsTick
 │   ├── webinar-attendance.ts  # → runWebinarAttendanceTick
-│   └── oauth-cleanup.ts       # → runMcpOAuthCleanupTick
+│   ├── oauth-cleanup.ts       # → runMcpOAuthCleanupTick
+│   └── invoice-reconciliation.ts # → runInvoiceReconciliationTick
 ├── lib/
 │   ├── job-ids.ts             # Numeric advisory-lock IDs
 │   ├── advisory-lock.ts       # withJobLock(id, name, fn) helper
