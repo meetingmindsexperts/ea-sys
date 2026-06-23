@@ -134,6 +134,12 @@ export async function zoomApiRequest<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
+  // Statuses the CALLER knows are a benign, expected outcome for this specific
+  // request (e.g. 404 from the recording poller — a recording that isn't ready
+  // / was never recorded). These are logged at debug instead of error so they
+  // don't trip the admin alert page; everything else still pages. The request
+  // still throws so the caller's own handling runs.
+  options?: { expectedStatuses?: number[] },
 ): Promise<T> {
   const accessToken = await getZoomAccessToken(organizationId);
 
@@ -169,22 +175,24 @@ export async function zoomApiRequest<T>(
       // ignore parse errors
     }
 
-    // Every non-2xx is logged at error level — including 404. By the owner's
-    // call, a 404 (e.g. the recording poller hitting code 3301 "recording does
-    // not exist") IS worth alerting on: the team prefers over-alerting to
-    // silently dropping visibility, and the 404 here is benign so it doesn't
-    // hurt. Don't downgrade these to warn to reduce noise.
-    apiLogger.error(
-      {
-        method,
-        path,
-        statusCode: response.status,
-        zoomErrorCode: errorBody?.code,
-        zoomMessage: errorBody?.message,
-        durationMs,
-      },
-      "zoom:api-error"
-    );
+    const logPayload = {
+      method,
+      path,
+      statusCode: response.status,
+      zoomErrorCode: errorBody?.code,
+      zoomMessage: errorBody?.message,
+      durationMs,
+    };
+    // Default: every non-2xx logs at error and pages (the owner prefers
+    // over-alerting). The ONLY exception is a status the caller explicitly
+    // declared expected for this request — those are recurring, benign noise
+    // (the recording poller's 404), so they log at debug and don't page. An
+    // UNEXPECTED 404 (any call that didn't opt in) still pages.
+    if (options?.expectedStatuses?.includes(response.status)) {
+      apiLogger.debug(logPayload, "zoom:api-expected-status");
+    } else {
+      apiLogger.error(logPayload, "zoom:api-error");
+    }
 
     throw new Error(
       `Zoom API error: ${response.status} ${errorBody?.message || "Unknown error"} (code: ${errorBody?.code || "N/A"})`

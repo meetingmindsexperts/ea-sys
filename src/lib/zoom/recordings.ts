@@ -82,6 +82,12 @@ export async function getZoomRecordings(
       organizationId,
       "GET",
       `/meetings/${encodeURIComponent(meetingOrWebinarId)}/recordings`,
+      undefined,
+      // 404 here is expected + recurring (recording not ready / never recorded,
+      // code 3301) — suppress the admin page for it. The catch below still
+      // detects it and returns null; `zoom:recordings-not-ready` (info) keeps
+      // the visibility. Any OTHER status still logs at error + pages.
+      { expectedStatuses: [404] },
     );
     apiLogger.info(
       {
