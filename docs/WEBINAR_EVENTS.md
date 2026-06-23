@@ -669,6 +669,20 @@ Same pattern as `Event.settings.webinar` — the JSON escape hatch. Trade-offs:
 
 ---
 
+## 14. How do you admit 5,000 attendees at once without WebSockets?
+
+The producer "Open the room" flips the **anchor `EventSession.status` → LIVE** (the single source of truth — no new column). Attendees **poll** `lobby-status` (~15–20s, **jittered** to avoid lockstep) and transition into the live view when `roomOpen` flips. Polling beats sockets here because the signal is low-frequency (one state change per webinar) and latency-tolerant (a few seconds late is invisible), and 5k persistent sockets on one box is a memory/FD problem. The cost trap: 5k pollers × 2 DB queries each ≈ 660 q/s on a **10-connection** pool — fixed by **merging to one query** + a **3s in-process micro-cache** (collapses a wave to ~1 DB hit / 3s) + `Cache-Control` for a future CDN.
+
+## 15. The presence heartbeat: why `upsert`, not a transaction?
+
+The original `findUnique → create/update` inside a `$transaction` had two failures: (a) **P2002** — two tabs both read null and both `create` the same `@@unique([sessionId, registrationId])` row (fires on any webinar); (b) **pool exhaustion** — an interactive transaction holds 1 of 10 pooled connections, and 5k × ~22s ≈ 220 tx/s reproduced a known **P2024** outage. Fix: a single **`upsert`** (`INSERT … ON CONFLICT`) — no unique-key race, no held connection. A tiny `findUnique` stays only to preserve the **escalate-only** state machine (lobby→joined, never downgrade) the static `update` can't express, and the write-once "Joined" marker is gated to the first beat. **`WebinarPresence` (our-page heartbeat) is deliberately NOT `ZoomAttendance` (authoritative post-event report)** — two sources of truth, kept apart; the narrow presence table also keeps a per-30s hot write off the finance-bearing `Registration` row.
+
+## 16. 5k HLS delivery + failover, and not self-DoSing
+
+MediaMTX is the origin; **CloudFront** fans out HLS from the edge with an **asymmetric cache policy** (1–2s on the `.m3u8`, 30–60s on segments) and an **origin-failover group** to the Singapore DR box. Code-side, `LivePlayer` fails over **CDN → origin** once, then resumes the recovery poll (auto-reconnect) rather than dead-ending. Two self-inflicted-load fixes from the review: a **3s cache on the MediaMTX liveness probe** (5k `stream-status` pollers would otherwise fan out 500 probes/s at one container), and **Retry re-runs the init effect** instead of `window.location.reload()` (a correlated blip would otherwise trigger thousands of simultaneous full reloads — a worse spike than the original failure).
+
+---
+
 ## Verification checklist
 
 | Action | Expected |
