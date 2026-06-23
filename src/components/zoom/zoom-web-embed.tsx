@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, AlertCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { loadZoomMtgEmbedded } from "@/lib/zoom/load-embedded-sdk";
 
 /**
  * Zoom Meeting SDK — Component View embed.
  *
- * Uses @zoom/meetingsdk/embedded, which is a UMD bundle that ships its own
- * React 18 runtime internally. That bundled React lives inside the SDK's
- * DOM subtree and never interacts with our app's React 19 — that's why
- * Component View works where Client View doesn't.
+ * The SDK runtime is obtained via `loadZoomMtgEmbedded()` (see
+ * src/lib/zoom/load-embedded-sdk.ts). By default it loads from Zoom's CDN with
+ * the SDK's OWN React 18 as isolated browser globals — because the npm
+ * `/embedded` bundle externalizes React and would otherwise resolve to our
+ * React 19 and crash on the removed `ReactCurrentOwner` internal. The npm-import
+ * path is kept behind `NEXT_PUBLIC_ZOOM_EMBED_LOADER=npm` for an easy flip-back
+ * once Zoom ships a React-19-compatible SDK. Client View remains unsupported.
  *
  * Key lifecycle notes:
  * - `createClient()` returns a module-level singleton. Re-mounting must
@@ -92,10 +96,9 @@ export function ZoomWebEmbed({
         }
         if (cancelled) return;
 
-        // Dynamic import keeps the 3 MB+ SDK bundle out of the page's
-        // initial chunk. Top-level await would pull it into every build.
-        const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded"))
-          .default;
+        // Loads the SDK lazily (CDN by default — keeps the ~3 MB bundle off the
+        // page's initial chunk AND isolates the SDK's React 18 from our React 19).
+        const ZoomMtgEmbedded = await loadZoomMtgEmbedded();
         if (cancelled) return;
 
         // Tear down any previous instance. Safe to call even if one
@@ -174,8 +177,7 @@ export function ZoomWebEmbed({
               // Swallow — either never joined or already left.
             }
           }
-          const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded"))
-            .default;
+          const ZoomMtgEmbedded = await loadZoomMtgEmbedded();
           try {
             ZoomMtgEmbedded.destroyClient();
           } catch {
