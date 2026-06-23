@@ -460,15 +460,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
         if (targetTypeId) {
           const ticket = await tx.ticketType.findUnique({
             where: { id: targetTypeId },
-            select: { quantity: true, soldCount: true },
+            select: { quantity: true },
           });
-          if (ticket && ticket.soldCount >= ticket.quantity) {
-            throw new Error("CAPACITY_EXCEEDED");
+          if (ticket) {
+            // Atomic re-claim — the `soldCount < quantity` predicate ON the
+            // update is the guard (not a stale pre-read), so concurrent
+            // reactivations of the last seat can't both succeed.
+            const claimed = await tx.ticketType.updateMany({
+              where: { id: targetTypeId, soldCount: { lt: ticket.quantity } },
+              data: { soldCount: { increment: 1 } },
+            });
+            if (claimed.count === 0) {
+              throw new Error("CAPACITY_EXCEEDED");
+            }
           }
-          await tx.ticketType.update({
-            where: { id: targetTypeId },
-            data: { soldCount: { increment: 1 } },
-          });
         }
       } else if (isChangingType && effectiveStatus !== "CANCELLED") {
         // Moving between types: decrement old, increment new
@@ -480,19 +485,35 @@ export async function PUT(req: Request, { params }: RouteParams) {
         }
         const newTicket = await tx.ticketType.findUnique({
           where: { id: ticketTypeId },
-          select: { quantity: true, soldCount: true, name: true },
+          select: { quantity: true, name: true },
         });
-        if (newTicket && newTicket.soldCount >= newTicket.quantity) {
+        if (!newTicket) {
           throw new Error("CAPACITY_EXCEEDED");
         }
-        await tx.ticketType.update({
-          where: { id: ticketTypeId },
+        // Atomic claim on the new type — predicate guards against oversell.
+        const claimed = await tx.ticketType.updateMany({
+          where: { id: ticketTypeId, soldCount: { lt: newTicket.quantity } },
           data: { soldCount: { increment: 1 } },
         });
+        if (claimed.count === 0) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
         // Sync attendee.registrationType to match the new ticket type name
         await tx.attendee.update({
           where: { id: existingRegistration.attendeeId },
-          data: { registrationType: newTicket!.name },
+          data: { registrationType: newTicket.name },
+        });
+      }
+
+      // DATA-1: release the promo code's usage count when a registration that
+      // consumed one is cancelled. The public-register path increments
+      // `usedCount` when a promo is applied; without this release a limited-use
+      // code stays permanently "used" after a cancel and wrongly rejects new
+      // eligible registrants. Guarded by `isBecomingCancelled` so it fires once.
+      if (isBecomingCancelled && existingRegistration.promoCodeId) {
+        await tx.promoCode.update({
+          where: { id: existingRegistration.promoCodeId },
+          data: { usedCount: { decrement: 1 } },
         });
       }
 
@@ -665,14 +686,32 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           data: { soldCount: { decrement: 1 } },
         });
       }
+      // DATA-1: release the promo code's usage count on delete (unless this row
+      // was already CANCELLED, in which case the cancel already released it).
+      if (registration.status !== "CANCELLED" && registration.promoCodeId) {
+        await tx.promoCode.update({
+          where: { id: registration.promoCodeId },
+          data: { usedCount: { decrement: 1 } },
+        });
+      }
       await tx.registration.delete({
         where: { id: registrationId },
       });
-      // Delete the attendee record (belongs to this registration only)
+      // DATA-6: Attendees can be shared across multiple registrations (the
+      // public-register orphan-reuse path produces this). Only delete the
+      // Attendee when no OTHER registration references it — otherwise the
+      // Restrict FK would throw and roll back the whole delete, and deleting it
+      // would orphan siblings. (Same sibling-count guard the email-change route
+      // uses before mutating a shared attendee.)
       if (registration.attendeeId) {
-        await tx.attendee.delete({
-          where: { id: registration.attendeeId },
+        const siblingCount = await tx.registration.count({
+          where: { attendeeId: registration.attendeeId, id: { not: registrationId } },
         });
+        if (siblingCount === 0) {
+          await tx.attendee.delete({
+            where: { id: registration.attendeeId },
+          });
+        }
       }
     });
 

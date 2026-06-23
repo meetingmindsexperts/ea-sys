@@ -185,21 +185,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const accommodation = await db.$transaction(async (tx) => {
       // Handle room type change
       if (data.roomTypeId && data.roomTypeId !== existingAccommodation.roomTypeId) {
-        const freshRoom = await tx.roomType.findUnique({
-          where: { id: data.roomTypeId },
-          select: { bookedRooms: true, totalRooms: true },
+        // Bind the in-transaction re-read to this event (defense-in-depth — the
+        // pre-transaction validation above already rejects a foreign-event room
+        // type, but keeping the tx self-contained prevents a future refactor
+        // from reintroducing a cross-event/org write to bookedRooms).
+        const freshRoom = await tx.roomType.findFirst({
+          where: { id: data.roomTypeId, hotel: { eventId } },
+          select: { totalRooms: true },
         });
-        if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
+        if (!freshRoom) {
           throw new Error("NO_ROOMS_AVAILABLE");
         }
         await tx.roomType.update({
           where: { id: existingAccommodation.roomTypeId },
           data: { bookedRooms: { decrement: 1 } },
         });
-        await tx.roomType.update({
-          where: { id: data.roomTypeId },
+        // Atomic claim — the `bookedRooms < totalRooms` predicate is the guard
+        // (not the pre-read), so concurrent room-changes can't oversell.
+        const claimed = await tx.roomType.updateMany({
+          where: { id: data.roomTypeId, bookedRooms: { lt: freshRoom.totalRooms } },
           data: { bookedRooms: { increment: 1 } },
         });
+        if (claimed.count === 0) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
       }
 
       // Handle cancellation — release room
@@ -211,15 +220,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
       } else if (data.status && data.status !== "CANCELLED" && existingAccommodation.status === "CANCELLED") {
         const freshRoom = await tx.roomType.findUnique({
           where: { id: existingAccommodation.roomTypeId },
-          select: { bookedRooms: true, totalRooms: true },
+          select: { totalRooms: true },
         });
-        if (!freshRoom || freshRoom.bookedRooms >= freshRoom.totalRooms) {
+        if (!freshRoom) {
           throw new Error("NO_ROOMS_AVAILABLE");
         }
-        await tx.roomType.update({
-          where: { id: existingAccommodation.roomTypeId },
+        // Atomic re-claim on reinstate — predicate guards against oversell.
+        const claimed = await tx.roomType.updateMany({
+          where: {
+            id: existingAccommodation.roomTypeId,
+            bookedRooms: { lt: freshRoom.totalRooms },
+          },
           data: { bookedRooms: { increment: 1 } },
         });
+        if (claimed.count === 0) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
       }
 
       // Optimistic lock (W2-F8). If supplied, the conditional updateMany

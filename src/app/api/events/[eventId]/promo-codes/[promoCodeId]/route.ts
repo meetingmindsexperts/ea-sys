@@ -44,6 +44,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Org-bind the event before exposing the promo code + its redemption PII
+    // (mirrors the PUT/DELETE handlers). Without this, any authenticated user
+    // could read another org's promo config + attendee names/emails/prices.
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
     const promoCode = await db.promoCode.findFirst({
       where: { id: promoCodeId, eventId },
       include: {

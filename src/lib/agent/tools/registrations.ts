@@ -420,6 +420,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         sponsorId: true,
         ticketTypeId: true,
         attendeeId: true,
+        promoCodeId: true,
         attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
         event: { select: { settings: true } },
       },
@@ -596,15 +597,18 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         if (targetTypeId) {
           const ticket = await tx.ticketType.findUnique({
             where: { id: targetTypeId },
-            select: { quantity: true, soldCount: true },
+            select: { quantity: true },
           });
-          if (ticket && ticket.soldCount >= ticket.quantity) {
-            throw new Error("CAPACITY_EXCEEDED");
+          if (ticket) {
+            // Atomic re-claim — predicate on the update is the guard (mirrors REST).
+            const claimed = await tx.ticketType.updateMany({
+              where: { id: targetTypeId, soldCount: { lt: ticket.quantity } },
+              data: { soldCount: { increment: 1 } },
+            });
+            if (claimed.count === 0) {
+              throw new Error("CAPACITY_EXCEEDED");
+            }
           }
-          await tx.ticketType.update({
-            where: { id: targetTypeId },
-            data: { soldCount: { increment: 1 } },
-          });
         }
       } else if (isChangingType && effectiveStatus !== "CANCELLED") {
         // Moving between types on an active registration: decrement old,
@@ -618,21 +622,31 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         }
         const newTicket = await tx.ticketType.findUnique({
           where: { id: newTicketTypeId },
-          select: { quantity: true, soldCount: true, name: true },
+          select: { quantity: true, name: true },
         });
-        if (newTicket && newTicket.soldCount >= newTicket.quantity) {
+        if (!newTicket) {
           throw new Error("CAPACITY_EXCEEDED");
         }
-        await tx.ticketType.update({
-          where: { id: newTicketTypeId },
+        // Atomic claim on the new type — predicate guards against oversell.
+        const claimed = await tx.ticketType.updateMany({
+          where: { id: newTicketTypeId, soldCount: { lt: newTicket.quantity } },
           data: { soldCount: { increment: 1 } },
         });
-        if (newTicket) {
-          await tx.attendee.update({
-            where: { id: existing.attendeeId },
-            data: { registrationType: newTicket.name },
-          });
+        if (claimed.count === 0) {
+          throw new Error("CAPACITY_EXCEEDED");
         }
+        await tx.attendee.update({
+          where: { id: existing.attendeeId },
+          data: { registrationType: newTicket.name },
+        });
+      }
+
+      // DATA-1: release the promo code's usage count on cancel (mirrors REST PUT).
+      if (isBecomingCancelled && existing.promoCodeId) {
+        await tx.promoCode.update({
+          where: { id: existing.promoCodeId },
+          data: { usedCount: { decrement: 1 } },
+        });
       }
 
       const regData: Prisma.RegistrationUncheckedUpdateInput = { updatedAt: new Date() };
@@ -800,19 +814,31 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           id: { in: registrationIds },
           event: { organizationId: ctx.organizationId },
         },
-        select: { id: true, status: true, ticketTypeId: true },
+        select: { id: true, status: true, ticketTypeId: true, promoCodeId: true },
       });
       const toDecrement = new Map<string, number>(); // ticketTypeId → seats released
       const toIncrement = new Map<string, number>(); // ticketTypeId → seats re-acquired
+      const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
       for (const r of affected) {
+        const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
+        // DATA-1: bulk cancel releases each consumed promo code's usage count.
+        if (becomingCancelled && r.promoCodeId) {
+          promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
+        }
         if (!r.ticketTypeId) continue;
-        if (status === "CANCELLED" && r.status !== "CANCELLED") {
+        if (becomingCancelled) {
           toDecrement.set(r.ticketTypeId, (toDecrement.get(r.ticketTypeId) ?? 0) + 1);
         } else if (status !== "CANCELLED" && r.status === "CANCELLED") {
           toIncrement.set(r.ticketTypeId, (toIncrement.get(r.ticketTypeId) ?? 0) + 1);
         }
       }
       updatedCount = await db.$transaction(async (tx) => {
+        for (const [promoId, n] of promoRelease) {
+          await tx.promoCode.update({
+            where: { id: promoId },
+            data: { usedCount: { decrement: n } },
+          });
+        }
         for (const [ttId, n] of toDecrement) {
           await tx.ticketType.update({
             where: { id: ttId },

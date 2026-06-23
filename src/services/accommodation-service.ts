@@ -201,18 +201,27 @@ export async function createAccommodation(
 
   const totalPrice = Number(roomType.pricePerNight) * nights;
 
-  // Atomic: re-check availability inside the tx via `bookedRooms < totalRooms`
-  // predicate on the update, so two concurrent requests can't both slip past
-  // a stale pre-check. The thrown sentinel is caught below and mapped to the
-  // NO_ROOMS_AVAILABLE error code.
+  // Atomic: the `bookedRooms < totalRooms` predicate ON THE UPDATE is the guard
+  // — NOT the stale pre-read — so two concurrent bookings of the last room
+  // can't both slip past. `updateMany` returns count 0 when the room was full
+  // at commit time (Postgres row-locks the matching row during the UPDATE under
+  // READ COMMITTED, even through the pgbouncer transaction pooler). The thrown
+  // sentinel is caught below and mapped to the NO_ROOMS_AVAILABLE error code.
   let accommodation: AccommodationWithRelations;
   try {
     accommodation = await db.$transaction(async (tx) => {
       const fresh = await tx.roomType.findUnique({
         where: { id: roomTypeId },
-        select: { bookedRooms: true, totalRooms: true },
+        select: { totalRooms: true },
       });
-      if (!fresh || fresh.bookedRooms >= fresh.totalRooms) {
+      if (!fresh) {
+        throw new Error("NO_ROOMS_AVAILABLE");
+      }
+      const claimed = await tx.roomType.updateMany({
+        where: { id: roomTypeId, bookedRooms: { lt: fresh.totalRooms } },
+        data: { bookedRooms: { increment: 1 } },
+      });
+      if (claimed.count === 0) {
         throw new Error("NO_ROOMS_AVAILABLE");
       }
 
@@ -244,11 +253,6 @@ export async function createAccommodation(
           },
           roomType: { include: { hotel: true } },
         },
-      });
-
-      await tx.roomType.update({
-        where: { id: roomTypeId },
-        data: { bookedRooms: { increment: 1 } },
       });
 
       return created;

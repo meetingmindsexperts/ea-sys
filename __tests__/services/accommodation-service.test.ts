@@ -12,7 +12,7 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
     speaker: { findFirst: vi.fn() },
-    roomType: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    roomType: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     accommodation: { create: vi.fn() },
     auditLog: { create: vi.fn() },
     // $transaction invokes its callback with a tx proxy pointing at the
@@ -24,6 +24,8 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
             (mockDb.roomType.findUnique as (...a: unknown[]) => unknown)(...a),
           update: (...a: unknown[]) =>
             (mockDb.roomType.update as (...a: unknown[]) => unknown)(...a),
+          updateMany: (...a: unknown[]) =>
+            (mockDb.roomType.updateMany as (...a: unknown[]) => unknown)(...a),
         },
         accommodation: {
           create: (...a: unknown[]) =>
@@ -80,7 +82,9 @@ beforeEach(() => {
   mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", accommodation: null });
   mockDb.speaker.findFirst.mockResolvedValue(null);
   mockDb.roomType.findFirst.mockResolvedValue(ROOM_TYPE_FIXTURE);
-  mockDb.roomType.findUnique.mockResolvedValue({ bookedRooms: 5, totalRooms: 10 });
+  mockDb.roomType.findUnique.mockResolvedValue({ totalRooms: 10 });
+  // Atomic claim succeeds by default (one row matched the bookedRooms<totalRooms predicate).
+  mockDb.roomType.updateMany.mockResolvedValue({ count: 1 });
   mockDb.accommodation.create.mockResolvedValue(CREATED_FIXTURE);
   mockDb.roomType.update.mockResolvedValue({});
   mockDb.auditLog.create.mockResolvedValue({});
@@ -103,10 +107,11 @@ describe("createAccommodation — happy path", () => {
     expect(call.data.currency).toBe("USD");
   });
 
-  it("atomically increments bookedRooms inside the transaction", async () => {
+  it("atomically claims a room via the bookedRooms<totalRooms predicate", async () => {
     await createAccommodation(BASE_INPUT);
-    expect(mockDb.roomType.update).toHaveBeenCalledWith({
-      where: { id: "rt-1" },
+    // The guard is the predicate ON the update (updateMany), not a stale pre-read.
+    expect(mockDb.roomType.updateMany).toHaveBeenCalledWith({
+      where: { id: "rt-1", bookedRooms: { lt: 10 } },
       data: { bookedRooms: { increment: 1 } },
     });
   });
@@ -255,16 +260,15 @@ describe("createAccommodation — domain errors", () => {
     }
   });
 
-  it("NO_ROOMS_AVAILABLE when the in-tx re-check finds the room full", async () => {
+  it("NO_ROOMS_AVAILABLE when the atomic claim matches no row (room full)", async () => {
     // Pre-check passes (bookedRooms=5 < totalRooms=10) but by the time the tx
-    // runs, another booking filled the room. The in-tx findUnique reflects
-    // that, and the service maps the sentinel throw to the error code.
-    mockDb.roomType.findUnique.mockResolvedValue({ bookedRooms: 10, totalRooms: 10 });
+    // runs, another booking filled the room — so the atomic updateMany matches
+    // 0 rows (count 0), and the service maps the sentinel throw to the code.
+    mockDb.roomType.updateMany.mockResolvedValue({ count: 0 });
     const result = await createAccommodation(BASE_INPUT);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("NO_ROOMS_AVAILABLE");
     expect(mockDb.accommodation.create).not.toHaveBeenCalled();
-    expect(mockDb.roomType.update).not.toHaveBeenCalled();
   });
 
   it("UNKNOWN for unexpected transaction failures (e.g. DB down)", async () => {
