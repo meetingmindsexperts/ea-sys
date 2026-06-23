@@ -1,18 +1,32 @@
 # Event Management System - Development Status
 
-**Last Updated:** April 22, 2026
+**Last Updated:** June 23, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
 
 ## Executive Summary
 
-This document outlines the current development status of the Event Administration System, detailing completed features, in-progress work, and planned future phases.
+This document tracks the development status of the Event Administration System. **The detailed phase history below (Phases 1–10, dated changelogs) is preserved as a historical record and reflects its own as-of dates — do not read individual phase "NOT STARTED / Pending" labels as current.** The "Current Status" block immediately below is the authoritative snapshot; for the live feature changelog, [CLAUDE.md → Recent Features](../CLAUDE.md) is the most current source.
 
-### Current In-Flight Work (April 2026)
+### Current Status (June 23, 2026)
 
-- **Services Refactor — four services shipped (Phase 2 complete).** Phase 0 (MCP parity bug fixes), Phase 1 (`accommodation-service.ts`), Phase 2a (`abstract-service.ts`), Phase 2b (`speaker-service.ts`), and Phase 2c (`registration-service.ts`) all shipped in April. Phase 2c's extraction landed earlier than originally planned — the two callers were already aligned by Phase 0, which turned the planned deferral into a safe consolidation opportunity. See `src/services/README.md` for conventions and `docs/HANDOVER.md` §2.5 + §14 for the full refactor philosophy and commit refs.
-- **External REST API (Phase 3 of the refactor, planned).** A public REST API for third-party integrators is on the near-term roadmap. Its endpoints back onto the existing four services. New domain operations the API exposes get their own extractions at that point; no speculative work beforehand.
+**EA-SYS is in live production** ([events.meetingmindsgroup.com](https://events.meetingmindsgroup.com)) running real Meeting Minds Group events — real registrants, payments, check-in. Accountability is high: additive/idempotent migrations only on the shared prod DB, full verification gate (tsc/lint/vitest/build) before every push, blue-green deploys.
+
+**Everything in the "Remaining Phases" section below that predates 2026 is now SHIPPED** — most notably the entire Payment stack (Phase 5/7) which that section still calls "NOT STARTED." What's actually live:
+
+- **Finance:** Stripe Checkout + webhook (signature-verified, idempotent) + refunds + manual/offline payment capture (cash/bank/card-onsite); quote PDF at registration → PAID invoice PDF after payment; tax/VAT; promo codes; pricing tiers; third-party payer (BillingAccount); sponsor-paid INCLUSIVE; comp registrations; an **invoice-reconciliation worker** that recovers any invoice the webhook drops. Finance RBAC via `canViewFinance` (only SUPER_ADMIN/ADMIN/ORGANIZER + desk roles see money).
+- **Abstracts & reviewers:** themes, weighted review criteria, per-event `requiredReviewCount` gate, per-abstract reviewer assignment (role + advisory COI flag), per-reviewer scoring, `/my-reviews` portal, score aggregation, status-change emails.
+- **Services layer:** 5 services shipped (`accommodation`, `abstract`, `speaker`, `registration`, `billing-account`) — shared by REST + MCP. The "extract services layer" tech-debt item is **done**.
+- **Webinars:** first-class WEBINAR type — auto-provisioning, Zoom embed + custom HLS stream, recording/attendance/**engagement (polls + Q&A)** sync, producer-gated waiting room with real-time presence (June 23).
+- **Platform:** MCP server (70+ tools) + OAuth 2.1, AI agent, dedicated background-worker tier (6 jobs, advisory-lock singleton), certificates, surveys, CloudWatch/Sentry/DB logging, Singapore DR (S3 + pg_dump), multiple security audits (latest: June 23 multi-tenant readiness — see [docs/PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) Round 2).
+
+**Genuinely still open (all non-blocking nice-to-haves / tech debt):** ICS calendar export, session feedback/ratings, attendee directory, PWA, multi-language; a few small UI gaps for API-driven ops (Room-Type edit/delete dialog, abstract→session dashboard picker); email-preferences management; Redis-backed shared cache/rate-limiter; bundle trim + remove unused tRPC deps; staging environment. None block running a conference. See [docs/ROADMAP.md](ROADMAP.md) for the tracked backlog.
+
+### In-flight / near-term
+
+- **Multi-tenant / white-label SaaS** — design reference written ([docs/MULTI_TENANCY.md](MULTI_TENANCY.md)); not yet built. Tenancy model = shared-DB + Postgres RLS default, DB-per-tenant premium, Stripe Connect, custom-domain TLS. The June 23 audit was the pre-multi-tenant cross-tenant hardening pass.
+- **External REST API** (Phase 3 of the services refactor) — public REST surface for integrators, backed by the existing services. Partially live (API-key auth on read endpoints + OpenAPI docs at `/api-docs`); broader write surface pending.
 
 ---
 
@@ -91,7 +105,7 @@ This document outlines the current development status of the Event Administratio
 | Barcode Import (CSV) | ✅ | ✅ | Complete |
 | Badge PDF Generation | ✅ | ✅ | Complete |
 | QR Code Generation | ✅ | ✅ | Complete |
-| Delete Registration | ✅ | ❌ | API Complete |
+| Delete Registration | ✅ | ✅ | Complete (detail-sheet delete + shared-attendee guard) |
 | Search/Filter Registrations | ✅ | ✅ | Complete |
 | Export to CSV | N/A | ✅ | Complete |
 | Import from Contact Store | ✅ | ✅ | Complete |
@@ -268,11 +282,11 @@ This document outlines the current development status of the Event Administratio
 ### Accommodation Booking
 | Feature | API | UI | Status |
 |---------|-----|-----|--------|
-| Create Booking | ✅ | ❌ | API Complete |
+| Create Booking | ✅ | ✅ | Complete (`AssignAccommodationDialog` — searchable picker, room/date/guests) |
 | List Bookings | ✅ | ✅ | Complete |
 | View Booking Details | ✅ | ✅ | Complete |
-| Update Booking Status | ✅ | ❌ | API Complete |
-| Cancel Booking | ✅ | ❌ | API Complete |
+| Update Booking Status | ✅ | ✅ | Complete (inline status buttons on booking cards) |
+| Cancel Booking | ✅ | ✅ | Complete (status → CANCELLED, atomically releases the room) |
 | Price Calculation | ✅ | ✅ | Complete |
 
 **API Endpoints:**
@@ -504,7 +518,7 @@ in a dedicated Webinar Console at `/events/[eventId]/webinar`.
 All Phase 1–5 code lives under tightly-scoped namespaces (`src/lib/webinar*`, `src/app/api/events/[eventId]/webinar/*`, `src/app/(dashboard)/events/[eventId]/webinar/*`, `src/app/api/cron/webinar-*`, `src/lib/zoom/{recordings,reports}.ts`) with one-way imports from core. Estimate for later microservice extraction: 1–2 days.
 
 **Remaining**
-- **Phase 6** — Polls/Q&A reports from Zoom + panelist management UI (existing panelists API just needs a dashboard CRUD page)
+- ~~**Phase 6** — Polls/Q&A reports + panelist management UI~~ → **✅ SHIPPED.** Engagement sync (`src/lib/webinar-engagement.ts` + `/webinar/engagement` route + console Polls/Q&A cards) and panelist management UI (Webinar Console + Import-from-Speakers) are both live. The June 23 producer-gated waiting room + real-time presence + 5k CDN wiring also shipped on top of this (see CLAUDE.md → Recent Features).
 
 **Commits**: `f3921d7` (phases 1–3), `8e212f7` (phase 4), `12497fa` (phase 5)
 
@@ -1309,25 +1323,25 @@ Docker data root configured in `/etc/docker/daemon.json`:
 
 ## Remaining Phases
 
-### Phase 5: Payment Integration (NOT STARTED)
+> **⚠️ Historical section.** The phase labels below were accurate at their original
+> time of writing. Several have **shipped since** and are corrected inline. Treat the
+> "Current Status" block at the top of this document as authoritative.
 
-| Feature | Priority | Estimated Effort |
-|---------|----------|------------------|
-| Stripe Integration Setup | High | Medium |
-| Payment Intent Creation | High | Medium |
-| Webhook Handler | High | Medium |
-| Payment Confirmation Flow | High | Medium |
-| Refund Processing | Medium | Medium |
-| Invoice Generation | Medium | Medium |
-| Payment Receipt Emails | Medium | Low |
+### Phase 5: Payment Integration (✅ COMPLETED)
 
-**Required Tasks:**
-1. Configure Stripe API keys in environment
-2. Create `/api/payments/initiate` endpoint
-3. Create `/api/payments/webhook` endpoint for Stripe webhooks
-4. Build payment UI components
-5. Implement payment status synchronization
-6. Add payment confirmation emails
+| Feature | Status |
+|---------|--------|
+| Stripe Checkout Setup | ✅ Complete (`src/lib/stripe.ts`, live keys via env) |
+| Checkout Session Creation | ✅ Complete (`/api/public/events/[slug]/checkout`, IP rate-limited) |
+| Webhook Handler | ✅ Complete (`/api/webhooks/stripe` — signature verify + idempotent) |
+| Payment Confirmation Flow | ✅ Complete (status polling + confirmation page + email) |
+| Refund Processing | ✅ Complete (`.../refund` route + `charge.refunded` webhook) |
+| Manual / Offline Payment Capture | ✅ Complete (`.../payments` — cash/bank/card-onsite) |
+| Invoice Generation | ✅ Complete (quote PDF at registration → PAID invoice PDF after payment) |
+| Invoice Reconciliation Worker | ✅ Complete (recovers webhook-dropped invoices; needs worker deploy) |
+| Payment Receipt / Invoice Email | ✅ Complete (Stripe sends receipt; we send the branded invoice) |
+| Tax / VAT | ✅ Complete (per-event rate/label, separate Stripe line items) |
+| Promo Codes / Pricing Tiers / Third-party Payer / INCLUSIVE | ✅ Complete |
 
 ### Phase 6: Email Notifications (MOSTLY COMPLETE)
 
@@ -1340,7 +1354,7 @@ Docker data root configured in `/etc/docker/daemon.json`:
 | Event Reminder Emails | Low | ✅ Complete |
 | Bulk Email to Attendees | Low | ✅ Complete |
 | Custom Notification Emails | Low | ✅ Complete |
-| Payment Receipt Email | High | Pending |
+| Payment Receipt / Invoice Email | High | ✅ Complete (post-payment branded invoice + payment-confirmation email) |
 | Abstract Status Notification | Medium | ✅ Complete |
 | Abstract Submission Confirmation | Medium | ✅ Complete |
 | DB-backed Email Templates | High | ✅ Complete |
@@ -1376,27 +1390,21 @@ Docker data root configured in `/etc/docker/daemon.json`:
 | Attendee Registration Form | High | ✅ Complete (ticket selection, personal details) |
 | Submitter Registration Form | High | ✅ Complete (`/e/[slug]/register` — creates SUBMITTER account) |
 | Registration Confirmation Page | High | ✅ Complete (`/e/[slug]/confirmation`) |
-| Payment Checkout Flow | High | ❌ Not Started (requires Stripe) |
-| Email Verification | Medium | ❌ Not Started |
-| Attendee Profile Portal | Low | ❌ Not Started |
+| Payment Checkout Flow | High | ✅ Complete (Stripe Checkout — Phase 5) |
+| Email Verification | Medium | ✅ Partial (internal-domain verification flow, June 16; general attendee verification not required) |
+| Attendee Profile Portal | Low | ✅ Complete (`/my-registration` registrant self-service portal) |
 
-### Phase 8: Reporting & Analytics (NOT STARTED)
+### Phase 8: Reporting & Analytics (✅ PARTIALLY COMPLETE)
 
-| Feature | Priority | Estimated Effort |
-|---------|----------|------------------|
-| Registration Analytics Dashboard | High | Medium |
-| Revenue Reports | High | Medium |
-| Attendance Reports | Medium | Medium |
-| Speaker Statistics | Medium | Low |
-| Export to CSV/Excel | Medium | Medium |
-| Check-in Analytics | Low | Low |
-| Custom Report Builder | Low | High |
-
-**Required Tasks:**
-1. Create analytics API endpoints
-2. Build dashboard charts (use Recharts or similar)
-3. Implement data export functionality
-4. Add date range filters
+| Feature | Status |
+|---------|--------|
+| Event Dashboard (registration/payment/speaker/session KPIs) | ✅ Complete (event overview page + `get_event_dashboard`) |
+| Event Analytics endpoint | ✅ Complete (`/api/events/[eventId]/analytics`, revenue finance-gated) |
+| Revenue Reports | ✅ Complete (analytics + invoice list; AR-aging-by-payer is backlog) |
+| Attendance Reports | ✅ Complete (registrations + webinar attendance KPIs/CSV) |
+| Registrations-by-Tier dashboard tile | ✅ Complete |
+| Export to CSV | ✅ Complete (registrations, contacts, attendance) |
+| Custom Report Builder | ⬜ Backlog (not started — low priority) |
 
 ### Phase 9: Advanced Features (NOT STARTED)
 
@@ -1421,10 +1429,10 @@ Docker data root configured in `/etc/docker/daemon.json`:
 | Organization Settings | High | Medium | ✅ Complete |
 | User Management (Invite Team) | High | Medium | ✅ Complete |
 | User Invitation Emails | High | Medium | ✅ Complete |
-| Role-based Permissions | Medium | Medium | Pending |
-| Audit Log Viewer | Medium | Low | Pending |
-| Data Import (Bulk) | Medium | Medium | ✅ Complete (Contact Store CSV) |
-| Event Duplication | Low | Low | Pending |
+| Role-based Permissions | Medium | Medium | ✅ Complete (8 roles, `denyReviewer` + `canViewFinance` + middleware, 3-layer enforcement) |
+| Audit Log Viewer | Medium | Low | ✅ Complete (`AuditLog` + `/logs` SUPER_ADMIN viewer) |
+| Data Import (Bulk) | Medium | Medium | ✅ Complete (Contact Store CSV + CSV/EventsAir registration import) |
+| Event Duplication | Low | Low | ✅ Complete (`/api/events/[eventId]/clone`) |
 | Archive/Delete Events | Low | Low | ✅ Complete |
 
 ---
@@ -1432,12 +1440,12 @@ Docker data root configured in `/etc/docker/daemon.json`:
 ## Technical Debt & Improvements
 
 ### Code Quality
-- [ ] Add comprehensive error handling middleware
-- [ ] Implement request validation middleware
-- [ ] Add API rate limiting
-- [ ] Write unit tests for API routes
-- [ ] Write integration tests for critical flows
-- [ ] Add E2E tests with Playwright
+- [x] Request validation — Zod on every mutating route (+ `apiLogger.warn` on every validation failure; 0 silent 400s)
+- [x] API rate limiting — `checkRateLimit` on every write surface (per-IP / per-user / per-event / per-key buckets) + nginx per-IP limiting + fail2ban
+- [x] Unit tests — 1600+ vitest cases (services, RBAC, finance redaction, races, email, etc.)
+- [x] E2E tests with Playwright — `e2e/*.spec.ts` (admin smoke, abstract submitter, certificates, bulk-email, manual registration, help-chat, …)
+- [ ] Comprehensive error-handling middleware (per-route try/catch + typed errors today; a shared middleware layer is still nice-to-have)
+- [ ] Redis-backed shared rate limiter (in-memory store resets on deploy / is per-container — see ROADMAP)
 
 ### Performance
 - [x] Implement database query optimization (parallel queries)
@@ -1458,7 +1466,7 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [ ] Add image optimization for uploads
 - [ ] Implement pagination for large lists
 - [ ] Add granular React Query stale times per data type
-- [ ] Extract services layer (thin routes, reusable business logic)
+- [x] Extract services layer (thin routes, reusable business logic) — **done**: 5 services (`accommodation`, `abstract`, `speaker`, `registration`, `billing-account`) shared by REST + MCP; conventions in `src/services/README.md`
 
 ### Security
 - [x] CSRF protection — Origin header validation on all API mutations; missing Origin blocked for browser sessions (middleware)
@@ -1469,9 +1477,10 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [x] Import ticket capacity — EventsAir contact import checks `soldCount` vs `quantity` with atomic increment inside transaction
 - [x] API key management — restricted to ADMIN+ role (previously only `denyReviewer` guard)
 - [x] Implement API key authentication for external access (`GET /api/events`, `/speakers`, `/registrations` support `x-api-key` header)
-- [ ] Add input sanitization
-- [ ] Security audit for OWASP top 10
-- [ ] Add rate limiting per user/IP
+- [x] Input sanitization — DOMPurify on stored HTML, `escapeHtml` in emails, Zod typing, magic-byte file validation
+- [x] Rate limiting per user/IP — `checkRateLimit` + nginx `limit_req` + fail2ban
+- [x] Security audits — multiple multi-agent adversarial passes (May 18 IDOR/RBAC, June 23 multi-tenant readiness — see `docs/PRODUCTION_AUDIT.md`); `getClientIp` spoofing fix
+- [ ] Formal third-party OWASP-Top-10 pen test (internal audits done; external engagement still recommended before white-label launch)
 
 ### DevOps
 - [x] Vercel deployment configured (note: photo uploads not supported on Vercel)
@@ -1483,9 +1492,11 @@ Docker data root configured in `/etc/docker/daemon.json`:
 - [x] Error monitoring via Sentry (`@sentry/nextjs`) — client crashes, server route errors, source maps uploaded in CI
 - [x] Fixed `npm ci` failures on Linux (pinned `lightningcss-linux-x64-gnu` + `@tailwindcss/oxide-linux-x64-gnu` in `optionalDependencies`)
 - [x] Dockerfile hardened: `npm ci` with lockfile for deterministic builds
-- [ ] Configure staging environment
-- [ ] Set up database backups
-- [ ] Add performance monitoring (APM)
+- [x] Database backups / DR — Singapore S3 mirror (uploads hourly, `.env` daily, `pg_dump` daily 23:00 UTC) + quarterly restore drill (`infra/dr/`)
+- [x] Background worker tier — dedicated `ea-sys-worker` container, 6 cron jobs, Postgres advisory-lock singleton (`worker/`)
+- [x] Observability — Sentry + CloudWatch Logs + `SystemLog`/`/logs` dashboard + per-error SES alert email (four parallel paths)
+- [ ] Configure dedicated staging environment (deploys go straight to prod via blue-green today)
+- [ ] Dedicated APM / tracing (request-span tracing not yet wired; logs+metrics cover most needs)
 
 ---
 
