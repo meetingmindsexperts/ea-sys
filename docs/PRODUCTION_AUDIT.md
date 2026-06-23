@@ -284,3 +284,123 @@
 | No log rotation setup | Disk fills if file logging is re-enabled | Configure pino file rotation or rely solely on Docker log driver |
 | Beta auth library | NextAuth v5 may change APIs, lose community support | Track stable release, pin exact version |
 | No monitoring/alerting | Server goes down, nobody knows | Add external uptime monitoring + deploy notifications |
+
+---
+---
+
+# Round 2 — Multi-Tenant Readiness Audit
+
+**Date:** 2026-06-23
+**Trigger:** Pre-multi-tenant ("white-label SaaS") cross-tenant review. An IDOR class was flagged while writing `docs/MULTI_TENANCY.md`; this round looks for "what else."
+**Method:** 3 parallel adversarial review agents (lenses: cross-tenant/IDOR/org-scoping · RBAC/finance/auth · data-integrity/races/silent-failures), each verifying every claim against source (`file:line`). One agent-reported "critical" (refund route) was inspected and **rejected as safe**.
+**Context:** EA-SYS is single-org today; cross-tenant gaps are *latent* now and become *live data leaks* with a 2nd tenant. Several findings below, however, are **live-impacting even in single-org**. The May-18 audit (separate report) fixed an earlier IDOR set; these are the residual + new findings.
+
+| Severity | Count |
+|----------|-------|
+| BLOCKER | 0 |
+| HIGH | 5 |
+| MEDIUM | 5 |
+| LOW | 4 |
+| **Round-2 total** | **14** |
+
+> **Status legend:** OPEN = not yet fixed. All Round-2 findings are OPEN at time of writing.
+
+---
+
+## Round 2 — HIGH
+
+### 55. [IDOR-1] Promo-code GET leaks another event's config + attendee PII — OPEN
+- **File:** `src/app/api/events/[eventId]/promo-codes/[promoCodeId]/route.ts:47` (GET)
+- Resolves the promo code by `{ id, eventId }` with **no `organizationId` / event-org check**. The PUT and DELETE in the *same file* DO bind org (lines ~117) — so this is an inconsistency, not the pattern. Response includes the discount config **plus the last 50 redemptions: attendee names, emails, original/discount/final prices**.
+- **Impact:** Live even single-org — any authenticated principal (including org-null REGISTRANT / SUBMITTER / REVIEWER) who knows/enumerates an `eventId`+`promoCodeId` reads another event's promo + attendee PII. Cross-tenant PII leak the moment a 2nd org exists.
+- **Fix:** Add the org-bound event check before the lookup (mirror the PUT): `db.event.findFirst({ where: { id: eventId, organizationId: session.user.organizationId! }, select: { id: true } })` → 404 if missing.
+
+### 56. [IDOR-2] Accommodation PUT repoints booking to a foreign-event/org room type — OPEN
+- **File:** `src/app/api/events/[eventId]/accommodations/[accommodationId]/route.ts:188` (PUT)
+- The accommodation row is org-verified, but the body's `roomTypeId` is resolved via `findUnique({ where: { id: data.roomTypeId } })` — **bare id, not bound to the event/hotel/org** — then `bookedRooms` is incremented on it.
+- **Impact:** Cross-org inventory tampering + referential break with a 2nd tenant; *today* a within-org cross-event integrity bug (book against another event's room type, inflate its counter).
+- **Fix:** Resolve the new room type bound to the same event: `tx.roomType.findFirst({ where: { id: data.roomTypeId, hotel: { eventId } } })` → throw `ROOM_NOT_FOUND` if missing. (The create path in `accommodation-service.ts` already binds the event — gap is the *update* path.)
+
+### 57. [RBAC-1] `bulk-tags` PATCH routes missing `denyReviewer` — OPEN
+- **Files:** `src/app/api/events/[eventId]/registrations/bulk-tags/route.ts:16` and `src/app/api/events/[eventId]/speakers/bulk-tags/route.ts:16` (both PATCH)
+- The **only two** event-scoped admin write routes missing the `denyReviewer(session)` guard (every sibling — `bulk-type`, imports, tags, hotels, sponsors — has it). `src/proxy.ts` does not 403 MEMBER/restricted roles on `/api/*`, so the per-route guard is the sole gate.
+- **Impact:** MEMBER (read-only viewer) and ONSITE can overwrite/clear tags in `replace` mode (data loss). Tags drive bulk-email cohorts **and** tag-driven certificate eligibility, so blast radius is beyond cosmetic. Same class as the May-18 contacts write-guard fix.
+- **Fix:** Add `const denied = denyReviewer(session); if (denied) return denied;` after the auth check in both handlers (no `{ allow }` — neither is a registration-desk action).
+
+### 58. [DATA-1] `PromoCode.usedCount` never decremented on cancel/delete — OPEN
+- **Files:** increment at `src/app/api/public/events/[slug]/register/route.ts:377` (atomic, correct); **no decrement exists anywhere** (`grep usedCount | decrement` → none). `Registration.promoCodeId` is stored but never released.
+- **Impact:** Live-money. A limited-use code (`maxUses`) reaches its cap, an admin cancels some of those registrations, and the code is **permanently exhausted** — silently rejecting valid attendees who should still get the discount.
+- **Fix:** In the REST PUT cancel branch, REST DELETE, MCP `update_registration`(→CANCELLED) and MCP `bulk_update_registration_status`(→CANCELLED), add `tx.promoCode.update({ where: { id }, data: { usedCount: { decrement: 1 } } })` inside the existing transaction, guarded against double-decrement on already-cancelled rows (mirror the `soldCount` `isBecomingCancelled` check).
+
+### 59. [DATA-2] Accommodation overbooking TOCTOU — comment falsely claims atomicity — OPEN
+- **File:** `src/services/accommodation-service.ts:204`
+- The comment states "Atomic: re-check availability inside the tx via `bookedRooms < totalRooms` predicate on the update," but the code is **read-then-write**: `findUnique` → `if (bookedRooms >= totalRooms) throw` → later `update({ bookedRooms: { increment: 1 } })`. Under READ COMMITTED via the pgbouncer transaction pooler there's no row lock between read and increment.
+- **Impact:** Two concurrent bookings of the last room both pass and both increment → `bookedRooms = totalRooms + 1` (double-booked, one attendee has no bed). Live even single-org.
+- **Fix:** Make the increment the guard — raw conditional `UPDATE "RoomType" SET "bookedRooms" = "bookedRooms" + 1 WHERE id = $1 AND "bookedRooms" < "totalRooms"`, check rows-affected = 0 → `NO_ROOMS_AVAILABLE`. Same pattern `TicketType.soldCount` already uses on the create path. (Also corrects the misleading comment.)
+
+---
+
+## Round 2 — MEDIUM
+
+### 60. [FIN-1] Accommodation + hotel GET leak prices to MEMBER (no finance redaction) — OPEN
+- **Files:** `src/app/api/events/[eventId]/accommodations/route.ts:48` (GET returns `Accommodation.totalPrice`), `src/app/api/events/[eventId]/hotels/route.ts:24` (GET returns `RoomType.pricePerNight`). Neither applies `canViewFinance`/`redactFinancialFields`, unlike event/tickets/registrations GETs.
+- **Secondary defect:** `totalPrice` is **not in `FINANCIAL_KEYS`** (`src/lib/finance-visibility.ts:46`), so even adding redaction wouldn't strip it.
+- **Impact:** MEMBER (defined as "no financial data") reaches these pages/APIs and sees prices. ONSITE is finance-capable by design — unaffected.
+- **Fix:** Gate both GETs with `canViewFinance(role) ? data : redactFinancialFields(data)`; add `"totalPrice"` to `FINANCIAL_KEYS`.
+
+### 61. [DATA-3] Reactivate / type-change `soldCount` increment is read-then-write (oversell) — OPEN
+- **Files:** REST `src/app/api/events/[eventId]/registrations/[registrationId]/route.ts:461` (reactivate) & `:481` (type-change); MCP `src/lib/agent/tools/registrations.ts:599` & `:618`. Increment not guarded by an `updateMany({ where: { soldCount: { lt: quantity } } })`.
+- **Impact:** Two concurrent reactivations/type-changes of the last seat both pass the `>=` check → oversell. Lower severity than DATA-2 (admin-initiated, low concurrency).
+- **Fix:** Convert each increment to the atomic predicate `updateMany` + `count === 0 → CAPACITY_EXCEEDED` (the create paths already do this).
+
+### 62. [DATA-4] CSV / EventsAir import capacity check is read-then-write — OPEN
+- **Files:** `src/app/api/events/[eventId]/import/registrations/route.ts:313`, `src/app/api/events/[eventId]/import/eventsair/route.ts:147`. Per-row `findUnique` → check → increment inside the loop.
+- **Impact:** Concurrent imports (or an import racing public registration) can oversell. Admin-only, rare concurrency.
+- **Fix:** Same atomic `updateMany` predicate guard.
+
+### 63. [DATA-5] Stripe post-payment invoice has no reconciliation — OPEN
+- **File:** `src/app/api/webhooks/stripe/route.ts:182` — invoice auto-create + email runs in a **detached** `(async () => {})()` after the main tx commits. On failure it **logs** (improved since prior audit) but **never retries**, and being post-commit/detached it can't trigger Stripe's webhook retry.
+- **Impact:** A pooler blip or SES throttle during `createPaidInvoice`/`sendInvoiceEmail` → a durably `PAID` registration silently missing its system invoice, with nothing re-attempting.
+- **Fix:** Add a worker reconciliation sweep (find `PAID` + `price > 0` registrations with no `INVOICE` row → create+send). The worker tier already exists for this. (Keep the *email* out of any DB transaction.)
+
+### 64. [DATA-6] Registration DELETE hard-deletes a possibly-shared Attendee — OPEN (currently un-triggerable)
+- **File:** `src/app/api/events/[eventId]/registrations/[registrationId]/route.ts:671`. Unconditionally `tx.attendee.delete` after deleting the registration; FK defaults to `Restrict`.
+- **Impact:** If a sibling registration shares the attendee, the delete throws P2003, the tx rolls back, and DELETE 500s. **Currently un-triggerable** — every create path makes a fresh Attendee or reuses only truly-orphaned ones, and email-change *clones* rather than shares. A latent landmine: the first feature that links an existing Attendee to a 2nd registration breaks DELETE.
+- **Fix:** Gate the attendee delete on `tx.registration.count({ where: { attendeeId, id: { not: registrationId } } }) === 0` (the email-change route already has this sibling-count pattern).
+
+---
+
+## Round 2 — LOW
+
+| # | Issue | Location | Note |
+|---|-------|----------|------|
+| 65 | Organization GET returns billing/tax (`taxId`, company block) with no finance gate | `src/app/api/organization/route.ts:31` | MEMBER can read org billing identity; add `denyFinance`/redact. `taxId`/`companyName` also missing from `FINANCIAL_KEYS`. |
+| 66 | `import-contacts` never increments `TicketType.soldCount` | `src/app/api/events/[eventId]/registrations/import-contacts/route.ts:86` | Under-counts the counter (opposite drift from DATA-3/4); rows still authoritative. |
+| 67 | Two empty `catch {}` with no log | `src/app/api/organization/branding/route.ts:29`, `src/app/api/auth/forgot-password/route.ts:53` | Benign (non-mutating read / malformed-body 400) but violate the "every failure logs" rule. |
+| 68 | Public document/payment-status routes gated only by CUID unguessability | `public/events/[slug]/registrations/[registrationId]/{document,payment-status}` | Correctly event-scoped (NOT cross-tenant); rate-limited. Data-minimization residual — consider a short-lived token if links are ever shared. |
+
+---
+
+## Round 2 — Cleared / verified-not-a-defect
+
+- **Refund route** (`registrations/[registrationId]/refund/route.ts`) — bare-id `findUnique` is gated by the org-bound event + `registration.eventId === eventId`; transitively org-safe. (An agent over-flagged this — confirmed safe.)
+- **`refreshEventStats`** — full recompute via `groupBy`/`count` + `upsert`, **not** a read-modify-write delta → no lost-update. (Clears the prior-flagged concern.)
+- **`WebinarPresence` upsert** — race-safe via `@@unique([sessionId, registrationId])`; `joinCount` is informational, not a capacity guard.
+- **MCP surface** — every event tool routes through `getOrgIdSecure(eventId, authedOrgId)` (404 cross-org); org-level inline tools bind `ctx.organizationId`. **Finance boundary sound** — MEMBER/ONSITE cannot mint MCP tokens (API keys admin-issued; OAuth grant requires ADMIN/SUPER_ADMIN/ORGANIZER), so ungated finance tools at the MCP transport are not reachable by a non-finance principal. Tokens carry no role (no stale-role snapshot).
+- **ONSITE allow-list** — `denyReviewer(…, { allow })` appears on exactly the 5 intended routes (create-registration, check-in POST+PUT, record-payment, badges); no other route allows ONSITE.
+- **Internal-domain / promote-on-invite** — attaches the event's own org, gated by trusted/verified tier; existing-user branch never mutates role/org; promote requires ADMIN+ and refuses foreign-org users.
+- **Migrations** — all since the cert-collapse are additive + `IF NOT EXISTS` / `DO $$ … duplicate_object` guarded → blue-green safe (incl. `20260623000000_add_webinar_presence`).
+- **May-18 "~8 silent safeParse→400" backlog** — **CLOSED** (swept ~110 safeParse sites, 0 missing logs).
+- **Registrant invoice/quote `denyFinance`** — **FIXED** (owner-vs-org-member branch with null-org 403).
+- **`PricingTier.soldCount` one-way leak** — **documented/intentional** (`registration-service.ts` block comment; dashboard counts rows, not the counter). Not a new finding.
+
+---
+
+## Round 2 — Recommended fix order (for live prod)
+
+1. **DATA-1** (promo exhaustion — actively denies attendees) and **RBAC-1** (tag tampering) — small, live impact today.
+2. **DATA-2** (overbooking — false-atomic comment masks it) and **IDOR-2** (accommodation roomType — also an integrity bug today).
+3. **IDOR-1** (promo PII leak) and **FIN-1** (MEMBER price leak + `FINANCIAL_KEYS` gap).
+4. **DATA-3/4** (oversell races), **DATA-5** (invoice reconciliation worker), then **DATA-6** before any feature introduces shared attendees; LOWs as cleanup.
+
+**Regression-prevention suggestion:** a CI grep that flags `findUnique({ where: { id } })` / `findFirst({ where: { id, eventId } })` on tenant-owned models without an `organizationId` / org-bound-event check — would have caught IDOR-1 and IDOR-2.
