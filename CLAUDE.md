@@ -786,5 +786,6 @@ View file logs: `tail -f logs/app.log`
 - `infra/cloudwatch/README.md` - CloudWatch agent setup + Insights queries + alarm pipeline
 - `docs/runbook-ses.md` - SES email runbook (sender verification, DMARC, bounce triage)
 - `docs/DEVELOPMENT_STATUS.md` - Feature status and roadmap
+- `docs/MULTI_TENANCY.md` - **Forward-looking multi-tenant / white-label SaaS reference** (NOT shipped — EA-SYS is single-org today). Tenancy models (Pool/Bridge/Silo), host→tenant routing, **RLS on Prisma + Supabase** deep-dive (the pgbouncer `SET LOCAL` wrinkle), Stripe Connect, per-tenant logging/observability, ops complexity, maintenance, a **real cost model** (CDN egress is the surprise line), security (the IDOR-history lesson → isolation test suite), and a phased roadmap. Read before any white-label work.
 - `docs/ZOOM_INTEGRATION.html` - Zoom SDK integration guide (architecture, setup, file list)
 - `.env.example` - Environment variable template
