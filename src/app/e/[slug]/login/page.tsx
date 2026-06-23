@@ -59,7 +59,7 @@ function EventLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const slug = params.slug as string;
-  const redirectParam = searchParams.get("redirect"); // "registration" | "abstracts" | null
+  const redirectParam = searchParams.get("redirect"); // "registration" | "abstracts" | a safe internal path | null
 
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,8 +106,19 @@ function EventLoginForm() {
       }
 
       toast.success("Welcome back!");
-      // Route based on context: registration → event-scoped my-registration, abstracts → events
-      if (redirectParam === "registration") {
+      // Route based on context. A full internal path (e.g. the gated webinar
+      // session page `/e/[slug]/session/[id]`) takes precedence so attendees
+      // return to where they came from instead of being bounced to a default
+      // by role-based middleware. Only same-origin relative paths are honored
+      // (must start with a single "/") — guards against open-redirect.
+      const isSafeInternalPath =
+        !!redirectParam &&
+        redirectParam.startsWith("/") &&
+        !redirectParam.startsWith("//") &&
+        !redirectParam.startsWith("/\\");
+      if (isSafeInternalPath) {
+        router.push(redirectParam);
+      } else if (redirectParam === "registration") {
         router.push(`/e/${slug}/my-registration`);
       } else if (redirectParam === "abstracts") {
         router.push("/events");

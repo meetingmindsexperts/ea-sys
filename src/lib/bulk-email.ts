@@ -746,7 +746,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ? zoomMeeting.recordingUrl
         : "";
     webinarEnrichment = {
-      joinUrl: zoomMeeting.joinUrl,
+      // Attendees join through OUR gated session page (waiting room → embed/HLS),
+      // NOT the raw Zoom URL. The session page handles auth + registration-gating
+      // and admits viewers only when the producer opens the room. Sending the
+      // Zoom link directly would bypass the waiting room entirely.
+      // (Panelists get the real Zoom join URL via the separate panelist-email
+      // path in src/lib/webinar-panelist-email.ts — unchanged.)
+      joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,
       passcode,
       webinarDate,
       webinarTime,
