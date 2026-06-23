@@ -22,6 +22,9 @@ export function LivePlayer({
 }: LivePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<unknown>(null);
+  // True once we've failed over from the CDN URL to the origin URL, so the
+  // CDN→origin failover happens at most once per load (no ping-pong).
+  const triedFallbackRef = useRef(false);
   const [status, setStatus] = useState<"loading" | "playing" | "offline" | "error">("loading");
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -47,6 +50,8 @@ export function LivePlayer({
       const video = videoRef.current;
       if (!video) return;
 
+      triedFallbackRef.current = false;
+
       // Check if stream is live first
       const streamData = await pollStreamStatus();
       if (!mounted) return;
@@ -61,29 +66,44 @@ export function LivePlayer({
           if (!mounted) return;
           if (data?.status === "active" && data.hlsUrl) {
             clearInterval(pollInterval);
-            loadHls(data.hlsUrl);
+            triedFallbackRef.current = false;
+            loadHls(data.hlsUrl, data.hlsOriginUrl);
           }
         }, 10_000);
         return;
       }
 
-      loadHls(streamData.hlsUrl || hlsUrl);
+      loadHls(streamData.hlsUrl || hlsUrl, streamData.hlsOriginUrl);
     }
 
-    async function loadHls(url: string) {
+    // Load `url`; on a fatal failure, fail over to `fallbackUrl` (the box
+    // origin) once if the CDN edge misbehaves — then surface a retry message.
+    async function loadHls(url: string, fallbackUrl?: string) {
       const video = videoRef.current;
       if (!video || !mounted) return;
+
+      const tryFallback = (): boolean => {
+        if (fallbackUrl && fallbackUrl !== url && !triedFallbackRef.current) {
+          triedFallbackRef.current = true;
+          loadHls(fallbackUrl);
+          return true;
+        }
+        return false;
+      };
 
       // Safari has native HLS support
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url;
-        video.addEventListener("loadedmetadata", () => {
+        video.onloadedmetadata = () => {
           if (mounted) {
             setStatus("playing");
             onStreamStatusChange?.("active");
             video.play().catch(() => {});
           }
-        });
+        };
+        video.onerror = () => {
+          if (mounted && !tryFallback()) setStatus("error");
+        };
         return;
       }
 
@@ -116,18 +136,11 @@ export function LivePlayer({
 
         hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal?: boolean; type?: string }) => {
           if (data.fatal && mounted) {
-            setStatus("offline");
-            onStreamStatusChange?.("ended");
             hls.destroy();
-            // Start polling again
-            pollInterval = setInterval(async () => {
-              const streamData = await pollStreamStatus();
-              if (!mounted) return;
-              if (streamData?.status === "active" && streamData.hlsUrl) {
-                clearInterval(pollInterval);
-                loadHls(streamData.hlsUrl);
-              }
-            }, 10_000);
+            // CDN edge failed → try the box origin once before giving up.
+            if (tryFallback()) return;
+            setStatus("error");
+            onStreamStatusChange?.("ended");
           }
         });
       } catch {

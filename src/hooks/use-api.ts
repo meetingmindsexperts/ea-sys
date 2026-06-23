@@ -87,6 +87,7 @@ export const queryKeys = {
   webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
   webinarSequence: (eventId: string) => ["events", eventId, "webinar", "sequence"] as const,
   webinarAttendance: (eventId: string) => ["events", eventId, "webinar", "attendance"] as const,
+  webinarPresence: (eventId: string) => ["events", eventId, "webinar", "presence"] as const,
   webinarEngagement: (eventId: string) => ["events", eventId, "webinar", "engagement"] as const,
   webinarPanelists: (eventId: string) => ["events", eventId, "webinar", "panelists"] as const,
   sponsors: (eventId: string) => ["events", eventId, "sponsors"] as const,
@@ -1846,6 +1847,34 @@ export function useWebinarAttendance(eventId: string) {
     queryKey: queryKeys.webinarAttendance(eventId),
     queryFn: () => fetchApi<WebinarAttendanceData>(`/api/events/${eventId}/webinar/attendance`),
     enabled: !!eventId,
+  });
+}
+
+export interface WebinarPresenceRow {
+  id: string;
+  phase: "lobby" | "joined" | string;
+  name: string;
+  email: string | null;
+  serialId: number | null;
+  firstJoinedAt: string;
+  lastSeenAt: string;
+  joinCount: number;
+}
+
+export interface WebinarPresenceData {
+  lobby: number;
+  joined: number;
+  total: number;
+  rows: WebinarPresenceRow[];
+}
+
+/** Real-time lobby/live presence — polls every ~18s while the console is open. */
+export function useWebinarPresence(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.webinarPresence(eventId),
+    queryFn: () => fetchApi<WebinarPresenceData>(`/api/events/${eventId}/webinar/presence`),
+    enabled: !!eventId && enabled,
+    refetchInterval: 18000,
   });
 }
 

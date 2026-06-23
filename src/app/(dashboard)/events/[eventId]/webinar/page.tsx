@@ -54,6 +54,7 @@ import {
   useWebinar,
   useUpdateWebinarSettings,
   useToggleWebinarRoom,
+  useWebinarPresence,
   useProvisionWebinar,
   useWebinarSequence,
   useReenqueueWebinarSequence,
@@ -293,6 +294,10 @@ export default function WebinarConsolePage() {
             eventId={eventId}
             webinar={data?.webinar ?? {}}
             anchor={anchor ?? null}
+          />
+          <LiveNowCard
+            eventId={eventId}
+            live={anchor?.status === "LIVE" || status === "live"}
           />
           <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
           <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
@@ -1825,6 +1830,70 @@ function QaCard({
               </div>
             )}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
+  // Only poll + render while the room is live — presence is meaningless otherwise.
+  const { data, isLoading } = useWebinarPresence(eventId, live);
+  if (!live) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CircleDot className="h-5 w-5 text-red-500 animate-pulse" />
+          Live now
+        </CardTitle>
+        <CardDescription>
+          Registrants currently on the webinar page (heartbeat in the last 60s) —
+          lobby-page presence, distinct from the post-event attendance report.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <CardLoading />
+        ) : !data || data.total === 0 ? (
+          <CardEmpty message="No attendees on the page right now." />
+        ) : (
+          <>
+            <div className="mb-4 flex gap-3">
+              <div className="flex-1 rounded-lg border p-3 text-center">
+                <p className="text-2xl font-bold">{data.lobby}</p>
+                <p className="text-xs text-muted-foreground">In lobby</p>
+              </div>
+              <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-center">
+                <p className="text-2xl font-bold text-emerald-700">{data.joined}</p>
+                <p className="text-xs text-muted-foreground">Joined</p>
+              </div>
+            </div>
+            <div className="max-h-72 divide-y overflow-y-auto rounded-lg border">
+              {data.rows.map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{r.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {r.email ?? ""}
+                      {r.serialId != null ? ` · #${String(r.serialId).padStart(3, "0")}` : ""}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={r.phase === "joined" ? undefined : "outline"}
+                    className={
+                      r.phase === "joined"
+                        ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                        : ""
+                    }
+                  >
+                    {r.phase === "joined" ? "Joined" : "Lobby"}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

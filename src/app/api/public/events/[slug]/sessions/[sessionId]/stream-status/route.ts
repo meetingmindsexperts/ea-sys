@@ -68,13 +68,22 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.info({ sessionId, streamStatus: newStatus }, "zoom:stream-status-changed");
     }
 
-    // Build HLS URL for the client
+    // Build HLS URLs for the client. At 5k viewers HLS is served from a CDN
+    // (CloudFront) fronting the box — `HLS_CDN_BASE` points at the distribution.
+    // We return BOTH so the player can fail over CDN → origin if the edge
+    // misbehaves. Unset HLS_CDN_BASE ⇒ both fall back to the app origin
+    // (single-box dev / small events).
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const hlsPlaybackUrl = `${appUrl}/stream/live/${zoomMeeting.streamKey}/index.m3u8`;
+    const cdnBase = process.env.HLS_CDN_BASE || appUrl;
+    const path = `/stream/live/${zoomMeeting.streamKey}/index.m3u8`;
+    const hlsPlaybackUrl = `${cdnBase}${path}`;
+    const hlsOriginUrl = `${appUrl}${path}`;
 
     return NextResponse.json({
       status: isLive ? "active" : newStatus.toLowerCase(),
       hlsUrl: isLive ? hlsPlaybackUrl : null,
+      // Direct-origin URL for player fallback when the CDN edge fails.
+      hlsOriginUrl: isLive ? hlsOriginUrl : null,
       streamKey: zoomMeeting.streamKey,
     });
   } catch (error) {

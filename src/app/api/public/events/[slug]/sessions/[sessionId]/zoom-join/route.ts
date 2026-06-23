@@ -156,12 +156,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       0, // role = attendee
     );
 
-    // Build streaming info if live stream is enabled
+    // Build streaming info if live stream is enabled. HLS is CDN-served at
+    // scale (HLS_CDN_BASE → CloudFront); falls back to the app origin when unset.
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const cdnBase = process.env.HLS_CDN_BASE || appUrl;
     const streamingFields = session.zoomMeeting.liveStreamEnabled && session.zoomMeeting.streamKey
       ? {
           liveStreamEnabled: true,
-          hlsPlaybackUrl: `${appUrl}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
+          hlsPlaybackUrl: `${cdnBase}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
+          hlsOriginUrl: `${appUrl}/stream/live/${session.zoomMeeting.streamKey}/index.m3u8`,
           streamStatus: session.zoomMeeting.streamStatus,
         }
       : { liveStreamEnabled: false };

@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
+import { isWebinar } from "@/lib/webinar";
 import {
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
@@ -118,6 +119,7 @@ export default function RegistrationsPage() {
   const ticketsQuery = useTickets(eventId);
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
+  const eventIsWebinar = isWebinar(event ?? undefined);
   const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {
@@ -732,6 +734,11 @@ export default function RegistrationsPage() {
                         {registration.attendanceMode === "VIRTUAL" && (
                           <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-200">
                             Virtual
+                          </Badge>
+                        )}
+                        {eventIsWebinar && registration.webinarFirstJoinedAt && (
+                          <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-200">
+                            Joined
                           </Badge>
                         )}
                       </div>

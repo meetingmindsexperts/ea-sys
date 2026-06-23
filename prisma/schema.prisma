@@ -272,6 +272,7 @@ model Event {
   billingAccounts           EventBillingAccount[]
   zoomMeetings              ZoomMeeting[]
   zoomAttendances           ZoomAttendance[]
+  webinarPresences          WebinarPresence[]
   promoCodes                PromoCode[]
   scheduledEmails           ScheduledEmail[]
   eventStats                EventStats?
@@ -697,6 +698,11 @@ model Registration {
   utmMedium           String?
   utmCampaign         String?
   checkedInAt         DateTime?
+  /// First time this registrant entered our webinar lobby / joined the live
+  /// view (set by the presence heartbeat). Durable "Joined" indicator; the
+  /// live who's-here-now state lives in WebinarPresence. Same write-once
+  /// convention as checkedInAt.
+  webinarFirstJoinedAt DateTime?
   // Badge-print analytics: first-print timestamp + total prints (reprints
   // bump the count). Set by the badge route; powers "badges printed vs
   // registered" and reprint metrics. Per-print history lives in AuditLog
@@ -764,6 +770,7 @@ model Registration {
   invoices                 Invoice[]
   promoRedemption          PromoCodeRedemption?
   zoomAttendances          ZoomAttendance[]
+  webinarPresences         WebinarPresence[]
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
   surveyResponse           SurveyResponse?
@@ -1100,8 +1107,9 @@ model EventSession {
   track           Track?           @relation(fields: [trackId], references: [id])
   speakers        SessionSpeaker[]
   topics          SessionTopic[]
-  zoomMeeting     ZoomMeeting?
-  zoomAttendances ZoomAttendance[]
+  zoomMeeting      ZoomMeeting?
+  zoomAttendances  ZoomAttendance[]
+  webinarPresences WebinarPresence[]
 
   @@index([eventId])
   @@index([startTime])
@@ -1718,6 +1726,34 @@ model ZoomAttendance {
   @@index([zoomMeetingId])
   @@index([eventId, sessionId])
   @@index([email])
+  @@index([registrationId])
+}
+
+// Real-time presence of registered attendees on our webinar lobby / live page.
+// This tracks OUR page being open (heartbeat), NOT actual Zoom viewing — the
+// authoritative post-event attendance lives in ZoomAttendance. One row per
+// (session, registration); the heartbeat upserts lastSeenAt, and "who's here
+// now" = rows with a recent lastSeenAt. Kept off the hot Registration row to
+// avoid lock/vacuum churn on a finance-bearing table.
+model WebinarPresence {
+  id             String   @id @default(cuid())
+  eventId        String
+  sessionId      String
+  registrationId String
+  firstJoinedAt  DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+  joinCount      Int      @default(1)
+  phase          String   @default("lobby") // "lobby" | "joined"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  session      EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, registrationId])
+  @@index([sessionId, lastSeenAt])
+  @@index([eventId])
   @@index([registrationId])
 }
 

@@ -284,6 +284,42 @@ export default function PublicSessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId]);
 
+  // Presence heartbeat: while a registered attendee has the webinar page open,
+  // beat every ~20–25s (jittered) so organizers see who's in the lobby / joined
+  // in real time. Paused while the tab is hidden; phase reflects whether they've
+  // been admitted into the live view. Read isJoining via a ref so the interval
+  // stays stable across admit transitions.
+  const isJoiningRef = useRef(isJoining);
+  isJoiningRef.current = isJoining;
+  useEffect(() => {
+    if (!isWebinarEvent || authState.kind !== "ok") return;
+    async function beat() {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      try {
+        await fetch(
+          `/api/public/events/${slug}/sessions/${sessionId}/presence`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: isJoiningRef.current ? "joined" : "lobby" }),
+          },
+        );
+      } catch {
+        // tolerate transient failures — next beat retries
+      }
+    }
+    beat();
+    const onVis = () => {
+      if (document.visibilityState === "visible") beat();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const id = setInterval(beat, 20000 + Math.floor(Math.random() * 5000));
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearInterval(id);
+    };
+  }, [isWebinarEvent, authState.kind, slug, sessionId]);
+
   // Determine session timing status
   const now = Date.now();
   const startMs = session ? new Date(session.startTime).getTime() : 0;
