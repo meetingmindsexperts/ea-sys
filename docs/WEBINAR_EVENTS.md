@@ -339,7 +339,27 @@ The sticky CTA uses `position: sticky; top: 0; z-10` with a gradient-blur backgr
 
 [src/components/zoom/zoom-web-embed.tsx](../src/components/zoom/zoom-web-embed.tsx) wraps the Zoom SDK v6 `@zoom/meetingsdk/embedded` entry.
 
-**Why Component View works under React 19** — the `/embedded` entry is a **UMD bundle** (`zoomus-websdk-embedded.umd.min.js`) that ships its own React 18 + ReactDOM internally. That bundled React lives entirely inside the SDK's own DOM subtree and never touches our app's React 19 fiber tree. The two Reacts coexist without knowing about each other. This is the key difference from Client View (the non-embedded entry), which tries to render into the host app's React tree and therefore collides.
+**Making it work under React 19 — the CDN loader (June 23, 2026).** ⚠️ A prior
+claim here said the `/embedded` UMD "ships its own React 18 internally, isolated
+from our React 19." **That is FALSE for `@zoom/meetingsdk@6.0.0`.** The
+`zoomus-websdk-embedded.umd.min.js` UMD **externalizes** `require("react")` /
+`require("react-dom")` (does NOT inline them) and reads React-18's internal
+`ReactCurrentOwner` — which **React 19 removed**. So an `import "@zoom/meetingsdk/embedded"`
+resolves those externals to the app's React 19 → *"Cannot read properties of
+undefined (reading 'ReactCurrentOwner')"* and the embed fails to load (producer
+hit this on a live webinar).
+
+The fix: [src/lib/zoom/load-embedded-sdk.ts](../src/lib/zoom/load-embedded-sdk.ts)
+`loadZoomMtgEmbedded()` loads the SDK **+ its own React 18** from
+`source.zoom.us` (CDN) as isolated browser globals (`window.React` = 18,
+`window.ZoomMtgEmbedded`). The Next app keeps importing React 19 via the module
+graph, so the two never collide. This is Zoom's documented React-app integration.
+**Switchable** via `NEXT_PUBLIC_ZOOM_EMBED_LOADER`: `"cdn"` (default, works under
+React 19) vs `"npm"` (the bundled import — kept as a one-env-var flip-back for
+when Zoom ships a React-19-compatible SDK). Verified in a real browser:
+`createClient()` + `init()` run with React 18.2.0, no `ReactCurrentOwner` crash;
+regression test at `__tests__/lib/zoom-load-embedded-sdk.test.ts`. Client View
+(the non-embedded entry) remains unsupported (it renders into the host React tree).
 
 **Lifecycle**:
 ```
@@ -352,7 +372,7 @@ createClient() → init({ zoomAppRoot, language, patchJsMedia, leaveOnPageUnload
 
 **Critical safety mechanisms**:
 
-1. **Dynamic import** — `await import("@zoom/meetingsdk/embedded")` inside `useEffect`, never at module top. Combined with the parent's `next/dynamic({ ssr: false })` and the user-click gate, the 3 MB bundle is fully deferred.
+1. **Lazy load** — `await loadZoomMtgEmbedded()` inside `useEffect`, never at module top (default `"cdn"` strategy; `"npm"` does `import("@zoom/meetingsdk/embedded")`). Combined with the parent's `next/dynamic({ ssr: false })` and the user-click gate, the ~3 MB bundle is fully deferred.
 
 2. **StrictMode-safe cleanup** — a module-level `pendingDestroy: Promise<void> | null` serializes cleanup across re-mounts. React 19 StrictMode double-invokes effects in dev:
    - Effect 1 → mount → createClient → (async work)
@@ -641,9 +661,9 @@ Zoom's own dashboard collapses the same way — it shows all poll questions and 
 The key insight is that **Zoom's `@zoom/meetingsdk` exposes two entry points**:
 
 - `@zoom/meetingsdk` (index.js) — the **Client View**. This is a React component that tries to render into your app's React fiber tree. Under React 19, hooks fail because the SDK's bundled React 18 and our React 19 see different versions of `useState` and the reconciler throws the classic "you might have more than one copy of React" errors.
-- `@zoom/meetingsdk/embedded` (embedded.js) — the **Component View**. This is a UMD bundle (`zoomus-websdk-embedded.umd.min.js`) that exposes `ZoomMtgEmbedded` as a module-level singleton. It ships its own React 18 + ReactDOM + Redux internally, but they all live inside the UMD closure — they never interact with the host app's React tree. Zoom's SDK mounts its UI into an HTMLElement you hand it (`init({ zoomAppRoot: el })`) and does all rendering inside that subtree.
+- `@zoom/meetingsdk/embedded` (embedded.js) — the **Component View**. Exposes `ZoomMtgEmbedded` as a module-level singleton and mounts its UI into an HTMLElement you hand it (`init({ zoomAppRoot: el })`), so it never renders into the host React tree. **BUT** (corrected June 23 2026) the `/embedded` UMD does **NOT** bundle its own React — it **externalizes** `require("react")`/`require("react-dom")` and uses React-18's `ReactCurrentOwner`, which React 19 deleted. So an npm `import "@zoom/meetingsdk/embedded"` picks up the app's React 19 and crashes. The isolation is achieved instead by **loading the SDK + its own React 18 from the CDN** (`loadZoomMtgEmbedded()`, see the embed section above) — that's what makes Component View work under React 19.
 
-**Trade-off**: Component View's API is factory-style (`createClient().init().join()`) instead of declarative React props. You lose JSX composition but gain version isolation. For our use case — a full-panel embedded webinar viewer — that's a great trade.
+**Trade-off**: Component View's API is factory-style (`createClient().init().join()`) instead of declarative React props. You lose JSX composition but gain (via the CDN loader) version isolation. For our use case — a full-panel embedded webinar viewer — that's a great trade.
 
 **Why we didn't discover this in the first audit**: the first audit read `package.json` and saw `react: "18.2.0"` in the SDK's peerDependencies and concluded "blocked". It didn't distinguish between the two entry points. When the second audit ran `npm pack @zoom/meetingsdk@6.0.0 --dry-run` and saw both `index.js` and `embedded.js` listed separately, the isolation became obvious.
 

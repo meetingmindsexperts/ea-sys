@@ -830,14 +830,14 @@ Contact ──&gt; organizationId (always org-scoped, auto-synced)</div>
   <h3>Credential Encryption</h3>
   <p>Zoom client secrets are stored AES-256-GCM encrypted in <code>Organization.settings.zoom.clientSecretEncrypted</code>. The encryption key is derived from <code>NEXTAUTH_SECRET</code>. Plaintext secrets never touch the database.</p>
 
-  <h3>Component View Embed (React 19 Compatible)</h3>
-  <p><code>ZoomWebEmbed</code> uses <code>@zoom/meetingsdk/embedded</code> (the UMD Component View entry), which ships its own React 18 + Redux inside a UMD closure. This means it never touches the app's React 19 fiber tree.</p>
-  <div class="diagram">React 19 App Tree              UMD Closure (isolated)
+  <h3>Component View Embed (React 19 Compatible via CDN)</h3>
+  <p><code>ZoomWebEmbed</code> uses <code>@zoom/meetingsdk/embedded</code> (the Component View entry). <strong>Correction (June 23 2026):</strong> the npm <code>/embedded</code> UMD does <em>not</em> bundle React &mdash; it externalizes <code>require("react")</code> and uses React-18's <code>ReactCurrentOwner</code>, which React 19 removed, so a plain import crashes (<em>"Cannot read properties of undefined (reading 'ReactCurrentOwner')"</em>). It works under React 19 by loading the SDK <strong>+ its own React 18 from Zoom's CDN</strong> (<code>src/lib/zoom/load-embedded-sdk.ts</code>) as isolated browser globals, switchable via <code>NEXT_PUBLIC_ZOOM_EMBED_LOADER</code>.</p>
+  <div class="diagram">React 19 App (module graph)    Zoom CDN globals (isolated)
        |                              |
-  ZoomWebEmbed (div ref)    &rarr;    Zoom SDK React 18 + Redux
+  ZoomWebEmbed (div ref)    &rarr;    window.React = 18 + window.ZoomMtgEmbedded
        |                              |
-  createClient()            &rarr;    Renders into div ref
-  init() + join()                     Self-contained lifecycle</div>
+  loadZoomMtgEmbedded()     &rarr;    SDK renders into div ref using React 18
+  createClient()/init()/join()        Self-contained lifecycle</div>
 </section>
 
 <!-- ─── 7. STRIPE ────────────────────────── -->
