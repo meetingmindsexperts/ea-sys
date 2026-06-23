@@ -303,7 +303,33 @@
 | LOW | 4 |
 | **Round-2 total** | **14** |
 
-> **Status legend:** OPEN = not yet fixed. All Round-2 findings are OPEN at time of writing.
+> **Status legend:** OPEN = not yet fixed. **All Round-2 findings were remediated
+> on 2026-06-23** — see the Resolution block below for the per-finding status +
+> commits. (Individual finding bodies retain their original "OPEN" wording as the
+> as-discovered record.)
+
+### Round 2 — Resolution (2026-06-23)
+
+Remediated in three verified batches (each: tsc 0, eslint 0, vitest green, build 0;
+pushed to `main`, not yet deployed). Two findings were **false positives** on
+closer inspection.
+
+| # / ID | Status | Batch / commit |
+|---|---|---|
+| 55 IDOR-1 promo GET PII | ✅ FIXED — org-bind added | batch 1 `bfc7596` |
+| 56 IDOR-2 accommodation roomType | ✅ HARDENED — **was not exploitable** (pre-tx validation already binds the event); in-tx re-read now also event-bound (defense-in-depth) | batch 1 `bfc7596` |
+| 57 RBAC-1 bulk-tags guard | ✅ FIXED — `denyReviewer` on both PATCH routes | batch 1 `bfc7596` |
+| 58 DATA-1 promo usedCount | ✅ FIXED — released on cancel/delete (REST PUT+DELETE, MCP single+bulk) | batch 1 `bfc7596` |
+| 59 DATA-2 overbooking TOCTOU | ✅ FIXED — atomic `updateMany` predicate (service + PUT room-change + reinstate); test updated | batch 1 `bfc7596` |
+| 60 FIN-1 price redaction | ✅ FIXED — `totalPrice` added to `FINANCIAL_KEYS`; accommodation+hotel GET redact for non-finance roles. **Note:** moot under the June-17 finance model (MEMBER/ONSITE are finance-capable; other roles are org-null → 404), applied as defense-in-depth/future-proofing | batch 2 `ce8737b` |
+| 61 DATA-3 reactivate/type-change race | ✅ FIXED — atomic predicate-guarded increments (REST + MCP) | batch 1 `bfc7596` |
+| 62 DATA-4 import capacity race | ✅ FIXED — atomic claim in CSV + EventsAir imports | batch 2 `ce8737b` |
+| 63 DATA-5 invoice reconciliation | ✅ FIXED — new `invoice-reconciliation` worker job (10-min, advisory-lock 1006) + 5 tests; **needs worker redeploy to run** | batch 3 `09dab42` |
+| 64 DATA-6 shared-attendee delete | ✅ FIXED — sibling-count guard before attendee delete | batch 1 `bfc7596` |
+| 65 LOW org GET finance gate | ⏸️ NOT FIXED (intentional) — moot under the June-17 finance model + risks over-stripping widely-used `companyName`; tracked | — |
+| 66 LOW import-contacts soldCount | ❌ FALSE POSITIVE — the route **does** increment soldCount in bulk after the create loop | — |
+| 67 LOW empty catches | ✅ FIXED — branding GET + forgot-password JSON parse now `apiLogger.warn` | batch 2 `ce8737b` |
+| 68 LOW public CUID-gated docs | ⏸️ NOT FIXED (by-design) — event-scoped + rate-limited; data-minimization residual only; tracked | — |
 
 ---
 
