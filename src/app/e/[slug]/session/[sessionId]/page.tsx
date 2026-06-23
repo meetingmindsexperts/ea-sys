@@ -342,6 +342,11 @@ export default function PublicSessionPage() {
   const isLive = session?.status === "LIVE" || (now >= startMs && now <= endMs);
   const isPast = now > endMs && endMs > 0;
   const isUpcoming = startMs > now;
+  // Webinars routinely overrun their scheduled slot. While the producer has the
+  // room OPEN, don't tear the live view down just because wall-clock passed the
+  // scheduled end time — keep the HLS/embed alive until they actually close the
+  // room (review #9). Falls back to plain wall-clock when not a managed room.
+  const liveWindowActive = !isPast || (isWebinarEvent && roomOpen);
 
   if (loading) {
     return (
@@ -566,7 +571,7 @@ export default function PublicSessionPage() {
             lobby?.viewingMode === "hls" &&
             joinInfo &&
             !joinInfo.liveStreamEnabled &&
-            !isPast &&
+            liveWindowActive &&
             !hasRecording ? (
               <Card className="border-amber-200 bg-amber-50/50">
                 <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
@@ -581,8 +586,9 @@ export default function PublicSessionPage() {
             ) : null}
 
             {/* HLS stream takes precedence when configured — it's the
-                 branded full-screen experience */}
-            {joinInfo?.liveStreamEnabled && !isPast && (
+                 branded full-screen experience. Stays mounted past the
+                 scheduled end while the room is open (overrun, review #9). */}
+            {joinInfo?.liveStreamEnabled && liveWindowActive && (
               <LivePlayer
                 hlsUrl={joinInfo.hlsPlaybackUrl || ""}
                 slug={slug}
