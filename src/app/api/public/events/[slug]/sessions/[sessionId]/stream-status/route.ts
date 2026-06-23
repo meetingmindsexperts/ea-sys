@@ -5,6 +5,30 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
+// In-process cache of the MediaMTX liveness probe, keyed by streamKey. At 5k
+// viewers all LivePlayers poll this ~every 10s; without the cache each request
+// fires an outbound probe at the single MediaMTX container (a self-DoS). A 3s
+// TTL collapses the fan-out to ~1 probe / 3s per box. Per-container (resets on
+// deploy) — fine for a liveness flag.
+const probeCache = new Map<string, { isLive: boolean; at: number }>();
+const PROBE_TTL_MS = 3000;
+
+async function probeStreamLive(mediamtxUrl: string, streamKey: string): Promise<boolean> {
+  const cached = probeCache.get(streamKey);
+  if (cached && Date.now() - cached.at < PROBE_TTL_MS) return cached.isLive;
+  let isLive = false;
+  try {
+    const res = await fetch(`${mediamtxUrl}/live/${streamKey}/index.m3u8`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    isLive = res.ok;
+  } catch {
+    // MediaMTX unreachable or stream not active → treat as not live.
+  }
+  probeCache.set(streamKey, { isLive, at: Date.now() });
+  return isLive;
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, sessionId } = await params;
@@ -45,18 +69,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ status: "unavailable" });
     }
 
-    // Check if MediaMTX is actually serving the stream by probing the HLS endpoint
+    // Check if MediaMTX is actually serving the stream (cached probe — shared
+    // across all pollers for this streamKey, see probeStreamLive above).
     const mediamtxUrl = process.env.MEDIAMTX_HLS_URL || "http://localhost:8888";
-    let isLive = false;
-
-    try {
-      const hlsCheck = await fetch(`${mediamtxUrl}/live/${zoomMeeting.streamKey}/index.m3u8`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      isLive = hlsCheck.ok;
-    } catch {
-      // MediaMTX not reachable or stream not active
-    }
+    const isLive = await probeStreamLive(mediamtxUrl, zoomMeeting.streamKey);
 
     // Update DB status if it changed
     const newStatus = isLive ? "ACTIVE" : (zoomMeeting.streamStatus === "ACTIVE" ? "ENDED" : zoomMeeting.streamStatus);

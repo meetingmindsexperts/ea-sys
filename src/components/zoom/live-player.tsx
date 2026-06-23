@@ -26,6 +26,9 @@ export function LivePlayer({
   // CDN→origin failover happens at most once per load (no ping-pong).
   const triedFallbackRef = useRef(false);
   const [status, setStatus] = useState<"loading" | "playing" | "offline" | "error">("loading");
+  // Bumped by the Retry button to re-run the init effect (instead of a full
+  // window.location.reload, which at 5k viewers is a thundering-herd self-DoS).
+  const [retryNonce, setRetryNonce] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,10 +49,27 @@ export function LivePlayer({
     let mounted = true;
     let pollInterval: ReturnType<typeof setInterval>;
 
+    // Resume polling stream-status until the stream is live again, then reload —
+    // so a transient drop (CDN blip, RTMP reconnect, segment gap) AUTO-RECOVERS
+    // instead of dead-ending the viewer in an error/reload screen.
+    function startRecoveryPoll(reason: "idle" | "ended") {
+      setStatus("offline");
+      onStreamStatusChange?.(reason);
+      clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        const data = await pollStreamStatus();
+        if (!mounted) return;
+        if (data?.status === "active" && data.hlsUrl) {
+          clearInterval(pollInterval);
+          triedFallbackRef.current = false;
+          loadHls(data.hlsUrl, data.hlsOriginUrl);
+        }
+      }, 10_000);
+    }
+
     async function initPlayer() {
       const video = videoRef.current;
       if (!video) return;
-
       triedFallbackRef.current = false;
 
       // Check if stream is live first
@@ -57,19 +77,7 @@ export function LivePlayer({
       if (!mounted) return;
 
       if (!streamData || streamData.status !== "active") {
-        setStatus("offline");
-        onStreamStatusChange?.("idle");
-
-        // Poll every 10s until stream goes live
-        pollInterval = setInterval(async () => {
-          const data = await pollStreamStatus();
-          if (!mounted) return;
-          if (data?.status === "active" && data.hlsUrl) {
-            clearInterval(pollInterval);
-            triedFallbackRef.current = false;
-            loadHls(data.hlsUrl, data.hlsOriginUrl);
-          }
-        }, 10_000);
+        startRecoveryPoll("idle");
         return;
       }
 
@@ -102,7 +110,9 @@ export function LivePlayer({
           }
         };
         video.onerror = () => {
-          if (mounted && !tryFallback()) setStatus("error");
+          // CDN edge failed → try the box origin once; else resume the live
+          // poll so a transient drop auto-recovers.
+          if (mounted && !tryFallback()) startRecoveryPoll("ended");
         };
         return;
       }
@@ -137,10 +147,11 @@ export function LivePlayer({
         hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal?: boolean; type?: string }) => {
           if (data.fatal && mounted) {
             hls.destroy();
-            // CDN edge failed → try the box origin once before giving up.
+            // CDN edge failed → try the box origin once.
             if (tryFallback()) return;
-            setStatus("error");
-            onStreamStatusChange?.("ended");
+            // Both CDN + origin failed → resume the recovery poll (auto-reconnect
+            // when healthy) rather than dead-ending in "error".
+            startRecoveryPoll("ended");
           }
         });
       } catch {
@@ -157,7 +168,7 @@ export function LivePlayer({
         (hlsRef.current as { destroy: () => void }).destroy();
       }
     };
-  }, [hlsUrl, slug, sessionId, pollStreamStatus, onStreamStatusChange]);
+  }, [hlsUrl, slug, sessionId, pollStreamStatus, onStreamStatusChange, retryNonce]);
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -182,8 +193,9 @@ export function LivePlayer({
     if (videoRef.current) {
       videoRef.current.src = "";
     }
-    // Re-trigger the effect by toggling a state
-    window.location.reload();
+    // Re-run the init effect (re-fetch stream-status + re-attach HLS) instead of
+    // a full document reload — the latter at 5k is a thundering-herd self-DoS.
+    setRetryNonce((n) => n + 1);
   };
 
   return (

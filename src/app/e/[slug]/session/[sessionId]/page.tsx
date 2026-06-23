@@ -259,29 +259,44 @@ export default function PublicSessionPage() {
     };
   }, [isWebinarEvent, authState.kind, slug, sessionId]);
 
-  // When the room opens, admit the attendee: (re)fetch join creds — they may
-  // have 403'd at page load while the room was still closed — and, for the
-  // Zoom-embed mode, auto-mount the embed (with the "Join now" CTA as the
-  // gesture fallback). The HLS branch renders from the refreshed joinInfo.
   const roomOpen = Boolean(lobby?.roomOpen);
+
+  // Reset the once-per-open admit latch when the producer CLOSES the room, so a
+  // subsequent re-open re-admits everyone still on the page, and demote anyone
+  // currently in the embed back to the lobby/paused view (review #4).
+  const prevRoomOpenRef = useRef(false);
+  useEffect(() => {
+    if (prevRoomOpenRef.current && !roomOpen) {
+      admittedRef.current = false;
+      setIsJoining(false);
+    }
+    prevRoomOpenRef.current = roomOpen;
+  }, [roomOpen]);
+
+  // When the room opens, admit the attendee: ALWAYS re-mint join creds (a
+  // signature minted at page load is likely expired after a long lobby wait —
+  // review #8), then for Zoom-embed mode auto-mount the embed (with the
+  // "Join now" CTA as the gesture fallback). The HLS branch renders from the
+  // refreshed joinInfo. On a failed re-fetch, release the latch so the next
+  // lobby poll retries instead of dead-ending (review #M-2).
   useEffect(() => {
     if (!isWebinarEvent || !roomOpen || admittedRef.current) return;
     admittedRef.current = true;
     (async () => {
       try {
-        if (!joinInfo) {
-          const res = await fetch(
-            `/api/public/events/${slug}/sessions/${sessionId}/zoom-join`,
-          );
-          if (res.ok) setJoinInfo((await res.json()) as JoinInfo);
+        const res = await fetch(
+          `/api/public/events/${slug}/sessions/${sessionId}/zoom-join`,
+        );
+        if (res.ok) {
+          setJoinInfo((await res.json()) as JoinInfo);
+          if (lobby?.viewingMode === "zoom") setIsJoining(true);
+        } else {
+          admittedRef.current = false; // retry on the next lobby poll
         }
       } catch {
-        // leave the "Join now" CTA as the manual path
+        admittedRef.current = false; // transient — retry on the next poll
       }
-      if (lobby?.viewingMode === "zoom") setIsJoining(true);
     })();
-    // joinInfo intentionally omitted — admit runs once per opening via the ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId]);
 
   // Presence heartbeat: while a registered attendee has the webinar page open,
@@ -378,14 +393,16 @@ export default function PublicSessionPage() {
 
   // Show the branded waiting room when: this is a webinar, the viewer is a
   // confirmed registrant, lobby state has loaded, the producer has NOT opened
-  // the room, and the session isn't already ended / replayable. When true, it
-  // replaces the live-video branches below until the room opens.
+  // the room, and we're not past the scheduled end / replayable. Keyed on
+  // `!isPast` (wall-clock end), NOT `lobby.ended` — so a producer who CLOSES
+  // the room mid-event (status COMPLETED before end time) sends attendees back
+  // to the lobby (paused) rather than a dead-end, and a re-open re-admits them
+  // (review #4).
   const showWaitingRoom =
     isWebinarEvent &&
     authState.kind === "ok" &&
     lobby !== null &&
     !roomOpen &&
-    !lobby.ended &&
     !isPast &&
     !hasRecording;
 
@@ -541,6 +558,28 @@ export default function PublicSessionPage() {
               />
             ) : (
               <>
+            {/* Config-mismatch guard: organizer chose "Custom stream" but the
+                 session has no live stream enabled / stream key, so neither the
+                 HLS player nor the Zoom embed would render — show a clear
+                 "stream not ready" state instead of a blank tab (review #5). */}
+            {roomOpen &&
+            lobby?.viewingMode === "hls" &&
+            joinInfo &&
+            !joinInfo.liveStreamEnabled &&
+            !isPast &&
+            !hasRecording ? (
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+                  <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
+                  <p className="font-medium text-lg">Getting the stream ready…</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    The live stream for this session isn&apos;t available yet. Please keep this
+                    page open — it&apos;ll appear here automatically once it starts.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
+
             {/* HLS stream takes precedence when configured — it's the
                  branded full-screen experience */}
             {joinInfo?.liveStreamEnabled && !isPast && (
