@@ -169,27 +169,22 @@ export async function zoomApiRequest<T>(
       // ignore parse errors
     }
 
-    const logPayload = {
-      method,
-      path,
-      statusCode: response.status,
-      zoomErrorCode: errorBody?.code,
-      zoomMessage: errorBody?.message,
-      durationMs,
-    };
-    // A 404 from Zoom means "resource not found", which is almost always a
-    // benign, expected condition — the recording poller checking a recording
-    // that isn't ready yet / was never recorded (code 3301), a deleted meeting,
-    // etc. Log it at warn so it's still visible in /logs + Sentry but does NOT
-    // trip the SES admin-alert page. Real failures — 5xx (Zoom outage), 401/403
-    // (auth/credentials), 429 (rate limit) — stay at error and still page.
-    // Callers' control flow is unchanged: this still throws, and the catch in
-    // getZoomRecordings() still detects 404/3301 and returns null.
-    if (response.status === 404) {
-      apiLogger.warn(logPayload, "zoom:api-error");
-    } else {
-      apiLogger.error(logPayload, "zoom:api-error");
-    }
+    // Every non-2xx is logged at error level — including 404. By the owner's
+    // call, a 404 (e.g. the recording poller hitting code 3301 "recording does
+    // not exist") IS worth alerting on: the team prefers over-alerting to
+    // silently dropping visibility, and the 404 here is benign so it doesn't
+    // hurt. Don't downgrade these to warn to reduce noise.
+    apiLogger.error(
+      {
+        method,
+        path,
+        statusCode: response.status,
+        zoomErrorCode: errorBody?.code,
+        zoomMessage: errorBody?.message,
+        durationMs,
+      },
+      "zoom:api-error"
+    );
 
     throw new Error(
       `Zoom API error: ${response.status} ${errorBody?.message || "Unknown error"} (code: ${errorBody?.code || "N/A"})`
