@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import {
   createAccommodation,
@@ -118,8 +119,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Strip prices (totalPrice) for non-finance roles — defense-in-depth +
+    // consistency with the registrations list. Today every org-bound role is
+    // finance-capable so this is a no-op for legitimate callers, but it keeps
+    // the boundary correct if a non-finance org-bound role is ever added.
+    const payload = canViewFinance(session.user.role)
+      ? accommodations
+      : redactFinancialFields(accommodations);
+
     // Add cache headers for better performance
-    const response = NextResponse.json(accommodations);
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {

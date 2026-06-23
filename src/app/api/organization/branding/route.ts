@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
 
 export async function GET(req: Request) {
   try {
@@ -26,7 +27,9 @@ export async function GET(req: Request) {
       logo: org?.logo ?? null,
       primaryColor: org?.primaryColor ?? null,
     });
-  } catch {
+  } catch (err) {
+    // Non-fatal: fall back to empty branding, but never swallow silently.
+    apiLogger.warn({ err, msg: "organization/branding:get-failed" });
     return NextResponse.json({ name: null, logo: null, primaryColor: null });
   }
 }

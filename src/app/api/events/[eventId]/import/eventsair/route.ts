@@ -143,15 +143,6 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
-          // Check ticket capacity
-          const freshTicket = await tx.ticketType.findUnique({
-            where: { id: defaultTicketType.id },
-            select: { quantity: true, soldCount: true },
-          });
-          if (freshTicket && freshTicket.soldCount >= freshTicket.quantity) {
-            throw new Error("TICKET_CAPACITY_REACHED");
-          }
-
           const generatedBarcode = generateBarcode();
           const serialId = await getNextSerialId(tx, eventId);
           await tx.registration.create({
@@ -170,11 +161,16 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
-          // Increment soldCount atomically
-          await tx.ticketType.update({
-            where: { id: defaultTicketType.id },
+          // Atomically claim a seat — the `soldCount < quantity` predicate ON
+          // the update is the guard, so concurrent imports / public
+          // registrations can't oversell the last seat. count 0 = full.
+          const claimed = await tx.ticketType.updateMany({
+            where: { id: defaultTicketType.id, soldCount: { lt: defaultTicketType.quantity } },
             data: { soldCount: { increment: 1 } },
           });
+          if (claimed.count === 0) {
+            throw new Error("TICKET_CAPACITY_REACHED");
+          }
         });
         created++;
 

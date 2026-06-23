@@ -57,6 +57,7 @@ const FINANCIAL_KEYS = new Set<string>([
   "prices",
   "basePrice",
   "pricePerNight",
+  "totalPrice",
   "unitPrice",
   "discountAmount",
   "discountValue",

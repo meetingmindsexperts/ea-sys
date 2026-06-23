@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 
 const createHotelSchema = z.object({
@@ -61,8 +62,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Strip room prices (pricePerNight) for non-finance roles — defense-in-depth
+    // + consistency with the registrations list (no-op for today's finance-capable
+    // org-bound roles; correct if a non-finance org-bound role is ever added).
+    const payload = canViewFinance(session.user.role)
+      ? hotels
+      : redactFinancialFields(hotels);
+
     // Add cache headers for better performance
-    const response = NextResponse.json(hotels);
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {

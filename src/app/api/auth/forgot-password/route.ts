@@ -51,6 +51,7 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
+      apiLogger.warn({ msg: "auth/forgot-password:invalid-json-body", ip: clientIp });
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
     const validated = forgotPasswordSchema.safeParse(body);

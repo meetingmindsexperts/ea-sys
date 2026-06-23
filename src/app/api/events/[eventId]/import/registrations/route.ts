@@ -310,18 +310,17 @@ export async function POST(req: Request, { params }: RouteParams) {
 
           // Check capacity and increment soldCount — skipped for virtual
           // (uncapped; online attendees don't consume physical seats).
+          // Atomic: the `soldCount < quantity` predicate ON the update is the
+          // guard (not a stale pre-read), so a concurrent import / public
+          // registration can't oversell the last seat.
           if (!rowIsVirtual) {
-            const currentTicket = await tx.ticketType.findUnique({
-              where: { id: ticketType.id },
-              select: { quantity: true, soldCount: true },
-            });
-            if (currentTicket && currentTicket.soldCount >= currentTicket.quantity) {
-              throw new Error("CAPACITY_EXCEEDED");
-            }
-            await tx.ticketType.update({
-              where: { id: ticketType.id },
+            const claimed = await tx.ticketType.updateMany({
+              where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
               data: { soldCount: { increment: 1 } },
             });
+            if (claimed.count === 0) {
+              throw new Error("CAPACITY_EXCEEDED");
+            }
           }
 
           // Virtual ⇒ no entry barcode.
