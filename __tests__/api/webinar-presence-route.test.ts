@@ -2,28 +2,23 @@
  * POST /api/public/events/[slug]/sessions/[sessionId]/presence — the webinar
  * lobby/live presence heartbeat. Pins: auth gate, org-staff skip (no write),
  * not-registered 403, create path, escalate lobby→joined (phase + joinCount),
- * and never-downgrade joined→lobby.
+ * and never-downgrade joined→lobby. Uses an `upsert` (no interactive
+ * transaction) so two-tab first-beats can't collide on the unique key (no
+ * P2002) and no pooled connection is held — see review finding #1.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, mockCheckRateLimit, txMock } = vi.hoisted(() => {
-  const txMock = {
-    webinarPresence: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    registration: { updateMany: vi.fn() },
-  };
-  return {
-    txMock,
-    mockAuth: vi.fn(),
-    mockCheckRateLimit: vi.fn((): { allowed: boolean; retryAfterSeconds?: number } => ({ allowed: true })),
-    mockDb: {
-      event: { findFirst: vi.fn() },
-      registration: { findFirst: vi.fn() },
-      eventSession: { findFirst: vi.fn() },
-      $transaction: vi.fn(async (fn: (tx: typeof txMock) => unknown) => fn(txMock)),
-    },
-  };
-});
+const { mockAuth, mockDb, mockCheckRateLimit } = vi.hoisted(() => ({
+  mockAuth: vi.fn(),
+  mockCheckRateLimit: vi.fn((): { allowed: boolean; retryAfterSeconds?: number } => ({ allowed: true })),
+  mockDb: {
+    event: { findFirst: vi.fn() },
+    registration: { findFirst: vi.fn(), updateMany: vi.fn() },
+    eventSession: { findFirst: vi.fn() },
+    webinarPresence: { findUnique: vi.fn(), upsert: vi.fn() },
+  },
+}));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -56,7 +51,8 @@ beforeEach(() => {
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
   mockDb.eventSession.findFirst.mockResolvedValue({ id: "sess1" });
   mockDb.registration.findFirst.mockResolvedValue({ id: "reg1" });
-  txMock.webinarPresence.findUnique.mockResolvedValue(null);
+  mockDb.webinarPresence.findUnique.mockResolvedValue(null);
+  mockDb.webinarPresence.upsert.mockResolvedValue({});
 });
 
 describe("presence heartbeat", () => {
@@ -71,7 +67,7 @@ describe("presence heartbeat", () => {
     const res = await call({ phase: "lobby" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, tracked: false });
-    expect(txMock.webinarPresence.create).not.toHaveBeenCalled();
+    expect(mockDb.webinarPresence.upsert).not.toHaveBeenCalled();
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
   });
 
@@ -82,38 +78,39 @@ describe("presence heartbeat", () => {
     expect(res.status).toBe(403);
   });
 
-  it("creates a presence row on first beat + sets webinarFirstJoinedAt", async () => {
+  it("upserts a presence row on first beat + sets webinarFirstJoinedAt", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
-    txMock.webinarPresence.findUnique.mockResolvedValue(null);
+    mockDb.webinarPresence.findUnique.mockResolvedValue(null);
     const res = await call({ phase: "lobby" });
     expect(res.status).toBe(200);
-    expect(txMock.webinarPresence.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ sessionId: "sess1", registrationId: "reg1", phase: "lobby", joinCount: 1 }) }),
+    expect(mockDb.webinarPresence.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ sessionId: "sess1", registrationId: "reg1", phase: "lobby", joinCount: 1 }),
+      }),
     );
-    expect(txMock.registration.updateMany).toHaveBeenCalledWith(
+    // First beat (no existing row) → set the durable Joined marker.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "reg1", webinarFirstJoinedAt: null } }),
     );
   });
 
-  it("escalates lobby→joined: sets phase + bumps joinCount", async () => {
+  it("escalates lobby→joined: update sets phase + bumps joinCount, skips the marker write", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
-    txMock.webinarPresence.findUnique.mockResolvedValue({ id: "p1", phase: "lobby" });
+    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "lobby" });
     await call({ phase: "joined" });
-    expect(txMock.webinarPresence.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "p1" },
-        data: expect.objectContaining({ phase: "joined", joinCount: { increment: 1 } }),
-      }),
-    );
+    const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+    expect(arg.update).toEqual(expect.objectContaining({ phase: "joined", joinCount: { increment: 1 } }));
+    // Existing row → no redundant marker write.
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
-  it("never downgrades joined→lobby (updates lastSeenAt only)", async () => {
+  it("never downgrades joined→lobby (update touches lastSeenAt only)", async () => {
     mockAuth.mockResolvedValue({ user: { id: "u2", role: "REGISTRANT", organizationId: null } });
-    txMock.webinarPresence.findUnique.mockResolvedValue({ id: "p1", phase: "joined" });
+    mockDb.webinarPresence.findUnique.mockResolvedValue({ phase: "joined" });
     await call({ phase: "lobby" });
-    const arg = txMock.webinarPresence.update.mock.calls[0][0];
-    expect(arg.data.phase).toBeUndefined();
-    expect(arg.data.joinCount).toBeUndefined();
-    expect(arg.data.lastSeenAt).toBeInstanceOf(Date);
+    const arg = mockDb.webinarPresence.upsert.mock.calls[0][0];
+    expect(arg.update.phase).toBeUndefined();
+    expect(arg.update.joinCount).toBeUndefined();
+    expect(arg.update.lastSeenAt).toBeInstanceOf(Date);
   });
 });

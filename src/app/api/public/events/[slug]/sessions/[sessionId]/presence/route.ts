@@ -88,41 +88,47 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const now = new Date();
-    await db.$transaction(async (tx) => {
-      const existing = await tx.webinarPresence.findUnique({
-        where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
-        select: { id: true, phase: true },
-      });
-      if (!existing) {
-        await tx.webinarPresence.create({
-          data: {
-            eventId: event.id,
-            sessionId,
-            registrationId: registration.id,
-            phase,
-            firstJoinedAt: now,
-            lastSeenAt: now,
-            joinCount: 1,
-          },
-        });
-      } else {
-        // Escalate lobby→joined only; never downgrade. Bump joinCount on the
-        // lobby→joined transition.
-        const escalate = phase === "joined" && existing.phase !== "joined";
-        await tx.webinarPresence.update({
-          where: { id: existing.id },
-          data: {
-            lastSeenAt: now,
-            ...(escalate ? { phase: "joined", joinCount: { increment: 1 } } : {}),
-          },
-        });
-      }
-      // Durable write-once "Joined" marker on the registration.
-      await tx.registration.updateMany({
+
+    // Read the current phase to preserve "escalate lobby→joined only, never
+    // downgrade joined→lobby". The WRITE is an upsert (INSERT … ON CONFLICT) so
+    // concurrent first-beats from two tabs can't collide on the unique key
+    // (no P2002), and there is NO interactive transaction holding a pooled
+    // connection — critical at 5k attendees on the shared connection pool.
+    const existing = await db.webinarPresence.findUnique({
+      where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
+      select: { phase: true },
+    });
+
+    await db.webinarPresence.upsert({
+      where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
+      create: {
+        eventId: event.id,
+        sessionId,
+        registrationId: registration.id,
+        phase,
+        firstJoinedAt: now,
+        lastSeenAt: now,
+        joinCount: 1,
+      },
+      update: {
+        lastSeenAt: now,
+        // Only escalate on an existing lobby row beating "joined"; the create
+        // branch already sets the phase for a brand-new row.
+        ...(existing && phase === "joined" && existing.phase !== "joined"
+          ? { phase: "joined", joinCount: { increment: 1 } }
+          : {}),
+      },
+    });
+
+    // Durable write-once "Joined" marker — only on the FIRST beat for this
+    // session+registration. The WHERE is idempotent, but gating on !existing
+    // avoids a needless write every ~30s for the whole webinar.
+    if (!existing) {
+      await db.registration.updateMany({
         where: { id: registration.id, webinarFirstJoinedAt: null },
         data: { webinarFirstJoinedAt: now },
       });
-    });
+    }
 
     return NextResponse.json({ ok: true, tracked: true });
   } catch (error) {

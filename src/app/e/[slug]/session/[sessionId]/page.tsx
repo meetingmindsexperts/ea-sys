@@ -285,10 +285,10 @@ export default function PublicSessionPage() {
   }, [isWebinarEvent, roomOpen, lobby?.viewingMode, slug, sessionId]);
 
   // Presence heartbeat: while a registered attendee has the webinar page open,
-  // beat every ~20–25s (jittered) so organizers see who's in the lobby / joined
-  // in real time. Paused while the tab is hidden; phase reflects whether they've
-  // been admitted into the live view. Read isJoining via a ref so the interval
-  // stays stable across admit transitions.
+  // beat every ~30–40s (jittered) so organizers see who's in the lobby / joined
+  // in real time (within the 60s "present" window). Paused while the tab is
+  // hidden; phase reflects whether they've been admitted. Read isJoining via a
+  // ref so the interval stays stable across admit transitions.
   const isJoiningRef = useRef(isJoining);
   isJoiningRef.current = isJoining;
   useEffect(() => {
@@ -313,7 +313,7 @@ export default function PublicSessionPage() {
       if (document.visibilityState === "visible") beat();
     };
     document.addEventListener("visibilitychange", onVis);
-    const id = setInterval(beat, 20000 + Math.floor(Math.random() * 5000));
+    const id = setInterval(beat, 30000 + Math.floor(Math.random() * 10000));
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       clearInterval(id);
