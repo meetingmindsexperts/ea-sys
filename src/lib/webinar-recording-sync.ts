@@ -11,6 +11,15 @@ export const RECORDING_FETCH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // time to finalize the recording.
 export const RECORDING_FETCH_MIN_DELAY_MS = 10 * 60 * 1000;
 
+// A 404 means Zoom has NO recording for the meeting (distinct from "still
+// processing", which Zoom returns as a 200 + status:"processing"). A transient
+// 404 can occur briefly before Zoom registers a fresh recording, so we don't
+// give up on the first one — but if it's STILL 404 this long after the session
+// ended (well beyond the ~1h worst-case render time), the webinar was never
+// recorded (e.g. a test). We then mark it EXPIRED and stop polling instead of
+// grinding the full 7-day window. An operator can still manually refetch.
+export const RECORDING_NO_RECORDING_GRACE_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 export type SyncResult =
   | { ok: true; status: "available"; recordingUrl: string; durationMs: number }
   | { ok: true; status: "pending"; reason: string; durationMs: number }
@@ -134,7 +143,36 @@ export async function syncRecordingForZoomMeeting(
     const response = await getZoomRecordings(meeting.event.organizationId, meeting.zoomMeetingId);
 
     if (!response) {
-      // 404 — recording not ready yet. Flip NOT_REQUESTED → PENDING so we keep polling.
+      // 404 — Zoom has no recording for this meeting. Once it's been 404 longer
+      // than the grace period (real recordings appear within ~1h), conclude the
+      // webinar was never recorded — e.g. a test — and stop polling by marking
+      // EXPIRED. This drops the row out of the candidate set so it isn't ground
+      // for the full 7-day window. (Operators can still manually refetch, which
+      // resets EXPIRED → NOT_REQUESTED.)
+      if (msSinceEnded > RECORDING_NO_RECORDING_GRACE_MS) {
+        try {
+          await db.zoomMeeting.update({
+            where: { id: meeting.id },
+            data: { recordingStatus: "EXPIRED", recordingFetchedAt: new Date() },
+          });
+        } catch (updateErr) {
+          const durationMs = Date.now() - startedAt;
+          apiLogger.error(
+            { err: updateErr, zoomMeetingDbId: meeting.id, durationMs },
+            "webinar-recording:no-recording-update-failed",
+          );
+          return { ok: false, status: "failed", reason: "failed to persist EXPIRED (no recording)", durationMs };
+        }
+        const durationMs = Date.now() - startedAt;
+        apiLogger.info(
+          { zoomMeetingDbId: meeting.id, msSinceEnded, durationMs },
+          "webinar-recording:no-recording-giving-up",
+        );
+        return { ok: true, status: "expired", durationMs };
+      }
+
+      // Still within the grace window — recording not ready yet (or about to be).
+      // Flip NOT_REQUESTED → PENDING so we keep polling.
       if (meeting.recordingStatus === "NOT_REQUESTED") {
         await db.zoomMeeting.update({
           where: { id: meeting.id },
