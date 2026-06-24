@@ -560,6 +560,12 @@ function CategoryRegistrationContent() {
                 </div>
                 <p className="font-medium text-slate-700">{formLabel} registration is currently closed</p>
                 <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
+                {/* Disabled CTA — reads "Registration Closed" whenever this tier
+                    (standard / onsite / early-bird) is toggled off, instead of
+                    a register button. */}
+                <Button type="button" disabled aria-disabled className="mt-6 w-full max-w-xs mx-auto rounded-lg font-semibold py-3 text-base">
+                  Registration Closed
+                </Button>
               </div>
             ) : (
               <Form {...form}>
