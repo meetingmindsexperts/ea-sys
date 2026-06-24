@@ -140,6 +140,8 @@ export interface Registration {
   checkedInAt: string | null;
   /** First time this registrant entered the webinar lobby / joined (presence). */
   webinarFirstJoinedAt?: string | null;
+  /** When this registrant completed the event survey (write-once, set on submit). */
+  surveyCompletedAt?: string | null;
   notes: string | null;
   // Billing block — optional overrides of the attendee's personal address.
   // All null when the registrant left "billing same as personal" checked.

@@ -47,6 +47,8 @@ import {
   ClipboardList,
   Barcode,
   CheckCircle,
+  CheckSquare,
+  Square,
   Calendar,
   CreditCard,
   Utensils,
@@ -2173,6 +2175,24 @@ export function RegistrationDetailSheet({
                       </div>
                     </div>
                   )}
+                  {/* Survey completion — a checked box + timestamp when the
+                      registrant has submitted the event survey, unchecked
+                      otherwise. Read-only; set when they submit the survey. */}
+                  <div className="flex items-center gap-3 text-sm">
+                    {selectedRegistration.surveyCompletedAt ? (
+                      <CheckSquare className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Square className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <div>
+                      <div className="text-muted-foreground">Survey</div>
+                      <div className="font-medium">
+                        {selectedRegistration.surveyCompletedAt
+                          ? `Completed · ${formatDateTime(selectedRegistration.surveyCompletedAt)}`
+                          : "Not completed"}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </section>
 
