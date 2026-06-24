@@ -86,6 +86,12 @@ export async function getZoomParticipants(
         organizationId,
         "GET",
         `${basePath}?${params.toString()}`,
+        undefined,
+        // 404 here is expected + recurring (report not compiled yet, or the
+        // webinar — e.g. a test — has no Zoom report; code 3001). Suppress the
+        // admin page for it; the catch below still returns null. Other statuses
+        // still log at error + page.
+        { expectedStatuses: [404] },
       );
 
       if (page.participants?.length) {

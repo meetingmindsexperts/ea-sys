@@ -58,6 +58,10 @@ export async function getWebinarPollReport(
       organizationId,
       "GET",
       `/report/webinars/${encodeURIComponent(webinarId)}/polls`,
+      undefined,
+      // 404 = report not compiled / no polls / test webinar (code 3001) —
+      // expected + recurring, so suppress the page. Catch below returns null.
+      { expectedStatuses: [404] },
     );
     apiLogger.info(
       {
@@ -127,6 +131,10 @@ export async function getWebinarQaReport(
       organizationId,
       "GET",
       `/report/webinars/${encodeURIComponent(webinarId)}/qa`,
+      undefined,
+      // 404 = report not compiled / no Q&A / test webinar (code 3001) —
+      // expected + recurring, so suppress the page. Catch below returns null.
+      { expectedStatuses: [404] },
     );
     apiLogger.info(
       {

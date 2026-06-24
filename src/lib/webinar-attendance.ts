@@ -10,6 +10,13 @@ export const ATTENDANCE_FETCH_MIN_DELAY_MS = 30 * 60 * 1000;
 // from Zoom's side, but we don't want zombie cron rows accumulating forever.
 export const ATTENDANCE_FETCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
+// If Zoom still has NO participant report this long after the session ended,
+// the webinar was never really run (e.g. a test, code 3001 "meeting does not
+// exist"). Give up + mark synced so the cron stops re-polling, instead of
+// 404-ing every tick for the full fetch window. Matches the recording sync's
+// no-recording grace.
+export const ATTENDANCE_NO_REPORT_GRACE_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 export type AttendanceSyncResult =
   | {
       ok: true;
@@ -196,6 +203,35 @@ export async function syncWebinarAttendance(
     );
 
     if (participants === null) {
+      // 404 — Zoom has no participant report for this webinar. Past the grace
+      // period it's never coming (a test / never-run webinar, code 3001), so
+      // give up: mark synced so the cron stops re-polling every tick (mirrors
+      // the zero-participants marker below + the recording sync's give-up).
+      if (msSinceEnded > ATTENDANCE_NO_REPORT_GRACE_MS) {
+        try {
+          await db.zoomMeeting.update({
+            where: { id: meeting.id },
+            data: { lastAttendanceSyncAt: new Date() },
+          });
+        } catch (markErr) {
+          apiLogger.error(
+            { err: markErr, zoomMeetingDbId: meeting.id },
+            "webinar-attendance:no-report-marker-failed",
+          );
+        }
+        apiLogger.info(
+          { zoomMeetingDbId: meeting.id, msSinceEnded },
+          "webinar-attendance:no-report-giving-up",
+        );
+        return {
+          ok: true,
+          status: "synced",
+          fetched: 0,
+          upserted: 0,
+          matched: 0,
+          durationMs: Date.now() - startedAt,
+        };
+      }
       apiLogger.info(
         { zoomMeetingDbId: meeting.id, msSinceEnded },
         "webinar-attendance:report-not-ready",
