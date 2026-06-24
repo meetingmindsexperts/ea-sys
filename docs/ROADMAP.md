@@ -281,6 +281,68 @@ the next feature streams land, the **Core Stability Program**
 5. **Core Stability Pass #3** — runs after payment-live, before any next
    feature stream.
 
+> **Next major program after the Certificates module: Multi-Tenancy / White-Label
+> SaaS** (decided June 24, 2026 — see the dedicated section below). It is the
+> designated next feature stream once the certificate work lands; the interim
+> stability/Stripe-live passes above still apply.
+
+### Multi-Tenancy / White-Label SaaS (next major program — after Certificates)
+
+*Added June 24, 2026. The next big effort after the Certificates module.* External
+demand to white-label EA-SYS so other companies run their events under their own
+domain + branding + integrations + money. **Two reference docs are already written
+— read both before scoping:**
+- **[docs/MULTI_TENANCY.md](MULTI_TENANCY.md)** — the *conceptual* reference: tenancy
+  models (Pool/Bridge/Silo), RLS on Prisma+Supabase, Stripe Connect, per-tenant
+  observability, ops, a real cost model, security, phased roadmap.
+- **[docs/MULTI_TENANCY_IMPACT.md](MULTI_TENANCY_IMPACT.md)** — the *codebase-grounded*
+  Impact & Blast-Radius assessment (from a 3-lens read-only audit): where single-org
+  assumptions live + what breaks/leaks if done wrong, with a subsystem impact table,
+  blast-radius ranking, and breaking-vs-additive migration sequencing.
+
+**Verdict:** well-disciplined for single-org, but **far from safe tenant isolation
+today — 0 RLS, isolation by-convention only.** This is **months of foundational
+work, not a hardening pass.**
+
+**Biggest blast-radius items (the work):**
+1. **No RLS + 25 of 33 tenant tables have no `organizationId` column** (scoped only
+   via `eventId`) — RLS needs join-policies or denormalization. The central project.
+2. **Systemic public `where:{slug}` with no org filter** (~15 routes + lobby/stream
+   micro-caches) — `Event.slug` is unique only *per-org*, so this is "correct by
+   accident" and becomes a **cross-tenant public-page leak the instant a 2nd org
+   exists.** The #1 latent bug.
+3. **`User.email` global-unique** — the hardest identity call (recommend: shared
+   `User` + a `Membership` join table, preserving the cross-org reviewer; full
+   per-tenant user rows can't be migrated in one step on a live payments DB).
+4. **193 `organizationId!` assertions + IDOR-by-convention** — durable fix = RLS + a
+   CI lint (audits keep finding these).
+5. **Stripe single-account → Connect**; plus per-tenant **email (no DKIM) / storage
+   (not isolated) / logging (no tenant tag) / rate-limiting (in-memory)** gaps.
+
+**Already per-tenant-ready (don't redo):** Zoom + EventsAir creds, branding,
+company/invoice identity, the MCP/API-key surface, schema uniques on
+`Event.slug`/`Contact`/`BillingAccount`/`AbstractTheme`.
+
+**Decisions to make first (human call — before any build):** (1) identity model
+(recommend shared User + Membership); (2) isolation model (recommend shared-DB +
+RLS; flat-via-denormalized-`organizationId` vs join-policy RLS); (3) Stripe Connect
+destination charges + application fee; (4) MM Group migrated **last** (it's live
+prod with real money) or kept siloed.
+
+**Do-now prep (safe before committing to the full build):** a **CI lint** for
+`where:{id}`/`where:{slug}` without an org bind (stops IDOR recurrence); lock the
+identity + isolation decisions; **incrementally denormalize `organizationId`** onto
+the 25 event-scoped tables (additive + backfill — the prerequisite for flat RLS).
+
+**Phasing** (maps to MULTI_TENANCY.md §13): Phase 1 = isolation foundation (host→tenant
+routing + `TenantDomain`, pooler-safe `SET LOCAL` Prisma extension, RLS on every tenant
+table, the slug-routing cut shipped *with* the resolver, a tenant-isolation test suite —
+**the gate; nothing onboards to shared infra until proven**). Phase 2 = platform features
+(Stripe Connect, per-tenant email sender-domain verification, custom-domain TLS, per-tenant
+logging/quotas + Redis limiter, tenant lifecycle). Phase 3 = scale + consolidate (cost
+attribution, worker fairness + the `DIRECT_URL` lock fix before a 2nd worker, per-tenant
+secret keys/KMS, migrate MM Group in last).
+
 ### Near-Term (Next 1–2 Months)
 
 | Feature | Description |
