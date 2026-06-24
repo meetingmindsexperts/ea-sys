@@ -56,6 +56,9 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignHorizontalJustifyCenter,
+  AlignVerticalJustifyCenter,
+  Crosshair,
   Loader2,
   Undo2,
   Redo2,
@@ -105,12 +108,32 @@ const AVAILABLE_TOKENS: Array<{ token: string; description: string }> = [
 // `displayScale = canvasWidthPx / pageWidthPt`.
 const CANVAS_DISPLAY_WIDTH_PX = 800;
 
+// Alignment rulers (top + left edges of the canvas). Thickness in px; tick
+// cadence in pdf-lib points. A minor tick every 10pt; a labeled major tick
+// every 50pt — readable without crowding at A4/Letter sizes.
+const RULER_SIZE_PX = 22;
+const RULER_MINOR_PT = 10;
+const RULER_MAJOR_PT = 50;
+// Guide line colour — magenta, deliberately distinct from the cerulean
+// selection outline so the page-center guides read as a separate aid.
+const GUIDE_COLOR = "rgba(217, 70, 160, 0.65)";
+
 // Generate a stable id for a new text box. crypto.randomUUID is fine
 // here — runs in modern browsers, no fallback needed.
 function newBoxId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `box-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Tick marks for a ruler spanning `lengthPt` points: one every RULER_MINOR_PT,
+// flagged `major` (longer + labeled) at RULER_MAJOR_PT multiples.
+function rulerTicks(lengthPt: number): Array<{ pt: number; major: boolean }> {
+  const ticks: Array<{ pt: number; major: boolean }> = [];
+  for (let pt = 0; pt <= lengthPt + 0.5; pt += RULER_MINOR_PT) {
+    ticks.push({ pt, major: Math.round(pt) % RULER_MAJOR_PT === 0 });
+  }
+  return ticks;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -146,6 +169,9 @@ export function CertificateCanvasEditor({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Dashed page-center guide lines (horizontal + vertical). Default on — the
+  // common cert alignment need is centering names/titles on the page.
+  const [showGuides, setShowGuides] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -300,6 +326,21 @@ export function CertificateCanvasEditor({
     pushUndoSnapshot();
     onChange({ textBoxes: textBoxes.filter((b) => b.id !== id) });
     if (selectedId === id) setSelectedId(null);
+  }
+
+  // One-click centering on the page axis. "Center H" puts the box's own centre
+  // on the page's vertical centre line; "Center V" on the horizontal one.
+  function centerBoxH(id: string) {
+    const box = textBoxes.find((b) => b.id === id);
+    if (!box) return;
+    pushUndoSnapshot();
+    updateBox(id, { x: Math.max(0, (pageWidthPt - box.width) / 2) });
+  }
+  function centerBoxV(id: string) {
+    const box = textBoxes.find((b) => b.id === id);
+    if (!box) return;
+    pushUndoSnapshot();
+    updateBox(id, { y: Math.max(0, (pageHeightPt - box.height) / 2) });
   }
 
   // ── Undo / Redo ───────────────────────────────────────────────────────
@@ -578,6 +619,15 @@ export function CertificateCanvasEditor({
         >
           <Redo2 className="h-4 w-4" />
         </Button>
+        {/* Toggle the dashed page-center guide lines. Rulers are always on. */}
+        <Button
+          size="sm"
+          variant={showGuides ? "default" : "outline"}
+          onClick={() => setShowGuides((v) => !v)}
+          title="Toggle page-center guides"
+        >
+          <Crosshair className="h-4 w-4" />
+        </Button>
         <span className="ml-auto text-xs text-muted-foreground">
           {textBoxes.length} text {textBoxes.length === 1 ? "box" : "boxes"} ·{" "}
           page {Math.round(pageWidthPt)} × {Math.round(pageHeightPt)} pt
@@ -586,17 +636,98 @@ export function CertificateCanvasEditor({
 
       {/* Canvas + side panel */}
       <div className="grid gap-4 lg:grid-cols-[auto_320px]">
-        {/* Canvas with text-box overlays */}
+        {/* Canvas framed by top + left rulers, with text-box overlays */}
         <div className="relative overflow-auto rounded-md border bg-white">
-          <div
-            className="relative mx-auto"
-            style={{ width: CANVAS_DISPLAY_WIDTH_PX, height: canvasHeightPx }}
-            // Click on empty canvas area deselects.
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) setSelectedId(null);
-            }}
-          >
-            <canvas ref={canvasRef} className="block" />
+          <div className="relative w-max">
+            {/* Top row: corner square + horizontal ruler */}
+            <div className="flex">
+              <div
+                className="shrink-0 border-b border-r bg-muted/30"
+                style={{ width: RULER_SIZE_PX, height: RULER_SIZE_PX }}
+              />
+              <svg
+                width={CANVAS_DISPLAY_WIDTH_PX}
+                height={RULER_SIZE_PX}
+                className="block shrink-0 border-b bg-muted/20 text-slate-500"
+                aria-hidden
+              >
+                {rulerTicks(pageWidthPt).map(({ pt, major }) => {
+                  const x = ptToPx(pt);
+                  return (
+                    <g key={pt}>
+                      <line
+                        x1={x}
+                        x2={x}
+                        y1={major ? RULER_SIZE_PX - 9 : RULER_SIZE_PX - 5}
+                        y2={RULER_SIZE_PX}
+                        stroke="currentColor"
+                        strokeOpacity={major ? 0.55 : 0.3}
+                      />
+                      {major && x < CANVAS_DISPLAY_WIDTH_PX - 16 && (
+                        <text x={x + 2} y={9} fontSize={8} fill="currentColor" fillOpacity={0.7}>
+                          {Math.round(pt)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+
+            {/* Bottom row: vertical ruler + the canvas */}
+            <div className="flex">
+              <svg
+                width={RULER_SIZE_PX}
+                height={canvasHeightPx}
+                className="block shrink-0 border-r bg-muted/20 text-slate-500"
+                aria-hidden
+              >
+                {rulerTicks(pageHeightPt).map(({ pt, major }) => {
+                  const y = ptToPx(pt);
+                  return (
+                    <g key={pt}>
+                      <line
+                        x1={major ? RULER_SIZE_PX - 9 : RULER_SIZE_PX - 5}
+                        x2={RULER_SIZE_PX}
+                        y1={y}
+                        y2={y}
+                        stroke="currentColor"
+                        strokeOpacity={major ? 0.55 : 0.3}
+                      />
+                      {major && y > 9 && y < canvasHeightPx - 2 && (
+                        <text x={2} y={y - 2} fontSize={8} fill="currentColor" fillOpacity={0.7}>
+                          {Math.round(pt)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* Canvas (PDF raster + text-box overlays) */}
+              <div
+                className="relative shrink-0"
+                style={{ width: CANVAS_DISPLAY_WIDTH_PX, height: canvasHeightPx }}
+                // Click on empty canvas area deselects.
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) setSelectedId(null);
+                }}
+              >
+                <canvas ref={canvasRef} className="block" />
+                {/* Page-center guides — dashed, magenta, pointer-events:none so
+                    they never intercept a drag. Hidden while loading/errored. */}
+                {showGuides && !pdfLoading && !pdfError && (
+                  <>
+                    <div
+                      className="pointer-events-none absolute top-0 bottom-0 z-20"
+                      style={{ left: ptToPx(pageWidthPt / 2), borderLeft: `1px dashed ${GUIDE_COLOR}` }}
+                    />
+                    <div
+                      className="pointer-events-none absolute left-0 right-0 z-20"
+                      style={{ top: ptToPx(pageHeightPt / 2), borderTop: `1px dashed ${GUIDE_COLOR}` }}
+                    />
+                  </>
+                )}
             {pdfLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -693,6 +824,8 @@ export function CertificateCanvasEditor({
                 </Rnd>
               );
             })}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -910,6 +1043,34 @@ export function CertificateCanvasEditor({
                       })
                     }
                   />
+                </div>
+              </div>
+
+              {/* One-click centering on the page axes (uses the page
+                  dimensions; the dashed guides show the same center lines). */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Center on page</Label>
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => centerBoxH(selectedBox.id)}
+                    title="Center this box horizontally on the page"
+                  >
+                    <AlignHorizontalJustifyCenter className="h-4 w-4 mr-1" /> Center&nbsp;H
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => centerBoxV(selectedBox.id)}
+                    title="Center this box vertically on the page"
+                  >
+                    <AlignVerticalJustifyCenter className="h-4 w-4 mr-1" /> Center&nbsp;V
+                  </Button>
                 </div>
               </div>
             </div>
