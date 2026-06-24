@@ -1564,10 +1564,10 @@ export default function CertificatesPage() {
                           )}
                           <Button
                             onClick={() => {
-                              // Issue click opens the email editor.
-                              // The mutation fires from the dialog's
-                              // onSubmit so the operator has a chance
-                              // to review the cover-email content.
+                              // Issue click opens a send confirmation showing the
+                              // cover email saved on the selected template (no
+                              // inline editing). The mutation fires from that
+                              // dialog's Send button.
                               if (!issueTemplateId || !issueTag) return;
                               setEmailDialogOpen(true);
                             }}
@@ -1905,42 +1905,73 @@ export default function CertificatesPage() {
         />
       )}
 
-      {/* Email-editor dialog for the Issue flow. Mounted at the page
-          level so it's anchored regardless of which tab is active when
-          the operator clicks Issue. */}
+      {/* Issue confirmation — the cover email is NOT edited here. It's
+          whatever is saved on the selected cert template (set up once in the
+          Templates tab), falling back to the cert system default if blank. The
+          send snapshots subject + body onto the run row, so a later template
+          edit doesn't change in-flight emails. Mounted at page level so it's
+          anchored regardless of the active tab. */}
       {(() => {
         const target = issueTemplateId
           ? templates.find((t) => t.id === issueTemplateId) ?? null
           : null;
         if (!target) return null;
-        const initialSubject = target.emailSubject ?? SYSTEM_DEFAULT_SUBJECT;
-        const initialBody = target.emailBody ?? defaultBodyForCategory(target.category);
+        const subject = target.emailSubject?.trim().length
+          ? target.emailSubject
+          : SYSTEM_DEFAULT_SUBJECT;
+        const body = target.emailBody?.trim().length
+          ? target.emailBody
+          : defaultBodyForCategory(target.category);
+        const usingDefault = !target.emailSubject?.trim().length && !target.emailBody?.trim().length;
+        const count = eligibilityQuery.data?.eligibleCount ?? 0;
         return (
-          <CertEmailEditorDialog
-            open={emailDialogOpen}
-            onOpenChange={setEmailDialogOpen}
-            category={target.category}
-            initialSubject={initialSubject}
-            initialBody={initialBody}
-            submitLabel="Confirm & issue"
-            recipientCount={eligibilityQuery.data?.eligibleCount}
-            submitting={issueMutation.isPending}
-            helperText={`The cert PDF is attached automatically to each email. Tokens (e.g. {{recipientName}}) resolve per recipient. Below are the default values from the "${target.name}" template — tweak for this batch if needed; the tweaked content is snapshotted on the run row so a later template edit doesn't change in-flight emails.`}
-            onSubmit={({ emailSubject, emailBody }) => {
-              if (!issueTemplateId || !issueTag) return;
-              issueMutation.mutate(
-                {
-                  templateId: issueTemplateId,
-                  tag: issueTag,
-                  emailSubject,
-                  emailBody,
-                },
-                {
-                  onSuccess: () => setEmailDialogOpen(false),
-                },
-              );
-            }}
-          />
+          <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  Issue &amp; email {count} {count === 1 ? "certificate" : "certificates"}?
+                </DialogTitle>
+                <DialogDescription>
+                  The cover email saved on the <strong>{target.name}</strong>{" "}
+                  template is sent, with each certificate PDF attached. Tokens
+                  (e.g. <code>{`{{recipientName}}`}</code>) resolve per recipient.
+                  {usingDefault
+                    ? " This template has no custom cover email, so the system default is used."
+                    : " To change it, edit this template's cover email in the Templates tab."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                <span className="text-xs font-medium text-muted-foreground">Subject</span>
+                <p className="mt-0.5 font-medium break-words">{subject}</p>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setEmailDialogOpen(false)}
+                  disabled={issueMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (!issueTemplateId || !issueTag) return;
+                    issueMutation.mutate(
+                      { templateId: issueTemplateId, tag: issueTag, emailSubject: subject, emailBody: body },
+                      { onSuccess: () => setEmailDialogOpen(false) },
+                    );
+                  }}
+                  disabled={issueMutation.isPending || count === 0}
+                >
+                  {issueMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-1" />
+                  )}
+                  Send
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         );
       })()}
     </div>
