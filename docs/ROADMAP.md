@@ -273,7 +273,7 @@ its detailed entry in the sections further down. Effort: **S** ≈ <½ day, **M*
 - Webinar 404 alert noise (recording + attendance/engagement) — suppressed + give-up shipped.
 
 **P1 — Correctness / security debt still open** (pick first; none is a feature):
-1. **`PricingTier.soldCount` one-way leak** (HIGH) — never decremented on cancel/delete/type-change → phantom sell-out. *(M)* → Audit Hardening Backlog
+1. **`PricingTier.soldCount` double-leak** (HIGH) — public+tier regs leak the tier counter up AND the ticketType counter down; a **routing** fix across ~5 sites on live capacity counters (NOT a one-liner — full analysis + plan in the Audit Hardening "P1.1 detail" subsection). Needs its own dedicated, fully-tested pass + a one-time reconciliation script. *(M–L)* → Audit Hardening Backlog
 2. **`abstractTitle` not HTML-escaped in cert email** (MED, stored-XSS) — ~5 LOC + test. *(S)* → Certificates deferred findings
 3. **`refreshEventStats` lost-update** (MED) — serialize per-event. *(M)* → Audit Hardening
 4. **Money rounding divergence** (MED) — payment-confirmation email ignores discount/round2. *(S)* → Audit Hardening
@@ -430,7 +430,7 @@ this is correctness / security / silent-failure debt.
 |---|---|---|
 | ~~HIGH~~ ✅ | **Accommodation overbooking TOCTOU** — **CLOSED June 23, 2026** (audit Round 2 / DATA-2, commit `bfc7596`: atomic `updateMany` with `bookedRooms < totalRooms` predicate in the service + the PUT room-change/reinstate paths; test updated). Original detail kept for history: `accommodation-service.ts` (~210-255) and `accommodations/[accommodationId]/route.ts` (~188-222) read `roomType.findUnique`, check `bookedRooms >= totalRooms` in JS, then unconditionally `increment` — no row lock, two concurrent bookings on the last room both pass. The "can't double-book by construction" comment is false. Fix: `$executeRaw` conditional `UPDATE … SET bookedRooms = bookedRooms + 1 WHERE id = ? AND bookedRooms < totalRooms` and check affected rows (Prisma can't express a column-to-column `updateMany` predicate). |
 | ~~HIGH~~ ✅ | **Registration DELETE destroys a shared Attendee** — **CLOSED June 23, 2026** (audit Round 2 / DATA-6, commit `bfc7596`: deletes the Attendee only when `registration.count({ attendeeId, id: { not } }) === 0`, inside the same tx). Original detail kept for history: `registrations/[registrationId]/route.ts` (~601) unconditionally `attendee.delete`s after `registration.delete`; Attendee can be shared across registrations (orphan-reuse + email-change clone). No `onDelete` on the FK → P2003 fails the whole delete, or orphans a still-referenced person. Fix: only delete the Attendee when `registration.count({ attendeeId, id: { not } }) === 0`, inside the same tx. |
-| HIGH | **`PricingTier.soldCount` one-way leak** | Public register atomically increments tier soldCount; DELETE + bulk-type-change never decrement it (distinct from the documented-intentional manual-add divergence). Tiers phantom-sell-out. Fix: decrement tier soldCount symmetrically on cancel/delete/type-change where the public path increments. |
+| HIGH | **`PricingTier.soldCount` double-leak (NOT a one-line fix)** | Bigger than first written. Public register increments **either** the tier **or** the ticketType (tier path skips ticketType); admin/service add always increments the ticketType (never the tier — documented). But cancel/delete/type-change/bulk-type/MCP **unconditionally decrement the ticketType**. So a **public + tier** registration cancelled = the tier counter leaks up (never released → phantom sell-out) **and** the ticketType counter leaks down (decremented for something it never counted → can go negative → oversell). Fix is a **routing** change (release the counter that was actually incremented), not an added decrement, applied across ~5 sites. **Full analysis + worked example + fix plan in the subsection right below this table.** |
 | ~~HIGH~~ ✅* | **Stripe post-payment side-effects are fire-and-forget, handler returns 200** — **ADDRESSED June 23, 2026** (audit Round 2 / DATA-5, commit `09dab42`: a new `invoice-reconciliation` worker job — every 10 min, advisory-lock 1006 — recovers PAID registrations with a PAID `Payment` but no `INVOICE`, re-running `createPaidInvoice`+`sendInvoiceEmail`; idempotent). *The stronger in-tx **outbox** variant below remains OPTIONAL if you want guaranteed-at-source delivery rather than a reconciler. Needs the worker container redeployed to run. Original detail kept for history: `webhooks/stripe/route.ts` (~122-203): invoice + confirmation email run in a detached IIFE after the tx; failure = customer is PAID but never gets invoice/confirmation, permanently, Stripe won't retry, no reconciler. Fix: persist an outbox/intent row in the same tx that flips PAID; drain via an idempotent reconciliation cron (`createPaidInvoice` already promotes-in-place). |
 | ~~HIGH~~ | ~~**Registrant invoice/quote routes missing `denyFinance`**~~ | ~~`registrant/registrations/[id]/quote`, `…/invoices`, `…/invoices/[invoiceId]/pdf` — the non-registrant branch scopes by org only; a MEMBER has an org so passes. Add `denyFinance(session)` on the non-registrant branch (registrant-owned access stays exempt).~~ **CLOSED — Core Stability Pass #1, June 1, 2026.** Three routes gated on the non-registrant branch with `denyFinance` + `apiLogger.warn`; REGISTRANT owner path stays exempt. Regression net: 7 tests in `__tests__/api/registrant-finance-routes.test.ts` pin MEMBER → 403 FINANCE_FORBIDDEN before any DB read. |
 | MEDIUM | **`refreshEventStats` lost-update** | Fire-and-forget full recompute with no concurrency control; under a burst the last racing `upsert` wins and may have read a pre-burst snapshot → dashboard counts lag with no self-heal. Fix: serialize per-event (in-proc mutex/debounce) and/or a periodic reconcile; `await` where correctness matters. |
@@ -442,6 +442,46 @@ this is correctness / security / silent-failure debt.
 | MEDIUM | **Blue-green has no expand/contract guardrail** | `scripts/deploy.sh` runs `prisma migrate deploy` while the old container still serves traffic; safe only because every migration has been additive by convention. The reviewer migration proves destructive ones get written. Add a CI check rejecting `DROP`/`RENAME`/`SET NOT NULL`/enum-value-removal in migration SQL unless an explicit `EXPAND_CONTRACT_OK` marker is present; document the two-phase requirement. |
 | LOW | **MCP CORS** | `mcp-cors.ts` reflects any `*.anthropic.com`/`*.claude.ai` origin with `Allow-Credentials: true`. MCP is token-auth (no cookies) so impact is bounded — drop `Allow-Credentials` for the MCP transport or use an exact-origin allowlist. |
 | LOW | **Doc drift** | CLAUDE.md references `src/middleware.ts` (now `src/proxy.ts`, Next 16.1 rename), claims "0 silent Invalid-input paths remain" (false — see above), and says stdio MCP "drifts behind HTTP" (stale — both now share `registerAllMcpTools()`). Correct the doc so future audits aren't misled. |
+
+#### P1.1 detail — `PricingTier.soldCount` double-leak (investigated June 24, 2026; deferred for a dedicated pass)
+
+Investigating the "one-way leak" row above revealed it's a **two-direction** bug, and the
+naive fix (just add a tier decrement) makes it **worse**. Captured here so the implementer
+has the full picture before touching **live capacity counters**.
+
+**Two counters.** Each `TicketType` has `soldCount`; if it uses pricing tiers, **each
+`PricingTier` also has its own `soldCount`**. A registration increments exactly **one** of
+them — *which* one depends on the create path:
+
+| Create path | Has a tier? | Increments |
+|---|---|---|
+| Public register | yes | **`PricingTier.soldCount`** (ticketType untouched) |
+| Public register | no | `TicketType.soldCount` |
+| Admin / service add | yes | **`TicketType.soldCount`** (tier untouched — intentional, documented in `registration-service.ts`) |
+| Admin / service add | no | `TicketType.soldCount` |
+
+**The decrement side** — cancel, delete, type-change, bulk-type, and the MCP
+`update_registration` / `bulk_update_registration_status` paths — **all unconditionally
+decrement `TicketType.soldCount`** and never touch a tier counter.
+
+**So the only broken case is a PUBLIC + TIER registration**, and it breaks both ways.
+Worked example — Physician type (cap 100) with an Early Bird tier (cap 30):
+1. 10 register publicly on Early Bird → `EarlyBird.soldCount = 10`, `Physician.soldCount = 0`.
+2. 3 cancel → cancel decrements **Physician** ×3 → `Physician.soldCount = -3`; `EarlyBird.soldCount` stays 10.
+- **Tier leaks up:** Early Bird reads 10/30 though only 7 are active → 3 phantom seats burned → tier sells out early.
+- **Ticket type leaks down:** `Physician.soldCount = -3` → wrong dashboard counts **and** the `soldCount < quantity` guard now permits oversell.
+
+**Discriminator** for "this reg incremented the tier (so release the tier, not the type)":
+`createdSource === "PUBLIC_REGISTER"` **and** `pricingTierId != null` **and** in-person
+(`attendanceMode !== "VIRTUAL"` — virtual skips all capacity).
+
+**Fix plan (own pass, NOT a loop tick):**
+1. Shared helpers `releaseSeat(tx, reg)` / `reclaimSeat(tx, reg)` that pick tier-vs-ticketType from `(createdSource, pricingTierId, attendanceMode)` and adjust that counter, **guarded `soldCount > 0`** (via `updateMany`) so it can never go negative.
+2. Apply at all ~5 sites in place of today's unconditional ticketType decrement/increment: registration PUT (cancel **+** reactivate **+** type-change), DELETE, bulk-type, MCP `update_registration` + `bulk_update_registration_status`. Type-change = release-old + claim-new through the same helpers.
+3. Tests: public-tier cancel releases the *tier*; admin-tier cancel releases the *ticketType*; non-tier cancel unchanged; reactivate re-claims the right counter; type-change moves correctly; never goes negative.
+4. **Follow-up (separate):** this stops *new* drift only. Counters already drifted from past cancellations need a **one-time reconciliation script** — recompute each `TicketType.soldCount` / `PricingTier.soldCount` from the row-truth (count of non-cancelled registrations, routed by the same discriminator) and reset. Run once after the code fix deploys.
+
+**Risk:** live production capacity counters — a wrong discriminator corrupts counts the other way (oversell / false sell-out). Hence careful + fully-tested, not rushed.
 
 ### Charge-to-another-account follow-ups (v1.1 — shipped v1 May 19, 2026)
 
