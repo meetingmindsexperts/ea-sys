@@ -30,6 +30,28 @@ export interface CoverEmailTokenContext {
   speakerId: string | null;
   /** Event id, scopes the abstract lookup. */
   eventId: string;
+  /**
+   * When true, HTML-escape values the resolver derives INTERNALLY (i.e.
+   * `abstractTitle`, fetched from the DB here rather than supplied by the
+   * caller). The caller already pre-escapes the values it passes in
+   * (recipientName/eventName/venue/…) for the HTML-body path, but it
+   * cannot reach `abstractTitle` — a speaker-authored, untrusted string —
+   * because that's looked up inside `resolveCoverEmailTokens`. Set this on
+   * the escaped context used for the HTML body; leave false/undefined for
+   * the plain-text subject + text-body paths so they aren't double-escaped.
+   */
+  escapeDynamic?: boolean;
+}
+
+/** Local copy — matches the worker's + resend route's escapeHtml (the
+ *  cross-file dedup is a tracked LOW backlog item). */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 const CERT_TYPE_LABELS: Record<CertificateType, string> = {
@@ -132,7 +154,9 @@ export async function resolveCoverEmailTokens(
   if (template.includes("{{abstractTitle}}")) {
     const t = await loadAbstractTitle(ctx.speakerId, ctx.eventId);
     if (t) {
-      abstractTitle = t;
+      // Speaker-authored, untrusted. Escape for the HTML-body path so a
+      // title like `<script>…</script>` can't inject into the cert email.
+      abstractTitle = ctx.escapeDynamic ? escapeHtml(t) : t;
     } else if (ctx.speakerId) {
       apiLogger.info({
         msg: "cert-email-token:abstract-missing",

@@ -554,6 +554,9 @@ async function processSendPhase(
         venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
         city: tokenCtx.city ? escapeHtml(tokenCtx.city) : tokenCtx.city,
         country: tokenCtx.country ? escapeHtml(tokenCtx.country) : tokenCtx.country,
+        // Escape the resolver-internal abstractTitle too (caller can't
+        // reach it — it's DB-fetched inside resolveCoverEmailTokens).
+        escapeDynamic: true,
       };
       const subject = (
         await resolveCoverEmailTokens(emailSubjectTemplate, tokenCtx)
