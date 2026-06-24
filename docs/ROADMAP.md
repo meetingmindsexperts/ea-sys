@@ -259,6 +259,51 @@ A new read-only role for stakeholders who need dashboard visibility without writ
 
 The following items are candidates for the next development phases. Priorities can be adjusted based on business needs.
 
+### Backlog — prioritized pick list (June 24, 2026)
+
+A single scannable view of what's workable, in priority order. Each item links to
+its detailed entry in the sections further down. Effort: **S** ≈ <½ day, **M** ≈
+½–2 days, **L** ≈ multi-day. Sev = correctness/security severity where it applies.
+
+**✅ Closed this session (June 23–24, 2026) — do NOT re-pick** (detailed entries struck through below):
+- Accommodation overbooking TOCTOU (HIGH) — atomic claim shipped.
+- Registration DELETE destroys shared Attendee (HIGH) — sibling guard shipped.
+- Stripe post-payment fire-and-forget (HIGH) — invoice-reconciliation worker shipped (the stronger in-tx "outbox" variant remains optional).
+- ~8 silent `safeParse`→400 (MED) — June-23 sweep found 0 remaining (claim was stale).
+- Webinar 404 alert noise (recording + attendance/engagement) — suppressed + give-up shipped.
+
+**P1 — Correctness / security debt still open** (pick first; none is a feature):
+1. **`PricingTier.soldCount` one-way leak** (HIGH) — never decremented on cancel/delete/type-change → phantom sell-out. *(M)* → Audit Hardening Backlog
+2. **`abstractTitle` not HTML-escaped in cert email** (MED, stored-XSS) — ~5 LOC + test. *(S)* → Certificates deferred findings
+3. **`refreshEventStats` lost-update** (MED) — serialize per-event. *(M)* → Audit Hardening
+4. **Money rounding divergence** (MED) — payment-confirmation email ignores discount/round2. *(S)* → Audit Hardening
+5. **Frontend silent failures** (MED) — bulk-tag toast, registrant-portal fetch-error, MEMBER 403 buttons. *(M)* → Audit Hardening
+6. **Add-Registration dialog vs full-page drift** (MED) — dialog drops pricingTier/sponsor. *(M)* → Audit Hardening
+7. **MCP finance boundary / OAuth role snapshot** (MED). *(M)* → Audit Hardening
+8. **Blue-green migration guardrail** (MED) — CI reject destructive SQL w/o EXPAND_CONTRACT_OK. *(S)* → Audit Hardening
+
+**P2 — Quick wins (small, visible UI/feature gaps):**
+9. **Abstract → Session linking (UI)** *(S)* · 10. **Room-Type Edit/Delete UI** *(S)* · 11. **Accommodation Booking UI** *(M)* · 12. **Registration Delete button (UI)** *(S)* · 13. **Survey-completed column + filter in the registrations list** *(S, detail-sheet display already shipped)* · 14. **Cert cosmetics cluster** (`handleNudgeY` ref, "Cert" pill baseline, dev-sentinel-in-prod, `?.` on resend) *(S each)* → Near-Term + Certificates deferred findings
+
+**P3 — Larger features / follow-ups:**
+15. **Sent-email content preview** ("see what was sent" — `bodyHtml` + View) *(M)* → Near-Term
+16. **Hybrid attendance** — ⚠ admin virtual→in-person **qrCode minting** (the one real gap), check-in UI hide for virtual, dashboard split, portal mode *(M)* → Hybrid follow-ups
+17. **Charge-to-account v1.1** — public "who pays" step, payer column/CSV, quote-email-to-payer *(M)* → Charge-to-account follow-ups
+18. **Webinar waiting-room follow-ups** — never-opened-room warning, save-time HLS validation, DRAFT-auto-open hint *(S–M)* → Webinar follow-ups
+19. **Waitlist Management** *(M)* · 20. **Analytics Dashboard** *(M)* → Near-Term
+
+**P4 — Refactor / cleanup / resilience (trigger-driven):**
+21. **Resilience helper** (`withTimeout`/`withRetry`/`CircuitBreaker`) + cheap `?connect_timeout=15` precursor *(M)* → Near-Term
+22. **Dead-code cleanup** — ~150 LOC commented email providers · half-extracted `AiProvider` · Vercel vestiges *(S–M)* → Abstraction cleanup
+23. **registration-detail-sheet refactor** steps G→H (only when it passes ~3k lines) *(L)* → refactor remainder
+
+**P5 — Infra hardening (deferred from INC-001):**
+24. **CI → ECR build, box pulls** (HIGH — the OOM root-cause fix) *(M, + operator AWS steps)* · 25. container `mem_limit` *(S)* · 26. mem/disk CloudWatch alarm *(S)* · 27. external `/api/health` uptime check *(S)* → Deploy/Infra Hardening
+
+**Sequenced big programs (locked order, runs around the above):** Core Stability passes → **Certificates** (in progress) → **Stripe live-mode** → **Multi-Tenancy / White-Label** (next major program).
+
+---
+
 ### Sequencing (locked June 1, 2026)
 
 Two events have gone live (registration-only — Stripe is sandbox). Before
@@ -383,13 +428,13 @@ this is correctness / security / silent-failure debt.
 
 | Severity | Item | Risk & recommended direction |
 |---|---|---|
-| HIGH | **Accommodation overbooking TOCTOU** | `accommodation-service.ts` (~210-255) and `accommodations/[accommodationId]/route.ts` (~188-222) read `roomType.findUnique`, check `bookedRooms >= totalRooms` in JS, then unconditionally `increment` — no row lock, two concurrent bookings on the last room both pass. The "can't double-book by construction" comment is false. Fix: `$executeRaw` conditional `UPDATE … SET bookedRooms = bookedRooms + 1 WHERE id = ? AND bookedRooms < totalRooms` and check affected rows (Prisma can't express a column-to-column `updateMany` predicate). |
-| HIGH | **Registration DELETE destroys a shared Attendee** | `registrations/[registrationId]/route.ts` (~601) unconditionally `attendee.delete`s after `registration.delete`; Attendee can be shared across registrations (orphan-reuse + email-change clone). No `onDelete` on the FK → P2003 fails the whole delete, or orphans a still-referenced person. Fix: only delete the Attendee when `registration.count({ attendeeId, id: { not } }) === 0`, inside the same tx. |
+| ~~HIGH~~ ✅ | **Accommodation overbooking TOCTOU** — **CLOSED June 23, 2026** (audit Round 2 / DATA-2, commit `bfc7596`: atomic `updateMany` with `bookedRooms < totalRooms` predicate in the service + the PUT room-change/reinstate paths; test updated). Original detail kept for history: `accommodation-service.ts` (~210-255) and `accommodations/[accommodationId]/route.ts` (~188-222) read `roomType.findUnique`, check `bookedRooms >= totalRooms` in JS, then unconditionally `increment` — no row lock, two concurrent bookings on the last room both pass. The "can't double-book by construction" comment is false. Fix: `$executeRaw` conditional `UPDATE … SET bookedRooms = bookedRooms + 1 WHERE id = ? AND bookedRooms < totalRooms` and check affected rows (Prisma can't express a column-to-column `updateMany` predicate). |
+| ~~HIGH~~ ✅ | **Registration DELETE destroys a shared Attendee** — **CLOSED June 23, 2026** (audit Round 2 / DATA-6, commit `bfc7596`: deletes the Attendee only when `registration.count({ attendeeId, id: { not } }) === 0`, inside the same tx). Original detail kept for history: `registrations/[registrationId]/route.ts` (~601) unconditionally `attendee.delete`s after `registration.delete`; Attendee can be shared across registrations (orphan-reuse + email-change clone). No `onDelete` on the FK → P2003 fails the whole delete, or orphans a still-referenced person. Fix: only delete the Attendee when `registration.count({ attendeeId, id: { not } }) === 0`, inside the same tx. |
 | HIGH | **`PricingTier.soldCount` one-way leak** | Public register atomically increments tier soldCount; DELETE + bulk-type-change never decrement it (distinct from the documented-intentional manual-add divergence). Tiers phantom-sell-out. Fix: decrement tier soldCount symmetrically on cancel/delete/type-change where the public path increments. |
-| HIGH | **Stripe post-payment side-effects are fire-and-forget, handler returns 200** | `webhooks/stripe/route.ts` (~122-203): invoice + confirmation email run in a detached IIFE after the tx; failure = customer is PAID but never gets invoice/confirmation, permanently, Stripe won't retry, no reconciler. Fix: persist an outbox/intent row in the same tx that flips PAID; drain via an idempotent reconciliation cron (`createPaidInvoice` already promotes-in-place). |
+| ~~HIGH~~ ✅* | **Stripe post-payment side-effects are fire-and-forget, handler returns 200** — **ADDRESSED June 23, 2026** (audit Round 2 / DATA-5, commit `09dab42`: a new `invoice-reconciliation` worker job — every 10 min, advisory-lock 1006 — recovers PAID registrations with a PAID `Payment` but no `INVOICE`, re-running `createPaidInvoice`+`sendInvoiceEmail`; idempotent). *The stronger in-tx **outbox** variant below remains OPTIONAL if you want guaranteed-at-source delivery rather than a reconciler. Needs the worker container redeployed to run. Original detail kept for history: `webhooks/stripe/route.ts` (~122-203): invoice + confirmation email run in a detached IIFE after the tx; failure = customer is PAID but never gets invoice/confirmation, permanently, Stripe won't retry, no reconciler. Fix: persist an outbox/intent row in the same tx that flips PAID; drain via an idempotent reconciliation cron (`createPaidInvoice` already promotes-in-place). |
 | ~~HIGH~~ | ~~**Registrant invoice/quote routes missing `denyFinance`**~~ | ~~`registrant/registrations/[id]/quote`, `…/invoices`, `…/invoices/[invoiceId]/pdf` — the non-registrant branch scopes by org only; a MEMBER has an org so passes. Add `denyFinance(session)` on the non-registrant branch (registrant-owned access stays exempt).~~ **CLOSED — Core Stability Pass #1, June 1, 2026.** Three routes gated on the non-registrant branch with `denyFinance` + `apiLogger.warn`; REGISTRANT owner path stays exempt. Regression net: 7 tests in `__tests__/api/registrant-finance-routes.test.ts` pin MEMBER → 403 FINANCE_FORBIDDEN before any DB read. |
 | MEDIUM | **`refreshEventStats` lost-update** | Fire-and-forget full recompute with no concurrency control; under a burst the last racing `upsert` wins and may have read a pre-burst snapshot → dashboard counts lag with no self-heal. Fix: serialize per-event (in-proc mutex/debounce) and/or a periodic reconcile; `await` where correctness matters. |
-| MEDIUM | **~8 silent `safeParse`→400 (claim "0 remain" is false)** | `abstract-themes` POST/PUT, `review-criteria` POST/PUT, `promo-codes` POST/PUT, `notifications/read` POST, `email-logs` GET, `registrations/[id]/email` PATCH (Zod branch). Add `apiLogger.warn` via the existing `zodErrorResponse()` helper. Violates the owner's #1 rule. |
+| ~~MEDIUM~~ ✅ | **~8 silent `safeParse`→400** — **CLOSED / not reproducible** (audit Round 2, June 23 2026: a sweep of ~110 `safeParse` sites found **0** missing an `apiLogger.warn` — the earlier "~8 remain" claim was stale). Original list kept for history: `abstract-themes` POST/PUT, `review-criteria` POST/PUT, `promo-codes` POST/PUT, `notifications/read` POST, `email-logs` GET, `registrations/[id]/email` PATCH (Zod branch). Add `apiLogger.warn` via the existing `zodErrorResponse()` helper. Violates the owner's #1 rule. |
 | MEDIUM | **Money rounding/discount divergence** | Stripe `payment-confirmation` email recomputes `basePrice*taxRate` ignoring `discountAmount` and skips `round2` — disagrees with the invoice PDF and `computeRegistrationFinancials` by cents for promo+tax registrants. Fix: build the email totals from `computeRegistrationFinancials`. |
 | MEDIUM | **Frontend silent failures** | Bulk-tag failure shows no toast (`bulk-tag-dialog.tsx` + registrations/speakers callers); registrant portal renders "no registrations" on a failed fetch (`e/[slug]/my-registration/page.tsx` — paying customer, worst UX); MEMBER sees write buttons that 403 (registrations list + abstracts) — add a shared `canWrite(role)` gate. Several GET-load handlers swallow `!res.ok`. |
 | MEDIUM | **Add-Registration dialog vs full-page drift** | The quick-add dialog never sends `pricingTierId`/`sponsorId`, silently producing tier-less registrations that break "Registrations by Tier" + finance reporting. Port the picker or extract a shared form component. |
