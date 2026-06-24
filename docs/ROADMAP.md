@@ -388,6 +388,36 @@ logging/quotas + Redis limiter, tenant lifecycle). Phase 3 = scale + consolidate
 attribution, worker fairness + the `DIRECT_URL` lock fix before a 2nd worker, per-tenant
 secret keys/KMS, migrate MM Group in last).
 
+### Speaker ↔ Registration identity unification — Person/Contact hub (future initiative, scoped June 24, 2026)
+
+**Today (and intentionally, for now):** `Speaker` and `Registration`/`Attendee`
+are **separate first-class records** with no FK between them — correlated only by
+`email` (and a shared `User` when one exists). "Import registration → speaker"
+**copies** the attendee's fields into a new Speaker row, so the two then drift.
+This is *correct* for the common case the owner described: many speakers are
+**independent** (sponsor- or society-suggested, manually added, may never
+register), so a speaker **must** be able to exist with no registration.
+
+**Shipped as the 80/20 (June 24, Option A):** a nullable `Speaker.sourceRegistrationId`
+pointer (set on import; read-time email-match fallback for older/independent
+speakers) + a unified **speaker Activity timeline** that surfaces the linked
+registration's audit + email activity **pointed, not duplicated**. Person data is
+still two rows, but the activity is linked.
+
+**The future initiative (Option B — a real project, NOT a quick task):** make a
+single **Person/Contact identity hub** that **both** `Speaker` and
+`Attendee`/`Registration` *optionally* reference — so "speaker" and "registrant"
+become **roles/functions on one person**, edit-once-updates-everywhere, activity
+naturally shared. **Critical constraint:** it must be `Speaker → Person?`
+(optional), **never** `Speaker → Attendee` (required) — that would break every
+independent/manually-added speaker. The existing `Contact` store (org-level,
+deduped by `(org, email)`, already synced from both speakers + registrants) is the
+seed of this hub. Scope = schema + backfill + rewrite of speaker/attendee CRUD +
+the import becomes "flag this person as also a speaker" instead of copying +
+many read/write paths. High blast radius (identity is load-bearing) → own design
+doc + phased rollout. Natural to fold into the **Multi-Tenancy** program above (a
+tenant-scoped Person identity is needed there anyway). Effort: **L+**.
+
 ### Near-Term (Next 1–2 Months)
 
 | Feature | Description |

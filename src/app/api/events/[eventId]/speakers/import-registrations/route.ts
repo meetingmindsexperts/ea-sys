@@ -106,6 +106,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         // behaviour. Arrays default to [] at the DB when omitted.
         data: dedupedToCreate.map((r) => ({
           eventId,
+          // Pointer to the source registration — lets the speaker's activity
+          // view surface this registration's activity without duplicating it.
+          sourceRegistrationId: r.id,
           title: r.attendee.title ?? undefined,
           role: r.attendee.role ?? undefined,
           email: r.attendee.email,

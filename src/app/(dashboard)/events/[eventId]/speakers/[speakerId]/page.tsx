@@ -63,7 +63,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
-import { EmailLogCard } from "@/components/communications/email-log-card";
+import { SpeakerActivityCard } from "@/components/speakers/speaker-activity-card";
 import { formatPersonName, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -984,7 +984,10 @@ export default function SpeakerDetailPage() {
               `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
             }
           />
-          <EmailLogCard entityType="SPEAKER" entityId={speaker.id} />
+          {/* Unified activity timeline — subsumes the old email-history card
+              (it includes emails) and adds AuditLog events + the linked
+              registration's activity (pointed, not duplicated). */}
+          <SpeakerActivityCard eventId={eventId} speakerId={speaker.id} />
         </div>
       </div>
 

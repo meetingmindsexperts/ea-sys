@@ -773,6 +773,9 @@ model Registration {
   webinarPresences         WebinarPresence[]
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
+  // Speakers imported from this registration (0 or 1 in practice; the link
+  // is best-effort + nullable, set on the import-registrations path).
+  importedSpeakers         Speaker[]                 @relation("SpeakerSourceRegistration")
   surveyResponse           SurveyResponse?
 
   @@unique([eventId, serialId])
@@ -913,11 +916,19 @@ model Speaker {
   agreementAcceptedIp   String?
   agreementAcceptedBy   String?
   agreementTextSnapshot String?       @db.Text
+  // Optional pointer to the Registration this speaker was imported from.
+  // Null for independent / manually-added / sponsor-suggested speakers (the
+  // common case — a speaker need not be a registrant). Set only on the
+  // import-registrations path. Enables surfacing the registration's activity
+  // on the speaker WITHOUT duplicating it. SetNull so deleting the
+  // registration leaves the speaker intact (it's a first-class entity).
+  sourceRegistrationId  String?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
   event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user                     User?                     @relation(fields: [userId], references: [id])
+  sourceRegistration       Registration?             @relation("SpeakerSourceRegistration", fields: [sourceRegistrationId], references: [id], onDelete: SetNull)
   sessions                 SessionSpeaker[]
   topicSpeakers            TopicSpeaker[]
   abstracts                Abstract[]
@@ -928,6 +939,7 @@ model Speaker {
   @@unique([eventId, email])
   @@index([eventId])
   @@index([status])
+  @@index([sourceRegistrationId])
 }
 
 enum SpeakerStatus {
