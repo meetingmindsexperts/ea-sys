@@ -93,6 +93,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
+  registrationOpen?: boolean;
   supportEmail: string | null;
   registrationTermsHtml: string | null;
   registrationWelcomeHtml: string | null;
@@ -477,7 +478,9 @@ function CategoryRegistrationContent() {
   const isMember = selectedRegTypeName.includes("member");
   const isStudent = selectedRegTypeName.includes("student");
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
-  const isClosed = purchasableOptions.length === 0;
+  // Closed when the master switch is off (Settings → Registration) OR this tier
+  // has no purchasable option. The master switch wins regardless of tier state.
+  const isClosed = event.registrationOpen === false || purchasableOptions.length === 0;
   // When every purchasable option is free, "Free" on each row is noise —
   // hide the price column entirely. If even one option costs money, keep
   // the per-row label so users can see which is which at a glance.

@@ -63,6 +63,7 @@ interface Event {
   country: string | null;
   bannerImage: string | null;
   footerHtml: string | null;
+  registrationOpen?: boolean;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
 }
@@ -141,16 +142,22 @@ export default function RegisterOverviewPage() {
 
   // Not logged in or not admin/organizer → auto-redirect to first active non-presenter tier
   if (!isAuthorized && event) {
+    // Master switch (Settings → Registration). When OFF, registration is closed
+    // regardless of which individual tiers (standard/onsite) are active — so we
+    // skip the redirect and fall through to the branded closed page below.
+    const registrationOpen = event.registrationOpen !== false;
     // Find first active tier by priority, excluding "Presenter" (presenter has its own direct link)
-    const activeTier = event.ticketTypes
-      ?.flatMap((tt: TicketType) => (tt.pricingTiers || []).filter((t: PricingTier) => t.canPurchase))
-      .filter((t: PricingTier) => toSlug(t.name) !== "presenter")
-      .sort((a: PricingTier, b: PricingTier) => {
-        const order = ["early-bird", "standard", "onsite"];
-        const ai = order.indexOf(toSlug(a.name));
-        const bi = order.indexOf(toSlug(b.name));
-        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-      })[0];
+    const activeTier = !registrationOpen
+      ? undefined
+      : event.ticketTypes
+          ?.flatMap((tt: TicketType) => (tt.pricingTiers || []).filter((t: PricingTier) => t.canPurchase))
+          .filter((t: PricingTier) => toSlug(t.name) !== "presenter")
+          .sort((a: PricingTier, b: PricingTier) => {
+            const order = ["early-bird", "standard", "onsite"];
+            const ai = order.indexOf(toSlug(a.name));
+            const bi = order.indexOf(toSlug(b.name));
+            return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+          })[0];
 
     if (activeTier) {
       router.replace(`/e/${slug}/register/${toSlug(activeTier.name)}`);

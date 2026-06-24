@@ -159,6 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         venue: true,
         city: true,
         organizationId: true,
+        settings: true,
         taxRate: true,
         taxLabel: true,
         bankDetails: true,
@@ -181,6 +182,18 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Master registration switch (Settings → Registration). Enforced server-side
+    // so a closed event can't be registered via a direct POST, regardless of UI
+    // or which individual tiers are active. Default OPEN when the field is absent.
+    const eventSettings = (event.settings || {}) as Record<string, unknown>;
+    if (eventSettings.registrationOpen === false) {
+      apiLogger.warn({ msg: "public/register:registration-closed", slug, eventId: event.id });
+      return NextResponse.json(
+        { error: "Registration is closed for this event.", code: "REGISTRATION_CLOSED" },
+        { status: 403 },
+      );
     }
 
     // Validate ticket type

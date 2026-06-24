@@ -180,6 +180,11 @@ export async function GET(req: Request, { params }: RouteParams) {
         abstractDeadline: settings.abstractDeadline || null,
       },
       agendaPublished: settings.agendaPublished === true || settings.programmePublished === true,
+      // Master registration switch (Settings → Registration). Default OPEN when
+      // the field is absent so existing events aren't accidentally closed.
+      // When false, the public register flow shows "Registration Closed"
+      // regardless of individual tier (standard/onsite) states.
+      registrationOpen: settings.registrationOpen !== false,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });
