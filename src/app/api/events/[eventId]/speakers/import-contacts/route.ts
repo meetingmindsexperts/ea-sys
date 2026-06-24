@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { getClientIp } from "@/lib/security";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -76,6 +77,27 @@ export async function POST(req: Request, { params }: RouteParams) {
         skipDuplicates: true,
       });
     }
+
+    // Audit trail (fire-and-forget) — bulk speaker import from contacts.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "CREATE",
+          entityType: "Speaker",
+          entityId: `bulk:${toCreate.length}`,
+          changes: {
+            bulk: true,
+            source: "contacts-import",
+            created: toCreate.length,
+            skipped,
+            ip: getClientIp(req),
+          },
+          ipAddress: getClientIp(req),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker contacts-import audit log" }));
 
     return NextResponse.json({ created: toCreate.length, skipped });
   } catch (error) {

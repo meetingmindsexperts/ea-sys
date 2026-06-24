@@ -247,6 +247,25 @@ export async function POST(req: Request, { params }: RouteParams) {
       db.verificationToken.delete({ where: { token: hashedToken } }),
     ]);
 
+    // Audit trail (fire-and-forget). Mirrors the organizer-side PATCH
+    // (`SPEAKER_AGREEMENT_ACCEPTED`) but `actor: "SPEAKER"` + `userId: null`
+    // — this is the token-based public self-acceptance, the legally
+    // meaningful event, so it gets a formal AuditLog row (with IP) rather
+    // than only the row timestamp + a pino line.
+    db.auditLog
+      .create({
+        data: {
+          eventId: speaker.event.id,
+          userId: null,
+          action: "SPEAKER_AGREEMENT_ACCEPTED",
+          entityType: "Speaker",
+          entityId: speaker.id,
+          changes: { actor: "SPEAKER", ip: clientIp, acceptedAt: acceptedAt.toISOString() },
+          ipAddress: clientIp,
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker agreement acceptance audit log" }));
+
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(speaker.event.id);
 

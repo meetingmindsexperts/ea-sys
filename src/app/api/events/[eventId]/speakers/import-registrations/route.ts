@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
+import { getClientIp } from "@/lib/security";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -131,6 +132,27 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
+
+    // Audit trail (fire-and-forget) — bulk speaker import from registrations.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "CREATE",
+          entityType: "Speaker",
+          entityId: `bulk:${dedupedToCreate.length}`,
+          changes: {
+            bulk: true,
+            source: "registrations-import",
+            created: dedupedToCreate.length,
+            skipped,
+            ip: getClientIp(req),
+          },
+          ipAddress: getClientIp(req),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker registrations-import audit log" }));
 
     apiLogger.info({
       msg: "Imported registrations as speakers",

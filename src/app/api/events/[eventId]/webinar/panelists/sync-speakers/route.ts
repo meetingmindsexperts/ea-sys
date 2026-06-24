@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { addWebinarPanelists, listWebinarPanelists } from "@/lib/zoom";
 import { resolveAnchorZoomMeeting } from "../route";
 import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
@@ -114,6 +114,27 @@ export async function POST(_req: Request, { params }: RouteParams) {
       resolved.zoomMeetingId,
       toAdd,
     );
+
+    // Audit trail (fire-and-forget) — speakers pushed to Zoom as panelists.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "PANELIST_SYNC",
+          entityType: "ZoomMeeting",
+          entityId: resolved.zoomMeetingId,
+          changes: {
+            added: toAdd.length,
+            totalSpeakers,
+            skippedNoEmail,
+            skippedAlreadyPanelist,
+            ip: getClientIp(_req),
+          },
+          ipAddress: getClientIp(_req),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write panelist sync-speakers audit log" }));
 
     apiLogger.info(
       {

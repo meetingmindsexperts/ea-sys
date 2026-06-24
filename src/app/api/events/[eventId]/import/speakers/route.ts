@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -167,6 +167,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       data: speakers,
       skipDuplicates: true,
     });
+
+    // Audit trail (fire-and-forget) — bulk speaker import via CSV.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "CREATE",
+          entityType: "Speaker",
+          entityId: `bulk:${result.count}`,
+          changes: {
+            bulk: true,
+            source: "csv-import",
+            created: result.count,
+            skipped: rows.length - result.count - errors.length,
+            errorCount: errors.length,
+            ip: getClientIp(req),
+          },
+          ipAddress: getClientIp(req),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker CSV-import audit log" }));
 
     // Sync imported speakers to org contact store (fire-and-forget)
     syncManyToContacts(

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
+import { getClientIp } from "@/lib/security";
 
 const bulkTagsSchema = z.object({
   speakerIds: z.array(z.string()).min(1),
@@ -77,6 +78,29 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     const results = await db.$transaction(updates);
+
+    // Audit trail (fire-and-forget). Tags drive email cohorts + cert
+    // eligibility, so bulk retag is consequential — one row per bulk op.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "UPDATE",
+          entityType: "Speaker",
+          entityId: `bulk:${results.length}`,
+          changes: {
+            bulk: true,
+            operation: "tags",
+            mode,
+            tags,
+            speakerIds: results.map((r) => r.id),
+            ip: getClientIp(req),
+          },
+          ipAddress: getClientIp(req),
+        },
+      })
+      .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker bulk-tags audit log" }));
 
     return NextResponse.json({ updated: results.length, speakers: results });
   } catch (error) {
