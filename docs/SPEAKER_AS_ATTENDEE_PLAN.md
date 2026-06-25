@@ -124,34 +124,31 @@ attendee facility set, so they genuinely are attendees + speakers.
 
 ---
 
-## Phase 1 status (June 25, 2026)
+## Phase 1 status (June 25, 2026) — ✅ COMPLETE (1a + 1b)
 
 **1a SHIPPED (commit `bc09c0c`)** — the enablement: `IssuedCertificate` uniqueness
 swapped per-type → **per-template** (migration `20260625140000`, verified
 collision-free); eligibility + worker dup-recovery both re-keyed to
 `certificateTemplateId`; additive `CertificateTemplate.role` + `cmeHours` columns.
-**Multi-role certs now work** — issue N role-templates to one person → N certs.
+**Multi-role certs work** — issue N role-templates to one person → N certs.
 
-**1b REMAINING (not yet built — precise steps):**
-1. **`{{cmeHours}}` per-template + `{{role}}` token.** Trace the token resolver
-   (`mergeBody`/`resolveTokens` in `src/lib/certificates/template.ts` — render.ts
-   line 163 calls `mergeBody(box.content, data)`; the token value source is in
-   template.ts, NOT necessarily `event.cmeHours`). Make `{{cmeHours}}` resolve
-   from `template.cmeHours ?? event.cmeHours`, and add a `{{role}}` token =
-   `template.role`. The worker must load `template.cmeHours` + `template.role`
-   (the render-template select at issue-worker.ts ~247 is currently
-   `{ backgroundPdfUrl, textBoxes }`) and snapshot `cmeHoursSnapshot =
-   template.cmeHours ?? event.cmeHours ?? null` (currently `event.cmeHours`,
-   line 391).
-2. **REST template API** — `templates/route.ts` (POST) + `templates/[templateId]/route.ts`
-   (PUT) accept + persist `role` + `cmeHours` (Zod).
-3. **MCP** — `create_certificate_template` + `update_certificate_template`
-   (`src/lib/agent/tools/certificates.ts` + `register-mcp-tools.ts` Zod) accept
-   `role` + `cmeHours`; bump package version.
-4. **Template editor UI** — add `role` (text) + `cmeHours` (number) inputs to the
-   template settings card; the canvas editor's token reference list gains `{{role}}`.
-5. Tests: per-template eligibility dedup (two same-category templates issuable to
-   one person) + the cmeHours-from-template snapshot.
+**1b SHIPPED (commit `de008b3`, lockfile fix `8c15f35`)** — per-template tokens +
+the editor:
+- **`{{cmeHours}}` per-template + `{{role}}` token.** `resolveTokens` resolves
+  `{{cmeHours}}` from `template.cmeHours ?? event.cmeHours` and adds `{{role}}` =
+  `template.role`. The worker loads `template.role`/`cmeHours` and snapshots
+  `cmeHoursSnapshot = template.cmeHours ?? event.cmeHours`.
+- **REST** template POST + PATCH accept + persist `role` + `cmeHours`; list GET
+  returns them.
+- **MCP** `create_/update_certificate_template` accept `role` + `cmeHours`
+  (handlers + tool-def params); package 0.4.9 → 0.4.10.
+- **Editor UI** — Role + CME-hours inputs in the template editor header
+  (commit-on-blur). CME hours entered manually per template; issuance tag-driven.
+- +2 tests (per-template override + event fallback + role token).
+
+**Verify on prod after deploy:** create a template, set role + CME hours, drop
+`{{role}}`/`{{cmeHours}}` text boxes, issue one → confirm the rendered PDF shows
+them (the one thing tests can't fully prove).
 
 ## Phase 1 — Multi-role certificates (template = role)
 

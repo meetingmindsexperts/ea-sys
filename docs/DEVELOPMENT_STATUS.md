@@ -19,6 +19,7 @@ This document tracks the development status of the Event Administration System. 
 - **Abstracts & reviewers:** themes, weighted review criteria, per-event `requiredReviewCount` gate, per-abstract reviewer assignment (role + advisory COI flag), per-reviewer scoring, `/my-reviews` portal, score aggregation, status-change emails.
 - **Services layer:** 5 services shipped (`accommodation`, `abstract`, `speaker`, `registration`, `billing-account`) — shared by REST + MCP. The "extract services layer" tech-debt item is **done**.
 - **Webinars:** first-class WEBINAR type — auto-provisioning, Zoom embed + custom HLS stream, recording/attendance/**engagement (polls + Q&A)** sync, producer-gated waiting room with real-time presence (June 23).
+- **Speaker-as-attendee + multi-role certificates (June 25, 2026):** every speaker auto-gets a linked comp "Faculty" registration so they receive badge / barcode / DTCM / check-in / survey (excluded from delegate counts); certificates are now **per-template** (one person can hold several role-specific certs — Speaker + Moderator + Committee), each with its own role label + manually-entered CME hours (`{{role}}` / `{{cmeHours}}` tokens). Plan + status: [docs/SPEAKER_AS_ATTENDEE_PLAN.md](SPEAKER_AS_ATTENDEE_PLAN.md). (Survey-completion auto-issue = the planned Phase 2.)
 - **Platform:** MCP server (70+ tools) + OAuth 2.1, AI agent, dedicated background-worker tier (6 jobs, advisory-lock singleton), certificates, surveys, CloudWatch/Sentry/DB logging, Singapore DR (S3 + pg_dump), multiple security audits (latest: June 23 multi-tenant readiness — see [docs/PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) Round 2).
 
 **Genuinely still open (all non-blocking nice-to-haves / tech debt):** ICS calendar export, session feedback/ratings, attendee directory, PWA, multi-language; a few small UI gaps for API-driven ops (Room-Type edit/delete dialog, abstract→session dashboard picker); email-preferences management; Redis-backed shared cache/rate-limiter; bundle trim + remove unused tRPC deps; staging environment. None block running a conference. See [docs/ROADMAP.md](ROADMAP.md) for the tracked backlog.
@@ -144,6 +145,8 @@ This document tracks the development status of the Event Administration System. 
 | Edit Speaker | ✅ | ✅ | Complete |
 | Delete Speaker | ✅ | ✅ | Complete |
 | Speaker Status Management | ✅ | ✅ | Complete |
+| **Companion registration (attend-ready)** | ✅ | ✅ | **Complete (June 25, 2026)** — every speaker auto-gets a linked comp "Faculty" registration → badge / barcode / DTCM / check-in / survey via the normal machinery; excluded from delegate counts. See [docs/SPEAKER_AS_ATTENDEE_PLAN.md](SPEAKER_AS_ATTENDEE_PLAN.md) |
+| **Per-speaker / per-registration Activity timeline** | ✅ | ✅ | **Complete** — merged AuditLog + EmailLog + issued certificates (Open/preview), with speaker↔registration counterpart |
 | Social Links | ✅ | ✅ | Complete |
 | Import from Contact Store | ✅ | ✅ | Complete |
 

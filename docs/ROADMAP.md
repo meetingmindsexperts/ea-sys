@@ -300,7 +300,9 @@ its detailed entry in the sections further down. Effort: **S** ≈ <½ day, **M*
 **P5 — Infra hardening (deferred from INC-001):**
 24. **CI → ECR build, box pulls** (HIGH — the OOM root-cause fix) *(M, + operator AWS steps)* · 25. container `mem_limit` *(S)* · 26. mem/disk CloudWatch alarm *(S)* · 27. external `/api/health` uptime check *(S)* → Deploy/Infra Hardening
 
-**Sequenced big programs (locked order, runs around the above):** Core Stability passes → **Certificates** (in progress) → **Stripe live-mode** → **Multi-Tenancy / White-Label** (next major program).
+**Sequenced big programs (locked order, runs around the above):** Core Stability passes → **Certificates** (multi-role + speaker-as-attendee SHIPPED June 25 — see below; only the survey-auto-issue Phase 2 remains) → **Stripe live-mode** → **Multi-Tenancy / White-Label** (next major program).
+
+**Speaker-as-attendee + multi-role certificates — SHIPPED June 25, 2026** (Phases 0–1; plan: [docs/SPEAKER_AS_ATTENDEE_PLAN.md](SPEAKER_AS_ATTENDEE_PLAN.md)). Speakers auto-get a comp "Faculty" companion registration (badge/barcode/DTCM/check-in/survey; excluded from delegate counts via `EXCLUDE_FACULTY_WHERE`); certs are now **per-template** so one person holds several role certs (Speaker + Moderator + Committee), each with its own role label + manual CME hours (`{{role}}`/`{{cmeHours}}`). **Remaining cert work (Phase 2, planned):** survey-completion **auto-issue** (per-template `autoIssueOnSurvey` flag + tag; survey submit enqueues → the existing cert worker delivers; works for speakers via their companion). Phase 3 = manual override (mostly exists).
 
 ---
 
