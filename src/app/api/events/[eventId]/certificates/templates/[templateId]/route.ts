@@ -54,6 +54,9 @@ const patchSchema = z.object({
   // visual fields. Pass null to clear (reverts to system default).
   emailSubject: z.string().min(1).max(200).nullable().optional(),
   emailBody: z.string().min(1).max(10000).nullable().optional(),
+  // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).
+  role: z.string().max(120).trim().nullable().optional(),
+  cmeHours: z.number().min(0).max(999).nullable().optional(),
 });
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -110,6 +113,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder;
     if (parsed.data.emailSubject !== undefined) data.emailSubject = parsed.data.emailSubject;
     if (parsed.data.emailBody !== undefined) data.emailBody = parsed.data.emailBody;
+    if (parsed.data.role !== undefined) data.role = parsed.data.role;
+    if (parsed.data.cmeHours !== undefined) data.cmeHours = parsed.data.cmeHours;
 
     const updated = await db.certificateTemplate.update({
       where: { id: templateId },

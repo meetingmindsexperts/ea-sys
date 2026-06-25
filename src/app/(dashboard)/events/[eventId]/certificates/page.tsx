@@ -122,6 +122,10 @@ interface CertificateTemplate {
    *  back to the per-category system default. */
   emailSubject: string | null;
   emailBody: string | null;
+  /** Role/designation ({{role}} token) — e.g. "Speaker", "Moderator". */
+  role: string | null;
+  /** Static per-template CME hours ({{cmeHours}}, overrides event-level). */
+  cmeHours: number | null;
   createdAt: string;
   updatedAt: string;
   _count?: { issuedCertificates: number; issueRuns: number };
@@ -369,6 +373,8 @@ export default function CertificatesPage() {
         textBoxes?: CertificateTextBox[];
         emailSubject?: string | null;
         emailBody?: string | null;
+        role?: string | null;
+        cmeHours?: number | null;
       };
     }) => {
       const res = await fetch(
@@ -870,6 +876,45 @@ export default function CertificatesPage() {
                       </Badge>{" "}
                       · {editingTemplate.textBoxes.length} text boxes
                     </CardDescription>
+                    {/* Role + CME hours — drive the {{role}} / {{cmeHours}}
+                        tokens. Per-template CME hours override the event-level
+                        value. Commit on blur via the same PATCH mutation. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        Role&nbsp;(<code>{`{{role}}`}</code>)
+                        <Input
+                          defaultValue={editingTemplate.role ?? ""}
+                          placeholder="e.g. Speaker"
+                          onBlur={(e) => {
+                            const v = e.target.value.trim() || null;
+                            if (v !== (editingTemplate.role ?? null)) {
+                              updateTemplateMutation.mutate({ templateId: editingTemplate.id, patch: { role: v } });
+                            }
+                          }}
+                          className="h-8 w-40"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        CME hours&nbsp;(<code>{`{{cmeHours}}`}</code>)
+                        <Input
+                          type="number"
+                          min={0}
+                          max={999}
+                          step="0.5"
+                          defaultValue={editingTemplate.cmeHours ?? ""}
+                          placeholder="event default"
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            const v = raw === "" ? null : Number(raw);
+                            if (v !== null && (Number.isNaN(v) || v < 0 || v > 999)) return;
+                            if (v !== (editingTemplate.cmeHours ?? null)) {
+                              updateTemplateMutation.mutate({ templateId: editingTemplate.id, patch: { cmeHours: v } });
+                            }
+                          }}
+                          className="h-8 w-28"
+                        />
+                      </label>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button

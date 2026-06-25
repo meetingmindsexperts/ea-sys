@@ -244,7 +244,7 @@ async function processRenderPhase(
   if (certificateTemplateId) {
     const tmpl = await db.certificateTemplate.findUnique({
       where: { id: certificateTemplateId },
-      select: { backgroundPdfUrl: true, textBoxes: true },
+      select: { backgroundPdfUrl: true, textBoxes: true, role: true, cmeHours: true },
     });
     if (tmpl) {
       template = {
@@ -253,6 +253,8 @@ async function processRenderPhase(
         // narrow to CertificateTextBox[]; the column is Zod-validated
         // at write time so the cast is safe.
         textBoxes: tmpl.textBoxes as unknown as CertificateTemplate["textBoxes"],
+        role: tmpl.role,
+        cmeHours: tmpl.cmeHours == null ? null : Number(tmpl.cmeHours),
       };
     } else {
       // Template was deleted between run-create and render-tick. The
@@ -387,8 +389,9 @@ async function renderAndStoreItem(args: {
         // Snapshot CME hours on the cert row regardless of type — the
         // CME-as-its-own-type concept was collapsed on 2026-06-02 and
         // both ATTENDANCE and APPRECIATION certs may render {{cmeHours}}
-        // when the event is CME-accredited.
-        cmeHoursSnapshot: event.cmeHours ?? null,
+        // when the event is CME-accredited. Per-template hours (organizer-
+        // entered) override the event-level value when set.
+        cmeHoursSnapshot: template.cmeHours ?? event.cmeHours ?? null,
       },
       select: { id: true },
     });

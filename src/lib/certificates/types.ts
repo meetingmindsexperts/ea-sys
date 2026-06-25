@@ -151,6 +151,12 @@ export interface CertificateTemplate {
   /** Positioned text overlays — each renders at its (x, y) on the PDF
    *  with its content tokens substituted per recipient. */
   textBoxes?: CertificateTextBox[];
+  /** Role/designation this template certifies (e.g. "Speaker", "Moderator").
+   *  Drives the {{role}} token. */
+  role?: string | null;
+  /** Static per-template CME hours — drives {{cmeHours}}, overriding the
+   *  event-level CME hours when set. */
+  cmeHours?: number | null;
   /** SUPER_ADMIN-only design-approval gate (preserved from prior
    *  architecture; unlocks Phase C "Issue" button). */
   designApprovedBy?: string;

@@ -53,6 +53,10 @@ const createSchema = z.object({
   // an empty email on the wire.
   emailSubject: z.string().min(1).max(200).nullable().optional(),
   emailBody: z.string().min(1).max(10000).nullable().optional(),
+  // Role/designation this template certifies ({{role}} token) + static
+  // per-template CME hours ({{cmeHours}}, overrides event-level when set).
+  role: z.string().max(120).trim().nullable().optional(),
+  cmeHours: z.number().min(0).max(999).nullable().optional(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -157,6 +161,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           sortOrder: nextOrder,
           emailSubject: data.emailSubject ?? null,
           emailBody: data.emailBody ?? null,
+          role: data.role ?? null,
+          cmeHours: data.cmeHours ?? null,
         },
       });
     });

@@ -95,14 +95,15 @@ export function mergeBody(template: string, data: CertificateData): string {
 }
 
 function resolveTokens(data: CertificateData): Record<string, string> {
-  const { recipient, event } = data;
+  const { recipient, event, template } = data;
   const venueLine = composeVenueLine(event);
   const accreditationBody =
     event.accreditations?.[0]?.body
       ? friendlyAccreditorName(event.accreditations[0].body)
       : "";
   const accreditationReference = event.accreditations?.[0]?.reference ?? "";
-  const cmeHoursStr = formatHoursForToken(event.cmeHours);
+  // Per-template CME hours (organizer-entered) override the event-level value.
+  const cmeHoursStr = formatHoursForToken(template?.cmeHours ?? event.cmeHours);
 
   return {
     recipientName: recipient.fullName,
@@ -115,6 +116,9 @@ function resolveTokens(data: CertificateData): Record<string, string> {
     accreditationBody,
     accreditationReference,
     cmeHours: cmeHoursStr,
+    // Role/designation for this cert (e.g. "Speaker", "Moderator"). Empty when
+    // the template has no role set.
+    role: template?.role ?? "",
   };
 }
 

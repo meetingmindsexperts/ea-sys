@@ -573,8 +573,15 @@ export function registerAllMcpTools(
       // (APPRECIATION-only). Snapshotted onto each Run at Issue time.
       emailSubject: z.string().min(1).max(200).nullable().optional(),
       emailBody: z.string().min(1).max(10000).nullable().optional(),
+      // Role/designation this template certifies — drives the {{role}} token
+      // (e.g. "Speaker", "Moderator", "Organizing Committee"). One person can
+      // hold several role-specific certs (one per template).
+      role: z.string().max(120).nullable().optional(),
+      // Static per-template CME hours — drives {{cmeHours}}, overriding the
+      // event-level CME hours when set. Entered manually per template.
+      cmeHours: z.number().min(0).max(999).nullable().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, or cover-email defaults (emailSubject / emailBody). Pass null on the email fields to clear back to the system default. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, cover-email defaults (emailSubject / emailBody), role, or cmeHours. Pass null on email/role/cmeHours to clear. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -597,6 +604,8 @@ export function registerAllMcpTools(
       sortOrder: z.number().int().min(0).max(9999).optional(),
       emailSubject: z.string().min(1).max(200).nullable().optional(),
       emailBody: z.string().min(1).max(10000).nullable().optional(),
+      role: z.string().max(120).nullable().optional(),
+      cmeHours: z.number().min(0).max(999).nullable().optional(),
     }},
     { name: "delete_certificate_template", description: "Delete a CertificateTemplate by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references it — audit trail must stay intact. Rename the template instead to mark as retired.", params: {
       templateId: z.string().min(1),

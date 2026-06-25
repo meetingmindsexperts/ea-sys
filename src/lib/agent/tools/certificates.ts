@@ -213,6 +213,23 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     emailBody = input.emailBody;
   }
 
+  // Optional role label ({{role}} token) + static per-template CME hours
+  // ({{cmeHours}}, overrides event-level when set).
+  let role: string | null = null;
+  if (input.role !== undefined && input.role !== null) {
+    if (typeof input.role !== "string" || input.role.length > 120) {
+      return { error: "role must be a string (max 120 chars)", code: "INVALID_FIELD" };
+    }
+    role = input.role.trim() || null;
+  }
+  let cmeHours: number | null = null;
+  if (input.cmeHours !== undefined && input.cmeHours !== null) {
+    if (typeof input.cmeHours !== "number" || Number.isNaN(input.cmeHours) || input.cmeHours < 0 || input.cmeHours > 999) {
+      return { error: "cmeHours must be a number between 0 and 999", code: "INVALID_FIELD" };
+    }
+    cmeHours = input.cmeHours;
+  }
+
   // Verify event is in caller's org.
   const event = await db.event.findFirst({
     where: { id: ctx.eventId, organizationId: ctx.organizationId },
@@ -242,6 +259,8 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         sortOrder,
         emailSubject,
         emailBody,
+        role,
+        cmeHours,
       },
     });
   });
@@ -334,11 +353,30 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
       data.emailBody = input.emailBody;
     }
   }
+  // Role label + static per-template CME hours — pass null to clear.
+  if (input.role !== undefined) {
+    if (input.role === null) {
+      data.role = null;
+    } else if (typeof input.role !== "string" || input.role.length > 120) {
+      return { error: "role must be a string (max 120 chars) or null", code: "INVALID_FIELD" };
+    } else {
+      data.role = input.role.trim() || null;
+    }
+  }
+  if (input.cmeHours !== undefined) {
+    if (input.cmeHours === null) {
+      data.cmeHours = null;
+    } else if (typeof input.cmeHours !== "number" || Number.isNaN(input.cmeHours) || input.cmeHours < 0 || input.cmeHours > 999) {
+      return { error: "cmeHours must be a number between 0 and 999, or null", code: "INVALID_FIELD" };
+    } else {
+      data.cmeHours = input.cmeHours;
+    }
+  }
 
   if (Object.keys(data).length === 0) {
     return {
       error:
-        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / emailSubject / emailBody",
+        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / emailSubject / emailBody / role / cmeHours",
       code: "NOTHING_TO_UPDATE",
     };
   }

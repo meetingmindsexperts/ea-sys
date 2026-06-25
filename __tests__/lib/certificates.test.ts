@@ -20,6 +20,7 @@
 
 import { describe, it, expect } from "vitest";
 import { renderCertificate } from "@/lib/certificates/render";
+import { mergeBody } from "@/lib/certificates/template";
 import {
   buildPreviewCertificate,
   readEventCmeSettings,
@@ -175,3 +176,19 @@ describe("renderCertificate", () => {
     expect(pdf.slice(0, 4).toString("ascii")).toBe("%PDF");
   }, 35_000);
 });
+
+describe("mergeBody — Phase 1b per-template cmeHours + role tokens", () => {
+  const base = buildPreviewCertificate({ type: "ATTENDANCE", event: SAMPLE_EVENT });
+
+  it("per-template cmeHours overrides the event-level value; role renders the template role", () => {
+    const data = { ...base, template: { ...base.template, cmeHours: 5, role: "Moderator" } };
+    expect(mergeBody("{{cmeHours}}", data)).toBe("5");
+    expect(mergeBody("{{role}}", data)).toBe("Moderator");
+  });
+
+  it("falls back to the event cmeHours (18) when the template has none; role empty when unset", () => {
+    const data = { ...base, template: { ...base.template, cmeHours: null, role: null } };
+    expect(mergeBody("{{cmeHours}}", data)).toBe("18");
+    expect(mergeBody("{{role}}", data)).toBe("");
+  });
+})
