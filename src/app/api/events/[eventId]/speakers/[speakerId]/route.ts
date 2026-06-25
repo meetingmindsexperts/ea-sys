@@ -96,6 +96,27 @@ export async function GET(req: Request, { params }: RouteParams) {
               track: true,
             },
           },
+          // The speaker's "attendee facet" — the linked companion (or
+          // email-matched real) registration that backs their badge / entry
+          // barcode / DTCM / check-in / survey. Surfaced on the speaker detail
+          // page so an organizer can see the registration id + status without
+          // hunting the registrations list.
+          sourceRegistration: {
+            select: {
+              id: true,
+              serialId: true,
+              status: true,
+              paymentStatus: true,
+              attendanceMode: true,
+              badgeType: true,
+              qrCode: true,
+              checkedInAt: true,
+              surveyCompletedAt: true,
+              createdSource: true,
+              ticketType: { select: { name: true, isFaculty: true } },
+              attendee: { select: { email: true } },
+            },
+          },
           _count: {
             select: {
               sessions: true,

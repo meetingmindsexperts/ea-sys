@@ -52,6 +52,9 @@ import {
   CheckCircle2,
   FileCheck,
   Eye,
+  Ticket,
+  ScanLine,
+  ExternalLink,
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
@@ -127,6 +130,22 @@ interface Speaker {
     status: string;
     track?: { name: string };
   }>;
+  // The speaker's "attendee facet" — the linked companion (or email-matched)
+  // registration that backs their badge / barcode / check-in / survey.
+  sourceRegistration: {
+    id: string;
+    serialId: number | null;
+    status: string;
+    paymentStatus: string;
+    attendanceMode: string;
+    badgeType: string | null;
+    qrCode: string | null;
+    checkedInAt: string | null;
+    surveyCompletedAt: string | null;
+    createdSource: string | null;
+    ticketType: { name: string; isFaculty: boolean } | null;
+    attendee: { email: string | null } | null;
+  } | null;
 }
 
 export default function SpeakerDetailPage() {
@@ -924,6 +943,119 @@ export default function SpeakerDetailPage() {
                     </p>
                   </div>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Registration (attendee facet) — the linked companion (or
+              email-matched) registration that gives this speaker their badge /
+              entry barcode / check-in / survey. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Ticket className="h-4 w-4 text-muted-foreground" />
+                Registration
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {speaker.sourceRegistration ? (
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Registration #</div>
+                      <div className="font-mono font-medium">
+                        {speaker.sourceRegistration.serialId != null
+                          ? String(speaker.sourceRegistration.serialId).padStart(3, "0")
+                          : "—"}
+                      </div>
+                    </div>
+                    {speaker.sourceRegistration.ticketType && (
+                      <Badge
+                        variant={
+                          speaker.sourceRegistration.ticketType.isFaculty ? "secondary" : "outline"
+                        }
+                      >
+                        {speaker.sourceRegistration.ticketType.name}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Status</div>
+                      <div className="font-medium">{speaker.sourceRegistration.status}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Payment</div>
+                      <div className="font-medium">{speaker.sourceRegistration.paymentStatus}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Badge</div>
+                      <div className="font-medium">{speaker.sourceRegistration.badgeType ?? "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Attendance</div>
+                      <div className="font-medium">
+                        {speaker.sourceRegistration.attendanceMode === "VIRTUAL"
+                          ? "Virtual"
+                          : "In-person"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 border-t pt-2">
+                    <div className="flex items-center gap-2">
+                      <ScanLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">Entry barcode:</span>
+                      {speaker.sourceRegistration.qrCode ? (
+                        <span className="ml-auto font-medium text-emerald-700">Issued</span>
+                      ) : (
+                        <span className="ml-auto text-muted-foreground">—</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">Checked in:</span>
+                      <span
+                        className={`ml-auto font-medium ${speaker.sourceRegistration.checkedInAt ? "text-emerald-700" : "text-muted-foreground"}`}
+                      >
+                        {speaker.sourceRegistration.checkedInAt
+                          ? formatDate(speaker.sourceRegistration.checkedInAt)
+                          : "Not yet"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">Survey:</span>
+                      <span
+                        className={`ml-auto font-medium ${speaker.sourceRegistration.surveyCompletedAt ? "text-emerald-700" : "text-muted-foreground"}`}
+                      >
+                        {speaker.sourceRegistration.surveyCompletedAt
+                          ? formatDate(speaker.sourceRegistration.surveyCompletedAt)
+                          : "Not completed"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {speaker.sourceRegistration.createdSource === "SPEAKER_COMPANION"
+                      ? "Auto-created faculty companion — gives this speaker the full attendee facility set."
+                      : "Linked to an existing registration for this person."}
+                  </p>
+
+                  <a
+                    href={`/events/${eventId}/registrations`}
+                    className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    View in Registrations
+                  </a>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No linked registration yet. New speakers get one automatically; for older
+                  speakers an admin can run the companion backfill.
+                </p>
               )}
             </CardContent>
           </Card>

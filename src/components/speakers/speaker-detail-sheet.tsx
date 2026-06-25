@@ -56,6 +56,7 @@ import {
   ChevronDown,
   Loader2,
   Eye,
+  Ticket,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
@@ -119,6 +120,20 @@ interface Speaker {
     status: string;
     track?: { name: string };
   }>;
+  // The speaker's "attendee facet" — the linked companion (or email-matched)
+  // registration that backs their badge / barcode / check-in / survey.
+  sourceRegistration: {
+    id: string;
+    serialId: number | null;
+    status: string;
+    paymentStatus: string;
+    badgeType: string | null;
+    qrCode: string | null;
+    checkedInAt: string | null;
+    surveyCompletedAt: string | null;
+    createdSource: string | null;
+    ticketType: { name: string; isFaculty: boolean } | null;
+  } | null;
 }
 
 interface SpeakerDetailSheetProps {
@@ -678,6 +693,75 @@ export function SpeakerDetailSheet({
                 </div>
 
                 <div className="border-t" />
+
+                {/* Registration (attendee facet) — the linked companion (or
+                    email-matched) registration backing this speaker's badge /
+                    barcode / check-in / survey. */}
+                {speaker.sourceRegistration && (
+                  <>
+                    <div className="space-y-3">
+                      <h3 className="font-semibold flex items-center gap-2">
+                        <Ticket className="h-4 w-4 text-muted-foreground" />
+                        Registration
+                      </h3>
+                      <div className="rounded-lg border p-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Registration #</span>
+                          <span className="font-mono font-medium">
+                            {speaker.sourceRegistration.serialId != null
+                              ? String(speaker.sourceRegistration.serialId).padStart(3, "0")
+                              : "—"}
+                          </span>
+                        </div>
+                        {speaker.sourceRegistration.ticketType && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Type</span>
+                            <span className="font-medium">
+                              {speaker.sourceRegistration.ticketType.name}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Status</span>
+                          <span className="font-medium">{speaker.sourceRegistration.status}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Payment</span>
+                          <span className="font-medium">
+                            {speaker.sourceRegistration.paymentStatus}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Entry barcode</span>
+                          <span
+                            className={`font-medium ${speaker.sourceRegistration.qrCode ? "text-emerald-700" : "text-muted-foreground"}`}
+                          >
+                            {speaker.sourceRegistration.qrCode ? "Issued" : "—"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Checked in</span>
+                          <span
+                            className={`font-medium ${speaker.sourceRegistration.checkedInAt ? "text-emerald-700" : "text-muted-foreground"}`}
+                          >
+                            {speaker.sourceRegistration.checkedInAt
+                              ? formatDate(speaker.sourceRegistration.checkedInAt)
+                              : "Not yet"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Survey</span>
+                          <span
+                            className={`font-medium ${speaker.sourceRegistration.surveyCompletedAt ? "text-emerald-700" : "text-muted-foreground"}`}
+                          >
+                            {speaker.sourceRegistration.surveyCompletedAt ? "Completed" : "Not completed"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="border-t" />
+                  </>
+                )}
 
                 {/* Sessions */}
                 <div className="space-y-3">
