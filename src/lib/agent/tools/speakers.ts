@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
+import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
@@ -543,6 +544,12 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
       { eventId: ctx.eventId, created: created.length, failed: errors.length, total: items.length },
       "agent:create_speakers_bulk",
     );
+
+    // Ensure each created speaker gets a companion registration (badge /
+    // barcode / DTCM / check-in / survey). Awaited; per-item failure-isolated.
+    if (created.length > 0) {
+      await ensureCompanionsForSpeakerEmails(ctx.eventId, created.map((c) => c.email));
+    }
 
     // Only audit when at least one row was created. A 0/N batch is noise in
     // the audit log (per-row failures are visible via the warn logs above).

@@ -202,6 +202,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         id: ticketTypeId,
         eventId: event.id,
         isActive: true,
+        // Internal Faculty type is not publicly registerable (defense in depth
+        // — it's already hidden from the public ticket list).
+        isFaculty: false,
       },
     });
 

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -212,6 +213,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
+
+    // Ensure each imported speaker gets a companion registration (badge /
+    // barcode / DTCM / check-in / survey). Awaited; per-item failure-isolated.
+    await ensureCompanionsForSpeakerEmails(eventId, speakers.map((s) => s.email));
 
     const created = result.count;
     const skipped = rows.length - created - errors.length;

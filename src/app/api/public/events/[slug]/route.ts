@@ -65,6 +65,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         ticketTypes: {
           where: {
             isActive: true,
+            // Hide the internal Faculty type (speaker companion registrations)
+            // from public registration.
+            isFaculty: false,
           },
           select: {
             id: true,

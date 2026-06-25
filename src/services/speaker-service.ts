@@ -20,6 +20,7 @@ import { apiLogger } from "@/lib/logger";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -267,6 +268,34 @@ export async function createSpeaker(
     customSpecialty: normCustomSpecialty,
     registrationType: normRegType,
   });
+
+  // Ensure the companion registration (the "attendee facet") so this speaker
+  // receives badge / entry barcode / DTCM / check-in / survey via the normal
+  // registration machinery. Failure-isolated — a hiccup must NOT fail the
+  // speaker create; the backfill script recovers any that fail.
+  try {
+    await ensureSpeakerCompanionRegistration({
+      id: speaker.id,
+      eventId,
+      email: normalizedEmail,
+      firstName,
+      lastName,
+      title: normTitle,
+      additionalEmail: normAdditionalEmail,
+      organization: normOrg,
+      jobTitle: normJobTitle,
+      phone: normPhone,
+      photo: normPhoto,
+      city: normCity,
+      state: normState,
+      zipCode: normZipCode,
+      country: normCountry,
+      specialty: normSpecialty,
+      sourceRegistrationId: null,
+    });
+  } catch (err) {
+    apiLogger.error({ err, speakerId: speaker.id, eventId }, "speaker-service:companion-failed");
+  }
 
   // Fire-and-forget audit log. `changes.source` identifies the caller;
   // REST attaches `ip`, MCP omits it.

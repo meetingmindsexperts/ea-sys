@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -76,6 +77,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         })),
         skipDuplicates: true,
       });
+    }
+
+    // Ensure each imported speaker gets a companion registration (badge /
+    // barcode / DTCM / check-in / survey). Awaited; per-item failure-isolated.
+    if (toCreate.length > 0) {
+      await ensureCompanionsForSpeakerEmails(eventId, toCreate.map((c) => c.email));
     }
 
     // Audit trail (fire-and-forget) — bulk speaker import from contacts.

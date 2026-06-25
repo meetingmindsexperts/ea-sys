@@ -588,6 +588,10 @@ model TicketType {
   description String?  @db.Text
   isDefault   Boolean  @default(false)
   isActive    Boolean  @default(true)
+  // Faculty/speaker ticket type — hidden from public registration and excluded
+  // from paid-capacity counting. The auto-provisioned "Faculty" type that backs
+  // speaker companion registrations (comp, uncapped) carries this flag.
+  isFaculty   Boolean  @default(false)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -847,6 +851,10 @@ enum RegistrationCreatedSource {
   /// `create_registrations_bulk` called by an external integration
   /// (n8n, Claude Desktop, claude.ai web).
   MCP_AGENT
+  /// Auto-created companion registration backing a Speaker (the "attendee
+  /// facet"): comp, uncapped Faculty type, organizer-added. Gives the
+  /// speaker badge/barcode/DTCM/check-in/survey via the normal machinery.
+  SPEAKER_COMPANION
   /// Catch-all for legacy paths or paths we haven't tagged yet.
   /// Rows landing here are a signal to extend coverage.
   OTHER
