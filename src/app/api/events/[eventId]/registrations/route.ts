@@ -196,6 +196,8 @@ export async function GET(req: Request, { params }: RouteParams) {
               currency: true,
               quantity: true,
               soldCount: true,
+              // Lets the UI badge/filter faculty companion registrations.
+              isFaculty: true,
             },
           },
           pricingTier: {

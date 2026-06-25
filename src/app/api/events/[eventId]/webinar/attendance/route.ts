@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
@@ -124,7 +125,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         },
       }),
       db.registration.count({
-        where: { eventId, status: { in: ["CONFIRMED", "CHECKED_IN"] } },
+        where: { eventId, status: { in: ["CONFIRMED", "CHECKED_IN"] }, ...EXCLUDE_FACULTY_WHERE },
       }),
     ]);
 

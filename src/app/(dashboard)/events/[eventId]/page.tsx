@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { Card, CardContent } from "@/components/ui/card";
 import { CopyLinkCard } from "@/components/ui/copy-link-card";
@@ -60,7 +61,10 @@ export default async function EventPage({ params }: EventPageProps) {
         country: true,
         _count: {
           select: {
-            registrations: true,
+            // Delegate count — exclude faculty companion registrations so the
+            // "Registrations" tile keeps meaning delegates (faculty are shown
+            // in the speakers + registrations lists).
+            registrations: { where: EXCLUDE_FACULTY_WHERE },
             speakers: true,
             eventSessions: true,
             hotels: true,

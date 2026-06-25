@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
 import { computeEventAnalytics } from "@/lib/event-analytics";
 import type { ToolExecutor } from "./_shared";
@@ -84,13 +85,14 @@ const getEventDashboard: ToolExecutor = async (_input, ctx) => {
     refreshEventStats(eventId);
 
     const [regByStatus, regByPayment, speakerByStatus, totalSpeakers, agreementsSigned, checkedInCount, totalConfirmed] = await Promise.all([
-      db.registration.groupBy({ by: ["status"], where: { eventId }, _count: true }),
-      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId }, _count: true }),
+      // Delegate-focused counts — exclude faculty companion registrations.
+      db.registration.groupBy({ by: ["status"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
+      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
       db.speaker.groupBy({ by: ["status"], where: { eventId }, _count: true }),
       db.speaker.count({ where: { eventId } }),
       db.speaker.count({ where: { eventId, agreementAcceptedAt: { not: null } } }),
-      db.registration.count({ where: { eventId, status: "CHECKED_IN" } }),
-      db.registration.count({ where: { eventId, status: { in: ["CONFIRMED", "CHECKED_IN"] } } }),
+      db.registration.count({ where: { eventId, status: "CHECKED_IN", ...EXCLUDE_FACULTY_WHERE } }),
+      db.registration.count({ where: { eventId, status: { in: ["CONFIRMED", "CHECKED_IN"] }, ...EXCLUDE_FACULTY_WHERE } }),
     ]);
 
     const totalRegistrations = regByStatus.reduce((s, r) => s + r._count, 0);
@@ -146,15 +148,16 @@ const getEventStats: ToolExecutor = async (_input, ctx) => {
     refreshEventStats(eventId);
 
     const [regByStatus, regByPayment, speakersByStatus, abstractsByStatus, sessionCount, trackCount] = await Promise.all([
-      db.registration.groupBy({ by: ["status"], where: { eventId }, _count: true }),
-      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId }, _count: true }),
+      // Delegate-focused counts — exclude faculty companion registrations.
+      db.registration.groupBy({ by: ["status"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
+      db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
       db.speaker.groupBy({ by: ["status"], where: { eventId }, _count: true }),
       db.abstract.groupBy({ by: ["status"], where: { eventId }, _count: true }),
       db.eventSession.count({ where: { eventId } }),
       db.track.count({ where: { eventId } }),
     ]);
 
-    const checkedIn = await db.registration.count({ where: { eventId, checkedInAt: { not: null } } });
+    const checkedIn = await db.registration.count({ where: { eventId, checkedInAt: { not: null }, ...EXCLUDE_FACULTY_WHERE } });
 
     return {
       registrations: Object.fromEntries(regByStatus.map((r) => [r.status, r._count])),

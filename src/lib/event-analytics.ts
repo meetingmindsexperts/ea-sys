@@ -13,6 +13,7 @@
  */
 
 import { db } from "./db";
+import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 
 export interface CountBucket {
   label: string;
@@ -112,8 +113,10 @@ export async function computeEventAnalytics(
   const tz = event.timezone || "Asia/Dubai";
 
   // One slim scan of registrations powers the funnel + check-in + badge maths.
+  // Delegate-focused — faculty companion registrations are excluded (they're
+  // counted/shown via the speakers + registrations lists, not analytics).
   const regs = await db.registration.findMany({
-    where: { eventId },
+    where: { eventId, ...EXCLUDE_FACULTY_WHERE },
     select: {
       id: true,
       serialId: true,

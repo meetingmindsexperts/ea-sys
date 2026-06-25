@@ -14,6 +14,7 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import type { EventStats } from "@prisma/client";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -53,12 +54,12 @@ async function _doRefresh(eventId: string): Promise<void> {
   ] = await Promise.all([
     db.registration.groupBy({
       by: ["status"],
-      where: { eventId },
+      where: { eventId, ...EXCLUDE_FACULTY_WHERE },
       _count: true,
     }),
     db.registration.groupBy({
       by: ["paymentStatus"],
-      where: { eventId },
+      where: { eventId, ...EXCLUDE_FACULTY_WHERE },
       _count: true,
     }),
     db.speaker.groupBy({
@@ -77,7 +78,7 @@ async function _doRefresh(eventId: string): Promise<void> {
     db.eventSession.count({ where: { eventId } }),
     db.track.count({ where: { eventId } }),
     db.registration.count({
-      where: { eventId, checkedInAt: { not: null } },
+      where: { eventId, checkedInAt: { not: null }, ...EXCLUDE_FACULTY_WHERE },
     }),
   ]);
 

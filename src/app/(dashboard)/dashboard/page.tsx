@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +44,8 @@ export default async function DashboardPage() {
         where: { organizationId: session.user.organizationId! },
       }),
       db.registration.count({
-        where: { event: { organizationId: session.user.organizationId! } },
+        // Delegate count org-wide — exclude faculty companion registrations.
+        where: { event: { organizationId: session.user.organizationId! }, ...EXCLUDE_FACULTY_WHERE },
       }),
       db.speaker.count({
         where: { event: { organizationId: session.user.organizationId! } },

@@ -9,6 +9,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import { apiLogger } from "@/lib/logger";
 
@@ -749,8 +750,8 @@ export function registerAllMcpTools(
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
       const [byStatus, byPayment] = await Promise.all([
-        db.registration.groupBy({ by: ["status"], where: { eventId }, _count: true }),
-        db.registration.groupBy({ by: ["paymentStatus"], where: { eventId }, _count: true }),
+        db.registration.groupBy({ by: ["status"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
+        db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
       ]);
       const data = {
         byStatus: Object.fromEntries(byStatus.map(r => [r.status, r._count])),
