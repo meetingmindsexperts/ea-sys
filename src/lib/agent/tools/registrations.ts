@@ -91,7 +91,9 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
             photo: true,
           },
         },
-        ticketType: { select: { name: true } },
+        // isFaculty flags speaker companion registrations so MCP clients can
+        // distinguish faculty (attend-ready speakers) from real delegates.
+        ticketType: { select: { name: true, isFaculty: true } },
       },
       take: limit,
       orderBy: { createdAt: "desc" },

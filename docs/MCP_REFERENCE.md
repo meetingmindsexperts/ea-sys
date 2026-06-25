@@ -2,7 +2,16 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** April 22, 2026 — post services-refactor Phase 0. **65 tools** across 10 domains.
+**Last updated:** June 25, 2026 — speaker-as-attendee + multi-role certs. **70 tools** across 10 domains.
+
+### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
+
+**No tools were removed and no signatures broke — every MCP tool still does what it did before.** These are behavioral shifts callers should be aware of:
+
+- **`create_speaker` / `create_speakers_bulk` now also create a companion "Faculty" registration** for the speaker (the "attendee facet"), so the speaker is attend-ready — gets a badge, entry barcode, DTCM barcode, check-in, and survey through the normal registration machinery. The tool **inputs + outputs are unchanged**; this is an added side effect. Consequence: after creating a speaker via MCP, a registration also exists, and **`list_registrations` now includes these faculty companions**. They are identifiable two ways: `ticketType.name === "Faculty"` and the new **`ticketType.isFaculty: true`** field now returned by `list_registrations`. Faculty companions are **comp** (`paymentStatus` COMPLIMENTARY) and **uncapped** (don't consume `soldCount`).
+- **`get_event_dashboard` / `get_event_stats` (and the `event-registrations-summary` resource) counts are now delegate-focused** — faculty companion registrations are **excluded** from registration counts/status/payment breakdowns/check-in. The response **shape is unchanged**; the numbers are simply more accurate (faculty no longer inflate "Registrations"). A speaker who is *also* a real delegate (their own paid/real registration) still counts as a delegate. Revenue was already faculty-safe.
+- **Certificate dedup is now per-template (was per-category).** A person can hold **multiple role-specific certificates** (e.g. Speaker + Moderator + Organizing Committee), each from its own template. The cert MCP tool **signatures are unchanged**; `create_certificate_template` / issuance now allow several templates of the same category to be issued to one recipient. Eligibility excludes recipients who already hold a cert **from that template** (not that category).
+- **Coming (Phase 1b, additive + backward-compatible):** `create_certificate_template` / `update_certificate_template` will gain optional **`role`** (designation label, drives a `{{role}}` token) and **`cmeHours`** (static per-template CME hours) inputs. CME hours are entered manually per template; issuance stays tag-driven. This doc will be updated when they ship.
 
 ### April 22, 2026 — Semantic parity update
 
