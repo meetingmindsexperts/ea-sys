@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   Activity,
   Mail,
+  Award,
   AlertCircle,
   Loader2,
   Plus,
@@ -14,6 +15,7 @@ import {
   Users,
   LogIn,
   Link2,
+  ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -22,7 +24,7 @@ type ActivitySource = "speaker" | "registration";
 interface ActivityItem {
   id: string;
   source: ActivitySource;
-  kind: "audit" | "email";
+  kind: "audit" | "email" | "certificate";
   at: string;
   action?: string;
   actor?: string | null;
@@ -32,16 +34,24 @@ interface ActivityItem {
   status?: string;
   templateSlug?: string | null;
   errorMessage?: string | null;
+  serial?: string;
+  certType?: string;
+  pdfUrl?: string | null;
+  revoked?: boolean;
 }
 
 interface ActivityResponse {
   items: ActivityItem[];
-  linkedRegistration: { id: string; linkedBy: "pointer" | "email" } | null;
+  linked: { type: ActivitySource; id: string; linkedBy: "pointer" | "email" } | null;
 }
 
 interface Props {
-  eventId: string;
-  speakerId: string;
+  /** Full activity API URL for this entity. */
+  endpoint: string;
+  /** Which entity this card is anchored on — drives the "From X" cross-badge. */
+  anchor: ActivitySource;
+  /** React Query key suffix so speaker + registration caches don't collide. */
+  queryKey: (string | undefined)[];
   title?: string;
 }
 
@@ -56,12 +66,18 @@ const AUDIT_LABELS: Record<string, string> = {
   CHECK_IN: "Checked in",
 };
 
+const CERT_LABELS: Record<string, string> = {
+  ATTENDANCE: "Certificate of Attendance",
+  APPRECIATION: "Certificate of Appreciation",
+};
+
 function auditLabel(action: string | undefined): string {
   if (!action) return "Activity";
   return AUDIT_LABELS[action] ?? action.replace(/_/g, " ").toLowerCase();
 }
 
 function iconFor(item: ActivityItem) {
+  if (item.kind === "certificate") return Award;
   if (item.kind === "email") return Mail;
   switch (item.action) {
     case "CREATE":
@@ -84,11 +100,20 @@ function iconFor(item: ActivityItem) {
   }
 }
 
-export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: Props) {
+function primaryText(item: ActivityItem): string {
+  if (item.kind === "email") return item.subject || "Email";
+  if (item.kind === "certificate") {
+    const label = CERT_LABELS[item.certType ?? ""] ?? "Certificate";
+    return item.revoked ? `${label} revoked` : `${label} issued`;
+  }
+  return auditLabel(item.action);
+}
+
+export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Activity" }: Props) {
   const { data, isLoading, isError } = useQuery<ActivityResponse>({
-    queryKey: ["speaker-activity", eventId, speakerId],
+    queryKey: ["activity", ...queryKey],
     queryFn: async () => {
-      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/activity`);
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`Failed to load activity (${res.status})`);
       return res.json();
     },
@@ -96,7 +121,7 @@ export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: 
   });
 
   const items = data?.items ?? [];
-  const linked = data?.linkedRegistration ?? null;
+  const linked = data?.linked ?? null;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -109,7 +134,7 @@ export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: 
       {linked && (
         <p className="mb-3 flex items-center gap-1 text-xs text-amber-700">
           <Link2 className="h-3 w-3 shrink-0" />
-          Includes activity from a linked registration
+          Includes activity from a linked {linked.type}
           {linked.linkedBy === "email" ? " (matched by email)" : ""}.
         </p>
       )}
@@ -134,15 +159,20 @@ export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: 
         <ul className="divide-y divide-slate-100">
           {items.map((item) => {
             const Icon = iconFor(item);
-            const fromReg = item.source === "registration";
+            const crossSource = item.source !== anchor;
+            const canOpen = item.kind === "certificate" && !!item.pdfUrl && !item.revoked;
             return (
               <li key={item.id} className="py-2.5 flex items-start gap-3">
-                <Icon className="h-4 w-4 mt-0.5 shrink-0 text-slate-400" />
+                <Icon
+                  className={
+                    item.kind === "certificate" && !item.revoked
+                      ? "h-4 w-4 mt-0.5 shrink-0 text-amber-500"
+                      : "h-4 w-4 mt-0.5 shrink-0 text-slate-400"
+                  }
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <p className="text-sm font-medium text-slate-800 truncate">
-                      {item.kind === "email" ? item.subject || "Email" : auditLabel(item.action)}
-                    </p>
+                    <p className="text-sm font-medium text-slate-800 truncate">{primaryText(item)}</p>
                     {item.kind === "email" && (
                       <Badge
                         variant={item.status === "SENT" ? "secondary" : "destructive"}
@@ -151,10 +181,25 @@ export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: 
                         {item.status === "SENT" ? "Sent" : "Failed"}
                       </Badge>
                     )}
-                    {fromReg && (
+                    {item.kind === "certificate" && item.revoked && (
+                      <Badge variant="destructive" className="shrink-0">
+                        Revoked
+                      </Badge>
+                    )}
+                    {crossSource && (
                       <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                        From registration
+                        From {item.source}
                       </span>
+                    )}
+                    {canOpen && (
+                      <a
+                        href={item.pdfUrl!}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 inline-flex items-center gap-0.5 text-xs font-medium text-cyan-700 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Open
+                      </a>
                     )}
                     <span className="text-xs text-slate-400 shrink-0">
                       {formatDistanceToNow(new Date(item.at), { addSuffix: true })}
@@ -163,6 +208,11 @@ export function SpeakerActivityCard({ eventId, speakerId, title = "Activity" }: 
                   <p className="text-xs text-slate-500 truncate">
                     {item.kind === "email" ? (
                       <>To {item.to}</>
+                    ) : item.kind === "certificate" ? (
+                      <>
+                        {item.serial}
+                        {item.pdfUrl ? "" : " · PDF not yet rendered"}
+                      </>
                     ) : (
                       <>
                         {item.actor ? `by ${item.actor}` : "automated / self-service"}

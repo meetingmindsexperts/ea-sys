@@ -82,7 +82,7 @@ import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { InvoiceDownloadButtons } from "@/components/invoices/invoice-download-buttons";
 import { RecordPaymentDialog } from "@/components/payments/record-payment-dialog";
-import { EmailLogCard } from "@/components/communications/email-log-card";
+import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -2247,13 +2247,13 @@ export function RegistrationDetailSheet({
                 </section>
               )}
 
-              {/* ── Activity tab: certificates + email history ────────── */}
-              {/* Certificates card mounts above EmailLogCard because the
-                  most common "where are we" question for an attendee is
-                  "did the cert go out?" — putting it above email history
-                  keeps that the first thing the operator sees on the
-                  Activity tab. The card reuses the same registrationId
-                  the rest of the sheet is rendered against. */}
+              {/* ── Activity tab: certificates (with actions) + timeline ── */}
+              {/* The IssuedCertificatesCard (with Resend/Revoke actions) mounts
+                  above the unified ActivityTimelineCard so "did the cert go
+                  out?" — the most common attendee question — is the first
+                  thing the operator sees. The timeline below is the
+                  chronological view (audit + email + certs, with Open). Both
+                  reuse the same registrationId the sheet is rendered against. */}
               <div className={cn("space-y-4", !isEditing && activeTab !== "activity" && "hidden")}>
                 <IssuedCertificatesCard
                   eventId={eventId}
@@ -2264,7 +2264,16 @@ export function RegistrationDetailSheet({
                       : undefined
                   }
                 />
-                <EmailLogCard entityType="REGISTRATION" entityId={selectedRegistration.id} />
+                {/* Unified activity timeline — subsumes the email-history card
+                    (includes emails) and adds AuditLog events, issued
+                    certificates (with Open), and — if this attendee is also a
+                    speaker — the linked speaker's activity (pointed, not
+                    duplicated). Same feed the speaker page shows. */}
+                <ActivityTimelineCard
+                  endpoint={`/api/events/${eventId}/registrations/${selectedRegistration.id}/activity`}
+                  anchor="registration"
+                  queryKey={[eventId, "registration", selectedRegistration.id]}
+                />
               </div>
             </div>
           </>

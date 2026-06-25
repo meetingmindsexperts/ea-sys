@@ -63,7 +63,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
-import { SpeakerActivityCard } from "@/components/speakers/speaker-activity-card";
+import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { formatPersonName, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -985,9 +985,14 @@ export default function SpeakerDetailPage() {
             }
           />
           {/* Unified activity timeline — subsumes the old email-history card
-              (it includes emails) and adds AuditLog events + the linked
-              registration's activity (pointed, not duplicated). */}
-          <SpeakerActivityCard eventId={eventId} speakerId={speaker.id} />
+              (it includes emails) and adds AuditLog events, issued
+              certificates (with Open), and the linked registration's activity
+              (pointed, not duplicated). */}
+          <ActivityTimelineCard
+            endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
+            anchor="speaker"
+            queryKey={[eventId, "speaker", speaker.id]}
+          />
         </div>
       </div>
 
