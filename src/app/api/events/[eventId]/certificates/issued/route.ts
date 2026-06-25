@@ -7,16 +7,23 @@
  * activity table with Download + Resend per row.
  *
  * Exactly one of registrationId / speakerId is required. Returns rows
- * scoped to this event + that recipient, newest-first.
+ * scoped to this event + that recipient AND the recipient's linked
+ * counterpart (a speaker's companion registration, or a registration's
+ * linked speaker), newest-first — so the card shows the person's FULL cert
+ * set regardless of which facet each cert was issued against (ATTENDANCE →
+ * registration, APPRECIATION → speaker). Counterpart resolution matches the
+ * activity feed (pointer via sourceRegistrationId, else email).
  *
  * Auth: ADMIN / ORGANIZER (denyReviewer). Org-bound via the event.
  */
 
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { resolveLinkedRegistration, resolveLinkedSpeaker } from "@/lib/activity-feed";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -73,9 +80,43 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const where = registrationId
-      ? { eventId, registrationId }
-      : { eventId, speakerId: speakerId! };
+    // Build the recipient filter. A person can hold certs on BOTH facets:
+    // ATTENDANCE certs land on the registration, APPRECIATION on the speaker.
+    // So when asked for one facet, also fold in the linked counterpart's certs
+    // (same person), using the same pointer-then-email resolution as the
+    // activity feed — otherwise a speaker's attendance cert (issued to their
+    // companion registration) never shows on the speaker page, and vice-versa.
+    let where: Prisma.IssuedCertificateWhereInput;
+    if (registrationId) {
+      const reg = await db.registration.findFirst({
+        where: { id: registrationId, eventId },
+        select: { attendee: { select: { email: true } } },
+      });
+      const linkedSpeaker = await resolveLinkedSpeaker(eventId, {
+        id: registrationId,
+        attendeeEmail: reg?.attendee?.email ?? null,
+      });
+      where = {
+        eventId,
+        OR: [
+          { registrationId },
+          ...(linkedSpeaker ? [{ speakerId: linkedSpeaker.id }] : []),
+        ],
+      };
+    } else {
+      const spk = await db.speaker.findFirst({
+        where: { id: speakerId!, eventId },
+        select: { sourceRegistrationId: true, email: true },
+      });
+      const linkedReg = spk ? await resolveLinkedRegistration(eventId, spk) : null;
+      where = {
+        eventId,
+        OR: [
+          { speakerId: speakerId! },
+          ...(linkedReg ? [{ registrationId: linkedReg.id }] : []),
+        ],
+      };
+    }
 
     const certificates = await db.issuedCertificate.findMany({
       where,

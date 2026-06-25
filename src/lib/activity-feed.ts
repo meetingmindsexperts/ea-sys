@@ -167,29 +167,66 @@ async function collect(
   return items;
 }
 
+export interface LinkedCounterpart {
+  id: string;
+  linkedBy: "pointer" | "email";
+}
+
+/**
+ * Resolve the registration linked to a speaker — the explicit
+ * `sourceRegistrationId` pointer (companion / imported-from), else a
+ * read-time email match. Shared so the activity feed AND the
+ * issued-certificates card agree on "the same person's" counterpart.
+ */
+export async function resolveLinkedRegistration(
+  eventId: string,
+  speaker: { sourceRegistrationId: string | null; email: string | null },
+): Promise<LinkedCounterpart | null> {
+  if (speaker.sourceRegistrationId) {
+    return { id: speaker.sourceRegistrationId, linkedBy: "pointer" };
+  }
+  if (speaker.email) {
+    const match = await db.registration.findFirst({
+      where: { eventId, attendee: { email: speaker.email } },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (match) return { id: match.id, linkedBy: "email" };
+  }
+  return null;
+}
+
+/** Resolve the speaker linked to a registration — pointer, else email. */
+export async function resolveLinkedSpeaker(
+  eventId: string,
+  registration: { id: string; attendeeEmail: string | null },
+): Promise<LinkedCounterpart | null> {
+  const pointed = await db.speaker.findFirst({
+    where: { eventId, sourceRegistrationId: registration.id },
+    select: { id: true },
+  });
+  if (pointed) return { id: pointed.id, linkedBy: "pointer" };
+  if (registration.attendeeEmail) {
+    const byEmail = await db.speaker.findFirst({
+      where: { eventId, email: registration.attendeeEmail },
+      select: { id: true },
+    });
+    if (byEmail) return { id: byEmail.id, linkedBy: "email" };
+  }
+  return null;
+}
+
 /** Activity anchored on a speaker (+ its linked registration, if any). */
 export async function buildSpeakerActivity(
   eventId: string,
   speaker: { id: string; email: string; sourceRegistrationId: string | null },
   organizationId: string | null | undefined,
 ): Promise<ActivityFeed> {
-  let registrationId: string | null = speaker.sourceRegistrationId ?? null;
-  let linkedBy: "pointer" | "email" | null = speaker.sourceRegistrationId ? "pointer" : null;
-  if (!registrationId && speaker.email) {
-    const match = await db.registration.findFirst({
-      where: { eventId, attendee: { email: speaker.email } },
-      select: { id: true },
-      orderBy: { createdAt: "asc" },
-    });
-    if (match) {
-      registrationId = match.id;
-      linkedBy = "email";
-    }
-  }
-  const items = await collect(speaker.id, registrationId, organizationId);
+  const linked = await resolveLinkedRegistration(eventId, speaker);
+  const items = await collect(speaker.id, linked?.id ?? null, organizationId);
   return {
     items,
-    linked: registrationId ? { type: "registration", id: registrationId, linkedBy: linkedBy! } : null,
+    linked: linked ? { type: "registration", id: linked.id, linkedBy: linked.linkedBy } : null,
   };
 }
 
@@ -199,22 +236,10 @@ export async function buildRegistrationActivity(
   registration: { id: string; attendeeEmail: string | null },
   organizationId: string | null | undefined,
 ): Promise<ActivityFeed> {
-  // Prefer the explicit pointer (a speaker imported from this registration).
-  let speaker = await db.speaker.findFirst({
-    where: { eventId, sourceRegistrationId: registration.id },
-    select: { id: true },
-  });
-  let linkedBy: "pointer" | "email" | null = speaker ? "pointer" : null;
-  if (!speaker && registration.attendeeEmail) {
-    speaker = await db.speaker.findFirst({
-      where: { eventId, email: registration.attendeeEmail },
-      select: { id: true },
-    });
-    if (speaker) linkedBy = "email";
-  }
-  const items = await collect(speaker?.id ?? null, registration.id, organizationId);
+  const linked = await resolveLinkedSpeaker(eventId, registration);
+  const items = await collect(linked?.id ?? null, registration.id, organizationId);
   return {
     items,
-    linked: speaker ? { type: "speaker", id: speaker.id, linkedBy: linkedBy! } : null,
+    linked: linked ? { type: "speaker", id: linked.id, linkedBy: linked.linkedBy } : null,
   };
 }

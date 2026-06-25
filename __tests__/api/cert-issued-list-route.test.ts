@@ -14,6 +14,10 @@ const { mockAuth, mockDb } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     issuedCertificate: { findMany: vi.fn() },
+    // Counterpart resolution (speaker ↔ companion registration) now folds
+    // the linked person's certs in, so the route reads these too.
+    registration: { findFirst: vi.fn() },
+    speaker: { findFirst: vi.fn() },
   },
 }));
 
@@ -108,9 +112,11 @@ describe("GET /api/events/[eventId]/certificates/issued", () => {
     expect(lookupArgs.where.organizationId).toBe("org-1");
   });
 
-  it("returns certs for the registration when registrationId supplied", async () => {
+  it("returns certs for the registration when registrationId supplied (no linked speaker)", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({ attendee: { email: "a@x.com" } });
+    mockDb.speaker.findFirst.mockResolvedValue(null); // no pointer + no email match
     mockDb.issuedCertificate.findMany.mockResolvedValueOnce([
       {
         id: "cert-1",
@@ -136,13 +142,15 @@ describe("GET /api/events/[eventId]/certificates/issued", () => {
       where: Record<string, unknown>;
       orderBy: Record<string, string>;
     };
-    expect(queryArgs.where).toEqual({ eventId: "evt-1", registrationId: "reg-1" });
+    expect(queryArgs.where).toEqual({ eventId: "evt-1", OR: [{ registrationId: "reg-1" }] });
     expect(queryArgs.orderBy).toEqual({ issuedAt: "desc" });
   });
 
-  it("queries by speakerId when speakerId supplied", async () => {
+  it("queries by speakerId when speakerId supplied (no linked registration)", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1" });
+    mockDb.speaker.findFirst.mockResolvedValueOnce({ sourceRegistrationId: null, email: "s@x.com" });
+    mockDb.registration.findFirst.mockResolvedValueOnce(null); // no email match
     mockDb.issuedCertificate.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(makeReq("speakerId=spk-1"), params);
@@ -151,12 +159,36 @@ describe("GET /api/events/[eventId]/certificates/issued", () => {
     const queryArgs = mockDb.issuedCertificate.findMany.mock.calls[0][0] as {
       where: Record<string, unknown>;
     };
-    expect(queryArgs.where).toEqual({ eventId: "evt-1", speakerId: "spk-1" });
+    expect(queryArgs.where).toEqual({ eventId: "evt-1", OR: [{ speakerId: "spk-1" }] });
+  });
+
+  it("folds the linked companion registration's certs into a speaker query (the bug fix)", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1" });
+    // Speaker points at companion registration reg-9 → its ATTENDANCE cert
+    // (issued by tag to the registration) must show on the speaker page.
+    mockDb.speaker.findFirst.mockResolvedValueOnce({ sourceRegistrationId: "reg-9", email: "s@x.com" });
+    mockDb.issuedCertificate.findMany.mockResolvedValueOnce([]);
+
+    const res = await GET(makeReq("speakerId=spk-1"), params);
+    expect(res.status).toBe(200);
+
+    const queryArgs = mockDb.issuedCertificate.findMany.mock.calls[0][0] as {
+      where: { OR: unknown[] };
+    };
+    expect(queryArgs.where).toEqual({
+      eventId: "evt-1",
+      OR: [{ speakerId: "spk-1" }, { registrationId: "reg-9" }],
+    });
+    // pointer wins → no email lookup needed
+    expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
   });
 
   it("returns empty array (not error) when no certs issued yet", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({ attendee: { email: "a@x.com" } });
+    mockDb.speaker.findFirst.mockResolvedValue(null);
     mockDb.issuedCertificate.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(makeReq("registrationId=reg-1"), params);
