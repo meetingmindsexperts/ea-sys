@@ -1,8 +1,24 @@
 # Plan: Speaker-as-Attendee (companion registration) + multi-role, survey-gated certificates
 
-> Status: **PLAN — awaiting sign-off. No code yet.** Foundational change on a
-> LIVE production system → additive/idempotent migrations only, phased rollout,
-> reviewed backfill, full gate (tsc/eslint/vitest/build) per phase.
+> Status: **Phase 0 SHIPPED (June 25, 2026, commits `20b0e4f` + sweep `c988e64`).
+> Phases 1–3 PLANNED.** Foundational change on a LIVE production system →
+> additive/idempotent migrations only, phased rollout, reviewed backfill, full
+> gate (tsc/eslint/vitest/build) per phase.
+>
+> **Phase 0 done:** `TicketType.isFaculty` + `RegistrationCreatedSource.SPEAKER_COMPANION`
+> (additive migration); `src/lib/speaker-companion.ts` (ensure-faculty-type +
+> ensure-companion, idempotent: already-linked → link-same-email → create comp/
+> uncapped Faculty companion with barcode/badge, no soldCount); wired into all
+> speaker-add paths (service/REST/MCP single + CSV/contacts/MCP bulk;
+> import-registrations already links); Faculty type hidden from public
+> registration; `scripts/backfill-speaker-companion-registrations.ts` (operator-run).
+> **Sweep (0e) done:** `src/lib/faculty-filter.ts` `EXCLUDE_FACULTY_WHERE` applied
+> to all delegate counts/stats/analytics/MCP-dashboard/webinar-KPI; `isFaculty`
+> exposed in the registrations list API. Operator must run the backfill after deploy.
+>
+> **Open Phase-0 follow-ups (deferred, not blocking):** a "Faculty vs delegate"
+> split tile + a faculty filter toggle in the registrations list UI; speaker→
+> companion name/profile edit sync.
 
 ## Goal
 
