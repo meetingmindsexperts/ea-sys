@@ -8,6 +8,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { createPaidInvoice, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
 import { getTitleLabel } from "@/lib/utils";
+import { computeRegistrationFinancials } from "@/lib/registration-financials";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -300,6 +301,7 @@ async function sendPaymentConfirmationEmail(
     attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
     ticketType: { name: string; price: unknown; currency: string } | null;
     pricingTier: { price: unknown; currency: string } | null;
+    discountAmount: unknown;
     event: { id: string; organizationId: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
   },
   amount: number,
@@ -322,13 +324,32 @@ async function sendPaymentConfirmationEmail(
     minute: "2-digit",
   }).format(new Date());
 
-  // Calculate tax from event settings
+  // Totals — via the canonical computeRegistrationFinancials so the breakdown
+  // matches the invoice PDF. The previous inline `basePrice * taxRate/100`
+  // ignored the promo discount (taxed the pre-discount amount) and skipped
+  // rounding. These breakdown vars feed only CUSTOM templates; the default
+  // payment-confirmation template renders {{amount}} (the actual paid amount),
+  // so the default email is unchanged.
   const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
-  const taxRate = Number(registration.event.taxRate || 0);
+  const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
   const taxLabel = registration.event.taxLabel || "VAT";
-  const taxAmount = taxRate > 0 ? basePrice * taxRate / 100 : 0;
-  const subtotal = basePrice;
-  const total = basePrice + taxAmount;
+  const fin = computeRegistrationFinancials({
+    subtotal: basePrice,
+    discount,
+    taxRate: Number(registration.event.taxRate || 0),
+    taxLabel,
+    currency,
+    totalPaid: amount,
+  });
+  const taxRate = fin.taxRate;
+  const taxAmount = fin.taxAmount;
+  const subtotal = fin.subtotal;
+  const total = fin.total;
+
+  // Discount row — only shown (in custom templates) when a discount applies.
+  const discountBlock = fin.discount > 0
+    ? `<tr><td style="padding: 4px 0; color: #555; font-size: 14px;">Discount</td><td style="padding: 4px 0; text-align: right; font-size: 14px;">&minus;${currency} ${fin.discount.toFixed(2)}</td></tr>`
+    : "";
 
   // Build tax block — only shown when taxRate > 0
   const taxBlock = taxRate > 0
@@ -369,6 +390,8 @@ async function sendPaymentConfirmationEmail(
     receiptUrl: receiptUrl || undefined,
     receiptBlock,
     subtotal: `${currency} ${subtotal.toFixed(2)}`,
+    discount: fin.discount > 0 ? `${currency} ${fin.discount.toFixed(2)}` : undefined,
+    discountBlock,
     taxRate: taxRate > 0 ? taxRate : undefined,
     taxLabel: taxRate > 0 ? taxLabel : undefined,
     taxAmount: taxRate > 0 ? `${currency} ${taxAmount.toFixed(2)}` : undefined,
@@ -385,7 +408,7 @@ async function sendPaymentConfirmationEmail(
   }
 
   const branding = tpl?.branding || { eventName: registration.event.name };
-  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock", "taxBlock"]));
+  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock", "taxBlock", "discountBlock"]));
 
   // Override text content with plain text receipt link
   const textVars = { ...vars, receiptBlock: receiptBlockText };
