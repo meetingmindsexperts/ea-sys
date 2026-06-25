@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EA-SYS — Hiring & Interview Guide</title>
+<style>
+  :root{
+    --ink:#1f2733; --muted:#5b6878; --line:#e3e8ef; --bg:#ffffff;
+    --brand:#00aade; --brand-d:#0284a8;
+    --good:#067647; --good-bg:#ecfdf3; --good-line:#abefc6;
+    --bad:#b42318; --bad-bg:#fef3f2; --bad-line:#fecdca;
+    --tip:#b54708; --tip-bg:#fffaeb; --tip-line:#fedf89;
+    --chip:#eaf6fb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f6f8fb;color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 24px 80px;}
+  header{border-bottom:3px solid var(--brand);padding-bottom:18px;margin-bottom:28px;}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.4px;}
+  .sub{color:var(--muted);font-size:15px;margin:0;}
+  h2{font-size:21px;margin:38px 0 10px;padding-top:18px;border-top:1px solid var(--line);letter-spacing:-.3px;}
+  h2 .n{display:inline-block;min-width:26px;color:var(--brand-d);font-weight:800;}
+  h3{font-size:16px;margin:22px 0 8px;}
+  p{margin:10px 0;}
+  .lead{background:var(--chip);border:1px solid #cde9f5;border-radius:12px;padding:16px 18px;}
+  ul{margin:8px 0 8px 0;padding-left:22px;}
+  li{margin:6px 0;}
+  .q{margin:16px 0;padding:14px 16px;background:#fff;border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04);}
+  .q .ask{font-weight:600;}
+  .q .ask::before{content:"“";color:var(--brand);} .q .ask::after{content:"”";color:var(--brand);}
+  .listen,.flag{font-size:14px;margin-top:8px;padding:7px 11px;border-radius:8px;display:block;}
+  .listen{background:var(--good-bg);border:1px solid var(--good-line);color:var(--good);}
+  .flag{background:var(--bad-bg);border:1px solid var(--bad-line);color:var(--bad);margin-top:6px;}
+  .listen b,.flag b{font-weight:700;}
+  .callout{background:var(--tip-bg);border:1px solid var(--tip-line);color:var(--tip);
+    border-radius:10px;padding:14px 16px;margin:16px 0;}
+  .callout b{color:#93370d;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;}
+  th{background:#f1f5f9;font-weight:700;}
+  .tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;
+    background:var(--chip);color:var(--brand-d);border:1px solid #cde9f5;margin-left:8px;vertical-align:middle;}
+  .weight{font-size:13px;color:var(--muted);}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;}
+  @media print{body{background:#fff} .wrap{max-width:none;padding:0} .q{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>EA-SYS — Hiring &amp; Interview Guide</h1>
+  <p class="sub">Screening a co-maintainer for a production-live Next.js / Prisma event platform. Internal use.</p>
+</header>
+
+<p class="lead">
+  <b>Context for the interviewer.</b> EA-SYS runs real Meeting Minds Group events — registrations, payments,
+  check-in, certificates, live webinars. It is currently single-owner. The #1 reason to hire is
+  <b>bus factor</b>: a second person who can deploy a fix, read the logs, and reason about the system
+  during a live event. So screen hardest for <b>judgment and discipline on a live system</b>, not algorithm trivia.
+  You won't ask everything here — pick ~8–10 questions weighted toward Section 1, then run the two hands-on
+  exercises (Section 7). The exercises are the highest-signal part of the whole process.
+</p>
+
+<h2><span class="n">1.</span> Production judgment on a live system <span class="tag">weight highest</span></h2>
+<p class="weight">Predicts whether they'll be safe to give deploy + prod-DB access. This section matters more than all the others combined.</p>
+
+<div class="q">
+  <div class="ask">You need to add a column to a table that's being written to constantly by live traffic. Walk me through how you ship that with zero downtime.</div>
+  <span class="listen"><b>Listen for:</b> additive/nullable first, backfill as a separate step, expand-then-contract, careful deploy ordering, idempotent migration.</span>
+  <span class="flag"><b>Red flag:</b> "I'd just run the migration," or renaming/locking a hot column in one step.</span>
+</div>
+<div class="q">
+  <div class="ask">It's 9pm during a live webinar with 3,000 attendees and something's broken. What are the first five things you do?</div>
+  <span class="listen"><b>Listen for:</b> check logs/monitoring first, reproduce + scope before changing anything, prefer the reversible fix, communicate status, don't cowboy a deploy.</span>
+  <span class="flag"><b>Red flag:</b> jumps straight to editing prod code.</span>
+</div>
+<div class="q">
+  <div class="ask">Tell me about a time you broke production. What happened, and what did you change afterward?</div>
+  <span class="listen"><b>Listen for:</b> ownership + a concrete process change.</span>
+  <span class="flag"><b>Red flag:</b> "never broke anything" (not honest), or blames others.</span>
+</div>
+<div class="q">
+  <div class="ask">When is the right move to NOT fix a bug immediately?</div>
+  <span class="listen"><b>Listen for:</b> understands blast radius, risk vs. reward, mid-event change freezes, deferring to a safer window.</span>
+</div>
+
+<h2><span class="n">2.</span> Full-stack technical (Next.js / React / TypeScript)</h2>
+<div class="q">
+  <div class="ask">Difference between a server component and a client component in the Next App Router — and how do you decide which to use?</div>
+</div>
+<div class="q">
+  <div class="ask">A dashboard page is slow and hits several DB queries. How do you find and fix the bottleneck?</div>
+  <span class="listen"><b>Listen for:</b> parallelize independent queries, <code>select</code> only needed fields, indexes, N+1 awareness, measure before optimizing.</span>
+</div>
+<div class="q">
+  <div class="ask">How do you keep server-only code (DB clients, secrets, Node modules) out of the client bundle — and what goes wrong if you don't?</div>
+</div>
+<div class="q">
+  <div class="ask">How do you handle an external API call that might hang or fail (Stripe, an email provider, a webhook)?</div>
+  <span class="listen"><b>Listen for:</b> timeouts, bounded retries, idempotency, isolating the failure, logging it.</span>
+</div>
+
+<h2><span class="n">3.</span> Database / Prisma / Postgres</h2>
+<div class="q">
+  <div class="ask">How do you make a webhook handler idempotent so a retry doesn't double-charge or double-create?</div>
+  <span class="listen"><b>Listen for:</b> unique constraints, "check state before acting," dedupe keys, upserts.</span>
+</div>
+<div class="q">
+  <div class="ask">Two requests try to book the last seat at the same time. How do you prevent overselling?</div>
+  <span class="listen"><b>Listen for:</b> atomic conditional update / transaction with a guard predicate.</span>
+  <span class="flag"><b>Red flag:</b> read-the-count-then-write (a race).</span>
+</div>
+<div class="q">
+  <div class="ask">When would you reach for a transaction, and what's the cost of holding one too long?</div>
+  <span class="listen"><b>Listen for:</b> connection-pool pressure, lock contention, keeping transactions short.</span>
+</div>
+
+<h2><span class="n">4.</span> Ops &amp; debugging <span class="tag">on-call backup test</span></h2>
+<div class="q">
+  <div class="ask">How comfortable are you SSH-ing into a Linux box, reading nginx + app logs, and restarting a Docker service? Walk me through diagnosing "the site is down."</div>
+</div>
+<div class="q">
+  <div class="ask">A user says "I clicked the button and nothing happened, and there's nothing in the logs." How do you debug a failure that leaves no trace?</div>
+  <span class="listen"><b>Listen for:</b> understands client-side / browser-level failures, network tab, console, reproducing locally. High-signal question.</span>
+</div>
+<div class="q">
+  <div class="ask">How do you think about backups and disaster recovery? What would you want in place before you'd feel safe running someone's production system?</div>
+</div>
+
+<h2><span class="n">5.</span> Security &amp; sensitive paths</h2>
+<div class="q">
+  <div class="ask">How do you stop user A from reading or editing user B's data via the API?</div>
+  <span class="listen"><b>Listen for:</b> server-side ownership/org-scoping on every query, not trusting client-supplied ids (IDOR awareness). This system lives and dies on it.</span>
+</div>
+<div class="q">
+  <div class="ask">Some roles must never see financial data. How would you enforce that so it can't leak through any endpoint?</div>
+  <span class="listen"><b>Listen for:</b> centralized guard, fail-closed, redaction at the response layer, defense in depth.</span>
+</div>
+<div class="q">
+  <div class="ask">Where do secrets belong, and where should they never end up?</div>
+  <span class="flag"><b>Red flag:</b> casual about committing secrets / putting them in client code.</span>
+</div>
+
+<h2><span class="n">6.</span> Working style &amp; discipline <span class="tag">culture fit</span></h2>
+<div class="q">
+  <div class="ask">This codebase has strong rules — no silent error catches, every failure logs, full test/lint/typecheck before every push, additive-only migrations. How do you feel working inside conventions you didn't write?</div>
+  <span class="listen"><b>Listen for:</b> respects existing patterns first, improves incrementally.</span>
+  <span class="flag"><b>Red flag:</b> wants to rewrite / "modernize" everything on day one.</span>
+</div>
+<div class="q">
+  <div class="ask">How do you get up to speed on a large codebase you didn't build?</div>
+  <span class="listen"><b>Listen for:</b> reads docs/conventions, asks questions, makes small reversible changes first.</span>
+</div>
+<div class="q">
+  <div class="ask">How do you communicate when you're blocked or unsure — vs. when you'll just decide and proceed?</div>
+</div>
+<div class="q">
+  <div class="ask">What does "done" mean to you before you call a task finished?</div>
+  <span class="listen"><b>Listen for:</b> tested + verified, edge cases handled, not just "it compiles."</span>
+</div>
+
+<h2><span class="n">7.</span> Hands-on exercises <span class="tag">highest signal</span></h2>
+<p>Verbal answers are cheap. These reveal ~80% of what you care about. Do at least the second one.</p>
+
+<h3>A — Take-home (2–3 hrs · pay for it if you can)</h3>
+<p>Give a <b>small, isolated</b> slice: <i>"Add a new field to an entity end-to-end — schema + migration, API validation, a UI control, and a test."</i>
+You're not grading cleverness. You're watching whether they:</p>
+<ul>
+  <li>write the migration <b>safely</b> (additive/nullable, idempotent);</li>
+  <li><b>validate input</b> and handle empty/error cases;</li>
+  <li><b>log failures</b> instead of swallowing them;</li>
+  <li>follow the <b>surrounding style</b> rather than inventing their own;</li>
+  <li>actually <b>test + verify</b> before calling it done.</li>
+</ul>
+
+<h3>B — Live code-reading walkthrough (30 min · screenshare)</h3>
+<p>Open one real EA-SYS file cold and ask them to explain what it does, what could go wrong, and what they'd change.
+Pick something with real subtlety — an API route with auth + a transaction, or a webhook handler.
+Tests comprehension, judgment, and humility far better than trivia.</p>
+
+<h2><span class="n">8.</span> Scoring rubric</h2>
+<p>Score each 1–5; weight by the right column. Hire on the weighted total, but treat a 1–2 in
+<b>Production judgment</b> or <b>Discipline</b> as a near-automatic no, regardless of the rest.</p>
+<table>
+  <tr><th>Dimension</th><th>What a 5 looks like</th><th>Weight</th></tr>
+  <tr><td>Production judgment</td><td>Reflexively reversible/additive; logs failures; thinks blast radius first</td><td>30%</td></tr>
+  <tr><td>Take-home quality</td><td>Safe migration, validated, tested, matches house style</td><td>25%</td></tr>
+  <tr><td>Full-stack + DB skill</td><td>Solid Next/Prisma/Postgres; idempotency + race awareness</td><td>20%</td></tr>
+  <tr><td>Ops / debugging</td><td>Comfortable on the box + logs; debugs silent failures</td><td>10%</td></tr>
+  <tr><td>Discipline &amp; communication</td><td>Respects conventions; clear about blocked vs. proceeding</td><td>10%</td></tr>
+  <tr><td>Security instincts</td><td>IDOR/org-scoping + secrets handled without prompting</td><td>5%</td></tr>
+</table>
+
+<div class="callout">
+  <b>How to weight the whole thing:</b> production judgment + the take-home are ~55–60% of the decision.
+  Algorithm trivia is nearly irrelevant for this role — you need someone <b>safe and conscientious on a live
+  system</b> far more than someone who can invert a binary tree on a whiteboard.
+</div>
+
+<h2><span class="n">9.</span> Suggested 45-minute screen</h2>
+<table>
+  <tr><th>Time</th><th>Segment</th></tr>
+  <tr><td>0–5 min</td><td>Intro + what they're looking for</td></tr>
+  <tr><td>5–20 min</td><td>2–3 production-judgment questions (Section 1)</td></tr>
+  <tr><td>20–35 min</td><td>Live code-reading walkthrough (7B)</td></tr>
+  <tr><td>35–43 min</td><td>1–2 from DB/ops/security (Sections 3–5) + the conventions question (6)</td></tr>
+  <tr><td>43–45 min</td><td>Their questions for you</td></tr>
+</table>
+<p>If they pass, send the take-home (7A) as the second round before any offer.</p>
+
+<footer>
+  EA-SYS internal hiring guide · adapt freely · viewable in-app via <code>/admin/docs</code>.
+</footer>
+
+</div>
+</body>
+</html>
