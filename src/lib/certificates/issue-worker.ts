@@ -395,11 +395,13 @@ async function renderAndStoreItem(args: {
     certId = cert.id;
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      // Dup — find the existing cert for this (event, type, recipient).
+      // Dup — find the existing cert for this (event, TEMPLATE, recipient).
+      // Per-template (was per-type) so two same-category templates for one
+      // recipient resolve to the right existing row.
       const existing = await db.issuedCertificate.findFirst({
         where: {
           eventId,
-          type,
+          certificateTemplateId,
           ...(item.registrationId ? { registrationId: item.registrationId } : { speakerId: item.speakerId }),
         },
         select: { id: true },

@@ -78,7 +78,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const result = await eligibleForType(tmpl.category, eventId, tag);
+    const result = await eligibleForType(tmpl.category, eventId, tag, templateId);
 
     return NextResponse.json({
       type: result.type,

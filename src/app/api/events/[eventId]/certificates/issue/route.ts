@@ -107,8 +107,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Eligibility query — pulls recipients in the category pool
     // carrying the picked tag, minus anyone already holding a cert
-    // OF THIS CATEGORY (the dedup invariant).
-    const elig = await eligibleForType(template.category, eventId, tag);
+    // FROM THIS TEMPLATE (per-template dedup — a person can hold several
+    // role-specific certs of the same category).
+    const elig = await eligibleForType(template.category, eventId, tag, template.id);
     const eligible = elig.eligible;
 
     if (eligible.length === 0) {

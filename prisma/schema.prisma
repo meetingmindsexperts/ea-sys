@@ -345,6 +345,14 @@ model CertificateTemplate {
   eventId          String
   name             String // organizer-defined, e.g. "VIP Attendance"
   category         CertificateType // ATTENDANCE | APPRECIATION
+  // Role/designation this template certifies (e.g. "Speaker", "Moderator",
+  // "Organizing Committee"). Drives the {{role}} token. Lets one person hold
+  // several role-specific certs — uniqueness is per-template (see
+  // IssuedCertificate @@unique), so 3 role-templates → 3 certs.
+  role             String?
+  // Static per-template CME hours (organizer-entered). Snapshotted onto the
+  // issued cert; overrides the event-level CME hours when set.
+  cmeHours         Decimal?        @db.Decimal(4, 1)
   backgroundPdfUrl String?
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
   textBoxes        Json            @default("[]")
@@ -422,8 +430,13 @@ model IssuedCertificate {
   certificateTemplate CertificateTemplate?     @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
   issueRunItem        CertificateIssueRunItem?
 
-  @@unique([eventId, type, registrationId])
-  @@unique([eventId, type, speakerId])
+  // One cert per TEMPLATE per recipient (was per type) — lets one person hold
+  // multiple role-specific certs (Speaker + Moderator + Committee), each from
+  // its own template. Safe swap on live data: every existing (event, type,
+  // person) holds ≤1 cert and a template belongs to one type, so no collision
+  // on (event, template, person); null-template legacy certs are distinct.
+  @@unique([eventId, certificateTemplateId, registrationId])
+  @@unique([eventId, certificateTemplateId, speakerId])
   @@index([eventId, type])
   @@index([certificateTemplateId])
   @@index([serial])

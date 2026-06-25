@@ -101,6 +101,7 @@ function buildTagOverview(
 export async function eligibleForAttendance(
   eventId: string,
   tag: string | null,
+  templateId: string,
 ): Promise<EligibilityResult> {
   // Pool = all non-cancelled registrations in the event that DON'T
   // already hold an ATTENDANCE cert. Tags live on the linked Attendee
@@ -112,7 +113,10 @@ export async function eligibleForAttendance(
     where: {
       eventId,
       status: { not: "CANCELLED" },
-      issuedCertificates: { none: { type: "ATTENDANCE" } },
+      // Per-template dedup (was per-type) — a recipient can hold several
+      // role-specific certs, so we only exclude those already issued THIS
+      // template. Matches the per-template unique index.
+      issuedCertificates: { none: { certificateTemplateId: templateId } },
     },
     select: {
       id: true,
@@ -163,6 +167,7 @@ export async function eligibleForAttendance(
 export async function eligibleForAppreciation(
   eventId: string,
   tag: string | null,
+  templateId: string,
 ): Promise<EligibilityResult> {
   // Pool = all speakers in the event that DON'T already hold an
   // APPRECIATION cert. No session-role / poster-accepted gate; tag
@@ -170,7 +175,8 @@ export async function eligibleForAppreciation(
   const pool = await db.speaker.findMany({
     where: {
       eventId,
-      issuedCertificates: { none: { type: "APPRECIATION" } },
+      // Per-template dedup (was per-type) — see eligibleForAttendance.
+      issuedCertificates: { none: { certificateTemplateId: templateId } },
     },
     select: {
       id: true,
@@ -220,11 +226,12 @@ export async function eligibleForType(
   type: CertificateType,
   eventId: string,
   tag: string | null,
+  templateId: string,
 ): Promise<EligibilityResult> {
   switch (type) {
     case "ATTENDANCE":
-      return eligibleForAttendance(eventId, tag);
+      return eligibleForAttendance(eventId, tag, templateId);
     case "APPRECIATION":
-      return eligibleForAppreciation(eventId, tag);
+      return eligibleForAppreciation(eventId, tag, templateId);
   }
 }
