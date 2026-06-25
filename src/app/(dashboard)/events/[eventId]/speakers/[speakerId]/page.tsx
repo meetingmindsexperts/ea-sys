@@ -970,13 +970,13 @@ export default function SpeakerDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Certificates + email history.
-              Speakers receive APPRECIATION certs; the card surfaces
-              the per-row Resend so an organizer can re-fire delivery
-              without leaving this page. EmailLogCard below it picks up
-              the new EmailLog row written by the resend, so the action
-              appears in two places (status row + history row) which
-              is the desired feedback loop. */}
+          {/* Certificates (with Resend) + the unified activity timeline.
+              Speakers receive APPRECIATION certs; the IssuedCertificatesCard
+              surfaces the per-row Resend so an organizer can re-fire delivery
+              without leaving this page. The ActivityTimelineCard below picks
+              up the new EmailLog row written by the resend, so the action
+              appears in two places (status row + timeline row) — the desired
+              feedback loop. */}
           <IssuedCertificatesCard
             eventId={eventId}
             speakerId={speaker.id}
