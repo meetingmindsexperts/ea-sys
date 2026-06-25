@@ -16,9 +16,16 @@
 > to all delegate counts/stats/analytics/MCP-dashboard/webinar-KPI; `isFaculty`
 > exposed in the registrations list API. Operator must run the backfill after deploy.
 >
+> **Phase-0 follow-up SHIPPED (June 25, commit `2bd30ae`):** the speaker's linked
+> companion registration is now surfaced on **both** speaker-detail views — a
+> "Registration" card on the speaker page + a compact block in the quick-view
+> sheet (registration #, status, payment, badge, entry-barcode, check-in, survey),
+> via the speaker GET route's `sourceRegistration` relation. Read-only/additive.
+>
 > **Open Phase-0 follow-ups (deferred, not blocking):** a "Faculty vs delegate"
 > split tile + a faculty filter toggle in the registrations list UI; speaker→
-> companion name/profile edit sync.
+> companion name/profile edit sync; a per-registration deep-link URL so the
+> speaker card's "View in Registrations" opens the exact registration's sheet.
 
 ## Goal
 
