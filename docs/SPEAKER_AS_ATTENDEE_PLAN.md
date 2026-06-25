@@ -150,6 +150,35 @@ the editor:
 `{{role}}`/`{{cmeHours}}` text boxes, issue one → confirm the rendered PDF shows
 them (the one thing tests can't fully prove).
 
+## Companion hardening — pre-Phase-2 findings (June 25, 2026)
+
+A review before Phase 2 (which makes the companion load-bearing for cert
+auto-issue) surfaced two integrity gaps the companion introduced + one Phase-2
+design note. The **formal backlog does NOT block Phase 2** (P1.1 soldCount is
+orthogonal — faculty are uncapped; P1.2 cert XSS is done).
+
+- **A — Speaker delete orphans the companion (FIX).** `DELETE /speakers/[id]`
+  (`speaker.delete()`) doesn't touch the companion registration. The
+  `Speaker.sourceRegistrationId` FK is `SetNull` the *other* direction (deleting
+  the registration nulls the speaker's pointer), so deleting a **speaker** leaves
+  a dangling `SPEAKER_COMPANION` Faculty registration with a badge/barcode and no
+  speaker. **Fix:** on speaker delete, also delete the companion **only when its
+  `createdSource === "SPEAKER_COMPANION"`** (leave an email-linked *real*
+  registration alone), with the shared-attendee sibling guard.
+- **B — Speaker email-change doesn't sync the companion (FIX).** The dedicated
+  `PATCH /speakers/[id]/email` cascades to `User`/`Contact` but **not** the
+  companion's `Attendee`, so a speaker email change leaves the companion's
+  badge/check-in/survey identity stale. **Fix:** in the same transaction, update
+  the `SPEAKER_COMPANION` companion's attendee email too (companion only — real
+  linked registrations keep their own email-change flow).
+- **C — Faculty are in BOTH cert eligibility pools (Phase-2 design note, NOT a
+  bug).** `eligibleForAttendance` = all non-cancelled registrations (now includes
+  faculty companions); `eligibleForAppreciation` = speakers. This is *consistent*
+  with the model (speakers attend; survey → all role certs). **Phase 2 must route
+  per category:** a person who is both gets their APPRECIATION cert on `speakerId`
+  and their ATTENDANCE cert on the companion `registrationId`. The pools already
+  support it — build the auto-issue resolver accordingly.
+
 ## Phase 1 — Multi-role certificates (template = role)
 
 ### Schema

@@ -360,7 +360,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }),
       db.speaker.findFirst({
         where: { id: speakerId, eventId },
-        select: { id: true, email: true, userId: true, firstName: true, lastName: true },
+        select: { id: true, email: true, userId: true, firstName: true, lastName: true, sourceRegistrationId: true },
       }),
     ]);
 
@@ -440,7 +440,24 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         newEmail,
       });
 
-      return { updatedSpeaker, contactAction };
+      // Companion email sync (speaker-as-attendee Fix B) — keep the
+      // auto-created Faculty companion's attendee email in step with the
+      // speaker's, so the badge/check-in/survey identity doesn't drift. ONLY
+      // the SPEAKER_COMPANION row — a real email-linked registration is the
+      // person's own and changes via the registration email-change flow.
+      let companionSynced = false;
+      if (speaker.sourceRegistrationId) {
+        const companion = await tx.registration.findFirst({
+          where: { id: speaker.sourceRegistrationId, createdSource: "SPEAKER_COMPANION" },
+          select: { attendeeId: true },
+        });
+        if (companion) {
+          await tx.attendee.update({ where: { id: companion.attendeeId }, data: { email: newEmail } });
+          companionSynced = true;
+        }
+      }
+
+      return { updatedSpeaker, contactAction, companionSynced };
     });
 
     // Audit log — fire-and-forget to stay fast, errors only logged.
@@ -458,6 +475,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
             after: newEmail,
             userCascaded: Boolean(speaker.userId),
             contactAction: result.contactAction,
+            companionSynced: result.companionSynced,
             ip: getClientIp(req),
           },
         },
@@ -476,6 +494,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       speaker: result.updatedSpeaker,
       userCascaded: Boolean(speaker.userId),
       contactAction: result.contactAction,
+      companionSynced: result.companionSynced,
     });
   } catch (error) {
     // P2002 — race between collision check and transaction commit.

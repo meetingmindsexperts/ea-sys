@@ -357,6 +357,33 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       where: { id: speakerId },
     });
 
+    // Companion cleanup (speaker-as-attendee Fix A) — if this speaker had an
+    // auto-created Faculty companion registration, delete it too so it doesn't
+    // dangle as a badge/barcode with no speaker. ONLY touch SPEAKER_COMPANION
+    // rows — a real, email-linked registration is the person's own and must
+    // survive. Delete the companion's attendee only when no other registration
+    // shares it (mirrors the registration DELETE sibling guard).
+    if (speaker.sourceRegistrationId) {
+      try {
+        const companion = await db.registration.findFirst({
+          where: { id: speaker.sourceRegistrationId, createdSource: "SPEAKER_COMPANION" },
+          select: { id: true, attendeeId: true },
+        });
+        if (companion) {
+          await db.$transaction(async (tx) => {
+            await tx.registration.delete({ where: { id: companion.id } });
+            const remaining = await tx.registration.count({ where: { attendeeId: companion.attendeeId } });
+            if (remaining === 0) {
+              await tx.attendee.delete({ where: { id: companion.attendeeId } });
+            }
+          });
+          apiLogger.info({ msg: "speaker-companion:deleted-with-speaker", eventId, speakerId, registrationId: companion.id });
+        }
+      } catch (err) {
+        apiLogger.error({ err, msg: "speaker-companion:delete-failed", eventId, speakerId });
+      }
+    }
+
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
 

@@ -218,6 +218,34 @@ describe("PATCH /api/events/[eventId]/speakers/[speakerId]/email", () => {
     expect(mockDb.user.findFirst).toHaveBeenCalledTimes(1);
   });
 
+  it("syncs the SPEAKER_COMPANION attendee email (Fix B) when the speaker has a companion", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.speaker.findFirst
+      .mockResolvedValueOnce({ id: "spk-1", email: "old@x.com", userId: null, firstName: "A", lastName: "B", sourceRegistrationId: "reg-c" })
+      .mockResolvedValueOnce(null);
+    mockDb.user.findFirst.mockResolvedValueOnce(null);
+    mockDb.speaker.update.mockResolvedValueOnce({ id: "spk-1", email: "new@x.com" });
+    mockDb.contact.findFirst.mockResolvedValueOnce(null);
+    // Companion lookup inside the tx → an auto-created Faculty companion.
+    mockDb.registration.findFirst.mockResolvedValueOnce({ attendeeId: "att-c" });
+    mockDb.attendee.update.mockResolvedValueOnce({ id: "att-c", email: "new@x.com" });
+
+    const res = await speakerPatch(makeReq({ newEmail: "new@x.com" }), speakerParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.companionSynced).toBe(true);
+    // Only matches the SPEAKER_COMPANION row.
+    expect(mockDb.registration.findFirst).toHaveBeenCalledWith({
+      where: { id: "reg-c", createdSource: "SPEAKER_COMPANION" },
+      select: { attendeeId: true },
+    });
+    expect(mockDb.attendee.update).toHaveBeenCalledWith({
+      where: { id: "att-c" },
+      data: { email: "new@x.com" },
+    });
+  });
+
   it("maps P2002 race to 409 EMAIL_TAKEN", async () => {
     mockAuth.mockResolvedValueOnce(adminSession);
     mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
