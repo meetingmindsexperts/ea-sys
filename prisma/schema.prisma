@@ -353,6 +353,12 @@ model CertificateTemplate {
   // Static per-template CME hours (organizer-entered). Snapshotted onto the
   // issued cert; overrides the event-level CME hours when set.
   cmeHours         Decimal?        @db.Decimal(4, 1)
+  // Phase-2 survey-gated auto-issue. When `autoIssueOnSurvey` is on, the
+  // cert worker auto-issues this template to anyone who completes the
+  // survey AND holds `autoIssueTag` (attendee tag for ATTENDANCE, speaker
+  // tag for APPRECIATION). Off by default — opt-in per template.
+  autoIssueOnSurvey Boolean        @default(false)
+  autoIssueTag     String?
   backgroundPdfUrl String?
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
   textBoxes        Json            @default("[]")
@@ -396,7 +402,11 @@ model IssuedCertificate {
   certificateTemplateId String?
   serial                String          @unique
   issuedAt              DateTime        @default(now())
-  issuedByUserId        String
+  /// Operator who issued this cert. NULL for survey-gated auto-issued
+  /// certs (Phase 2) — no human clicked Issue, the worker did it on
+  /// survey completion. The owning CertificateIssueRun.autoIssue flag
+  /// records the same fact at the run level.
+  issuedByUserId        String?
   lastReprintedAt       DateTime?
   reprintCount          Int             @default(0)
   /// Tracks individual-recipient resends from the registration/speaker
@@ -426,7 +436,7 @@ model IssuedCertificate {
   event               Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registration        Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   speaker             Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
-  issuedBy            User                     @relation(fields: [issuedByUserId], references: [id])
+  issuedBy            User?                    @relation(fields: [issuedByUserId], references: [id])
   certificateTemplate CertificateTemplate?     @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
   issueRunItem        CertificateIssueRunItem?
 
@@ -465,7 +475,14 @@ model CertificateIssueRun {
   renderedCount         Int                @default(0)
   emailedCount          Int                @default(0)
   failedCount           Int                @default(0)
-  triggeredByUserId     String
+  /// Operator who clicked Issue. NULL for survey-gated auto-issue runs
+  /// (Phase 2) — created by the worker, no operator. See `autoIssue`.
+  triggeredByUserId     String?
+  /// True when this run was created automatically by the survey-gated
+  /// cert worker (Phase 2). Auto runs SKIP the AWAITING_REVIEW gate:
+  /// render → SENDING directly, so the cert lands in the inbox without
+  /// an operator click. Manual runs (false) keep the review gate.
+  autoIssue             Boolean            @default(false)
   triggeredAt           DateTime           @default(now())
   rendererStartedAt     DateTime?
   rendererFinishedAt    DateTime?
@@ -490,7 +507,7 @@ model CertificateIssueRun {
   emailBody             String?            @db.Text
 
   event               Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  triggeredBy         User                      @relation(fields: [triggeredByUserId], references: [id])
+  triggeredBy         User?                     @relation(fields: [triggeredByUserId], references: [id])
   certificateTemplate CertificateTemplate?      @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
   items               CertificateIssueRunItem[]
 
@@ -733,6 +750,24 @@ model Registration {
   /// completed" which the same submit handler writes). Mirrors the
   /// existing `checkedInAt` / `badgePrintedAt` convention.
   surveyCompletedAt   DateTime?
+  /// Phase-2 survey-gated cert auto-issue state. The cert worker sweeps
+  /// registrations where `surveyCompletedAt IS NOT NULL AND
+  /// certAutoIssueCheckedAt IS NULL AND (nextAttemptAt IS NULL OR <= now)`,
+  /// resolves matching auto-issue templates (per tag), enqueues the certs,
+  /// then stamps `checkedAt` (terminal). On a transient failure it bumps
+  /// `attempts`, records `error`, and sets `nextAttemptAt = now + backoff`
+  /// (exponential) so the row defers instead of blocking the queue; after
+  /// MAX attempts it gives up terminally (checkedAt set + error kept).
+  /// Derivable analytics state:
+  ///   checkedAt NULL, attempts 0           → pending (first sweep)
+  ///   checkedAt NULL, attempts > 0         → retrying/backing off
+  ///   checkedAt set,  error NULL           → resolved OK
+  ///   checkedAt set,  error non-NULL       → gave up after retries
+  /// Partial index in the migration keeps the candidate scan cheap.
+  certAutoIssueCheckedAt     DateTime?
+  certAutoIssueAttempts      Int       @default(0)
+  certAutoIssueNextAttemptAt DateTime?
+  certAutoIssueError         String?
   /// Which code path created this row — public form vs admin add vs
   /// MCP agent vs CSV import etc. See enum `RegistrationCreatedSource`
   /// for the full list. NULL on historical rows that pre-date the

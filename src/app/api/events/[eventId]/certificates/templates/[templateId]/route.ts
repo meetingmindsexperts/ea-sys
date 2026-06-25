@@ -57,6 +57,9 @@ const patchSchema = z.object({
   // Role/designation ({{role}}) + static per-template CME hours ({{cmeHours}}).
   role: z.string().max(120).trim().nullable().optional(),
   cmeHours: z.number().min(0).max(999).nullable().optional(),
+  // Phase 2 survey-gated auto-issue config.
+  autoIssueOnSurvey: z.boolean().optional(),
+  autoIssueTag: z.string().max(120).trim().nullable().optional(),
 });
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -115,6 +118,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (parsed.data.emailBody !== undefined) data.emailBody = parsed.data.emailBody;
     if (parsed.data.role !== undefined) data.role = parsed.data.role;
     if (parsed.data.cmeHours !== undefined) data.cmeHours = parsed.data.cmeHours;
+    if (parsed.data.autoIssueOnSurvey !== undefined) data.autoIssueOnSurvey = parsed.data.autoIssueOnSurvey;
+    if (parsed.data.autoIssueTag !== undefined) data.autoIssueTag = parsed.data.autoIssueTag;
 
     const updated = await db.certificateTemplate.update({
       where: { id: templateId },

@@ -13,6 +13,7 @@
  */
 
 import { tickAllRuns } from "@/lib/certificates/issue-worker";
+import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/advisory-lock";
 import { JOB_IDS } from "../lib/job-ids";
@@ -23,14 +24,20 @@ export const SCHEDULE = "*/3 * * * *"; // every 3 minutes
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {
+    // (1) Survey-gated auto-issue sweep — enqueue any newly-eligible certs
+    //     as autoIssue runs. Isolated from (2): a sweep failure must not
+    //     stop the existing manual runs from draining.
+    try {
+      await runAutoIssueSweep();
+    } catch (err) {
+      apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, phase: "auto-issue-sweep" });
+    }
+    // (2) Drain all CertificateIssueRun rows (manual + the auto runs the
+    //     sweep just created) through their render/email state machine.
     try {
       await tickAllRuns();
     } catch (err) {
-      apiLogger.error({
-        err,
-        msg: "worker:tick-uncaught",
-        job: JOB_NAME,
-      });
+      apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, phase: "drain-runs" });
     }
   });
 }

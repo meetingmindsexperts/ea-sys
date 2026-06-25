@@ -57,6 +57,11 @@ const createSchema = z.object({
   // per-template CME hours ({{cmeHours}}, overrides event-level when set).
   role: z.string().max(120).trim().nullable().optional(),
   cmeHours: z.number().min(0).max(999).nullable().optional(),
+  // Phase 2 survey-gated auto-issue: when on, this template is issued
+  // automatically to survey-completers who hold autoIssueTag (attendee
+  // tag for ATTENDANCE, speaker tag for APPRECIATION).
+  autoIssueOnSurvey: z.boolean().optional(),
+  autoIssueTag: z.string().max(120).trim().nullable().optional(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -163,6 +168,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           emailBody: data.emailBody ?? null,
           role: data.role ?? null,
           cmeHours: data.cmeHours ?? null,
+          autoIssueOnSurvey: data.autoIssueOnSurvey ?? false,
+          autoIssueTag: data.autoIssueTag ?? null,
         },
       });
     });

@@ -580,8 +580,12 @@ export function registerAllMcpTools(
       // Static per-template CME hours — drives {{cmeHours}}, overriding the
       // event-level CME hours when set. Entered manually per template.
       cmeHours: z.number().min(0).max(999).nullable().optional(),
+      // Phase 2 survey-gated auto-issue: when true, issued automatically
+      // (rendered + emailed) to survey-completers holding autoIssueTag.
+      autoIssueOnSurvey: z.boolean().optional(),
+      autoIssueTag: z.string().max(120).nullable().optional(),
     }},
-    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, cover-email defaults (emailSubject / emailBody), role, or cmeHours. Pass null on email/role/cmeHours to clear. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
+    { name: "update_certificate_template", description: "Patch a CertificateTemplate by id. Change name, background PDF, text box positions, sortOrder, cover-email defaults (emailSubject / emailBody), role, cmeHours, or survey auto-issue (autoIssueOnSurvey / autoIssueTag). Pass null on email/role/cmeHours/autoIssueTag to clear. Partial — only fields you include get updated; existing fields preserved. Category is immutable post-create (would invalidate IssuedCertificate audit rows; delete + recreate to change category). Find templateIds via list_certificate_templates.", params: {
       templateId: z.string().min(1),
       name: z.string().min(1).max(120).optional(),
       backgroundPdfUrl: z.string().nullable().optional(),
@@ -606,6 +610,8 @@ export function registerAllMcpTools(
       emailBody: z.string().min(1).max(10000).nullable().optional(),
       role: z.string().max(120).nullable().optional(),
       cmeHours: z.number().min(0).max(999).nullable().optional(),
+      autoIssueOnSurvey: z.boolean().optional(),
+      autoIssueTag: z.string().max(120).nullable().optional(),
     }},
     { name: "delete_certificate_template", description: "Delete a CertificateTemplate by id. BLOCKED with 409-equivalent error if any IssuedCertificate or CertificateIssueRun references it — audit trail must stay intact. Rename the template instead to mark as retired.", params: {
       templateId: z.string().min(1),

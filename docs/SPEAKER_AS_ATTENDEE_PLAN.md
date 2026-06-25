@@ -1,7 +1,7 @@
 # Plan: Speaker-as-Attendee (companion registration) + multi-role, survey-gated certificates
 
-> Status: **Phase 0 SHIPPED (June 25, 2026, commits `20b0e4f` + sweep `c988e64`).
-> Phases 1–3 PLANNED.** Foundational change on a LIVE production system →
+> Status: **Phases 0 + 1 + 2 SHIPPED (June 25, 2026).** Phase 3 (manual
+> override) mostly already exists. Foundational change on a LIVE production system →
 > additive/idempotent migrations only, phased rollout, reviewed backfill, full
 > gate (tsc/eslint/vitest/build) per phase.
 >
@@ -199,27 +199,67 @@ orthogonal — faculty are uncapped; P1.2 cert XSS is done).
   yields N certs (one per template). Eligibility stays tag-driven.
 - `{{cmeHours}}` + `{{role}}` resolve from the template; snapshot onto the cert.
 
-## Phase 2 — Survey-triggered auto-issue
+## Phase 2 status (June 25, 2026) — ✅ SHIPPED
+
+Survey completion now auto-issues every flagged cert template the person
+qualifies for — **fully automatic** (rendered + emailed, no operator click;
+confirmed product decision). The survey POST path is **untouched** (it already
+sets `surveyCompletedAt`); the worker drives off that.
 
 ### Config (per template)
-- `CertificateTemplate.autoIssueOnSurvey Boolean @default(false)`.
-- `CertificateTemplate.autoIssueTag String?` — the tag a person must hold for this
-  template to auto-issue (stored, vs the manual flow's at-issue tag).
+- `CertificateTemplate.autoIssueOnSurvey Boolean @default(false)` + `autoIssueTag
+  String?`. Editor toggle + tag input (commit-on-blur); REST POST/PATCH + MCP
+  `create_/update_certificate_template` accept both (pkg 0.4.10 → 0.4.11). A tag
+  is **required** to match anyone — the sweep + analytics card flag a flagged-but-
+  tagless template (we refuse to mass-issue to everyone who surveyed).
 
-### Flow
-1. Survey submit (`finalizeSubmission`) sets `surveyCompletedAt` → **enqueue** an
-   auto-issue check for that registration (a lightweight queue row; no inline
-   render/SES).
-2. Resolve the person: registration + linked speaker (`sourceRegistrationId`
-   reverse / email) → gather **all tags** (attendee + speaker).
-3. For each template with `autoIssueOnSurvey` AND person-holds-`autoIssueTag` →
-   enqueue issuance to the correct recipient (speaker certs → `speakerId`,
-   attendance → `registrationId`).
-4. The **existing cert worker** drains the queue → render PDF + email.
-   **Idempotent** via the per-template uniqueness (re-submit / manual-first can't
-   duplicate).
-- Works for speakers now — they have a companion registration that can complete
-  the survey.
+### Mechanism (the decisions made)
+1. **Trigger = worker sweep**, not an inline enqueue. New nullable
+   `Registration.certAutoIssueCheckedAt` + a **partial index**
+   (`WHERE certAutoIssueCheckedAt IS NULL AND surveyCompletedAt IS NOT NULL`). The
+   cert worker scans survey-completed-but-unchecked rows that are past their
+   backoff gate — **zero change to the hot survey POST**, durable, idempotent.
+2. **Routing (constraint C):** per registration, the **attendee tags** drive
+   **ATTENDANCE** templates → cert on `registrationId`; the **linked speaker's
+   tags** (companion `sourceRegistrationId` reverse, else read-time email match)
+   drive **APPRECIATION** templates → cert on `speakerId`. A speaker completing
+   the survey via their companion gets **both**. Pure routing in
+   `selectAutoIssueTargets` (unit-tested).
+3. **Delivery reuses `CertificateIssueRun`** — each (template, recipient) becomes
+   a 1-item run with a new `autoIssue` flag + **null operator** (nullable
+   `CertificateIssueRun.triggeredByUserId` + `IssuedCertificate.issuedByUserId`).
+   Auto runs **skip the AWAITING_REVIEW gate** (render → SENDING). The whole
+   per-registration resolve+enqueue+stamp is one transaction (crash-safe).
+4. **Idempotency:** per-template `IssuedCertificate` uniqueness **+** a pre-create
+   guard (skip if a cert OR an existing auto-run item already covers the (event,
+   template, recipient)). Re-sweeps / crash-retries / manual-first can't duplicate
+   or double-email.
+5. **Retry + backoff:** a transient per-registration failure bumps
+   `certAutoIssueAttempts`, records `certAutoIssueError`, and defers via
+   `certAutoIssueNextAttemptAt = now + backoff` (1/5/15/60/180 min) — never
+   head-of-line-blocks the queue. After **5** attempts it gives up terminally
+   (manual Issue is the backstop). Every sweep emits a structured
+   `cert-auto-issue:sweep` analytics line.
+6. **Analytics:** `GET /api/events/[id]/certificates/auto-issue/analytics`
+   (registration state counts pending/retrying/resolved/gaveUp + auto-run delivery
+   by status + certs-auto-issued + recent errors + tagless-template flag), surfaced
+   as an **AutoIssueAnalyticsCard** on the certificates page "Issue" tab (polls 20s).
+
+The sweep is folded into the existing **cert-issue** worker job (every 3 min):
+run the sweep → enqueue auto-runs → `tickAllRuns()` drains them. Mirrored on the
+legacy `/api/cron/certificate-issues` route (rollback parity). Migration
+`20260625160000_cert_survey_auto_issue` (all additive/nullable/idempotent).
+
+**Known limitation (documented for organizers):** the sweep stamps
+`certAutoIssueCheckedAt` once per registration. If a template is flagged
+`autoIssueOnSurvey` **after** someone already completed the survey, that person
+isn't re-swept — use the **manual Issue** flow to cover them. Flag auto-issue
+templates **before** surveys go out for the automatic path.
+
+**Verify on prod after deploy:** flag a template auto-issue + tag, complete a test
+survey for a tagged registration, confirm the cert renders + emails within a few
+minutes and the analytics card reflects it (the end-to-end render+email is the
+one thing unit tests can't fully prove).
 
 ## Phase 3 — Manual issue / reissue override (mostly exists)
 - Existing tag-driven Issue flow + resend route already cover "issue to someone

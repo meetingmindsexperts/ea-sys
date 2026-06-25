@@ -148,6 +148,10 @@ async function listCertificateTemplates(_input: Record<string, unknown>, ctx: Ag
           backgroundPdfUrl: true,
           textBoxes: true,
           sortOrder: true,
+          role: true,
+          cmeHours: true,
+          autoIssueOnSurvey: true,
+          autoIssueTag: true,
           createdAt: true,
           updatedAt: true,
           _count: { select: { issuedCertificates: true, issueRuns: true } },
@@ -230,6 +234,22 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     cmeHours = input.cmeHours;
   }
 
+  // Phase 2 survey-gated auto-issue config.
+  let autoIssueOnSurvey = false;
+  if (input.autoIssueOnSurvey !== undefined && input.autoIssueOnSurvey !== null) {
+    if (typeof input.autoIssueOnSurvey !== "boolean") {
+      return { error: "autoIssueOnSurvey must be a boolean", code: "INVALID_FIELD" };
+    }
+    autoIssueOnSurvey = input.autoIssueOnSurvey;
+  }
+  let autoIssueTag: string | null = null;
+  if (input.autoIssueTag !== undefined && input.autoIssueTag !== null) {
+    if (typeof input.autoIssueTag !== "string" || input.autoIssueTag.length > 120) {
+      return { error: "autoIssueTag must be a string (max 120 chars)", code: "INVALID_FIELD" };
+    }
+    autoIssueTag = input.autoIssueTag.trim() || null;
+  }
+
   // Verify event is in caller's org.
   const event = await db.event.findFirst({
     where: { id: ctx.eventId, organizationId: ctx.organizationId },
@@ -261,6 +281,8 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         emailBody,
         role,
         cmeHours,
+        autoIssueOnSurvey,
+        autoIssueTag,
       },
     });
   });
@@ -372,11 +394,27 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
       data.cmeHours = input.cmeHours;
     }
   }
+  // Phase 2 survey-gated auto-issue config.
+  if (input.autoIssueOnSurvey !== undefined) {
+    if (typeof input.autoIssueOnSurvey !== "boolean") {
+      return { error: "autoIssueOnSurvey must be a boolean", code: "INVALID_FIELD" };
+    }
+    data.autoIssueOnSurvey = input.autoIssueOnSurvey;
+  }
+  if (input.autoIssueTag !== undefined) {
+    if (input.autoIssueTag === null) {
+      data.autoIssueTag = null;
+    } else if (typeof input.autoIssueTag !== "string" || input.autoIssueTag.length > 120) {
+      return { error: "autoIssueTag must be a string (max 120 chars) or null", code: "INVALID_FIELD" };
+    } else {
+      data.autoIssueTag = input.autoIssueTag.trim() || null;
+    }
+  }
 
   if (Object.keys(data).length === 0) {
     return {
       error:
-        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / emailSubject / emailBody / role / cmeHours",
+        "Nothing to update — provide at least one of name / backgroundPdfUrl / textBoxes / sortOrder / emailSubject / emailBody / role / cmeHours / autoIssueOnSurvey / autoIssueTag",
       code: "NOTHING_TO_UPDATE",
     };
   }
@@ -643,6 +681,22 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
           type: ["string", "null"],
           description: "Default cover-email body (Tiptap HTML output). Same token set as emailSubject. Max 10000 chars. Snapshotted onto each CertificateIssueRun at Issue time so a later template edit doesn't change in-flight emails.",
         },
+        role: {
+          type: ["string", "null"],
+          description: "Role/designation this template certifies ({{role}} token) — e.g. 'Speaker', 'Moderator', 'Organizing Committee'. One person can hold several role-specific certs (one per template). Max 120 chars.",
+        },
+        cmeHours: {
+          type: ["number", "null"],
+          description: "Static per-template CME hours ({{cmeHours}} token, overrides the event-level value when set). 0..999.",
+        },
+        autoIssueOnSurvey: {
+          type: "boolean",
+          description: "Phase 2: when true, this template is issued AUTOMATICALLY (rendered + emailed, no operator click) to anyone who completes the event survey AND holds autoIssueTag. ATTENDANCE matches the attendee's tags; APPRECIATION matches the linked speaker's tags. Requires autoIssueTag to match anyone.",
+        },
+        autoIssueTag: {
+          type: ["string", "null"],
+          description: "The tag a survey-completer must hold for auto-issue to fire (attendee tag for ATTENDANCE, speaker tag for APPRECIATION). Required for autoIssueOnSurvey to match anyone. Max 120 chars.",
+        },
       },
       required: ["name", "category"],
     },
@@ -676,6 +730,22 @@ export const CERTIFICATE_TOOL_DEFINITIONS: Tool[] = [
         emailBody: {
           type: ["string", "null"],
           description: "Default cover-email body in Tiptap HTML (max 10000 chars). Null clears back to system default.",
+        },
+        role: {
+          type: ["string", "null"],
+          description: "Role/designation ({{role}} token). Max 120 chars. Null clears.",
+        },
+        cmeHours: {
+          type: ["number", "null"],
+          description: "Static per-template CME hours ({{cmeHours}}, overrides event-level). 0..999. Null clears.",
+        },
+        autoIssueOnSurvey: {
+          type: "boolean",
+          description: "Phase 2: auto-issue this template on survey completion (to holders of autoIssueTag).",
+        },
+        autoIssueTag: {
+          type: ["string", "null"],
+          description: "Tag required for survey auto-issue (attendee tag for ATTENDANCE, speaker tag for APPRECIATION). Max 120 chars. Null clears.",
         },
       },
       required: ["templateId"],

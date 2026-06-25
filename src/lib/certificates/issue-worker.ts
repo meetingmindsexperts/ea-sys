@@ -156,7 +156,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
     where: { id: runId },
     select: {
       id: true, eventId: true, type: true, status: true,
-      certificateTemplateId: true,
+      certificateTemplateId: true, autoIssue: true,
       totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
       rendererStartedAt: true, errors: true,
     },
@@ -184,7 +184,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
   }
 
   if (run.status === "RENDERING" || run.status === "PENDING") {
-    return processRenderPhase(runId, run.eventId, run.type, run.certificateTemplateId);
+    return processRenderPhase(runId, run.eventId, run.type, run.certificateTemplateId, run.autoIssue);
   }
   if (run.status === "SENDING") {
     return processSendPhase(runId, run.eventId);
@@ -199,6 +199,7 @@ async function processRenderPhase(
   eventId: string,
   type: CertificateType,
   certificateTemplateId: string | null,
+  autoIssue: boolean,
 ): Promise<RunTickResult> {
   // Pull next batch of items needing render.
   const items = await db.certificateIssueRunItem.findMany({
@@ -207,17 +208,26 @@ async function processRenderPhase(
   });
 
   if (items.length === 0) {
-    // Render phase complete — transition to AWAITING_REVIEW.
+    // Render phase complete. Manual runs stop at AWAITING_REVIEW (the
+    // operator preview gate); survey-gated auto runs SKIP that gate and
+    // go straight to SENDING so the cert lands in the inbox without a
+    // human click (Phase 2 product decision).
+    const nextStatus = autoIssue ? "SENDING" : "AWAITING_REVIEW";
     await db.certificateIssueRun.update({
       where: { id: runId },
       data: {
-        status: "AWAITING_REVIEW",
+        status: nextStatus,
         rendererFinishedAt: new Date(),
+        ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
         lastTickAt: new Date(),
       },
     });
-    apiLogger.info({ msg: "cert-issue-worker:render-phase-complete", runId });
-    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "AWAITING_REVIEW" };
+    apiLogger.info({ msg: "cert-issue-worker:render-phase-complete", runId, autoIssue, nextStatus });
+    return {
+      renderedThisTick: 0,
+      emailedThisTick: 0,
+      transitionedTo: autoIssue ? null : "AWAITING_REVIEW",
+    };
   }
 
   // Heartbeat — bump lastTickAt at the start of this tick's work so a
@@ -776,7 +786,9 @@ async function loadPosterAbstractTitle(speakerId: string, eventId: string): Prom
   return abstract?.title ?? null;
 }
 
-async function getRunTriggerUserId(runId: string): Promise<string> {
+async function getRunTriggerUserId(runId: string): Promise<string | null> {
+  // Null for survey-gated auto-issue runs (no operator). The cert's
+  // issuedByUserId column is nullable to carry that fact.
   const run = await db.certificateIssueRun.findUnique({
     where: { id: runId },
     select: { triggeredByUserId: true },

@@ -58,6 +58,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   GraduationCap,
   Plus,
@@ -77,6 +78,7 @@ import {
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
+import { AutoIssueAnalyticsCard } from "@/components/certificates/auto-issue-analytics-card";
 import {
   SYSTEM_DEFAULT_SUBJECT,
   defaultBodyForCategory,
@@ -126,6 +128,10 @@ interface CertificateTemplate {
   role: string | null;
   /** Static per-template CME hours ({{cmeHours}}, overrides event-level). */
   cmeHours: number | null;
+  /** Phase 2 survey-gated auto-issue: issue this template automatically to
+   *  survey-completers holding `autoIssueTag`. */
+  autoIssueOnSurvey: boolean;
+  autoIssueTag: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { issuedCertificates: number; issueRuns: number };
@@ -375,6 +381,8 @@ export default function CertificatesPage() {
         emailBody?: string | null;
         role?: string | null;
         cmeHours?: number | null;
+        autoIssueOnSurvey?: boolean;
+        autoIssueTag?: string | null;
       };
     }) => {
       const res = await fetch(
@@ -806,7 +814,32 @@ export default function CertificatesPage() {
       <div className="flex items-start gap-3">
         <GraduationCap className="h-7 w-7 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">Certificates</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold">Certificates</h1>
+            {/* CME status — derived from cmeHours / accreditations. An event
+                "has CME" only when these are set; the {{cmeHours}} +
+                accreditation tokens render blank otherwise (non-CME events
+                simply omit CME content from their certs). */}
+            {editableSettings &&
+              (() => {
+                const bodies = editableSettings.accreditations
+                  .map((a) => a.body)
+                  .filter((b): b is AccreditorBody => Boolean(b));
+                const accredited =
+                  editableSettings.cmeHours != null || bodies.length > 0;
+                return accredited ? (
+                  <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                    CME accredited
+                    {editableSettings.cmeHours != null ? ` · ${editableSettings.cmeHours} hrs` : ""}
+                    {bodies.length > 0 ? ` · ${bodies.join(", ")}` : ""}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    Not CME-accredited
+                  </Badge>
+                );
+              })()}
+          </div>
           <p className="text-sm text-muted-foreground">
             Upload designer-finished PDFs (or PNG/JPG — we convert), drop
             text boxes with{" "}
@@ -914,6 +947,47 @@ export default function CertificatesPage() {
                           className="h-8 w-28"
                         />
                       </label>
+                    </div>
+                    {/* Phase 2 — survey-gated auto-issue. When on + a tag is
+                        set, this template is rendered + emailed automatically
+                        to anyone who completes the survey and holds the tag
+                        (attendee tag for ATTENDANCE, speaker tag for
+                        APPRECIATION). No operator click. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Switch
+                          checked={editingTemplate.autoIssueOnSurvey}
+                          onCheckedChange={(checked) =>
+                            updateTemplateMutation.mutate({
+                              templateId: editingTemplate.id,
+                              patch: { autoIssueOnSurvey: checked },
+                            })
+                          }
+                        />
+                        Auto-issue on survey completion
+                      </label>
+                      {editingTemplate.autoIssueOnSurvey && (
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          Tag
+                          <Input
+                            defaultValue={editingTemplate.autoIssueTag ?? ""}
+                            placeholder="e.g. speaker"
+                            onBlur={(e) => {
+                              const v = e.target.value.trim() || null;
+                              if (v !== (editingTemplate.autoIssueTag ?? null)) {
+                                updateTemplateMutation.mutate({
+                                  templateId: editingTemplate.id,
+                                  patch: { autoIssueTag: v },
+                                });
+                              }
+                            }}
+                            className="h-8 w-44"
+                          />
+                          {!editingTemplate.autoIssueTag && (
+                            <span className="text-amber-600">required — no one matches without a tag</span>
+                          )}
+                        </label>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1285,6 +1359,10 @@ export default function CertificatesPage() {
 
         {/* ── ISSUE TAB ─────────────────────────────────────────── */}
         <TabsContent value="issue" className="space-y-6 mt-6">
+          {/* Survey-gated auto-issue observability — retry/backoff state +
+              delivery counts for certs issued automatically on survey
+              completion. Read-only; polls itself. */}
+          <AutoIssueAnalyticsCard eventId={eventId} />
           {/* Runs in progress — non-terminal runs surviving across page
               refreshes. The page's local activeRunIds state is React-only
               (lost on refresh / tab close), so without this server-backed

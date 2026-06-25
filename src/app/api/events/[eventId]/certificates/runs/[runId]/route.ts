@@ -38,11 +38,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
       select: {
         id: true, eventId: true, type: true, status: true,
+        autoIssue: true,
         totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
         triggeredAt: true,
         rendererStartedAt: true, rendererFinishedAt: true,
         emailerStartedAt: true, emailerFinishedAt: true,
         lastTickAt: true, errors: true,
+        // Null for auto-issue runs (no operator) — Prisma returns null for
+        // the optional relation, so callers must tolerate triggeredBy: null.
         triggeredBy: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
     });
@@ -114,6 +117,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       eventId: run.eventId,
       type: run.type,
       status: run.status,
+      autoIssue: run.autoIssue,
       totalCount: run.totalCount,
       renderedCount: run.renderedCount,
       emailedCount: run.emailedCount,

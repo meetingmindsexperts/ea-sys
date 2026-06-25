@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { tickAllRuns } from "@/lib/certificates/issue-worker";
+import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -32,6 +33,13 @@ async function run(req: Request) {
   }
   const started = Date.now();
   try {
+    // Survey-gated auto-issue sweep first (enqueue new auto runs),
+    // isolated so a sweep failure doesn't stop manual runs draining.
+    try {
+      await runAutoIssueSweep();
+    } catch (sweepErr) {
+      apiLogger.error({ err: sweepErr, msg: "cert-issues-cron:auto-issue-sweep-failed" });
+    }
     const result = await tickAllRuns();
     const durationMs = Date.now() - started;
     apiLogger.info({
