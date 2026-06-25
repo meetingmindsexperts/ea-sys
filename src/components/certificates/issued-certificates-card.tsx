@@ -7,8 +7,8 @@
  * on the speaker detail page. Same component, same shape; the parent
  * passes EITHER registrationId OR speakerId (exactly one). The card
  * lists the certs already issued for that recipient with serial,
- * issued/last-sent dates, send count, and per-row [Download] +
- * [Resend] actions.
+ * issued/last-sent dates, send count, and per-row [Open] (opens the
+ * cert PDF inline in a new tab) + [Resend] actions.
  *
  * The Resend button opens a confirm dialog so a fat-finger click can't
  * spam the recipient — and because resend is a real outbound email,
@@ -25,7 +25,7 @@ import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
   Award,
-  Download,
+  ExternalLink,
   Loader2,
   AlertCircle,
   Mail,
@@ -311,10 +311,11 @@ function CertRow({ cert, isResending, onResend }: CertRowProps) {
             size="sm"
             variant="ghost"
             className="h-7 px-2 text-xs"
-            title="Download PDF"
+            title="Open certificate in a new tab"
           >
             <a href={cert.pdfUrl} target="_blank" rel="noreferrer">
-              <Download className="h-3.5 w-3.5" />
+              <ExternalLink className="h-3.5 w-3.5 mr-1" />
+              Open
             </a>
           </Button>
         )}
