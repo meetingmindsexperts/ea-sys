@@ -291,6 +291,7 @@ export async function createSpeaker(
       zipCode: normZipCode,
       country: normCountry,
       specialty: normSpecialty,
+      registrationType: normRegType,
       sourceRegistrationId: null,
     });
   } catch (err) {

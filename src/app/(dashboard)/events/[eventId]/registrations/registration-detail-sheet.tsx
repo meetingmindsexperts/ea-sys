@@ -88,6 +88,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
+import { displayRegistrationType } from "@/lib/faculty-filter";
 import { hasCustomBilling } from "./types";
 import {
   EMPTY_REGISTRATION_EDIT_DATA,
@@ -1020,27 +1021,36 @@ export function RegistrationDetailSheet({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Registration Type</Label>
-                    <Select
-                      value={selectedRegistration.ticketType?.id ?? ""}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { ticketTypeId: value },
-                        })
-                      }
-                      disabled={updateRegistration.isPending}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(regTypes as TicketType[]).map((rt) => (
-                          <SelectItem key={rt.id} value={rt.id}>
-                            {rt.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {selectedRegistration.ticketType?.isFaculty ? (
+                      // Faculty companion: show the profession (read-only). Its
+                      // ticket type is the hidden "Faculty" type — not a delegate
+                      // category — so it isn't reassignable from this picker.
+                      <div className="flex h-9 items-center text-sm font-medium">
+                        {displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: true, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}
+                      </div>
+                    ) : (
+                      <Select
+                        value={selectedRegistration.ticketType?.id ?? ""}
+                        onValueChange={(value) =>
+                          updateRegistration.mutate({
+                            id: selectedRegistration.id,
+                            data: { ticketTypeId: value },
+                          })
+                        }
+                        disabled={updateRegistration.isPending}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(regTypes as TicketType[]).map((rt) => (
+                            <SelectItem key={rt.id} value={rt.id}>
+                              {rt.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Badge Type</Label>
@@ -1107,7 +1117,7 @@ export function RegistrationDetailSheet({
               ) : (
                 <div className="flex items-center gap-3">
                   <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                  <div className="font-medium">{selectedRegistration.ticketType?.name ?? "—"}</div>
+                  <div className="font-medium">{displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: selectedRegistration.ticketType?.isFaculty, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}</div>
                 </div>
               )}
 

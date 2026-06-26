@@ -62,6 +62,13 @@ export interface CompanionSpeakerInput {
   zipCode?: string | null;
   country?: string | null;
   specialty?: string | null;
+  /**
+   * The speaker's professional category (Physician / Allied Health / Nurse /
+   * Others). Stored on the companion attendee's `registrationType`. NOTE: this
+   * is NOT "Faculty" — Faculty is a badge/role (`badgeType`), not a profession.
+   * Left null when the speaker's category wasn't recorded.
+   */
+  registrationType?: string | null;
   sourceRegistrationId?: string | null;
 }
 
@@ -129,7 +136,9 @@ export async function ensureSpeakerCompanionRegistration(
         zipCode: speaker.zipCode ?? undefined,
         country: speaker.country ?? undefined,
         specialty: speaker.specialty ?? undefined,
-        registrationType: "Faculty",
+        // The professional category (Physician/Nurse/…), NOT "Faculty" — the
+        // Faculty designation lives in `badgeType` + the isFaculty ticket type.
+        registrationType: speaker.registrationType ?? undefined,
       },
       select: { id: true },
     });
@@ -201,6 +210,7 @@ export async function ensureCompanionsForSpeakerEmails(
       zipCode: true,
       country: true,
       specialty: true,
+      registrationType: true,
       sourceRegistrationId: true,
     },
   });

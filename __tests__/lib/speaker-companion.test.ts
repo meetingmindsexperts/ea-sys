@@ -105,6 +105,27 @@ describe("ensureSpeakerCompanionRegistration", () => {
     expect(JSON.stringify(txRegistrationCreate.mock.calls[0][0])).not.toContain("soldCount");
   });
 
+  it("sets the companion attendee's registrationType to the speaker's profession, never 'Faculty'", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+
+    await ensureSpeakerCompanionRegistration({ ...base, registrationType: "Physician" });
+
+    // Profession goes on the attendee's registrationType...
+    expect(txAttendeeCreate.mock.calls[0][0].data.registrationType).toBe("Physician");
+    // ...while "Faculty" stays where it belongs — the badge, not the reg type.
+    expect(txRegistrationCreate.mock.calls[0][0].data.badgeType).toBe("Faculty");
+  });
+
+  it("leaves registrationType undefined (not 'Faculty') when the speaker has no profession", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+
+    await ensureSpeakerCompanionRegistration(base); // base has no registrationType
+
+    expect(txAttendeeCreate.mock.calls[0][0].data.registrationType).toBeUndefined();
+  });
+
   it("reuses an existing Faculty type rather than creating a second", async () => {
     registrationFindFirst.mockResolvedValueOnce(null);
     ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype_existing" });

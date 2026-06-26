@@ -50,6 +50,7 @@ import { Label } from "@/components/ui/label";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
+import { displayRegistrationType } from "@/lib/faculty-filter";
 import { TagFilter } from "@/components/registrations/tag-filter";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -213,7 +214,7 @@ export default function RegistrationsPage() {
       r.attendee.bio || "",
       r.attendee.specialty || "",
       r.attendee.tags.join(", "),
-      r.ticketType?.name ?? "",
+      displayRegistrationType({ ticketTypeName: r.ticketType?.name, isFaculty: r.ticketType?.isFaculty, attendeeRegistrationType: r.attendee.registrationType }, ""),
       r.pricingTier?.name ?? "",
       r.status,
       r.paymentStatus,
@@ -710,7 +711,7 @@ export default function RegistrationsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{registration.ticketType?.name ?? "—"}</Badge>
+                      <Badge variant="outline">{displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty, attendeeRegistrationType: registration.attendee.registrationType })}</Badge>
                     </TableCell>
                     <TableCell>
                       {registration.pricingTier?.name ? (

@@ -186,6 +186,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               tags: true,
               dietaryReqs: true,
               specialty: true,
+              registrationType: true,
             },
           },
           ticketType: {

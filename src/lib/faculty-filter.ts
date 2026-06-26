@@ -23,3 +23,28 @@ export const EXCLUDE_FACULTY_WHERE: Prisma.RegistrationWhereInput = {
 export const FACULTY_ONLY_WHERE: Prisma.RegistrationWhereInput = {
   ticketType: { isFaculty: true },
 };
+
+/**
+ * The professional registration type to DISPLAY for a registration.
+ *
+ * For a faculty companion (the `isFaculty` ticket type) this returns the
+ * person's profession (Physician / Allied Health / Nurse / Others) from the
+ * attendee's `registrationType` — NEVER the literal "Faculty" (that's a
+ * badge/role, not a profession), falling back to "—" when the profession wasn't
+ * recorded. For everyone else it's the ticket-type name, which IS the
+ * professional category for a normal delegate. Pure + client-safe.
+ */
+export function displayRegistrationType(
+  input: {
+    ticketTypeName?: string | null;
+    isFaculty?: boolean | null;
+    attendeeRegistrationType?: string | null;
+  },
+  emptyLabel = "—",
+): string {
+  if (input.isFaculty) {
+    const rt = input.attendeeRegistrationType;
+    return rt && rt !== "Faculty" ? rt : emptyLabel;
+  }
+  return input.ticketTypeName ?? emptyLabel;
+}

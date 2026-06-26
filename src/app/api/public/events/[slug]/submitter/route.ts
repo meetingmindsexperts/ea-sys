@@ -326,6 +326,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           zipCode: data.zipCode || null,
           country: data.country,
           specialty: data.specialty,
+          registrationType: data.registrationType || null,
           sourceRegistrationId: speakerRow.sourceRegistrationId,
         });
       } catch (err) {
