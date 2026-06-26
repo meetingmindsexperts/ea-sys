@@ -103,8 +103,11 @@ export function IssuedCertificatesCard({
     }
   }
 
-  // No id supplied — defensive, makes the bug visible during dev.
+  // No id supplied — a developer wiring bug. Surface it loudly in dev,
+  // but never ship the amber sentinel panel to a real user in prod
+  // (render nothing instead).
   if (!registrationId && !speakerId) {
+    if (process.env.NODE_ENV !== "development") return null;
     return (
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
         IssuedCertificatesCard: pass registrationId OR speakerId.
