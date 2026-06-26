@@ -505,7 +505,7 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
       loadReviewerGuardAndCriteria(ctx.eventId),
       db.abstractReviewer.findUnique({
         where: { abstractId_userId: { abstractId, userId: ctx.userId } },
-        select: { id: true },
+        select: { id: true, conflictFlag: true },
       }),
     ]);
     const reviewerUserIds = (eventData?.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
@@ -514,6 +514,15 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
       return {
         error: `User ${ctx.userId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`,
         code: "NOT_A_REVIEWER",
+      };
+    }
+
+    // Conflict-of-interest enforcement (parity with the REST submissions route).
+    if (existingAssignment?.conflictFlag) {
+      apiLogger.warn({ abstractId, reviewerUserId: ctx.userId }, "abstract-submission:coi-blocked");
+      return {
+        error: "You have a declared conflict of interest on this abstract and cannot submit a review for it.",
+        code: "CONFLICT_OF_INTEREST",
       };
     }
 
@@ -665,7 +674,7 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
       loadReviewerGuardAndCriteria(ctx.eventId),
       db.abstractReviewer.findUnique({
         where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
-        select: { id: true },
+        select: { id: true, conflictFlag: true },
       }),
     ]);
     if (!reviewer) return { error: `User ${reviewerUserId} not found`, code: "USER_NOT_FOUND" };
@@ -675,6 +684,17 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
       return {
         error: `User ${reviewerUserId} is not a reviewer for this event. Assign them to the abstract or add to event.settings.reviewerUserIds first.`,
         code: "NOT_A_REVIEWER",
+      };
+    }
+
+    // Conflict-of-interest enforcement: don't let an admin record a review for
+    // a reviewer flagged as conflicted on this abstract (parity with the REST +
+    // self-submit paths — a conflicted review must never count).
+    if (existingAssignment?.conflictFlag) {
+      apiLogger.warn({ abstractId, reviewerUserId, onBehalfOf: true }, "abstract-submission:coi-blocked");
+      return {
+        error: `Reviewer ${reviewerUserId} has a declared conflict of interest on this abstract; their review cannot be recorded.`,
+        code: "CONFLICT_OF_INTEREST",
       };
     }
 

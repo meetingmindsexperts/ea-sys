@@ -161,7 +161,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.abstractReviewer.findUnique({
         where: { abstractId_userId: { abstractId, userId: session.user.id } },
-        select: { id: true },
+        select: { id: true, conflictFlag: true },
       }),
     ]);
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -176,6 +176,22 @@ export async function POST(req: Request, { params }: RouteParams) {
         {
           error: "You are not a reviewer for this event",
           code: "NOT_A_REVIEWER",
+        },
+        { status: 403 },
+      );
+    }
+
+    // Conflict-of-interest enforcement: if an organizer flagged this reviewer
+    // as conflicted on this abstract, block them from scoring it — their review
+    // must not count toward the decision. (Pool reviewers with no explicit
+    // assignment carry no COI flag; admins recording a review for someone else
+    // use the separate on-behalf path, which enforces the same rule.)
+    if (existingAssignment?.conflictFlag) {
+      apiLogger.warn({ msg: "abstract-submission:coi-blocked", eventId, abstractId, reviewerUserId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "You have a declared conflict of interest on this abstract and cannot submit a review for it. Contact the event organizer if this is incorrect.",
+          code: "CONFLICT_OF_INTEREST",
         },
         { status: 403 },
       );
