@@ -841,6 +841,17 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </div>
 
       <div class="sub" id="s4-7">
+        <div class="sub-title">In-person vs virtual attendance (Hybrid events)</div>
+        <p>On <strong>Hybrid</strong> events, each registration is either <strong>In-person</strong> or <strong>Virtual</strong>. A virtual attendee gets no entry barcode or badge, does <em>not</em> consume a venue seat (so a sold-out room still accepts virtual signups), and is priced by the ticket type&rsquo;s <strong>virtual price</strong>.</p>
+        <p><strong>Where to change it.</strong> Open the registration &rarr; on the detail sheet&rsquo;s <strong>Details</strong> tab, use the <strong>Attendance</strong> dropdown (shown on Hybrid events only) to switch between In-person and Virtual:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Virtual &rarr; In-person:</strong> an entry barcode is issued automatically and the registration claims a venue seat. If that ticket type is sold out, the switch is blocked and the registration stays virtual &mdash; nobody is stranded.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>In-person &rarr; Virtual:</strong> the venue seat is released and badge / check-in are suppressed. The existing barcode is kept for audit.</div></div>
+        </div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Switching attendance does not re-price the registration</div><div class="c-text">The Attendance toggle moves the venue seat and the barcode, but it does <strong>not</strong> recalculate the amount owed (in-person price vs virtual price). If the price should change, adjust the payment separately on the <strong>Billing &amp; Payments</strong> tab.</div></div></div>
+      </div>
+
+      <div class="sub" id="s4-8">
         <div class="sub-title">Bulk import from CSV</div>
         <p>Got a list of registrants from a sponsor or partner? Import them in one shot. Required columns: <code>email</code>, <code>firstName</code>, <code>lastName</code>. Optional columns include <code>organization</code>, <code>jobTitle</code>, <code>phone</code>, <code>title</code>, <code>specialty</code>, <code>registrationType</code>, <code>tags</code>, plus three newer columns for finer control:</p>
         <div class="ig-3">
@@ -851,7 +862,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Existing templates keep working</div><div class="c-text">Templates without the three new columns continue to import &mdash; they fall back to the prior defaults (CONFIRMED status, UNASSIGNED/COMPLIMENTARY payment based on price, no sponsor).</div></div></div>
       </div>
 
-      <div class="sub" id="s4-8">
+      <div class="sub" id="s4-9">
         <div class="sub-title">Bulk actions on the list</div>
         <p>Tick the checkboxes on multiple registrations to enable the bulk-action bar at the top of the list:</p>
         <div class="ig">
@@ -1041,6 +1052,12 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="ss-img-cap">Reviewers tab. Two ways to add a reviewer: pick from existing speakers, or invite by email. Invited reviewers receive an email with a magic-link to set up their account.</div>
         </figure>
         <p>Reviewers are <strong>org-independent</strong> &mdash; the same reviewer can review across multiple events without being part of your organisation. Per-abstract assignment is optional; reviewers in the event pool can pick up any abstract.</p>
+
+        <div class="callout c-info"><div class="c-icon">&#x2709;&#xFE0F;</div><div class="c-body"><div class="c-title">Reviewers are emailed automatically &mdash; you don&rsquo;t have to chase them</div><div class="c-text"><strong>Adding a reviewer to the pool:</strong> an existing reviewer account gets a &ldquo;you&rsquo;re a reviewer for this event&rdquo; email; a brand-new account gets the account-setup magic-link instead. <strong>Assigning a reviewer to a specific abstract</strong> (from the abstract&rsquo;s Reviewers card): that reviewer is emailed the abstract title and their role, with a link to their <code>/my-reviews</code> portal. The system tells them there&rsquo;s work waiting &mdash; no manual nudge needed.</div></div></div>
+
+        <p><strong>Resending a stuck invitation.</strong> On the Reviewers tab, any reviewer still showing a <strong>Pending Invitation</strong> badge has a <strong>Resend</strong> button next to <strong>Remove</strong>. Click it to send a fresh setup link (a new link is generated each time). If the email still can&rsquo;t be delivered, you get an error message immediately &mdash; so a wrong address never fails silently. For a reviewer who has already accepted, Resend sends them a reminder instead.</p>
+
+        <div class="callout c-warn"><div class="c-icon">&#x1F6AB;</div><div class="c-body"><div class="c-title">The Conflict-of-Interest flag blocks scoring</div><div class="c-text">On an abstract&rsquo;s Reviewers card you can mark a reviewer&rsquo;s assignment with a <strong>Conflict of Interest</strong> flag. This is <strong>enforced</strong>: a flagged reviewer cannot submit a review for that abstract &mdash; they&rsquo;re blocked with a clear message, so a conflicted score can never count toward the decision. They can still read the abstract; only scoring is blocked. Clear the flag if it was set in error.</div></div></div>
       </div>
 
       <div class="sub" id="s7-5">
