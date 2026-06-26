@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 
 type TagMode = "add" | "remove" | "replace";
 
@@ -65,8 +66,17 @@ export function BulkTagDialog({
 
   const handleSubmit = async () => {
     if (tags.length === 0 && mode !== "replace") return;
-    await onSubmit(tags, mode);
-    handleOpenChange(false);
+    try {
+      await onSubmit(tags, mode);
+      handleOpenChange(false);
+    } catch (err) {
+      // Surface the failure instead of leaving the dialog open with no
+      // feedback — the caller's success toast is skipped when the mutation
+      // throws, so without this the operator gets nothing. Keep the dialog
+      // open so they can retry. (ROADMAP "frontend silent failures".)
+      console.error("bulk-tag: failed to apply tags", err);
+      toast.error("Couldn't update tags. Please try again.");
+    }
   };
 
   return (
