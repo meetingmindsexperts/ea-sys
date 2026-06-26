@@ -33,6 +33,15 @@ export function LivePlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Latest-value ref for the status callback so the init effect below does NOT
+  // list it as a dependency. A caller passing a non-memoized onStreamStatusChange
+  // would otherwise re-run the whole effect — tearing down + re-creating the HLS
+  // instance and the 10s recovery poll — on every render (ROADMAP webinar LOW).
+  // On the public page the prop is undefined so this is harmless today; the ref
+  // future-proofs it. Updating a ref during render is StrictMode-safe.
+  const onStreamStatusChangeRef = useRef(onStreamStatusChange);
+  onStreamStatusChangeRef.current = onStreamStatusChange;
+
   const pollStreamStatus = useCallback(async () => {
     try {
       const res = await fetch(`/api/public/events/${slug}/sessions/${sessionId}/stream-status`);
@@ -54,7 +63,7 @@ export function LivePlayer({
     // instead of dead-ending the viewer in an error/reload screen.
     function startRecoveryPoll(reason: "idle" | "ended") {
       setStatus("offline");
-      onStreamStatusChange?.(reason);
+      onStreamStatusChangeRef.current?.(reason);
       clearInterval(pollInterval);
       pollInterval = setInterval(async () => {
         const data = await pollStreamStatus();
@@ -105,7 +114,7 @@ export function LivePlayer({
         video.onloadedmetadata = () => {
           if (mounted) {
             setStatus("playing");
-            onStreamStatusChange?.("active");
+            onStreamStatusChangeRef.current?.("active");
             video.play().catch(() => {});
           }
         };
@@ -139,7 +148,7 @@ export function LivePlayer({
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (mounted) {
             setStatus("playing");
-            onStreamStatusChange?.("active");
+            onStreamStatusChangeRef.current?.("active");
             video.play().catch(() => {});
           }
         });
@@ -168,7 +177,7 @@ export function LivePlayer({
         (hlsRef.current as { destroy: () => void }).destroy();
       }
     };
-  }, [hlsUrl, slug, sessionId, pollStreamStatus, onStreamStatusChange, retryNonce]);
+  }, [hlsUrl, slug, sessionId, pollStreamStatus, retryNonce]);
 
   const toggleMute = () => {
     if (videoRef.current) {
