@@ -73,7 +73,7 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
@@ -302,6 +302,9 @@ export function RegistrationDetailSheet({
   // bulkTagRegistrations invalidation so adding a tag here makes it
   // immediately appear in the dropdown for other sheets.
   const eventTagsQuery = useEventTags(eventId);
+  // For the hybrid attendance-mode toggle (only meaningful on HYBRID events).
+  const { data: eventForMode } = useEvent(eventId);
+  const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
   const previewMutation = usePreviewEmailBySlug(eventId);
 
   const handlePreviewRegistrationEmail = async () => {
@@ -1105,6 +1108,40 @@ export function RegistrationDetailSheet({
                 <div className="flex items-center gap-3">
                   <ClipboardList className="h-4 w-4 text-muted-foreground" />
                   <div className="font-medium">{selectedRegistration.ticketType?.name ?? "—"}</div>
+                </div>
+              )}
+
+              {/* Attendance mode — HYBRID events only. Gated `!isReviewer` to
+                  match the other seat-affecting selects (Registration Type)
+                  and the PUT route's REGISTRATION_DESK_ALLOW (admins, organizers
+                  + registration-desk staff can change it; reviewers can't). */}
+              {isHybridEvent && !isReviewer && (
+                <div className="space-y-2">
+                  <Label>Attendance</Label>
+                  <Select
+                    value={selectedRegistration.attendanceMode ?? "IN_PERSON"}
+                    onValueChange={(value) =>
+                      updateRegistration.mutate({
+                        id: selectedRegistration.id,
+                        data: { attendanceMode: value },
+                      })
+                    }
+                    disabled={updateRegistration.isPending}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IN_PERSON">In-person</SelectItem>
+                      <SelectItem value="VIRTUAL">Virtual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Switching to <strong>in-person</strong> issues an entry barcode and
+                    takes a venue seat (blocked if the type is sold out); <strong>virtual</strong>{" "}
+                    releases the seat and suppresses badge/check-in. This does <strong>not</strong>{" "}
+                    change the amount owed — adjust payment separately if needed.
+                  </p>
                 </div>
               )}
 

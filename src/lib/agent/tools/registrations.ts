@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
+import { planSeatTransition, needsQrCode } from "@/lib/registration-seat";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -423,6 +424,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         ticketTypeId: true,
         attendeeId: true,
         promoCodeId: true,
+        // Hybrid seat accounting + lazy barcode mint on virtual↔in-person.
+        attendanceMode: true,
+        qrCode: true,
         attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
         event: { select: { settings: true } },
       },
@@ -514,6 +518,15 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (!ticket) return { error: `ticketTypeId ${newTicketTypeId} not found in this event` };
     }
 
+    // Hybrid attendance mode change (HYBRID events). VIRTUAL holds no venue
+    // seat + has no barcode; virtual→in-person lazily mints a qrCode + claims a
+    // seat, in-person→virtual releases the seat (keeps the barcode for audit).
+    const rawMode = input.attendanceMode ? String(input.attendanceMode).toUpperCase() : undefined;
+    if (rawMode && rawMode !== "IN_PERSON" && rawMode !== "VIRTUAL") {
+      return { error: `Invalid attendanceMode "${rawMode}". Must be IN_PERSON or VIRTUAL.` };
+    }
+    const attendanceMode = rawMode as "IN_PERSON" | "VIRTUAL" | undefined;
+
     const attendeeUpdates: Prisma.AttendeeUpdateInput = {};
     const a = input.attendee as Record<string, unknown> | undefined;
     if (a && typeof a === "object") {
@@ -580,61 +593,65 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       // soldCount inflated → events falsely reported sold-out and rejected
       // paying registrants. Same four mutually-exclusive cases as REST.
       const effectiveStatus = status || existing.status;
+      const effectiveMode = attendanceMode || existing.attendanceMode;
+      const effectiveTypeId = newTicketTypeId || existing.ticketTypeId;
       const isBecomingCancelled =
         effectiveStatus === "CANCELLED" && existing.status !== "CANCELLED";
-      const isReactivating =
-        effectiveStatus !== "CANCELLED" && existing.status === "CANCELLED";
       const isChangingType =
         !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
 
-      if (isBecomingCancelled && existing.ticketTypeId) {
-        // Release the seat.
+      // Seat accounting via the single seat model (mirrors REST PUT): status /
+      // attendanceMode / ticketType changes are all handled, and a VIRTUAL reg
+      // holds no seat so cancel/reactivate/type-change of a virtual reg no
+      // longer moves the counter. Atomic `soldCount < quantity` claim = the
+      // oversell guard; virtual→in-person on a sold-out type hard-fails
+      // CAPACITY_EXCEEDED (the reg stays virtual — a valid state).
+      const seat = planSeatTransition(
+        {
+          status: existing.status,
+          attendanceMode: existing.attendanceMode,
+          ticketTypeId: existing.ticketTypeId,
+        },
+        {
+          // effectiveStatus/effectiveMode are validated strings here; cast to
+          // the row's enum types (status was checked against REGISTRATION_STATUSES,
+          // attendanceMode against IN_PERSON/VIRTUAL above).
+          status: effectiveStatus as typeof existing.status,
+          attendanceMode: effectiveMode as typeof existing.attendanceMode,
+          ticketTypeId: effectiveTypeId,
+        },
+      );
+      if (seat.release) {
         await tx.ticketType.update({
-          where: { id: existing.ticketTypeId },
+          where: { id: seat.release },
           data: { soldCount: { decrement: 1 } },
         });
-      } else if (isReactivating) {
-        // Re-acquire a seat on the target type, capacity-guarded.
-        const targetTypeId = newTicketTypeId || existing.ticketTypeId;
-        if (targetTypeId) {
-          const ticket = await tx.ticketType.findUnique({
-            where: { id: targetTypeId },
-            select: { quantity: true },
-          });
-          if (ticket) {
-            // Atomic re-claim — predicate on the update is the guard (mirrors REST).
-            const claimed = await tx.ticketType.updateMany({
-              where: { id: targetTypeId, soldCount: { lt: ticket.quantity } },
-              data: { soldCount: { increment: 1 } },
-            });
-            if (claimed.count === 0) {
-              throw new Error("CAPACITY_EXCEEDED");
-            }
-          }
-        }
-      } else if (isChangingType && effectiveStatus !== "CANCELLED") {
-        // Moving between types on an active registration: decrement old,
-        // increment new (capacity-guarded), and keep attendee.registrationType
-        // in sync with the new type name — exactly as REST does.
-        if (existing.ticketTypeId) {
-          await tx.ticketType.update({
-            where: { id: existing.ticketTypeId },
-            data: { soldCount: { decrement: 1 } },
-          });
-        }
-        const newTicket = await tx.ticketType.findUnique({
-          where: { id: newTicketTypeId },
-          select: { quantity: true, name: true },
+      }
+      if (seat.claim) {
+        const ticket = await tx.ticketType.findUnique({
+          where: { id: seat.claim },
+          select: { quantity: true },
         });
-        if (!newTicket) {
+        if (!ticket) {
           throw new Error("CAPACITY_EXCEEDED");
         }
-        // Atomic claim on the new type — predicate guards against oversell.
         const claimed = await tx.ticketType.updateMany({
-          where: { id: newTicketTypeId, soldCount: { lt: newTicket.quantity } },
+          where: { id: seat.claim, soldCount: { lt: ticket.quantity } },
           data: { soldCount: { increment: 1 } },
         });
         if (claimed.count === 0) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
+      }
+
+      // Keep attendee.registrationType synced with the new ticket type name
+      // when the type changes (applies to virtual too).
+      if (isChangingType) {
+        const newTicket = await tx.ticketType.findUnique({
+          where: { id: newTicketTypeId },
+          select: { name: true },
+        });
+        if (!newTicket) {
           throw new Error("CAPACITY_EXCEEDED");
         }
         await tx.attendee.update({
@@ -659,6 +676,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (payerReferenceInput !== undefined) regData.payerReference = payerReferenceInput;
       if (attendeeIsGuarantorInput !== undefined) regData.attendeeIsGuarantor = attendeeIsGuarantorInput;
       if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
+      if (attendanceMode !== undefined) regData.attendanceMode = attendanceMode as never;
+      // Lazy entry-barcode mint when becoming (or already) in-person with none.
+      if (needsQrCode(effectiveMode, existing.qrCode)) regData.qrCode = generateBarcode();
       if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
       if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
       if (input.notes !== undefined) regData.notes = String(input.notes).slice(0, 2000);
@@ -748,8 +768,10 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         entityId: registrationId,
         changes: {
           source: "mcp",
-          before: { status: existing.status, paymentStatus: existing.paymentStatus, ticketTypeId: existing.ticketTypeId },
-          after: { status: result.status, paymentStatus: result.paymentStatus, ticketTypeId: result.ticketTypeId },
+          before: { status: existing.status, paymentStatus: existing.paymentStatus, ticketTypeId: existing.ticketTypeId, attendanceMode: existing.attendanceMode },
+          after: { status: result.status, paymentStatus: result.paymentStatus, ticketTypeId: result.ticketTypeId, attendanceMode: attendanceMode ?? existing.attendanceMode },
+          // Whether this update lazily minted an entry barcode (virtual→in-person).
+          qrCodeMinted: needsQrCode(attendanceMode ?? existing.attendanceMode, existing.qrCode),
           attendeeFieldsChanged: Object.keys(attendeeUpdates),
         },
       },
