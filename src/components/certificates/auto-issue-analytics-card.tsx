@@ -5,7 +5,7 @@
  * certificates page "Issue" tab. Shows the retry/backoff state of
  * survey-completed registrations + the delivery state of the auto runs,
  * so an organizer can see at a glance whether survey-gated certs are
- * flowing and what (if anything) is stuck. Read-only; polls every ~20s.
+ * flowing and what (if anything) is stuck. Read-only; polls every ~60s.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -84,8 +84,11 @@ export function AutoIssueAnalyticsCard({ eventId }: { eventId: string }) {
       if (!res.ok) throw new Error(`Failed to load auto-issue analytics (${res.status})`);
       return res.json();
     },
-    refetchInterval: 20_000,
-    staleTime: 10_000,
+    // Auto-issue moves slowly (worker sweep every ~3 min), so a 60s poll is
+    // plenty and avoids re-running the analytics aggregates 3×/min per open
+    // dashboard. (ROADMAP Phase 2 M1 — poll half; the index half is deferred.)
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
   return (
