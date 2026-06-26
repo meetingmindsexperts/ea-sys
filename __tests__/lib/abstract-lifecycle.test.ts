@@ -148,6 +148,38 @@ describe("Abstract: save draft", () => {
   });
 });
 
+// ── (Re)submission predicate ───────────────────────────────────────────────
+// Mirrors the PUT route's `isSubmission` gate. Previously it was
+// `status === "SUBMITTED" && existing === "DRAFT"`, so a REVISION_REQUESTED →
+// SUBMITTED resubmit was silent (no submittedAt re-stamp, no reviewer/organizer
+// notification). The fix broadens it to "INTO SUBMITTED from any non-SUBMITTED
+// state".
+function isSubmission(nextStatus: string | undefined, existingStatus: string): boolean {
+  return nextStatus === "SUBMITTED" && existingStatus !== "SUBMITTED";
+}
+
+describe("Abstract: (re)submission predicate", () => {
+  it("DRAFT → SUBMITTED is a submission (first submit)", () => {
+    expect(isSubmission("SUBMITTED", "DRAFT")).toBe(true);
+  });
+
+  it("REVISION_REQUESTED → SUBMITTED is a submission (resubmit after feedback)", () => {
+    expect(isSubmission("SUBMITTED", "REVISION_REQUESTED")).toBe(true);
+  });
+
+  it("SUBMITTED → SUBMITTED is NOT a submission (a plain re-save)", () => {
+    expect(isSubmission("SUBMITTED", "SUBMITTED")).toBe(false);
+  });
+
+  it("a draft save (DRAFT → DRAFT) is NOT a submission", () => {
+    expect(isSubmission("DRAFT", "DRAFT")).toBe(false);
+  });
+
+  it("a field-only update (no status) is NOT a submission", () => {
+    expect(isSubmission(undefined, "SUBMITTED")).toBe(false);
+  });
+});
+
 // ── Edit abstract (update schema) ──────────────────────────────────────────
 
 describe("Abstract: edit/update schema", () => {

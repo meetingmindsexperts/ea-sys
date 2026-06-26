@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 
@@ -297,8 +298,40 @@ export async function POST(req: Request, { params }: RouteParams) {
     // speaker's detail sheet (Email History card).
     const speakerRow = await db.speaker.findUnique({
       where: { eventId_email: { eventId: event.id, email: emailLower } },
-      select: { id: true },
+      select: { id: true, sourceRegistrationId: true },
     });
+
+    // Provision the companion registration (the "attendee facet") so a
+    // self-registered submitter-speaker still gets a badge / entry barcode /
+    // check-in / survey / certificate via the normal registration machinery —
+    // mirroring createSpeaker + the import paths. Without this the submitter
+    // route's raw speaker.create left these faculty with no scannable code.
+    // Failure-isolated: a hiccup must NOT fail the account create; the backfill
+    // script recovers any that fail.
+    if (speakerRow) {
+      try {
+        await ensureSpeakerCompanionRegistration({
+          id: speakerRow.id,
+          eventId: event.id,
+          email: emailLower,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          title: data.title,
+          additionalEmail: data.additionalEmail || null,
+          organization: data.organization,
+          jobTitle: data.jobTitle,
+          phone: data.phone,
+          city: data.city,
+          state: data.state || null,
+          zipCode: data.zipCode || null,
+          country: data.country,
+          specialty: data.specialty,
+          sourceRegistrationId: speakerRow.sourceRegistrationId,
+        });
+      } catch (err) {
+        apiLogger.error({ err, speakerId: speakerRow.id, eventId: event.id }, "submitter:companion-failed");
+      }
+    }
 
     // Send welcome email (non-blocking)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";

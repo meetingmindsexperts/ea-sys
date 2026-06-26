@@ -12,6 +12,9 @@ import {
   type ChangeAbstractStatusErrorCode,
 } from "@/services/abstract-service";
 import { optimisticLockField } from "@/lib/optimistic-lock";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { getTitleLabel } from "@/lib/utils";
+import { notifyEventAdmins } from "@/lib/notifications";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -213,7 +216,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const isReview = data.status && reviewStatuses.includes(data.status);
-    const isSubmission = data.status === "SUBMITTED" && existingAbstract.status === "DRAFT";
+    // A (re)submission = the submitter moving the abstract INTO SUBMITTED from
+    // any other editable state — DRAFT (first submit) OR REVISION_REQUESTED
+    // (resubmit after addressing feedback). Both must re-stamp submittedAt and
+    // re-notify reviewers/organizers; SUBMITTED→SUBMITTED re-saves are not.
+    const isSubmission = data.status === "SUBMITTED" && existingAbstract.status !== "SUBMITTED";
     // WITHDRAWN transitions aren't in `reviewStatuses` (reviewers don't set
     // that) but still need the service's terminal-state bookkeeping.
     const isTerminal = data.status === "WITHDRAWN" && existingAbstract.status !== "WITHDRAWN";
@@ -351,6 +358,54 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       },
     }).catch((err) => apiLogger.error({ err, eventId, abstractId }, "abstract-update:audit-log-failed"));
+
+    // (Re)submission notification — the PUT path was previously silent on
+    // submit, so a REVISION_REQUESTED→SUBMITTED resubmit went unnoticed by
+    // reviewers/organizers and unconfirmed to the author. Mirror the create
+    // POST: confirm to the submitter + notify organizers the abstract is back
+    // for review. Both non-blocking.
+    if (isSubmission && abstract.speaker) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+      const isResubmit = existingAbstract.status === "REVISION_REQUESTED";
+      const vars = {
+        title: getTitleLabel(abstract.speaker.title),
+        firstName: abstract.speaker.firstName,
+        lastName: abstract.speaker.lastName,
+        eventName: abstract.event?.name || "",
+        abstractTitle: abstract.title,
+        managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
+      };
+      (async () => {
+        const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
+          || getDefaultTemplate("abstract-submission-confirmation");
+        if (!tpl) { apiLogger.warn({ msg: "No template found for abstract-submission-confirmation" }); return; }
+        const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName };
+        const rendered = renderAndWrap(tpl, vars, branding);
+        await sendEmail({
+          to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
+          cc: brandingCc(branding, [{ email: abstract.speaker!.email }], [abstract.speaker!.additionalEmail]),
+          ...rendered,
+          from: brandingFrom(branding),
+          emailType: "abstract_submission_confirmation",
+          stream: "transactional",
+          logContext: {
+            organizationId: session.user.organizationId ?? null,
+            eventId,
+            entityType: "SPEAKER",
+            entityId: abstract.speaker!.id,
+            templateSlug: "abstract-submission-confirmation",
+            triggeredByUserId: session.user.id,
+          },
+        });
+      })().catch((err) => apiLogger.error({ err, msg: "Failed to send abstract resubmission confirmation email" }));
+
+      notifyEventAdmins(eventId, {
+        type: "ABSTRACT",
+        title: isResubmit ? "Abstract Resubmitted" : "New Abstract Submitted",
+        message: `"${abstract.title}" ${isResubmit ? "resubmitted (revision)" : "submitted"} by ${abstract.speaker.firstName} ${abstract.speaker.lastName}`,
+        link: `/events/${eventId}/abstracts`,
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));
+    }
 
     return NextResponse.json(abstract);
   } catch (error) {

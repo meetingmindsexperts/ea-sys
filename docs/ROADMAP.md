@@ -259,6 +259,24 @@ A new read-only role for stakeholders who need dashboard visibility without writ
 
 The following items are candidates for the next development phases. Priorities can be adjusted based on business needs.
 
+### Reviewer/submitter lifecycle audit — open findings (June 26, 2026)
+
+A 3-agent end-to-end trace of the reviewer + submitter + crossover flows. **Two production-breaking HIGHs were fixed in-session** (commit pending): self-registered submitter-speakers now mint a companion registration (badge/check-in/survey/cert), and resubmit-after-revision now re-stamps `submittedAt` + emails the author + notifies organizers. The rest are tracked here:
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **Pool reviewers never told there's work; per-abstract reviewers card omits pool members** | HIGH | M | The common pool path sends one generic account invite then silence; the per-abstract card only lists `AbstractReviewer` rows, so organizers can't see pool-reviewer progress. Needs a per-abstract "notify assigned reviewer" + the card to merge pool members. |
+| **No reviewer reminder mechanism** | HIGH | M | Unlike payment/agreement chases, no way to nudge reviewers who haven't submitted. Can't drive a review round to completion in-product. |
+| **Per-abstract assignment sends no notification** | HIGH | S | Both REST `POST .../reviewers` and MCP `assign_reviewer_to_abstract` write the row silently — the assigned reviewer is never told. |
+| **Accepted-abstract → "you're presenting" handoff is 100% manual** | HIGH | L | ACCEPTED only flips status + emails a notice with no what/when/where; no link to a session. **Product call needed** — may be intentionally manual; at minimum the acceptance email could say "you'll be scheduled". |
+| **Saving a DRAFT abstract emails a "submission confirmation"** | HIGH | S | `abstracts/route.ts` POST fires the confirmation for both SUBMITTED and DRAFT — a draft-save tells the author they're done. (One-line gate fix.) |
+| **COI `conflictFlag` is advisory only — not enforced** | MED | S–M | A reviewer flagged conflicted on an abstract can still open + score it; the flagged submission also counts toward the `requiredReviewCount` quorum. |
+| **Reviewer-invite email failure is silent + no "resend invitation"** | MED | S | A reviewer whose invite never sent shows "Pending Invitation" indistinguishably and has no recovery path. |
+| **`feedbackOnly` notification is dead code** | MED | S | A reviewer adding notes without a status change never notifies the author (the `feedbackOnly` branch in `notifyAbstractStatusChange` is never invoked). |
+| **Mean review score (0–100) shown to submitters** | LOW | S | Product decision — many CFP systems hide raw scores and show only the decision + notes. |
+| **Dead `eventSlug` in reviewer invite link; no "my submissions across events" home; coarse `NEEDS_UPDATE`; orphaned reviewer accounts accumulate** | LOW | — | Minor UX/cleanup items. |
+
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to
