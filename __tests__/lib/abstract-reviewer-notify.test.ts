@@ -20,7 +20,7 @@ vi.mock("@/lib/email", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
+import { notifyReviewerAssigned, notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
 import { getDefaultTemplate } from "@/lib/email";
 
 const baseArgs = {
@@ -72,6 +72,40 @@ describe("notifyReviewerAssigned", () => {
   it("skips sending when no template is configured", async () => {
     vi.mocked(getDefaultTemplate).mockReturnValueOnce(undefined);
     await notifyReviewerAssigned(baseArgs);
+    expect(sendEmailSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("notifyReviewerPoolAdded", () => {
+  const poolArgs = {
+    eventId: "ev1",
+    organizationId: "org1",
+    reviewer: { id: "u1", firstName: "Jane", lastName: "Doe", email: "jane@x.com" },
+    eventName: "MedCon",
+    triggeredByUserId: "admin1",
+  };
+
+  it("emails the reviewer the pool-invitation with USER log context", async () => {
+    await notifyReviewerPoolAdded(poolArgs);
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+    const call = sendEmailSpy.mock.calls[0][0];
+    expect(call.to).toEqual([{ email: "jane@x.com", name: "Jane Doe" }]);
+    expect(call.logContext).toMatchObject({
+      entityType: "USER",
+      entityId: "u1",
+      eventId: "ev1",
+      templateSlug: "reviewer-pool-invitation",
+    });
+  });
+
+  it("does not throw if the email send fails (failure-isolated)", async () => {
+    sendEmailSpy.mockRejectedValueOnce(new Error("SES down"));
+    await expect(notifyReviewerPoolAdded(poolArgs)).resolves.toBeUndefined();
+  });
+
+  it("skips sending when no template is configured", async () => {
+    vi.mocked(getDefaultTemplate).mockReturnValueOnce(undefined);
+    await notifyReviewerPoolAdded(poolArgs);
     expect(sendEmailSpy).not.toHaveBeenCalled();
   });
 });

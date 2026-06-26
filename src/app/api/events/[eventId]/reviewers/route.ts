@@ -9,6 +9,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
+import { notifyReviewerPoolAdded } from "@/lib/abstract-reviewer-notify";
 
 const addReviewerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("speaker"), speakerId: z.string().min(1).max(100) }),
@@ -158,6 +159,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     let userId: string;
     let invitationSent = false;
     let reviewerEmail: string;
+    // Whether the reviewer's account already existed (vs newly created). A
+    // pre-existing account gets the event-level "you're a reviewer for X"
+    // pool email; a brand-new account gets the account-setup invitation
+    // instead (which already routes them to the event).
+    let accountExisted = false;
 
     if (validated.data.type === "speaker") {
       // ---- Add from speaker ----
@@ -176,6 +182,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       if (speaker.userId) {
         userId = speaker.userId;
+        accountExisted = true; // existing linked account — no setup invite sent
       } else {
         const eventFrom = event.emailFromAddress
           ? { email: event.emailFromAddress, name: event.emailFromName || undefined }
@@ -188,6 +195,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
         userId = result.userId;
         invitationSent = result.invitationSent;
+        accountExisted = result.existed;
 
         // Link speaker to user
         await db.speaker.update({
@@ -209,6 +217,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       userId = result.userId;
       invitationSent = result.invitationSent;
+      accountExisted = result.existed;
     }
 
     // Check if already assigned
@@ -229,6 +238,25 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       },
     });
+
+    // Tell a pre-existing reviewer account they've been added to this event's
+    // pool (new accounts get the account-setup invitation instead, which
+    // already routes them to the event). Failure-isolated in the helper.
+    if (accountExisted) {
+      const reviewerUser = await db.user.findUnique({
+        where: { id: userId },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      if (reviewerUser) {
+        await notifyReviewerPoolAdded({
+          eventId,
+          organizationId: session.user.organizationId ?? null,
+          reviewer: reviewerUser,
+          eventName: event.name,
+          triggeredByUserId: session.user.id,
+        });
+      }
+    }
 
     // Sync reviewer to org contact store (fire-and-forget)
     if (validated.data.type === "speaker") {
@@ -307,7 +335,7 @@ async function findOrCreateReviewerUser(
   eventSlug: string,
   eventId: string,
   emailFrom?: { email: string; name?: string }
-): Promise<{ userId: string; invitationSent: boolean } | { error: string }> {
+): Promise<{ userId: string; invitationSent: boolean; existed: boolean } | { error: string }> {
   const normalizedEmail = email.toLowerCase();
 
   const existingUser = await db.user.findUnique({
@@ -320,7 +348,7 @@ async function findOrCreateReviewerUser(
     if (existingUser.role !== "REVIEWER") {
       return { error: `User already exists with role ${existingUser.role}. Change their role in Settings > Users first.` };
     }
-    return { userId: existingUser.id, invitationSent: false };
+    return { userId: existingUser.id, invitationSent: false, existed: true };
   }
 
   // Create new REVIEWER User with invitation (no organizationId — reviewers are org-independent)
@@ -403,5 +431,5 @@ async function findOrCreateReviewerUser(
     });
   }
 
-  return { userId: newUser.id, invitationSent: emailResult.success };
+  return { userId: newUser.id, invitationSent: emailResult.success, existed: false };
 }

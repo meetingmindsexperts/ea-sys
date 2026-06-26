@@ -1070,6 +1070,12 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "role", description: "Reviewer role (e.g. Primary reviewer)" },
     { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
   ],
+  "reviewer-pool-invitation": [
+    { key: "firstName", description: "Reviewer first name" },
+    { key: "lastName", description: "Reviewer last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
+  ],
   "custom-notification": [
     { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Recipient first name" },
@@ -1453,6 +1459,32 @@ Please log in to your reviewer portal to read the abstract and submit your score
 Review Abstract: {{reviewLink}}
 
 If you believe you have a conflict of interest with this abstract, please let the event organizer know.`,
+  },
+
+  {
+    slug: "reviewer-pool-invitation",
+    name: "Reviewer Added to Event",
+    subject: "You've been added as a reviewer — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're a Reviewer</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{firstName}} {{lastName}}</strong>,</p>
+    <p>You have been added as a reviewer for <strong>{{eventName}}</strong>. You can now review the abstracts submitted to this event and record your scores and feedback.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Go to My Reviews</a>
+    </div>
+    <p style="color: #6b7280; font-size: 14px;">If you have any questions, please contact the event organizer.</p>
+  </div>`,
+    textContent: `You've been added as a reviewer - {{eventName}}
+
+Dear {{firstName}} {{lastName}},
+
+You have been added as a reviewer for {{eventName}}. You can now review the abstracts submitted to this event and record your scores and feedback.
+
+Go to My Reviews: {{reviewLink}}
+
+If you have any questions, please contact the event organizer.`,
   },
 
   {

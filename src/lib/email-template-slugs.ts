@@ -22,6 +22,7 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "submitter-welcome",
   "abstract-reminder",
   "reviewer-assignment",
+  "reviewer-pool-invitation",
   "custom-notification",
   "payment-confirmation",
   "payment-reminder",
