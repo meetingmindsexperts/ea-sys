@@ -12,9 +12,12 @@ import {
   Copy,
   Loader2,
   Check,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatFileSize } from "@/lib/utils";
+import { useMediaView } from "@/hooks/use-media-view";
 
 interface MediaFile {
   id: string;
@@ -31,6 +34,7 @@ export default function MediaPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [view, setView] = useMediaView();
 
   const { data, isLoading } = useQuery({
     queryKey: ["media"],
@@ -109,6 +113,11 @@ export default function MediaPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleDelete = (id: string) => {
+    if (!confirm("Delete this image? This cannot be undone.")) return;
+    deleteMutation.mutate(id);
+  };
+
   const mediaFiles = data?.mediaFiles ?? [];
 
   return (
@@ -180,56 +189,125 @@ export default function MediaPage() {
           <p className="text-xs text-slate-400 mt-1">Upload images to use in your email templates</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {mediaFiles.map((media) => (
-            <Card key={media.id} className="group overflow-hidden">
-              <div className="aspect-1 relative bg-slate-50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={media.url}
-                  alt={media.filename}
-                  className="w-full h-full object-contain"
-                />
-                {/* Hover overlay */}
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-8 text-xs"
-                    onClick={() => copyUrl(media)}
-                  >
-                    {copiedId === media.id ? (
-                      <><Check className="h-3 w-3 mr-1" /> Copied</>
-                    ) : (
-                      <><Copy className="h-3 w-3 mr-1" /> Copy URL</>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="h-8 w-8 p-0"
-                    onClick={() => {
-                      if (confirm("Delete this image? This cannot be undone.")) {
-                        deleteMutation.mutate(media.id);
-                      }
-                    }}
-                    disabled={deleteMutation.isPending}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-              <div className="p-2">
-                <p className="text-xs font-medium text-slate-700 truncate" title={media.filename}>
-                  {media.filename}
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  {formatFileSize(media.size)} · {format(new Date(media.createdAt), "MMM d, yyyy")}
-                </p>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-500">{data?.total ?? 0} image{data?.total !== 1 ? "s" : ""}</p>
+            <div className="flex items-center gap-0.5 rounded-md border border-slate-200 p-0.5">
+              <Button
+                variant={view === "grid" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setView("grid")}
+                aria-label="Grid view"
+                title="Grid view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={view === "list" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setView("list")}
+                aria-label="List view"
+                title="List view"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {view === "grid" ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {mediaFiles.map((media) => (
+                <Card key={media.id} className="group overflow-hidden">
+                  <div className="aspect-1 relative bg-slate-50">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={media.url}
+                      alt={media.filename}
+                      className="w-full h-full object-contain"
+                    />
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 text-xs"
+                        onClick={() => copyUrl(media)}
+                      >
+                        {copiedId === media.id ? (
+                          <><Check className="h-3 w-3 mr-1" /> Copied</>
+                        ) : (
+                          <><Copy className="h-3 w-3 mr-1" /> Copy URL</>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-8 w-8 p-0"
+                        onClick={() => handleDelete(media.id)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    <p className="text-xs font-medium text-slate-700 truncate" title={media.filename}>
+                      {media.filename}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {formatFileSize(media.size)} · {format(new Date(media.createdAt), "MMM d, yyyy")}
+                    </p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {mediaFiles.map((media) => (
+                <Card key={media.id} className="flex items-center gap-3 p-2">
+                  <div className="h-12 w-12 shrink-0 rounded bg-slate-50 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={media.url} alt={media.filename} className="w-full h-full object-contain" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate" title={media.filename}>
+                      {media.filename}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {media.mimeType.replace("image/", "").toUpperCase()} · {formatFileSize(media.size)} · {format(new Date(media.createdAt), "MMM d, yyyy")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => copyUrl(media)}
+                    >
+                      {copiedId === media.id ? (
+                        <><Check className="h-3 w-3 mr-1" /> Copied</>
+                      ) : (
+                        <><Copy className="h-3 w-3 mr-1" /> Copy URL</>
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      onClick={() => handleDelete(media.id)}
+                      disabled={deleteMutation.isPending}
+                      aria-label="Delete image"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

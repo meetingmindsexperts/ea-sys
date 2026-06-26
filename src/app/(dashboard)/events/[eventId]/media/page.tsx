@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { formatFileSize } from "@/lib/utils";
 import { useEventMedia, useUploadEventMedia, useDeleteEventMedia, useEvent } from "@/hooks/use-api";
+import { useMediaView } from "@/hooks/use-media-view";
 
 type MediaItem = { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string };
 
@@ -26,7 +27,7 @@ export default function EventMediaPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [view, setView] = useMediaView();
 
   const { data: eventData } = useEvent(eventId);
   const { data, isLoading } = useEventMedia(eventId);
