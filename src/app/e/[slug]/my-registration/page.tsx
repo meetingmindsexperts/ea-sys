@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Mail,
   LogOut,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
@@ -129,14 +130,30 @@ export default function EventMyRegistrationPage() {
     if (slug) fetchEvent();
   }, [slug]);
 
-  const { data: allRegistrations = [], isLoading } = useQuery<Registration[]>({
+  const {
+    data: allRegistrations = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<Registration[]>({
     queryKey: ["registrant", "registrations"],
     queryFn: async () => {
       const res = await fetch("/api/registrant/registrations");
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(`Failed to load registrations (${res.status})`);
       return res.json();
     },
   });
+
+  // Surface load failures instead of silently rendering the "not registered"
+  // empty state — a paying registrant whose fetch fails would otherwise think
+  // their registration vanished. Logged to the browser console (+ Sentry
+  // breadcrumb) so a support report is debuggable.
+  useEffect(() => {
+    if (isError) {
+      console.error("registrant-portal: failed to load registrations", error);
+    }
+  }, [isError, error]);
 
   // Filter to this event only
   const registrations = allRegistrations.filter((r) => r.event.slug === slug);
@@ -307,7 +324,23 @@ export default function EventMyRegistrationPage() {
 
       {/* Content */}
       <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-8">
-        {registrations.length === 0 ? (
+        {isError ? (
+          <div className="bg-white rounded-xl border border-red-200 p-8 text-center space-y-4">
+            <AlertCircle className="h-10 w-10 text-red-400 mx-auto" />
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">Couldn&apos;t load your registration</h2>
+              <p className="text-slate-500 text-sm">
+                Something went wrong loading your registration details. Your registration is
+                safe — please try again in a moment.
+              </p>
+            </div>
+            <div className="flex items-center justify-center pt-2">
+              <Button onClick={() => refetch()}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Try again
+              </Button>
+            </div>
+          </div>
+        ) : registrations.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
             <AlertCircle className="h-10 w-10 text-slate-300 mx-auto" />
             <div>
