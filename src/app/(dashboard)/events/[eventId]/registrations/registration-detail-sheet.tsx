@@ -2260,7 +2260,13 @@ export function RegistrationDetailSheet({
                   registrationId={selectedRegistration.id}
                   recipientLabel={
                     selectedRegistration.attendee
-                      ? `${selectedRegistration.attendee.firstName} ${selectedRegistration.attendee.lastName} <${selectedRegistration.attendee.email}>`
+                      ? `${[
+                          selectedRegistration.attendee.title,
+                          selectedRegistration.attendee.firstName,
+                          selectedRegistration.attendee.lastName,
+                        ]
+                          .filter(Boolean)
+                          .join(" ")} <${selectedRegistration.attendee.email}>`
                       : undefined
                   }
                 />
