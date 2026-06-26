@@ -206,9 +206,13 @@ export default function SettingsPage() {
           currency: data.settings?.currency || "USD",
           emailNotifications: data.settings?.emailNotifications ?? true,
         });
+      } else {
+        console.error("settings:organization-load-failed", res.status);
+        toast.error("Couldn't load organization settings. Please try again.");
       }
     } catch (error) {
-      console.error("Error fetching organization:", error);
+      console.error("settings:organization-load-failed", error);
+      toast.error("Couldn't load organization settings. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -220,9 +224,11 @@ export default function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
+      } else {
+        console.error("settings:users-load-failed", res.status);
       }
     } catch (error) {
-      console.error("Error fetching users:", error);
+      console.error("settings:users-load-failed", error);
     }
   };
 

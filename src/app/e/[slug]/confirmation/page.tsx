@@ -58,7 +58,13 @@ function ConfirmationContent() {
   useEffect(() => {
     if (!slug) return;
     fetch(`/api/public/events/${slug}`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) {
+          console.error("confirmation:branding-load-failed", res.status);
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data) setBranding({
           bannerImage: data.bannerImage,
@@ -80,9 +86,13 @@ function ConfirmationContent() {
         const data: PaymentInfo = await res.json();
         setPaymentInfo(data);
         return data;
+      } else {
+        console.error("confirmation:payment-status-load-failed", res.status);
+        toast.error("Couldn't load your registration details. Please try again.");
       }
     } catch (err) {
       console.error("[confirmation] Failed to load registration details:", err);
+      toast.error("Couldn't load your registration details. Please try again.");
     }
     return null;
   }, [slug, registrationId]);

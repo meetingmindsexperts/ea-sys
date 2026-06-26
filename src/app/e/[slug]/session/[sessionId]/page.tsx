@@ -220,9 +220,11 @@ export default function PublicSessionPage() {
             setSponsors(detailData.sponsors);
           }
         } else if (!joinRes.ok) {
+          console.error("session-page:load-failed", joinRes.status, detailRes.status);
           setError(joinData.error || "Session not found");
         }
-      } catch {
+      } catch (err) {
+        console.error("session-page:load-failed", err);
         setError("Failed to load session. Please try again.");
       } finally {
         setLoading(false);

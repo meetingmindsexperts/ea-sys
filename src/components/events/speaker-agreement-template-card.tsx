@@ -50,9 +50,12 @@ export function SpeakerAgreementTemplateCard({ eventId }: Props) {
         if (res.ok) {
           const data = (await res.json()) as { template: TemplateMeta | null };
           setTemplate(data.template);
+        } else {
+          // Don't swallow a non-OK load — log it (secondary card, no toast).
+          console.error("speaker-agreement-template:load-failed", res.status);
         }
       } catch (err) {
-        console.error(err);
+        console.error("speaker-agreement-template:load-failed", err);
       } finally {
         setLoading(false);
       }

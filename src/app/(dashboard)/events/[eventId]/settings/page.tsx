@@ -304,9 +304,13 @@ export default function EventSettingsPage() {
           emailFromName: data.emailFromName || "",
           emailCcAddresses: Array.isArray(data.emailCcAddresses) ? data.emailCcAddresses : [],
         });
+      } else {
+        console.error("settings:event-load-failed", res.status);
+        toast.error("Couldn't load event settings. Please try again.");
       }
     } catch (error) {
-      console.error("Error fetching event:", error);
+      console.error("settings:event-load-failed", error);
+      toast.error("Couldn't load event settings. Please try again.");
     } finally {
       setLoading(false);
     }

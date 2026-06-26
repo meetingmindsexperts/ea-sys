@@ -49,8 +49,14 @@ export default function ContentPage() {
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
             speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
+        } else {
+          // Surface a non-OK response (500/403/...) instead of silently
+          // leaving the editor blank — the catch below only sees network errors.
+          console.error("content:load-failed", res.status);
+          toast.error("Failed to load content");
         }
-      } catch {
+      } catch (err) {
+        console.error("content:load-failed", err);
         toast.error("Failed to load content");
       } finally {
         setLoading(false);

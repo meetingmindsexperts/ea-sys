@@ -246,6 +246,7 @@ export default function SpeakerDetailPage() {
           },
         });
       } else {
+        console.error("speaker-detail:load-failed", res.status);
         setError("Speaker not found");
       }
     } catch (err) {

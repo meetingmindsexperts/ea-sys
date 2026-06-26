@@ -137,9 +137,13 @@ export default function AccommodationPage() {
       if (res.ok) {
         const data = await res.json();
         setHotels(data);
+      } else {
+        console.error("accommodation:hotels-load-failed", res.status);
+        toast.error("Couldn't load hotels. Please try again.");
       }
     } catch (error) {
-      console.error("Error fetching hotels:", error);
+      console.error("accommodation:hotels-load-failed", error);
+      toast.error("Couldn't load hotels. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -151,9 +155,13 @@ export default function AccommodationPage() {
       if (res.ok) {
         const data = await res.json();
         setAccommodations(data);
+      } else {
+        console.error("accommodation:bookings-load-failed", res.status);
+        toast.error("Couldn't load bookings. Please try again.");
       }
     } catch (error) {
-      console.error("Error fetching accommodations:", error);
+      console.error("accommodation:bookings-load-failed", error);
+      toast.error("Couldn't load bookings. Please try again.");
     }
   }, [eventId]);
 

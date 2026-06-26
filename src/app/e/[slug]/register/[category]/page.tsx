@@ -236,6 +236,7 @@ function CategoryRegistrationContent() {
       try {
         const res = await fetch(`/api/public/events/${slug}`);
         if (!res.ok) {
+          console.error("register:event-load-failed", res.status);
           setError(res.status === 404 ? "Event not found" : "Failed to load event");
           return;
         }
