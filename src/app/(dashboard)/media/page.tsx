@@ -271,13 +271,13 @@ export default function MediaPage() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={media.url} alt={media.filename} className="w-full h-full object-contain" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-700 truncate" title={media.filename}>
+                  <div className="flex-1 min-w-0 flex items-baseline gap-3">
+                    <span className="text-sm font-medium text-slate-700 truncate" title={media.filename}>
                       {media.filename}
-                    </p>
-                    <p className="text-xs text-slate-400">
+                    </span>
+                    <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">
                       {media.mimeType.replace("image/", "").toUpperCase()} · {formatFileSize(media.size)} · {format(new Date(media.createdAt), "MMM d, yyyy")}
-                    </p>
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Button
