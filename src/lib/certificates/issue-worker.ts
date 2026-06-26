@@ -121,23 +121,38 @@ export async function tickAllRuns(): Promise<{
 
 /** Reclaim runs whose RENDERING/SENDING lastTickAt is older than the
  *  stall threshold — push them back to the prior valid state so the
- *  next tick re-engages. Per-item progress is preserved. */
-async function reclaimStalledRuns(): Promise<number> {
+ *  next tick re-engages. Per-item progress is preserved.
+ *
+ *  Exported for unit testing the autoIssue-aware SENDING branch. */
+export async function reclaimStalledRuns(): Promise<number> {
   const cutoff = new Date(Date.now() - STALL_THRESHOLD_MS);
   const renderingStalls = await db.certificateIssueRun.updateMany({
     where: { status: "RENDERING", lastTickAt: { lt: cutoff } },
     data: { status: "PENDING" },
   });
+  // MANUAL SENDING stalls → bounce to AWAITING_REVIEW so an operator re-confirms
+  // before the rest of the batch goes out (the human-review gate is the point).
   const sendingStalls = await db.certificateIssueRun.updateMany({
-    where: { status: "SENDING", lastTickAt: { lt: cutoff } },
+    where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: false },
     data: { status: "AWAITING_REVIEW" },
   });
-  const total = renderingStalls.count + sendingStalls.count;
+  // AUTO (survey-gated) SENDING stalls have NO operator to re-confirm. Demoting
+  // them to AWAITING_REVIEW would strand the run un-emailed forever — and the
+  // registration is already terminally stamped, so the sweep won't re-enqueue
+  // it (silent non-delivery). Keep them in SENDING and just refresh lastTickAt
+  // so the next tick re-drains the remaining emailedAt-null items (the send
+  // phase is re-entrant; per-item failures are already marked + excluded).
+  const autoSendingStalls = await db.certificateIssueRun.updateMany({
+    where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: true },
+    data: { lastTickAt: new Date() },
+  });
+  const total = renderingStalls.count + sendingStalls.count + autoSendingStalls.count;
   if (total > 0) {
     apiLogger.warn({
       msg: "cert-issue-worker:reclaimed-stalled-runs",
       renderingReclaimed: renderingStalls.count,
       sendingReclaimed: sendingStalls.count,
+      autoSendingRefreshed: autoSendingStalls.count,
       cutoff,
     });
   }
