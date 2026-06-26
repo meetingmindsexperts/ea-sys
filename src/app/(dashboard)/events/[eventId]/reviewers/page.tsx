@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserCheck, Plus, Mail, Building2, Trash2, Send, X } from "lucide-react";
-import { useReviewers, useAddReviewer, useRemoveReviewer } from "@/hooks/use-api";
+import { useReviewers, useAddReviewer, useRemoveReviewer, useResendReviewerInvitation } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -73,6 +73,7 @@ export default function ReviewersPage() {
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
   const addReviewer = useAddReviewer(eventId);
   const removeReviewer = useRemoveReviewer(eventId);
+  const resendInvitation = useResendReviewerInvitation(eventId);
 
   const reviewers: Reviewer[] = data?.reviewers ?? [];
   const availableSpeakers: AvailableSpeaker[] = data?.availableSpeakers ?? [];
@@ -84,6 +85,7 @@ export default function ReviewersPage() {
   const [directFirstName, setDirectFirstName] = useState("");
   const [directLastName, setDirectLastName] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // Bulk email state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -144,6 +146,22 @@ export default function ReviewersPage() {
       toast.error(error instanceof Error ? error.message : "Failed to remove reviewer");
     } finally {
       setRemovingId(null);
+    }
+  };
+
+  const handleResendInvitation = async (userId: string, name: string) => {
+    setResendingId(userId);
+    try {
+      const res = await resendInvitation.mutateAsync(userId);
+      toast.success(
+        res.type === "setup"
+          ? `Invitation re-sent to ${name}`
+          : `Reviewer reminder sent to ${name}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to resend invitation");
+    } finally {
+      setResendingId(null);
     }
   };
 
@@ -437,21 +455,39 @@ export default function ReviewersPage() {
                       </div>
                     </div>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        handleRemoveReviewer(
-                          reviewer.userId,
-                          `${reviewer.firstName} ${reviewer.lastName}`
-                        )
-                      }
-                      disabled={removingId === reviewer.userId}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {removingId === reviewer.userId ? "Removing..." : "Remove"}
-                    </Button>
+                    <div className="flex gap-2 shrink-0">
+                      {!reviewer.accountActive && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            handleResendInvitation(
+                              reviewer.userId,
+                              `${reviewer.firstName} ${reviewer.lastName}`
+                            )
+                          }
+                          disabled={resendingId === reviewer.userId}
+                        >
+                          <Send className="mr-2 h-4 w-4" />
+                          {resendingId === reviewer.userId ? "Sending..." : "Resend"}
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          handleRemoveReviewer(
+                            reviewer.userId,
+                            `${reviewer.firstName} ${reviewer.lastName}`
+                          )
+                        }
+                        disabled={removingId === reviewer.userId}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {removingId === reviewer.userId ? "Removing..." : "Remove"}
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

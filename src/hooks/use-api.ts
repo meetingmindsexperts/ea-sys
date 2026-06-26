@@ -438,6 +438,20 @@ export function useRemoveReviewer(eventId: string) {
   });
 }
 
+export function useResendReviewerInvitation(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (reviewerId: string) =>
+      fetchApi<{ success: boolean; sent: boolean; type: "setup" | "pool" }>(
+        `/api/events/${eventId}/reviewers/${reviewerId}/resend-invitation`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewers(eventId) });
+    },
+  });
+}
+
 // ── Per-abstract reviewer assignments ──────────────────────────────────────
 
 export type AbstractReviewerRole = "PRIMARY" | "SECONDARY" | "CONSULTING";
