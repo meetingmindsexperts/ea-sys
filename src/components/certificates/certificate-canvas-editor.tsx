@@ -361,13 +361,24 @@ export function CertificateCanvasEditor({
   const [undoStack, setUndoStack] = useState<CertificateTextBox[][]>([]);
   const [redoStack, setRedoStack] = useState<CertificateTextBox[][]>([]);
 
+  // Latest-value ref so the nudge + snapshot callbacks can read the current
+  // textBoxes WITHOUT listing it as a dependency. Otherwise every 1pt arrow
+  // nudge (≈30/sec while holding the key) mutates textBoxes → re-creates these
+  // closures → churns the keydown handler too (ROADMAP June-3 MEDIUM). Updating
+  // a ref during render is the canonical "latest value in a stable callback"
+  // pattern (no effect, StrictMode-safe — the double-render assigns the same
+  // value). Note: undo/redo intentionally keep their state deps — their
+  // pure-updater shape is the H3 StrictMode fix and is NOT in the hot path.
+  const textBoxesRef = useRef(textBoxes);
+  textBoxesRef.current = textBoxes;
+
   const pushUndoSnapshot = useCallback(() => {
     setUndoStack((stack) => {
-      const next = [...stack, textBoxes];
+      const next = [...stack, textBoxesRef.current];
       return next.length > UNDO_STACK_MAX ? next.slice(next.length - UNDO_STACK_MAX) : next;
     });
     setRedoStack([]);
-  }, [textBoxes]);
+  }, []);
 
   // H3 fix (review round): setState updaters MUST be pure. The earlier
   // shape `setUndoStack(stack => { setRedoStack(...); onChange(...); ... })`
@@ -402,7 +413,8 @@ export function CertificateCanvasEditor({
   const handleNudgeY = useCallback(
     (direction: -1 | 1, big: boolean) => {
       if (!selectedId) return;
-      const box = textBoxes.find((b) => b.id === selectedId);
+      const current = textBoxesRef.current;
+      const box = current.find((b) => b.id === selectedId);
       if (!box) return;
       const delta = (big ? 10 : 1) * direction;
       const minY = 0;
@@ -416,10 +428,10 @@ export function CertificateCanvasEditor({
       }
       lastNudgeAtRef.current = now;
       onChange({
-        textBoxes: textBoxes.map((b) => (b.id === box.id ? { ...b, y: newY } : b)),
+        textBoxes: current.map((b) => (b.id === box.id ? { ...b, y: newY } : b)),
       });
     },
-    [selectedId, textBoxes, pageHeightPt, pushUndoSnapshot, onChange],
+    [selectedId, pageHeightPt, pushUndoSnapshot, onChange],
   );
 
   // Keyboard handler — attached to the editor wrapper div, so arrow
