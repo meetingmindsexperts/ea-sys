@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 import {
   computeSubmissionAggregates,
   computeWeightedOverallScore,
@@ -310,7 +311,7 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
     const [abstract, user] = await Promise.all([
       db.abstract.findFirst({
         where: { id: abstractId, eventId: ctx.eventId },
-        select: { id: true, event: { select: { id: true, settings: true } } },
+        select: { id: true, title: true, event: { select: { id: true, name: true, settings: true } } },
       }),
       db.user.findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true, email: true } }),
     ]);
@@ -380,6 +381,19 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
         changes: { source: "mcp", abstractId, reviewerUserId: userId, role },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
+
+    // Notify the reviewer of the new assignment (parity with the REST route).
+    // Failure-isolated inside the helper; never breaks the assignment.
+    await notifyReviewerAssigned({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+      eventName: abstract.event.name,
+      abstractTitle: abstract.title,
+      role,
+      source: "mcp",
+      triggeredByUserId: ctx.userId,
+    });
 
     return {
       success: true,

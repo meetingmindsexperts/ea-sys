@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 
 /**
  * Reviewer assignment for a specific abstract.
@@ -58,11 +59,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, abstract, user] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true },
+        select: { id: true, name: true },
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true },
+        select: { id: true, title: true },
       }),
       db.user.findUnique({
         where: { id: validated.data.userId },
@@ -175,6 +176,20 @@ export async function POST(req: Request, { params }: RouteParams) {
         changes: { source: "api", abstractId, reviewerUserId: validated.data.userId, role: assignment.role, ip: getClientIp(req) },
       },
     }).catch((err) => apiLogger.error({ err, eventId, abstractId }, "assign-reviewer:audit-log-failed"));
+
+    // Tell the reviewer they have an abstract to review (only on a NEW
+    // assignment — the role/COI-change branch above returns earlier).
+    // Failure-isolated inside the helper; never breaks the assignment.
+    await notifyReviewerAssigned({
+      eventId,
+      organizationId: session.user.organizationId ?? null,
+      reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
+      eventName: event.name,
+      abstractTitle: abstract.title,
+      role: assignment.role,
+      source: "rest",
+      triggeredByUserId: session.user.id,
+    });
 
     return NextResponse.json(
       {

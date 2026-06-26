@@ -1062,6 +1062,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "loginLink", description: "Login page link" },
   ],
+  "reviewer-assignment": [
+    { key: "firstName", description: "Reviewer first name" },
+    { key: "lastName", description: "Reviewer last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "abstractTitle", description: "Title of the assigned abstract" },
+    { key: "role", description: "Reviewer role (e.g. Primary reviewer)" },
+    { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
+  ],
   "custom-notification": [
     { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Recipient first name" },
@@ -1411,6 +1419,40 @@ Dear {{title}} {{lastName}},
 Your account has been created successfully for {{eventName}}. You can now log in to submit your abstracts.
 
 Log In: {{loginLink}}`,
+  },
+
+  {
+    slug: "reviewer-assignment",
+    name: "Reviewer Assignment",
+    subject: "You've been assigned an abstract to review — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Abstract Review Assignment</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{firstName}} {{lastName}}</strong>,</p>
+    <p>You have been assigned as <strong>{{role}}</strong> to review the following abstract for <strong>{{eventName}}</strong>:</p>
+    <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+      <p style="margin: 0; font-weight: 600; color: #111827;">{{abstractTitle}}</p>
+    </div>
+    <p>Please log in to your reviewer portal to read the abstract and submit your scores and feedback.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Review Abstract</a>
+    </div>
+    <p style="color: #6b7280; font-size: 14px;">If you believe you have a conflict of interest with this abstract, please let the event organizer know.</p>
+  </div>`,
+    textContent: `Abstract Review Assignment - {{eventName}}
+
+Dear {{firstName}} {{lastName}},
+
+You have been assigned as {{role}} to review the following abstract for {{eventName}}:
+
+  {{abstractTitle}}
+
+Please log in to your reviewer portal to read the abstract and submit your scores and feedback.
+
+Review Abstract: {{reviewLink}}
+
+If you believe you have a conflict of interest with this abstract, please let the event organizer know.`,
   },
 
   {
