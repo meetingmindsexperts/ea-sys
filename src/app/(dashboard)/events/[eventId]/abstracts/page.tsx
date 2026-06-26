@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { canWrite } from "@/lib/can-write";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +113,11 @@ export default function AbstractsPage() {
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
   const canReview    = isAdmin || isReviewer;
+  // Management writes (CSV import, bulk email, add abstract) are blocked by
+  // denyReviewer for MEMBER/ONSITE/etc. The previous `!isSubmitter && !isReviewer`
+  // gate still showed those buttons to the read-only MEMBER, who then got a 403
+  // on click. Gate on the actual write boundary instead.
+  const canManage    = canWrite(session?.user?.role);
 
   const [copied, setCopied] = useState(false);
 
@@ -431,10 +437,10 @@ export default function AbstractsPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
-          {!isSubmitter && !isReviewer && (
+          {canManage && (
             <CSVImportButton eventId={eventId} entityType="abstracts" />
           )}
-          {!isSubmitter && !isReviewer && abstracts.length > 0 && (
+          {canManage && abstracts.length > 0 && (
             <Button
               variant="secondary"
               size="sm"
@@ -454,7 +460,7 @@ export default function AbstractsPage() {
           </Button>
         )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          {!isSubmitter && !isReviewer && (
+          {canManage && (
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
