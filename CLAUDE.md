@@ -113,7 +113,7 @@ src/
 - `src/components/forms/person-form-fields.tsx` - Shared form fields for attendees/speakers/contacts
 - `src/app/api/upload/photo/route.ts` - Photo upload endpoint with validation
 - `src/app/uploads/[...path]/route.ts` - Static file handler for uploaded photos (streams from public/uploads/)
-- `src/middleware.ts` - Route-level REVIEWER/SUBMITTER redirects
+- `src/proxy.ts` - Route-level REVIEWER/SUBMITTER redirects (Next.js middleware; renamed from `middleware.ts` in Next 16.1)
 - `src/lib/stripe.ts` - Stripe SDK singleton, zero-decimal currency helpers (`isZeroDecimalCurrency`, `toStripeAmount`, `fromStripeAmount`)
 - `src/components/speakers/import-registrations-dialog.tsx` - Dialog to import event registrations as speakers
 - `src/components/speakers/import-registrations-button.tsx` - Button trigger for import-registrations dialog
@@ -143,7 +143,7 @@ src/
 - `src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts` - Returns `mode: "sdk"` (with sdkKey + signature + meetingNumber + passcode for the embed) or `mode: "url"` (generic Zoom web client redirect). 60/hr IP rate limit. Uses `generateZoomSignatureForOrg()`
 - `src/app/api/cron/webinar-recordings/route.ts` - Cron worker (every 5 min) for recording retrieval
 - `src/app/api/cron/webinar-attendance/route.ts` - Cron worker (every 10 min) for attendance sync; chains `syncWebinarEngagement()` per-row for polls + Q&A
-- `src/mcp/server.ts` - Legacy stdio transport (launched via `src/mcp/start.sh` for local dev only); drifts behind the HTTP builder, pending consolidation
+- `src/mcp/server.ts` - Legacy stdio transport (launched via `src/mcp/start.sh` for local dev only); shares the same `registerAllMcpTools()` registration as the HTTP builder, so the two stay in sync (no drift)
 - `src/lib/agent/event-tools.ts` - Entry point (~55 lines) that composes per-domain executor maps + tool definitions into the public surface: `TOOL_EXECUTOR_MAP`, `AGENT_TOOL_DEFINITIONS`, and re-exports `AgentContext`. **Every new tool goes in the appropriate `src/lib/agent/tools/*.ts` domain file**, NOT this entry point. **Must also be mirrored in `src/lib/agent/mcp-server-builder.ts` AND bump `package.json` version** (serves as MCP client cache-invalidation hint via `serverInfo.version`).
 - `src/lib/agent/tools/_shared.ts` - Shared types + constants for agent/MCP executors: `AgentContext` interface, `ToolExecutor` type, `EMAIL_RE`, `TITLE_VALUES`, `SPEAKER_STATUSES`, `REGISTRATION_STATUSES`, `MANUAL_REGISTRATION_STATUSES`, `MAX_EMAIL_RECIPIENTS`. Leaf module — must not import from other `tools/*.ts` files.
 - `src/lib/agent/tools/events.ts` - events domain: `list_event_info`, `create_event`, `update_event` (safe-fields whitelist), `list_tracks`, `create_track`.
@@ -345,7 +345,7 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 
 ### Restricted Role Enforcement (3-layer, applies to REVIEWER, SUBMITTER, and REGISTRANT)
 1. **API Layer:** `denyReviewer(session)` guard on all POST/PUT/DELETE handlers (except abstract operations and `/api/registrant/registrations` self-edit) returns 403 for REVIEWER, SUBMITTER, and REGISTRANT
-2. **Middleware Layer:** `src/middleware.ts` redirects REVIEWER/SUBMITTER from non-abstract event routes; REGISTRANT is redirected to `/my-registration` from all dashboard routes
+2. **Middleware Layer:** `src/proxy.ts` (Next.js middleware; renamed from `middleware.ts` in Next 16.1) redirects REVIEWER/SUBMITTER from non-abstract event routes; REGISTRANT is redirected to `/my-registration` from all dashboard routes
 3. **UI Layer:** Write-action buttons hidden; sidebar hidden for REGISTRANT; header shows "Reviewer Portal", "Submitter Portal", or "Registration Portal"
 
 ### Event Scoping
@@ -458,7 +458,7 @@ The project uses several optimizations to reduce module load times:
 - Singleton pattern with `globalThis` caching in development only (prevents HMR connection leaks)
 - In production (Vercel), each serverless function gets its own instance — no global caching needed
 
-**Middleware** (`src/middleware.ts`):
+**Middleware** (`src/proxy.ts`, renamed from `middleware.ts` in Next 16.1):
 - Matcher scoped to only dashboard routes (`/events/*`, `/dashboard/*`, `/settings/*`)
 - Redirects REVIEWER and SUBMITTER from non-abstract event routes to `/events/[eventId]/abstracts`
 - Public routes (`/e/*`), API routes (`/api/*`), auth pages, `/uploads/*`, and static assets skip middleware entirely
