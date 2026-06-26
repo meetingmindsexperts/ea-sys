@@ -214,8 +214,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     });
 
-    // Send abstract submission confirmation email (non-blocking)
-    if (abstract.speaker && (status === "SUBMITTED" || status === "DRAFT")) {
+    // Send abstract submission confirmation email (non-blocking). Only on an
+    // actual SUBMITTED — a DRAFT save must NOT email "your abstract was
+    // submitted" (it isn't yet, and it's invisible to reviewers).
+    if (abstract.speaker && status === "SUBMITTED") {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
       const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
       const vars = {
@@ -262,13 +264,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
 
-    // Notify admins/organizers (non-blocking)
-    notifyEventAdmins(eventId, {
-      type: "ABSTRACT",
-      title: "New Abstract Submitted",
-      message: `"${title}" submitted by ${abstract.speaker?.firstName} ${abstract.speaker?.lastName}`,
-      link: `/events/${eventId}/abstracts`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));
+    // Notify admins/organizers (non-blocking) — only on an actual submission,
+    // not a DRAFT save (a draft isn't actionable + "New Abstract Submitted"
+    // would be misleading).
+    if (status === "SUBMITTED") {
+      notifyEventAdmins(eventId, {
+        type: "ABSTRACT",
+        title: "New Abstract Submitted",
+        message: `"${title}" submitted by ${abstract.speaker?.firstName} ${abstract.speaker?.lastName}`,
+        link: `/events/${eventId}/abstracts`,
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));
+    }
 
     // Log the action (non-blocking for better response time)
     db.auditLog.create({
