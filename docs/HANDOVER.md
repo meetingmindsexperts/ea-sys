@@ -234,6 +234,53 @@ EA-SYS is mid-way through extracting shared business logic out of route handlers
 - **Phase 3** — driven by external API surface when it ships.
 - **Phase 4** — opportunistic for everything else (extract when touching a route for a feature reason).
 
+### 2.6 Client Data Fetching (React Query / TanStack Query)
+
+**All client-side data access goes through hooks in [`src/hooks/use-api.ts`](../src/hooks/use-api.ts).** Components never call `fetch()` directly — they call a hook (`useRegistrations(eventId)`, `useCreateTicket(eventId)`, …). This gives every page the same caching, background refresh, and cache-invalidation behaviour for free. There are ~34 read hooks (`useQuery`) and ~84 write hooks (`useMutation`).
+
+**The four primitives you'll see (from `@tanstack/react-query`):**
+
+| Primitive | What it is | In this codebase |
+|---|---|---|
+| `useQuery` | **Read.** Fetches + caches data by a query key; returns `{ data, isLoading, isFetching, error }`. Re-renders when the cache updates. | Every `useX` read hook — `useEvents`, `useRegistrations`, `useTickets`, … (often via the `useEventListQuery` helper). |
+| `useMutation` | **Write.** Wraps a POST/PUT/PATCH/DELETE; returns `{ mutate, mutateAsync, isPending, error }`. Doesn't auto-refresh — you tell it what to do on success. | Every `useCreateX` / `useUpdateX` / `useDeleteX` hook. |
+| `useQueryClient` | Handle to the shared cache. Used **inside** mutation hooks to invalidate/refetch or to write the cache optimistically. | `queryClient.invalidateQueries({ queryKey: … })` in almost every mutation's `onSuccess`. |
+| `QueryClientProvider` | Provides the one `QueryClient` to the tree. | [`src/components/providers.tsx`](../src/components/providers.tsx). |
+
+**Query keys** — every cached entry is addressed by a stable key from the `queryKeys` factory in `use-api.ts` (e.g. `queryKeys.tickets(eventId) === ["events", eventId, "tickets"]`). Keys are **hierarchical**, so invalidating a parent prefix (`["events", eventId]`) clears all of an event's sub-caches. Always use the factory — never hand-write a key string — so reads and the mutations that invalidate them agree.
+
+**The read→write→refresh loop.** A read hook caches under its key; a mutation hook, on success, **invalidates** that key so the read refetches and the UI updates:
+
+```ts
+// READ
+export function useTickets(eventId: string) {
+  return useEventListQuery<TicketType[]>(eventId, queryKeys.tickets(eventId), "tickets");
+}
+// WRITE — invalidates the read on success
+export function useCreateTicket(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data) => fetchApi(`/api/events/${eventId}/tickets`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) }),
+  });
+}
+```
+
+Component usage: `const { data: tickets = [] } = useTickets(eventId)` to read; `const create = useCreateTicket(eventId); await create.mutateAsync(form)` to write — the list refreshes itself.
+
+**`fetchApi<T>` wrapper** (top of `use-api.ts`) — the single fetch helper behind every hook. It injects the `x-org-id` header for SUPER_ADMIN org-switching and throws `Error(body.error)` on non-2xx (so `error.message` is the server's message). Query/mutation error states surface from here.
+
+**Provider config** ([`providers.tsx`](../src/components/providers.tsx)): `staleTime: 5 min` (data is "fresh" for 5 min — no refetch on remount within that window → instant navigation), `gcTime: 30 min` (unused cache kept 30 min), `refetchOnWindowFocus: true` (silent refresh when the tab regains focus).
+
+**Optimistic updates** (the advanced pattern, used where instant feedback matters — e.g. `useAddWebinarPanelist`, bulk-tag). Instead of waiting for the server, the mutation updates the cache immediately and rolls back on error, via three callbacks:
+- `onMutate` — `cancelQueries`, snapshot the current cache (`getQueryData`), then `setQueryData` to the optimistic value; return the snapshot as context.
+- `onError(err, vars, context)` — restore the snapshot (rollback).
+- `onSettled` — `invalidateQueries` to reconcile with the server's truth.
+
+This is the React-19-safe way to do "responsive UI" without `useEffect`+`setState`. When you add a mutation, default to the simple `onSuccess: invalidate` pattern; reach for optimistic only when the round-trip latency is user-visible.
+
+**Rule of thumb when adding a feature:** add a read hook (key from the factory) + a mutation hook (invalidate that key on success) to `use-api.ts`; the component just calls them. See CLAUDE.md "React Query (Client-Side Caching)" for the hook inventory.
+
 ---
 
 ## 3. Database Schema & Models
