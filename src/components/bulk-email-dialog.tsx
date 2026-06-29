@@ -280,6 +280,10 @@ export function BulkEmailDialog({
   );
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
+  // Collapsible "Filter recipients" section — collapsed by default so the
+  // dialog opens compact; auto-opens when the host arrived with a filter
+  // already applied (a tile, or the list page's filter bar).
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Reset emailType + payment filter on the closed → open transition only
   // (so users who change a control mid-dialog don't lose it on a
   // re-render). Uses React's documented "store info from previous render"
@@ -294,6 +298,12 @@ export function BulkEmailDialog({
       setLocalTicketTypeIds(ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []);
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
+      setFiltersOpen(
+        (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
+          (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
+          (badgeTypesFilter?.length ?? 0) > 0 ||
+          (tagsFilter?.length ?? 0) > 0,
+      );
     }
   }
   const [customSubject, setCustomSubject] = useState("");
@@ -356,6 +366,13 @@ export function BulkEmailDialog({
   // override show the true number); fall back to the static prop when no
   // counter is provided. "selected" mode always shows the selected count.
   const isRegistrations = recipientType === "registrations";
+  // How many audience filters are currently set — shown in the collapsed
+  // "Filter recipients" summary so active filters are visible without expanding.
+  const activeFilterCount =
+    (localPaymentFilter !== "all" ? 1 : 0) +
+    (localTicketTypeIds.length > 0 ? 1 : 0) +
+    (localBadgeTypes.length > 0 ? 1 : 0) +
+    (localTags.length > 0 ? 1 : 0);
   const effectiveFilters: BulkEmailEffectiveFilters = {
     status: statusFilter,
     paymentStatus:
@@ -551,7 +568,7 @@ export function BulkEmailDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[525px]">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -690,97 +707,133 @@ export function BulkEmailDialog({
             </p>
           </div>
 
-          {/* W2-F4 — payment-status filter (registrations only). Lets the
-              organizer narrow the audience to e.g. UNPAID for the
-              "email all unpaid" workflow without leaving the dialog. */}
+          {/* Audience filters (registrations only) — collapsed by default so the
+              dialog opens compact. All filters are OR within a field and AND
+              across fields; an empty field means "no restriction". */}
           {recipientType === "registrations" && (
             <div className="space-y-2">
-              <Label htmlFor="bulk-email-payment-status">Payment status</Label>
-              <Select value={localPaymentFilter} onValueChange={setLocalPaymentFilter}>
-                <SelectTrigger id="bulk-email-payment-status" aria-label="Payment status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All payment statuses</SelectItem>
-                  {/* Synthetic option for a multi-value filter (e.g. the
-                      Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
-                      Without it the trigger would render blank. Picking any
-                      single status below overrides it. */}
-                  {localPaymentFilter.includes(",") && (
-                    <SelectItem value={localPaymentFilter}>
-                      {formatPaymentLabel(localPaymentFilter)}
-                    </SelectItem>
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-expanded={filtersOpen}
+                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+              >
+                <span className="flex items-center gap-2">
+                  <svg
+                    className={`h-3 w-3 transition-transform ${filtersOpen ? "rotate-90" : ""}`}
+                    viewBox="0 0 12 12"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M4.5 2.5l4 3.5-4 3.5z" />
+                  </svg>
+                  Filter recipients
+                </span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {activeFilterCount > 0
+                    ? `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} applied`
+                    : "All registrations"}
+                </span>
+              </button>
+
+              {filtersOpen && (
+                <div className="space-y-4 rounded-md border p-3">
+                  {/* Payment status */}
+                  <div className="space-y-2">
+                    <Label htmlFor="bulk-email-payment-status">Payment status</Label>
+                    <Select value={localPaymentFilter} onValueChange={setLocalPaymentFilter}>
+                      <SelectTrigger id="bulk-email-payment-status" aria-label="Payment status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All payment statuses</SelectItem>
+                        {/* Synthetic option for a multi-value filter (e.g. the
+                            Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
+                            Without it the trigger would render blank. */}
+                        {localPaymentFilter.includes(",") && (
+                          <SelectItem value={localPaymentFilter}>
+                            {formatPaymentLabel(localPaymentFilter)}
+                          </SelectItem>
+                        )}
+                        {PAYMENT_STATUS_DISPLAY_ORDER.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {PAYMENT_STATUS_LABELS[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Send only to registrations with this payment status. Combines with the
+                      Status filter (e.g. CONFIRMED + UNPAID).
+                    </p>
+                  </div>
+
+                  {/* Registration type — multi-select (checkbox). Empty = all types. */}
+                  {ticketTypeOptions.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Registration type</Label>
+                      <div className="max-h-36 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                        {ticketTypeOptions.map((tt) => (
+                          <label key={tt.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={localTicketTypeIds.includes(tt.id)}
+                              onCheckedChange={(c) =>
+                                setLocalTicketTypeIds((prev) =>
+                                  c === true ? [...prev, tt.id] : prev.filter((id) => id !== tt.id),
+                                )
+                              }
+                            />
+                            <span>{tt.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Send to anyone in <strong>any</strong> of the checked types. Leave all
+                        unchecked to include every type.
+                      </p>
+                    </div>
                   )}
-                  {PAYMENT_STATUS_DISPLAY_ORDER.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {PAYMENT_STATUS_LABELS[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Combine with status filter to target e.g. CONFIRMED + UNPAID.
-              </p>
-            </div>
-          )}
 
-          {/* Registration type — multi-select (checkbox). Empty = all types. */}
-          {recipientType === "registrations" && ticketTypeOptions.length > 0 && (
-            <div className="space-y-2">
-              <Label>Registration type</Label>
-              <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
-                {ticketTypeOptions.map((tt) => (
-                  <label key={tt.id} className="flex cursor-pointer items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={localTicketTypeIds.includes(tt.id)}
-                      onCheckedChange={(c) =>
-                        setLocalTicketTypeIds((prev) =>
-                          c === true ? [...prev, tt.id] : prev.filter((id) => id !== tt.id),
-                        )
-                      }
+                  {/* Badge type — multi-select (checkbox). Empty = all badges. */}
+                  {badgeOptions && badgeOptions.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Badge type</Label>
+                      <div className="max-h-36 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                        {badgeOptions.map((b) => (
+                          <label key={b} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={localBadgeTypes.includes(b)}
+                              onCheckedChange={(c) =>
+                                setLocalBadgeTypes((prev) =>
+                                  c === true ? [...prev, b] : prev.filter((x) => x !== b),
+                                )
+                              }
+                            />
+                            <span>{b}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Send to anyone with <strong>any</strong> of the checked badge types.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Tags — any of (multi). Empty = no tag filter. */}
+                  <div className="space-y-2">
+                    <Label>Tags (any of)</Label>
+                    <TagInput
+                      value={localTags}
+                      onChange={setLocalTags}
+                      suggestions={tagSuggestions}
+                      placeholder="Filter by tag(s)…"
                     />
-                    <span>{tt.name}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Leave all unchecked to include every registration type.
-              </p>
-            </div>
-          )}
-
-          {/* Badge type — multi-select (checkbox). Empty = all badges. */}
-          {recipientType === "registrations" && badgeOptions && badgeOptions.length > 0 && (
-            <div className="space-y-2">
-              <Label>Badge type</Label>
-              <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
-                {badgeOptions.map((b) => (
-                  <label key={b} className="flex cursor-pointer items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={localBadgeTypes.includes(b)}
-                      onCheckedChange={(c) =>
-                        setLocalBadgeTypes((prev) =>
-                          c === true ? [...prev, b] : prev.filter((x) => x !== b),
-                        )
-                      }
-                    />
-                    <span>{b}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Tags — any of (multi). Empty = no tag filter. */}
-          {recipientType === "registrations" && (
-            <div className="space-y-2">
-              <Label>Tags (any of)</Label>
-              <TagInput
-                value={localTags}
-                onChange={setLocalTags}
-                suggestions={tagSuggestions}
-                placeholder="Filter by tag(s)…"
-              />
+                    <p className="text-xs text-muted-foreground">
+                      Send to anyone who has <strong>any</strong> of these tags.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -822,14 +875,14 @@ export function BulkEmailDialog({
                 Filtered by type:{" "}
                 {localTicketTypeIds
                   .map((id) => ticketTypeOptions.find((t) => t.id === id)?.name ?? id)
-                  .join(", ")}
+                  .join(" or ")}
               </p>
             )}
             {recipientType === "registrations" && localBadgeTypes.length > 0 && (
-              <p className="text-muted-foreground">Filtered by badge: {localBadgeTypes.join(", ")}</p>
+              <p className="text-muted-foreground">Filtered by badge: {localBadgeTypes.join(" or ")}</p>
             )}
             {recipientType === "registrations" && localTags.length > 0 && (
-              <p className="text-muted-foreground">Filtered by tags: {localTags.join(", ")}</p>
+              <p className="text-muted-foreground">Filtered by tags: {localTags.join(" or ")}</p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>
