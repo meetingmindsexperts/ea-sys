@@ -40,15 +40,20 @@ interface AddRegistrationDialogProps {
 
 const initialPersonData: PersonFormData = {
   email: "",
+  additionalEmail: "",
   firstName: "",
   lastName: "",
   organization: "",
   jobTitle: "",
   phone: "",
+  bio: "",
   photo: null,
   city: "",
+  state: "",
+  zipCode: "",
   country: "",
   specialty: "",
+  customSpecialty: "",
   tags: [],
   dietaryReqs: "",
 };
@@ -84,15 +89,23 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
           paymentStatus: data.paymentStatus,
           attendee: {
             email: data.personData.email,
+            additionalEmail: data.personData.additionalEmail || undefined,
             firstName: data.personData.firstName,
             lastName: data.personData.lastName,
             organization: data.personData.organization || undefined,
             jobTitle: data.personData.jobTitle || undefined,
             phone: data.personData.phone || undefined,
+            bio: data.personData.bio || undefined,
             photo: data.personData.photo || undefined,
             city: data.personData.city || undefined,
+            state: data.personData.state || undefined,
+            zipCode: data.personData.zipCode || undefined,
             country: data.personData.country || undefined,
             specialty: data.personData.specialty || undefined,
+            customSpecialty:
+              data.personData.specialty === "Others"
+                ? data.personData.customSpecialty || undefined
+                : undefined,
             tags: data.personData.tags && data.personData.tags.length > 0 ? data.personData.tags : undefined,
             dietaryReqs: data.personData.dietaryReqs || undefined,
           },
@@ -228,6 +241,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
             <PersonFormFields
               data={formData.personData}
               onChange={(personData) => setFormData({ ...formData, personData })}
+              showBio={true}
               showDietaryReqs={true}
               tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />

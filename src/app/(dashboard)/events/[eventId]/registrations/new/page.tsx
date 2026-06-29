@@ -29,15 +29,20 @@ import {
 
 const initialPersonData: PersonFormData = {
   email: "",
+  additionalEmail: "",
   firstName: "",
   lastName: "",
   organization: "",
   jobTitle: "",
   phone: "",
+  bio: "",
   photo: null,
   city: "",
+  state: "",
+  zipCode: "",
   country: "",
   specialty: "",
+  customSpecialty: "",
   tags: [],
   dietaryReqs: "",
 };
@@ -158,15 +163,23 @@ export default function NewRegistrationPage() {
             : undefined,
           attendee: {
             email: formData.personData.email,
+            additionalEmail: formData.personData.additionalEmail || undefined,
             firstName: formData.personData.firstName,
             lastName: formData.personData.lastName,
             organization: formData.personData.organization || undefined,
             jobTitle: formData.personData.jobTitle || undefined,
             phone: formData.personData.phone || undefined,
+            bio: formData.personData.bio || undefined,
             photo: formData.personData.photo || undefined,
             city: formData.personData.city || undefined,
+            state: formData.personData.state || undefined,
+            zipCode: formData.personData.zipCode || undefined,
             country: formData.personData.country || undefined,
             specialty: formData.personData.specialty || undefined,
+            customSpecialty:
+              formData.personData.specialty === "Others"
+                ? formData.personData.customSpecialty || undefined
+                : undefined,
             tags: formData.personData.tags && formData.personData.tags.length > 0 ? formData.personData.tags : undefined,
             dietaryReqs: formData.personData.dietaryReqs || undefined,
           },
@@ -467,6 +480,7 @@ export default function NewRegistrationPage() {
             <PersonFormFields
               data={formData.personData}
               onChange={(personData) => setFormData({ ...formData, personData })}
+              showBio={true}
               showDietaryReqs={true}
               tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />

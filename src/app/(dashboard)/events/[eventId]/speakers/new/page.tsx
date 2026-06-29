@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -15,13 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PhotoUpload } from "@/components/ui/photo-upload";
-import { CountrySelect } from "@/components/ui/country-select";
-import { TitleSelect } from "@/components/ui/title-select";
-import { RoleSelect } from "@/components/ui/role-select";
-import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
-import { ArrowLeft, Mic, Save, User, Briefcase, MapPin, Tag, Share2 } from "lucide-react";
+import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
+import { useEventSpeakerTags } from "@/hooks/use-api";
+import { ArrowLeft, Mic, Save, User, Tag, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function NewSpeakerPage() {
@@ -30,32 +26,40 @@ export default function NewSpeakerPage() {
   const eventId = params.eventId as string;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    title: "",
-    role: "",
-    email: "",
-    additionalEmail: "",
-    firstName: "",
-    lastName: "",
-    bio: "",
-    organization: "",
-    jobTitle: "",
-    website: "",
-    photo: null as string | null,
-    city: "",
-    state: "",
-    zipCode: "",
-    country: "",
-    specialty: "",
-    customSpecialty: "",
-    tags: [] as string[],
+  // Feed the tag autocomplete from the event's existing speaker tags —
+  // same source the bulk-tag dialog uses, so the operator sees a
+  // consistent set across entry points.
+  const speakerTagsQuery = useEventSpeakerTags(eventId);
+  const [formData, setFormData] = useState<{
+    personData: PersonFormData;
+    status: string;
+    registrationType: string;
+    socialLinks: { twitter: string; linkedin: string; github: string };
+  }>({
+    personData: {
+      title: "",
+      role: "",
+      email: "",
+      additionalEmail: "",
+      firstName: "",
+      lastName: "",
+      bio: "",
+      organization: "",
+      jobTitle: "",
+      website: "",
+      phone: "",
+      photo: null,
+      city: "",
+      state: "",
+      zipCode: "",
+      country: "",
+      specialty: "",
+      customSpecialty: "",
+      tags: [],
+    },
     status: "INVITED",
     registrationType: "",
-    socialLinks: {
-      twitter: "",
-      linkedin: "",
-      github: "",
-    },
+    socialLinks: { twitter: "", linkedin: "", github: "" },
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,13 +67,36 @@ export default function NewSpeakerPage() {
     setLoading(true);
     setError(null);
 
+    const p = formData.personData;
     // Strip fields that Zod would reject on empty string. `role` and
     // `title` are enum-typed on the backend — empty string isn't in the
     // enum set. Other optional strings pass through as-is.
     const payload = {
-      ...formData,
-      role: formData.role || undefined,
-      title: formData.title || undefined,
+      title: p.title || undefined,
+      role: p.role || undefined,
+      email: p.email,
+      additionalEmail: p.additionalEmail || undefined,
+      firstName: p.firstName,
+      lastName: p.lastName,
+      bio: p.bio || undefined,
+      organization: p.organization || undefined,
+      jobTitle: p.jobTitle || undefined,
+      website: p.website || undefined,
+      phone: p.phone || undefined,
+      photo: p.photo || undefined,
+      city: p.city || undefined,
+      state: p.state || undefined,
+      zipCode: p.zipCode || undefined,
+      country: p.country || undefined,
+      specialty: p.specialty || undefined,
+      // Only meaningful when specialty is "Others"; the shared component
+      // auto-clears it otherwise, but guard here too as a last line.
+      customSpecialty:
+        p.specialty === "Others" ? p.customSpecialty || undefined : undefined,
+      tags: p.tags && p.tags.length > 0 ? p.tags : undefined,
+      status: formData.status,
+      registrationType: formData.registrationType || undefined,
+      socialLinks: formData.socialLinks,
     };
 
     try {
@@ -153,244 +180,30 @@ export default function NewSpeakerPage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Personal Information */}
+        {/* Section 1: Personal & Professional Details (shared with Add Registration) */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
               <User className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Personal Information</CardTitle>
+              <CardTitle className="text-base">Personal Details</CardTitle>
             </div>
             <CardDescription>
-              Name, email, and profile photo
+              Name, contact, professional info, location, and photo
             </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-4 grid-cols-[100px_1fr_1fr]">
-              <div className="space-y-2">
-                <Label htmlFor="title">Title</Label>
-                <TitleSelect
-                  value={formData.title}
-                  onChange={(title) => setFormData({ ...formData, title })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name *</Label>
-                <Input
-                  id="firstName"
-                  value={formData.firstName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, firstName: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name *</Label>
-                <Input
-                  id="lastName"
-                  value={formData.lastName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, lastName: e.target.value })
-                  }
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <RoleSelect
-                value={formData.role}
-                onChange={(role) => setFormData({ ...formData, role })}
-                placeholder="Select a role (optional)"
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="additionalEmail">Additional Email</Label>
-                <Input
-                  id="additionalEmail"
-                  type="email"
-                  value={formData.additionalEmail}
-                  onChange={(e) =>
-                    setFormData({ ...formData, additionalEmail: e.target.value })
-                  }
-                  placeholder="Secondary / CC email (optional)"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Photo</Label>
-              <PhotoUpload
-                value={formData.photo}
-                onChange={(photo) => setFormData({ ...formData, photo })}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Section 2: Professional Details */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <Briefcase className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Professional Details</CardTitle>
-            </div>
-            <CardDescription>
-              Organization, role, and biography
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="organization">Organization</Label>
-                <Input
-                  id="organization"
-                  value={formData.organization}
-                  onChange={(e) =>
-                    setFormData({ ...formData, organization: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="jobTitle">Job Title</Label>
-                <Input
-                  id="jobTitle"
-                  value={formData.jobTitle}
-                  onChange={(e) =>
-                    setFormData({ ...formData, jobTitle: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="bio">Bio</Label>
-              <Textarea
-                id="bio"
-                value={formData.bio}
-                onChange={(e) =>
-                  setFormData({ ...formData, bio: e.target.value })
-                }
-                rows={4}
-                placeholder="Speaker's biography..."
-              />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="specialty">Specialty</Label>
-                <SpecialtySelect
-                  value={formData.specialty}
-                  onChange={(specialty) =>
-                    setFormData({
-                      ...formData,
-                      specialty,
-                      // Auto-clear customSpecialty when specialty moves away
-                      // from "Others" — mirrors the public register-form
-                      // UX. Prevents stale free-text from lingering in DB.
-                      customSpecialty: specialty === "Others" ? formData.customSpecialty : "",
-                    })
-                  }
-                />
-              </div>
-              {formData.specialty === "Others" && (
-                <div className="space-y-2">
-                  <Label htmlFor="customSpecialty">Custom Specialty *</Label>
-                  <Input
-                    id="customSpecialty"
-                    value={formData.customSpecialty}
-                    onChange={(e) =>
-                      setFormData({ ...formData, customSpecialty: e.target.value })
-                    }
-                    placeholder="Specify..."
-                    required
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="website">Website</Label>
-              <Input
-                id="website"
-                type="url"
-                value={formData.website}
-                onChange={(e) =>
-                  setFormData({ ...formData, website: e.target.value })
-                }
-                placeholder="https://..."
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Section 3: Location */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Location</CardTitle>
-            </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  value={formData.city}
-                  onChange={(e) =>
-                    setFormData({ ...formData, city: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="state">State / Province</Label>
-                <Input
-                  id="state"
-                  value={formData.state}
-                  onChange={(e) =>
-                    setFormData({ ...formData, state: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="zipCode">Zip / Postal Code</Label>
-                <Input
-                  id="zipCode"
-                  value={formData.zipCode}
-                  onChange={(e) =>
-                    setFormData({ ...formData, zipCode: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="country">Country</Label>
-                <CountrySelect
-                  value={formData.country}
-                  onChange={(country) => setFormData({ ...formData, country })}
-                />
-              </div>
-            </div>
+            <PersonFormFields
+              data={formData.personData}
+              onChange={(personData) => setFormData({ ...formData, personData })}
+              showBio
+              showWebsite
+              showRole
+              tagSuggestions={(speakerTagsQuery.data?.tags ?? []).map((t) => t.tag)}
+            />
           </CardContent>
         </Card>
 
-        {/* Section 4: Status & Classification */}
+        {/* Section 2: Status & Classification */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
@@ -398,7 +211,7 @@ export default function NewSpeakerPage() {
               <CardTitle className="text-base">Status & Classification</CardTitle>
             </div>
             <CardDescription>
-              Invitation status, registration type, and tags
+              Invitation status and registration type
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -433,23 +246,10 @@ export default function NewSpeakerPage() {
                 />
               </div>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tags">Tags</Label>
-              <Input
-                id="tags"
-                value={formData.tags.join(", ")}
-                onChange={(e) =>
-                  setFormData({ ...formData, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t) })
-                }
-                placeholder="e.g., Keynote, Panelist, VIP"
-              />
-              <p className="text-xs text-muted-foreground">Separate tags with commas</p>
-            </div>
           </CardContent>
         </Card>
 
-        {/* Section 5: Social Links */}
+        {/* Section 3: Social Links */}
         <Card>
           <CardHeader className="pb-4">
             <div className="flex items-center gap-2">
@@ -470,10 +270,7 @@ export default function NewSpeakerPage() {
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      socialLinks: {
-                        ...formData.socialLinks,
-                        twitter: e.target.value,
-                      },
+                      socialLinks: { ...formData.socialLinks, twitter: e.target.value },
                     })
                   }
                   placeholder="@username"
@@ -487,10 +284,7 @@ export default function NewSpeakerPage() {
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      socialLinks: {
-                        ...formData.socialLinks,
-                        linkedin: e.target.value,
-                      },
+                      socialLinks: { ...formData.socialLinks, linkedin: e.target.value },
                     })
                   }
                   placeholder="Profile URL"
@@ -504,10 +298,7 @@ export default function NewSpeakerPage() {
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      socialLinks: {
-                        ...formData.socialLinks,
-                        github: e.target.value,
-                      },
+                      socialLinks: { ...formData.socialLinks, github: e.target.value },
                     })
                   }
                   placeholder="@username"
