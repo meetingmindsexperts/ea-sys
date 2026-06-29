@@ -17,9 +17,10 @@ interface RouteParams {
 }
 
 export async function PATCH(req: Request, { params }: RouteParams) {
+  // Resolved before the try so eventId is in scope for the catch's logs.
+  const { eventId } = await params;
   try {
-    const [{ eventId }, session, body] = await Promise.all([
-      params,
+    const [session, body] = await Promise.all([
       auth(),
       req.json(),
     ]);
@@ -54,7 +55,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Verify the target ticket type exists and belongs to this event
     const targetType = await db.ticketType.findFirst({
       where: { id: ticketTypeId, eventId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, quantity: true },
     });
 
     if (!targetType) {
@@ -93,11 +94,18 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         });
       }
 
-      // Increment new type
-      await tx.ticketType.update({
-        where: { id: ticketTypeId },
+      // Increment new type ATOMICALLY — guard against oversell. The predicate
+      // `soldCount <= quantity - N` ensures soldCount + N never exceeds the cap,
+      // even if a concurrent bulk move / public registration is also claiming
+      // seats on this type. All-or-nothing: if it can't fit, the whole move
+      // rolls back (admin raises the quantity or moves fewer).
+      const claimed = await tx.ticketType.updateMany({
+        where: { id: ticketTypeId, soldCount: { lte: targetType.quantity - registrations.length } },
         data: { soldCount: { increment: registrations.length } },
       });
+      if (claimed.count === 0) {
+        throw new Error("CAPACITY_EXCEEDED");
+      }
 
       // Update all registrations
       await tx.registration.updateMany({
@@ -145,6 +153,16 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     return NextResponse.json({ updated: registrations.length });
   } catch (error) {
+    if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
+      apiLogger.warn({ msg: "bulk-type:capacity-exceeded", eventId });
+      return NextResponse.json(
+        {
+          error: "That registration type doesn't have enough capacity for all the selected registrations. Increase its quantity or move fewer.",
+          code: "CAPACITY_EXCEEDED",
+        },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error in bulk type update" });
     return NextResponse.json(
       { error: "Failed to update registration types" },

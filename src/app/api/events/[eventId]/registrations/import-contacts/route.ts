@@ -14,8 +14,10 @@ const importSchema = z.object({
 });
 
 export async function POST(req: Request, { params }: RouteParams) {
+  // Resolved before the try so eventId is in scope for the catch's logs.
+  const { eventId } = await params;
   try {
-    const [{ eventId }, session, body] = await Promise.all([params, auth(), req.json()]);
+    const [session, body] = await Promise.all([auth(), req.json()]);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -100,16 +102,33 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
         }
 
-        // Update soldCount
-        await tx.ticketType.update({
-          where: { id: ticketTypeId },
+        // Update soldCount ATOMICALLY — guard against oversell. The predicate
+        // `soldCount <= quantity - N` ensures soldCount + N never exceeds the
+        // cap even under a concurrent import / public registration. All-or-
+        // nothing: if the batch won't fit, the whole tx rolls back (no rows
+        // created) and the operator imports fewer or raises the quantity.
+        const claimed = await tx.ticketType.updateMany({
+          where: { id: ticketTypeId, soldCount: { lte: ticketType.quantity - toCreate.length } },
           data: { soldCount: { increment: toCreate.length } },
         });
+        if (claimed.count === 0) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
       });
     }
 
     return NextResponse.json({ created: toCreate.length, skipped });
   } catch (error) {
+    if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
+      apiLogger.warn({ msg: "import-contacts:capacity-exceeded", eventId });
+      return NextResponse.json(
+        {
+          error: "That registration type doesn't have enough capacity for all the selected contacts. Increase its quantity or import fewer.",
+          code: "CAPACITY_EXCEEDED",
+        },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error importing contacts as registrations" });
     return NextResponse.json({ error: "Failed to import contacts" }, { status: 500 });
   }
