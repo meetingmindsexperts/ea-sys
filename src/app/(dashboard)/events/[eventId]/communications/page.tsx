@@ -55,17 +55,10 @@ import {
   useSpeakers,
   useAbstracts,
   useReviewers,
-  useTickets,
   useEmailTemplates,
-  useEventTags,
 } from "@/hooks/use-api";
-import { TagInput } from "@/components/ui/tag-input";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import {
-  PAYMENT_STATUS_DISPLAY_ORDER,
-  PAYMENT_STATUS_LABELS,
-} from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -96,11 +89,6 @@ interface AbstractItem {
 
 interface ReviewerItem {
   id: string;
-}
-
-interface TicketTypeItem {
-  id: string;
-  name: string;
 }
 
 // ───────────────────────── Workflow tiles ─────────────────────────
@@ -276,11 +264,7 @@ export default function CommunicationsPage() {
   const speakersQuery = useSpeakers(eventId);
   const abstractsQuery = useAbstracts(eventId);
   const reviewersQuery = useReviewers(eventId);
-  const ticketsQuery = useTickets(eventId);
   const templatesQuery = useEmailTemplates(eventId);
-  // Existing attendee tags → autocomplete suggestions for the tag filter.
-  const tagsQuery = useEventTags(eventId);
-  const tagSuggestions = (tagsQuery.data?.tags ?? []).map((t) => t.tag);
 
   // Active organizer-created templates (excludes system defaults) — surfaced
   // as one-click tiles so a custom template an organizer activated is
@@ -294,9 +278,8 @@ export default function CommunicationsPage() {
   const abstracts = (abstractsQuery.data ?? []) as AbstractItem[];
   const reviewerData = reviewersQuery.data as { reviewers?: ReviewerItem[] } | undefined;
   const reviewers = (reviewerData?.reviewers ?? []) as ReviewerItem[];
-  const ticketTypes = (ticketsQuery.data ?? []) as TicketTypeItem[];
   // Distinct non-empty badge types present on this event's registrations —
-  // drives the Badge Type filter dropdown.
+  // passed to the send dialog as the Badge type checkbox options.
   const badgeTypes = Array.from(
     new Set(
       registrations
@@ -312,12 +295,8 @@ export default function CommunicationsPage() {
     reviewersQuery.isLoading;
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
 
-  // Registration sub-filters
-  const [regStatusFilter, setRegStatusFilter] = useState("all");
-  const [regPaymentFilter, setRegPaymentFilter] = useState("all");
-  const [regTypeFilter, setRegTypeFilter] = useState("all");
-  const [regBadgeFilter, setRegBadgeFilter] = useState<string[]>([]);
-  const [regTagsFilter, setRegTagsFilter] = useState<string[]>([]);
+  // Registration audience filtering lives entirely in the send dialog
+  // (BulkEmailDialog "Filter recipients") — no duplicated page-level controls.
   const [speakerStatusFilter, setSpeakerStatusFilter] = useState("all");
   // Tier-1 speaker filters
   const [speakerAgreementFilter, setSpeakerAgreementFilter] = useState("all");
@@ -356,18 +335,6 @@ export default function CommunicationsPage() {
     (r) => r.paymentStatus === "UNPAID"
   );
 
-  const filteredRegistrations = registrations.filter((r) => {
-    if (regStatusFilter !== "all" && r.status !== regStatusFilter) return false;
-    if (regPaymentFilter !== "all" && r.paymentStatus !== regPaymentFilter) return false;
-    if (regTypeFilter !== "all" && r.ticketType?.id !== regTypeFilter) return false;
-    if (regBadgeFilter.length > 0 && !(r.badgeType && regBadgeFilter.includes(r.badgeType))) return false;
-    if (regTagsFilter.length > 0) {
-      const tags = r.attendee?.tags ?? [];
-      if (!regTagsFilter.some((t) => tags.includes(t))) return false;
-    }
-    return true;
-  });
-
   const filteredSpeakers = speakers.filter((s) => {
     if (speakerStatusFilter !== "all" && s.status !== speakerStatusFilter) return false;
     if (speakerAgreementFilter === "signed" && !s.agreementAcceptedAt) return false;
@@ -392,7 +359,7 @@ export default function CommunicationsPage() {
   function getAudienceCount(key: RecipientType): number {
     switch (key) {
       case "registrations":
-        return filteredRegistrations.length;
+        return registrations.length;
       case "speakers":
         return filteredSpeakers.length;
       case "abstracts":
@@ -453,22 +420,13 @@ export default function CommunicationsPage() {
     setActiveSelectionMode("all");
     setActiveRecipientIds([]);
     if (audience === "registrations") {
-      // Pass the page-level filters through so the dialog pre-selects
-      // the same values the organizer just picked here.
-      setActiveStatusFilter(
-        regStatusFilter !== "all" ? regStatusFilter : undefined
-      );
-      // W2-F4 — pass the page-level payment filter through so e.g.
-      // "Unpaid" pre-selects in the dialog. Saves the organizer
-      // re-selecting the same value twice.
-      setActivePaymentStatusFilter(
-        regPaymentFilter !== "all" ? regPaymentFilter : undefined
-      );
-      setActiveTicketTypeFilter(
-        regTypeFilter !== "all" ? regTypeFilter : undefined
-      );
-      setActiveBadgeTypesFilter(regBadgeFilter);
-      setActiveTagsFilter(regTagsFilter);
+      // No page-level pre-filter — the dialog's "Filter recipients" section
+      // owns audience filtering (the single, multi-select filter surface).
+      setActiveStatusFilter(undefined);
+      setActivePaymentStatusFilter(undefined);
+      setActiveTicketTypeFilter(undefined);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
       setActiveAgreementSignedFilter(undefined);
       setActiveHasSessionFilter(undefined);
       setActiveSessionRoleFilter(undefined);
@@ -744,107 +702,24 @@ export default function CommunicationsPage() {
               Select by IDs
             </Button>
 
-            {/* Advanced filters — escape hatch for ad-hoc segments */}
-            <details className="group rounded-lg border [&[open]>summary>svg]:rotate-90">
-              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <svg className="h-3 w-3 transition-transform" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                  <path d="M4.5 2.5l4 3.5-4 3.5z" />
-                </svg>
-                Advanced filters
-              </summary>
-              <div className="space-y-4 border-t p-3">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Registration Status</label>
-                <Select value={regStatusFilter} onValueChange={setRegStatusFilter}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All ({registrations.length})</SelectItem>
-                    <SelectItem value="PENDING">
-                      Pending ({registrations.filter((r) => r.status === "PENDING").length})
-                    </SelectItem>
-                    <SelectItem value="CONFIRMED">
-                      Confirmed ({registrations.filter((r) => r.status === "CONFIRMED").length})
-                    </SelectItem>
-                    <SelectItem value="CHECKED_IN">
-                      Checked In ({registrations.filter((r) => r.status === "CHECKED_IN").length})
-                    </SelectItem>
-                    <SelectItem value="CANCELLED">
-                      Cancelled ({registrations.filter((r) => r.status === "CANCELLED").length})
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Payment Status</label>
-                <Select value={regPaymentFilter} onValueChange={setRegPaymentFilter}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All ({registrations.length})</SelectItem>
-                    {PAYMENT_STATUS_DISPLAY_ORDER.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {PAYMENT_STATUS_LABELS[status]} ({registrations.filter((r) => r.paymentStatus === status).length})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Registration Type</label>
-                <Select value={regTypeFilter} onValueChange={setRegTypeFilter}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    {ticketTypes.map((tt) => (
-                      <SelectItem key={tt.id} value={tt.id}>
-                        {tt.name} ({registrations.filter((r) => r.ticketType?.id === tt.id).length})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {badgeTypes.length > 0 && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Badge Type</label>
-                  <TagInput
-                    value={regBadgeFilter}
-                    onChange={setRegBadgeFilter}
-                    suggestions={badgeTypes}
-                    placeholder="Pick badge type(s)…"
-                  />
-                </div>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Tags (any of)</label>
-              <TagInput
-                value={regTagsFilter}
-                onChange={setRegTagsFilter}
-                suggestions={tagSuggestions}
-                placeholder="Filter by tag(s)…"
-              />
-            </div>
+            {/* Compose freely — opens the send dialog, where the audience is
+                filtered (status / payment / registration type / badge / tags /
+                exclude faculty — all multi-select) with a live recipient count.
+                Single filter surface, shared with the registrations-list
+                "Email All" — no duplicated page-level filter controls. */}
             <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-sm font-medium">
-                {filteredRegistrations.length} recipient{filteredRegistrations.length !== 1 ? "s" : ""}
+              <span className="text-sm text-muted-foreground">
+                {registrations.length} registration{registrations.length !== 1 ? "s" : ""} — filter the audience in the send dialog
               </span>
               <Button
                 size="sm"
                 onClick={() => openEmailDialog("registrations")}
-                disabled={filteredRegistrations.length === 0}
+                disabled={registrations.length === 0}
               >
                 <Send className="mr-2 h-4 w-4" />
                 Send Email
               </Button>
             </div>
-              </div>
-            </details>
 
             {renderSavedTemplates("registrations")}
           </CardContent>
