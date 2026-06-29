@@ -41,11 +41,21 @@ export interface ContactSyncData {
   studentIdExpiry?: Date | null;
 }
 
-/** Strip undefined/null values so we only update fields that are actually provided */
+/**
+ * Enrich-only field cleaner. Skips `undefined`, `null`, AND `""` so a sync can
+ * fill in or update a field with real data but **never clears** an already-
+ * populated Contact field. This prevents a sparse later sync (e.g. a new-event
+ * registration that leaves optional fields blank — the public register passes
+ * `field || null`) from wiping richer data an earlier event populated. The
+ * Contact thus accumulates the best-known value per field across events.
+ *
+ * To deliberately clear a Contact field, edit the Contact directly — that path
+ * does NOT go through this sync, so it isn't subject to enrich-only.
+ */
 function cleanFields(data: Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName" | "eventId">) {
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined) {
+    if (value !== undefined && value !== null && value !== "") {
       cleaned[key] = value;
     }
   }
