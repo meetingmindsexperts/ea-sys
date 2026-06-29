@@ -30,6 +30,14 @@ import { holdsSeat, seatCounter } from "../src/lib/registration-seat";
 const write = process.argv.includes("--write");
 const eventArgIdx = process.argv.indexOf("--event");
 const eventFilter = eventArgIdx >= 0 ? process.argv[eventArgIdx + 1] : undefined;
+// --exclude <id,id,...> : skip these events entirely (e.g. ones whose legacy
+// tier rows need a separate decision before reconciling).
+const excludeArgIdx = process.argv.indexOf("--exclude");
+const excludeIds = new Set(
+  excludeArgIdx >= 0 && process.argv[excludeArgIdx + 1]
+    ? process.argv[excludeArgIdx + 1].split(",").map((s) => s.trim()).filter(Boolean)
+    : [],
+);
 
 async function main() {
   console.log(write ? "Mode: WRITE\n" : "Mode: DRY RUN (pass --write to apply)\n");
@@ -43,8 +51,14 @@ async function main() {
   let countersChecked = 0;
   let countersDrifted = 0;
   let countersFixed = 0;
+  let excludedCount = 0;
 
   for (const event of events) {
+    if (excludeIds.has(event.id)) {
+      excludedCount++;
+      console.log(`Event "${event.name}" (${event.id}): SKIPPED (--exclude)\n`);
+      continue;
+    }
     // Re-derive both counters from row-truth via the SAME helpers the runtime
     // uses, so reconciliation and routing can't disagree.
     const regs = await db.registration.findMany({
@@ -113,7 +127,7 @@ async function main() {
   }
 
   console.log("─".repeat(60));
-  console.log(`Events scanned:    ${events.length}`);
+  console.log(`Events scanned:    ${events.length}${excludedCount ? ` (${excludedCount} skipped via --exclude)` : ""}`);
   console.log(`Counters checked:  ${countersChecked}`);
   console.log(`Counters drifted:  ${countersDrifted}`);
   console.log(write ? `Counters fixed:    ${countersFixed}` : `(dry run — re-run with --write to fix ${countersDrifted})`);

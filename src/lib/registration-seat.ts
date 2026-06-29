@@ -65,6 +65,13 @@ export interface SeatState {
 export function seatCounter(
   state: Pick<SeatState, "createdSource" | "pricingTierId" | "ticketTypeId">,
 ): SeatCounter | null {
+  // A speaker's companion ("attendee facet") is created uncapped with NO
+  // soldCount increment (speaker-companion.ts) — faculty don't consume a venue
+  // seat. So it lives on no counter: cancel/reactivate/delete move nothing, and
+  // reconciliation never counts it. (Excluding by createdSource, not the
+  // isFaculty ticket type, is exact — an admin who manually puts someone on the
+  // Faculty type via the normal create path DOES increment that counter.)
+  if (state.createdSource === "SPEAKER_COMPANION") return null;
   if (state.createdSource === "PUBLIC_REGISTER" && state.pricingTierId) {
     return { kind: "tier", id: state.pricingTierId };
   }

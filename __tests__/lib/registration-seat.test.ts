@@ -62,6 +62,11 @@ describe("seatCounter — which counter the seat is tallied on", () => {
   it("no ticket type → null (nothing to count)", () => {
     expect(seatCounter({ createdSource: "PUBLIC_REGISTER", pricingTierId: null, ticketTypeId: null })).toBeNull();
   });
+  it("speaker companion (faculty) → null — uncapped, never counts on any counter", () => {
+    expect(seatCounter({ createdSource: "SPEAKER_COMPANION", pricingTierId: null, ticketTypeId: "faculty_tt" })).toBeNull();
+    // even if a tier id were somehow set, a companion still counts on nothing
+    expect(seatCounter({ createdSource: "SPEAKER_COMPANION", pricingTierId: "pt", ticketTypeId: "faculty_tt" })).toBeNull();
+  });
 });
 
 describe("planSeatTransition — ticket-type axis (hybrid)", () => {
