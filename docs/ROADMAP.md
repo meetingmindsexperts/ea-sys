@@ -320,7 +320,7 @@ its detailed entry in the sections further down. Effort: **S** ≈ <½ day, **M*
 
 **P3 — Larger features / follow-ups:**
 15. **Sent-email content preview** ("see what was sent" — `bodyHtml` + View) *(M)* → Near-Term
-16. **Hybrid attendance** — ⚠ admin virtual→in-person **qrCode minting** (the one real gap), check-in UI hide for virtual, dashboard split, portal mode *(M)* → Hybrid follow-ups
+16. **Hybrid attendance** — ✅ admin virtual↔in-person **qrCode minting + seat-accounting** SHIPPED June 26 (see Hybrid follow-ups below). Still open: check-in UI hide for virtual, dashboard in/virtual split, portal mode display, tier-windowed virtual pricing *(M)* → Hybrid follow-ups
 17. **Charge-to-account v1.1** — public "who pays" step, payer column/CSV, quote-email-to-payer *(M)* → Charge-to-account follow-ups
 18. **Webinar waiting-room follow-ups** — never-opened-room warning, save-time HLS validation, DRAFT-auto-open hint *(S–M)* → Webinar follow-ups
 19. **Waitlist Management** *(M)* · 20. **Analytics Dashboard** *(M)* → Near-Term
