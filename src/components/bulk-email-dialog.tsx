@@ -57,6 +57,8 @@ export interface BulkEmailEffectiveFilters {
   badgeTypes?: string[];
   /** Registrations recipient only — attendees with ANY of these tags. */
   tags?: string[];
+  /** Registrations recipient only — drop faculty companion registrations. */
+  excludeFaculty?: boolean;
   agreementSigned?: string;
   hasSession?: string;
   sessionRole?: string;
@@ -280,6 +282,7 @@ export function BulkEmailDialog({
   );
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
+  const [localExcludeFaculty, setLocalExcludeFaculty] = useState(false);
   // Collapsible "Filter recipients" section — collapsed by default so the
   // dialog opens compact; auto-opens when the host arrived with a filter
   // already applied (a tile, or the list page's filter bar).
@@ -298,6 +301,7 @@ export function BulkEmailDialog({
       setLocalTicketTypeIds(ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []);
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
+      setLocalExcludeFaculty(false);
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
@@ -372,7 +376,8 @@ export function BulkEmailDialog({
     (localPaymentFilter !== "all" ? 1 : 0) +
     (localTicketTypeIds.length > 0 ? 1 : 0) +
     (localBadgeTypes.length > 0 ? 1 : 0) +
-    (localTags.length > 0 ? 1 : 0);
+    (localTags.length > 0 ? 1 : 0) +
+    (localExcludeFaculty ? 1 : 0);
   const effectiveFilters: BulkEmailEffectiveFilters = {
     status: statusFilter,
     paymentStatus:
@@ -380,6 +385,7 @@ export function BulkEmailDialog({
     ticketTypeIds: isRegistrations && localTicketTypeIds.length ? localTicketTypeIds : undefined,
     badgeTypes: isRegistrations && localBadgeTypes.length ? localBadgeTypes : undefined,
     tags: isRegistrations && localTags.length ? localTags : undefined,
+    excludeFaculty: isRegistrations && localExcludeFaculty ? true : undefined,
     agreementSigned: agreementSignedFilter,
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
@@ -504,6 +510,9 @@ export function BulkEmailDialog({
           : {}),
         ...(recipientType === "registrations" && localTags.length > 0
           ? { tagsInclude: localTags }
+          : {}),
+        ...(recipientType === "registrations" && localExcludeFaculty
+          ? { excludeFaculty: true }
           : {}),
         // Tier-1 speaker filters (speakers recipient only).
         ...(recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all"
@@ -738,6 +747,21 @@ export function BulkEmailDialog({
 
               {filtersOpen && (
                 <div className="space-y-4 rounded-md border p-3">
+                  {/* Exclude faculty — drop companion (isFaculty) registrations. */}
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={localExcludeFaculty}
+                      onCheckedChange={(c) => setLocalExcludeFaculty(c === true)}
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium">Exclude faculty / speakers</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Drops companion (Faculty) registrations — emails delegates only.
+                      </span>
+                    </span>
+                  </label>
+
                   {/* Payment status */}
                   <div className="space-y-2">
                     <Label htmlFor="bulk-email-payment-status">Payment status</Label>
@@ -886,6 +910,9 @@ export function BulkEmailDialog({
             )}
             {recipientType === "registrations" && localTags.length > 0 && (
               <p className="text-muted-foreground">Filtered by tags: {localTags.join(" or ")}</p>
+            )}
+            {recipientType === "registrations" && localExcludeFaculty && (
+              <p className="text-muted-foreground">Excluding faculty / speakers</p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>

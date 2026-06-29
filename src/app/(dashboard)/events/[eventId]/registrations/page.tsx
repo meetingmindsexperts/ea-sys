@@ -274,6 +274,7 @@ export default function RegistrationsPage() {
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
       if (f.tags && f.tags.length > 0 && !f.tags.some((t) => r.attendee.tags.includes(t))) return false;
+      if (f.excludeFaculty && r.ticketType?.isFaculty) return false;
       return true;
     }).length;
   };

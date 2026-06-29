@@ -78,7 +78,7 @@ interface RegistrationItem {
   status: string;
   paymentStatus: string;
   badgeType?: string | null;
-  ticketType?: { id: string; name: string };
+  ticketType?: { id: string; name: string; isFaculty?: boolean };
   attendee?: { email?: string | null; tags?: string[] } | null;
 }
 
@@ -420,6 +420,7 @@ export default function CommunicationsPage() {
         const tags = r.attendee?.tags ?? [];
         if (!f.tags.some((t) => tags.includes(t))) return false;
       }
+      if (f.excludeFaculty && r.ticketType?.isFaculty) return false;
       return true;
     }).length;
   }

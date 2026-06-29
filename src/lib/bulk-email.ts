@@ -22,6 +22,7 @@ import {
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
+import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 import { getTitleLabel } from "./utils";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
@@ -127,6 +128,13 @@ export interface BulkEmailFilters {
    * for; pairs naturally with a future `tagsExclude`.
    */
   tagsInclude?: string[];
+  /**
+   * Registrations recipient only — drop faculty companion registrations (the
+   * hidden `isFaculty` ticket type). Lets an organizer email delegates only,
+   * excluding speakers/faculty. Keyed on `ticketType.isFaculty` (robust to new
+   * delegate types / null badges) via `EXCLUDE_FACULTY_WHERE`.
+   */
+  excludeFaculty?: boolean;
   /**
    * Speakers recipient only — filter on signed agreement state.
    *   "signed"   → `Speaker.agreementAcceptedAt IS NOT NULL`
@@ -256,6 +264,7 @@ export const bulkEmailSchema = z.object({
       ticketTypeIds: z.array(z.string().max(100)).max(50).optional(),
       badgeTypes: z.array(z.string().max(255)).max(50).optional(),
       tagsInclude: z.array(z.string().max(100)).max(50).optional(),
+      excludeFaculty: z.boolean().optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
@@ -577,6 +586,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ...(filters?.tagsInclude?.length
           ? { attendee: { tags: { hasSome: filters.tagsInclude } } }
           : {}),
+        // Drop faculty companions (the isFaculty ticket type) — email delegates only.
+        ...(filters?.excludeFaculty ? EXCLUDE_FACULTY_WHERE : {}),
       },
       select: {
         id: true,
