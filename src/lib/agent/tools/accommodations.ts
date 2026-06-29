@@ -464,18 +464,25 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
           data: { bookedRooms: { decrement: 1 } },
         });
       } else if (!wasActive && willBeActive) {
-        // CANCELLED → active: re-book the room, but guard against overbooking
+        // CANCELLED → active: re-book the room ATOMICALLY. The
+        // `bookedRooms < totalRooms` predicate guards against two concurrent
+        // reactivations both claiming the last room — the previous
+        // read-then-increment could overbook under READ COMMITTED. Mirrors the
+        // REST accommodations route.
         const fresh = await tx.roomType.findUnique({
           where: { id: existing.roomTypeId },
-          select: { bookedRooms: true, totalRooms: true },
+          select: { totalRooms: true },
         });
-        if (!fresh || fresh.bookedRooms >= fresh.totalRooms) {
+        if (!fresh) {
           throw new Error("NO_ROOMS_AVAILABLE");
         }
-        await tx.roomType.update({
-          where: { id: existing.roomTypeId },
+        const claimed = await tx.roomType.updateMany({
+          where: { id: existing.roomTypeId, bookedRooms: { lt: fresh.totalRooms } },
           data: { bookedRooms: { increment: 1 } },
         });
+        if (claimed.count === 0) {
+          throw new Error("NO_ROOMS_AVAILABLE");
+        }
       }
 
       // Optimistic lock fires inside the tx so a stale-write rejection
