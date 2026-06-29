@@ -301,7 +301,17 @@ This document tracks the development status of the Event Administration System. 
 
 ---
 
-## Recent Updates (May 2026)
+## Recent Updates (June 2026)
+
+### Communications filters + Activity edit-history + public SEO + Add-form parity + faculty data fix (June 29, 2026)
+
+- **Bulk-email audience filters (registrations):** the "Send Bulk Email" dialog (registrations-list "Email All" + Communications page) now has in-dialog **multi-select** filters in a collapsible "Filter recipients" section — Payment status + **Registration type** (`ticketTypeIds`, Prisma `in`) + **Badge type** (`badgeTypes`, `in`) + **Tags** (`tagsInclude`, `hasSome`). OR-within-field / AND-across; empty = no restriction. Wider 4xl dialog, 3-up layout, "or"-joined recap, per-filter footnotes. Fixed: the list's "Filter by tag" was never passed to Email All. `src/lib/bulk-email.ts` + `src/components/bulk-email-dialog.tsx`. Count==send preserved; adversarially reviewed (0 blocker/0 high).
+- **Activity edit-history diffs:** registration + speaker timeline renders field-level before→after diffs from `AuditLog.changes` (incl. nested attendee), finance-redacted (`src/lib/activity-feed.ts`).
+- **Public SEO metadata:** per-event OG/Twitter + per-section titles on `/e/[slug]/*` (`src/lib/public-event-metadata.ts`); org-scoping deferred to multi-tenant.
+- **Add Registration ↔ Add Speaker parity:** shared `PersonFormFields` (speaker form was dropping Phone).
+- **Faculty registration-type correction (prod backfill, audited):** 33 legacy companions with `registrationType="Faculty"` → 3 restored, **30 → "Physician"**; badge/ticket-type untouched; companion-create path unchanged.
+- **Speaker phone/additionalEmail enrichment (prod backfill, audited, enrich-only):** 1 row.
+- **scheduled-email 0-recipient → benign skip** (terminal SENT/0, info; not a paging FAILED). Plus: removed confirmation "Back to Event" button, deleted orphaned `docker/Dockerfile`, sidebar `w-64→w-56`.
 
 ### registration-detail-sheet.tsx staged refactor — A → E (May 20, 2026)
 

@@ -210,6 +210,20 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
+## Current Release — June 29, 2026
+
+### Communications filters + Activity edit-history + public SEO + Add-form parity + faculty data fix
+
+- **Bulk-email audience filters (registrations).** "Send Bulk Email" dialog (registrations-list "Email All" + Communications page) gained in-dialog **multi-select** filters in a collapsible "Filter recipients" section: Payment status + **Registration type** (`ticketTypeIds`, `in`) + **Badge type** (`badgeTypes`, `in`) + **Tags** (`tagsInclude`, `hasSome`). OR-within-field / AND-across; empty = no restriction. Wider 4xl dialog, 3-up layout, "or"-joined recap, footnotes. Fixed a real bug: the list's "Filter by tag" was never passed to Email All (silently ignored). Backend `src/lib/bulk-email.ts`; UI `src/components/bulk-email-dialog.tsx`. Count==send preserved. Adversarially reviewed (0 blocker/0 high).
+- **Activity edit-history diffs.** Registration + speaker Activity timeline now renders field-level before→after diffs from `AuditLog.changes` (incl. nested attendee), finance-redacted for non-finance roles (`src/lib/activity-feed.ts`).
+- **Public SEO metadata.** Per-event OpenGraph/Twitter + per-section titles on `/e/[slug]/*` via server `layout.tsx` + `buildEventMetadata` (`src/lib/public-event-metadata.ts`). **Follow-up:** slug lookups are org-unscoped — add `organizationId` when multi-tenant lands (`docs/MULTI_TENANCY_IMPACT.md`).
+- **Add Registration ↔ Add Speaker parity.** Both forms share one personal section via `PersonFormFields` (speaker form was dropping Phone). Frontend-only.
+- **Faculty registration-type correction (prod backfill, audited).** 33 legacy companion attendees with `registrationType="Faculty"` → 3 restored to the speaker's profession, **30 defaulted to "Physician"**. Faculty designation (`badgeType` + `isFaculty` ticket type) untouched; live companion-creation path unchanged. Review the defaulted set via Badge=Faculty + Type=Physician.
+- **Speaker phone/additionalEmail enrichment (prod backfill, audited, enrich-only).** Fills blanks from the counterpart registration's attendee; 1 row enriched.
+- **scheduled-email 0-recipient → benign skip** (terminal SENT/0, info log; not a paging FAILED). Smaller: removed confirmation-page "Back to Event" button, deleted orphaned `docker/Dockerfile`, sidebar `w-64→w-56`.
+
+**Deferred follow-ups:** tag-**exclude** + attendance-mode bulk-email filters; a "Faculty vs delegate" review tile; per-recipient deselect in the bulk dialog; SEO `noindex` on transactional public pages (login/confirmation) + editorial meta-title override.
+
 ## Current Release — April 22, 2026
 
 ### Services Refactor (Phases 0 + 1 + 2a + 2b shipped; 2c deferred into Phase 3)
