@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { denyReviewer } from "@/lib/auth-guards";
+import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
@@ -212,16 +213,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Merge settings if provided — protect managed keys from being overwritten
-    const currentSettings = (existingEvent.settings as Record<string, unknown>) || {};
-    let mergedSettings = currentSettings;
+    // Merge settings if provided — protect managed keys from being overwritten.
+    // The settings merge runs through the atomic read-merge-write helper so a
+    // concurrent settings writer (reviewers API, sponsors, webinar, …) can't be
+    // clobbered. Strip reviewerUserIds first so the general PUT can't overwrite
+    // the reviewer list — the helper preserves the existing value automatically.
     if (settings) {
-      // Strip protected keys that are managed by dedicated endpoints (e.g. reviewers API)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { reviewerUserIds: _protected, ...safeSettings } = settings;
-      mergedSettings = { ...currentSettings, ...safeSettings };
+      const cleanSettings = JSON.parse(JSON.stringify(safeSettings));
+      await updateEventSettings(eventId, cleanSettings);
     }
-    const updatedSettings = JSON.parse(JSON.stringify(mergedSettings));
 
     const event = await db.event.update({
       where: { id: eventId },
@@ -274,7 +276,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
               ? Prisma.JsonNull
               : (surveyConfig as unknown as Prisma.InputJsonValue),
         }),
-        settings: updatedSettings,
       },
     });
 

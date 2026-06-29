@@ -23,6 +23,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { updateEventSettings } from "@/lib/event-settings";
 import type { AgentContext, ToolExecutor } from "./_shared";
 
 const CERT_CATEGORIES = ["ATTENDANCE", "APPRECIATION"] as const;
@@ -571,16 +572,17 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
   // Strip obsolete design-approval fields — gate removed 2026-06-02.
   delete nextCme.designApprovedBy;
   delete nextCme.designApprovedAt;
-  const nextSettings = { ...settings, cme: nextCme };
 
-  await db.event.update({
-    where: { id: ctx.eventId },
-    data: {
-      ...(cmeHoursValue !== undefined && { cmeHours: cmeHoursValue }),
-      settings: nextSettings as unknown as Prisma.InputJsonValue,
-    },
-    select: { id: true },
-  });
+  // Settings (cme blob) goes through the atomic merge helper. The scalar
+  // cmeHours column is updated separately when provided.
+  await updateEventSettings(ctx.eventId, { cme: nextCme });
+  if (cmeHoursValue !== undefined) {
+    await db.event.update({
+      where: { id: ctx.eventId },
+      data: { cmeHours: cmeHoursValue },
+      select: { id: true },
+    });
+  }
 
   db.auditLog
     .create({

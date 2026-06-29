@@ -3,6 +3,7 @@ import { apiLogger } from "@/lib/logger";
 import { isZoomConfigured, createZoomWebinar } from "@/lib/zoom";
 import type { WebinarSettings } from "@/lib/webinar";
 import { readWebinarSettings } from "@/lib/webinar";
+import { updateEventSettings } from "@/lib/event-settings";
 import { enqueueWebinarSequenceForEvent } from "@/lib/webinar-email-sequence";
 
 export type ZoomProvisionStatus =
@@ -178,7 +179,6 @@ export async function provisionWebinar(
     }
 
     // Persist webinar settings JSON on the event
-    const settingsObj = (event.settings as Record<string, unknown>) || {};
     const nextWebinar: WebinarSettings = {
       ...existingWebinar,
       autoCreated: true,
@@ -188,13 +188,10 @@ export async function provisionWebinar(
       autoRecording: existingWebinar.autoRecording ?? "cloud",
       automationEnabled: existingWebinar.automationEnabled ?? true,
     };
-    const mergedSettings = JSON.parse(
-      JSON.stringify({ ...settingsObj, webinar: nextWebinar }),
-    );
-    await db.event.update({
-      where: { id: event.id },
-      data: { settings: mergedSettings },
-    });
+    // JSON round-trip strips undefined (Prisma's Json type rejects it)
+    // before the atomic merge.
+    const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar));
+    await updateEventSettings(event.id, { webinar: cleanWebinar });
 
     // Enqueue the 4 future email phases (reminder-24h, reminder-1h, live-now,
     // thank-you). Only runs if the Zoom webinar was freshly created here —

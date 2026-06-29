@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { encryptSecret } from "@/lib/eventsair-client";
 import { checkRateLimit } from "@/lib/security";
+import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
 const credentialsSchema = z.object({
@@ -132,15 +133,10 @@ export async function PUT(req: Request) {
       zoomData.sdkMode = validated.data.sdkMode;
     }
 
-    const updatedSettings = {
-      ...currentSettings,
-      zoom: zoomData,
-    };
-
-    await db.organization.update({
-      where: { id: session.user.organizationId },
-      data: { settings: JSON.parse(JSON.stringify(updatedSettings)) },
-    });
+    // Atomic merge — only the zoom key is written; other settings keys are
+    // preserved by the helper. JSON round-trip strips undefined.
+    const cleanZoom = JSON.parse(JSON.stringify(zoomData));
+    await updateOrganizationSettings(session.user.organizationId, { zoom: cleanZoom });
 
     apiLogger.info({ userId: session.user.id }, "zoom:credentials-saved");
     return NextResponse.json({ success: true });
@@ -161,18 +157,11 @@ export async function DELETE() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const org = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
-      select: { settings: true },
-    });
-
-    const currentSettings = (org?.settings as Record<string, unknown>) || {};
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { zoom: _removed, ...rest } = currentSettings;
-
-    await db.organization.update({
-      where: { id: session.user.organizationId },
-      data: { settings: rest as Parameters<typeof db.organization.update>[0]["data"]["settings"] },
+    // Atomic delete of just the zoom key — other settings keys preserved.
+    await updateOrganizationSettings(session.user.organizationId, (cur) => {
+      const next = { ...cur };
+      delete next.zoom;
+      return next;
     });
 
     apiLogger.info({ userId: session.user.id }, "zoom:credentials-deleted");

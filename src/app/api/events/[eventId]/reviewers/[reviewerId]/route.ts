@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { updateEventSettings } from "@/lib/event-settings";
 import { getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -39,16 +40,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Remove reviewer from event settings
-    await db.event.update({
-      where: { id: eventId },
-      data: {
-        settings: {
-          ...settings,
-          reviewerUserIds: reviewerUserIds.filter((id) => id !== reviewerId),
-        },
-      },
-    });
+    // Remove reviewer from event settings — atomic filter against the
+    // freshly-locked reviewerUserIds so a concurrent add/remove (or a
+    // parallel settings write to another key) can't be dropped.
+    await updateEventSettings(eventId, (cur) => ({
+      ...cur,
+      reviewerUserIds: ((cur.reviewerUserIds as string[]) ?? []).filter(
+        (id) => id !== reviewerId,
+      ),
+    }));
 
     // Audit log (non-blocking)
     db.auditLog.create({

@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { updateEventSettings } from "@/lib/event-settings";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken } from "@/lib/security";
 import { syncToContact } from "@/lib/contact-sync";
@@ -228,16 +229,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Update event settings
-    await db.event.update({
-      where: { id: eventId },
-      data: {
-        settings: {
-          ...settings,
-          reviewerUserIds: [...reviewerUserIds, userId],
-        },
-      },
-    });
+    // Update event settings — atomic append against the freshly-locked
+    // reviewerUserIds so concurrent reviewer adds (or a parallel settings
+    // write to another key) can't drop each other.
+    await updateEventSettings(eventId, (cur) => ({
+      ...cur,
+      // Dedupe inside the lock: the "already a reviewer" guard above reads a
+      // pre-lock snapshot, so two concurrent adds of the same user could both
+      // pass it — a Set keeps reviewerUserIds free of duplicates.
+      reviewerUserIds: Array.from(new Set([...((cur.reviewerUserIds as string[]) ?? []), userId])),
+    }));
 
     // Tell a pre-existing reviewer account they've been added to this event's
     // pool (new accounts get the account-setup invitation instead, which

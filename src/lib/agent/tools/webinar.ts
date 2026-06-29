@@ -1,11 +1,11 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
+import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
 import type { ToolExecutor } from "./_shared";
 
@@ -482,13 +482,7 @@ const upsertSponsors: ToolExecutor = async (input, ctx) => {
       };
     }
 
-    const currentSettings = (event.settings as Record<string, unknown>) ?? {};
-    const nextSettings = { ...currentSettings, sponsors: sanitized };
-
-    await db.event.update({
-      where: { id: event.id },
-      data: { settings: nextSettings as unknown as Prisma.InputJsonValue },
-    });
+    await updateEventSettings(event.id, { sponsors: sanitized });
 
     await db.auditLog.create({
       data: {

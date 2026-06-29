@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { updateOrganizationSettings } from "@/lib/event-settings";
 
 const updateOrganizationSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -126,10 +127,13 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
-    const currentSettings = (currentOrg.settings as Record<string, unknown>) || {};
-    const updatedSettings = settings
-      ? JSON.parse(JSON.stringify({ ...currentSettings, ...settings }))
-      : JSON.parse(JSON.stringify(currentSettings));
+    // Settings merge goes through the atomic read-merge-write helper so a
+    // concurrent settings writer (zoom/eventsAir credentials, …) can't be
+    // clobbered. Scalar columns stay on the organization.update below.
+    if (settings) {
+      const cleanSettings = JSON.parse(JSON.stringify(settings));
+      await updateOrganizationSettings(orgId, cleanSettings);
+    }
 
     const organization = await db.organization.update({
       where: { id: orgId },
@@ -137,7 +141,6 @@ export async function PUT(req: Request) {
         ...(name && { name }),
         ...(logo !== undefined && { logo }),
         ...(primaryColor !== undefined && { primaryColor }),
-        settings: updatedSettings,
         ...(companyName !== undefined && { companyName }),
         ...(companyAddress !== undefined && { companyAddress }),
         ...(companyCity !== undefined && { companyCity }),

@@ -20,6 +20,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { updateEventSettings } from "@/lib/event-settings";
 import { readEventCmeSettings } from "@/lib/certificates/sample-data";
 import type { EventCmeSettings } from "@/lib/certificates/types";
 
@@ -143,19 +144,25 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     delete nextCme.designApprovedBy;
     delete nextCme.designApprovedAt;
 
-    const nextSettings = {
-      ...currentSettings,
-      cme: nextCme,
-    };
+    // Settings (cme blob) goes through the atomic merge helper. The
+    // scalar cmeHours column is updated separately when provided.
+    const mergedSettings = await updateEventSettings(eventId, { cme: nextCme });
 
-    const updated = await db.event.update({
-      where: { id: eventId },
-      data: {
-        ...(parsed.data.cmeHours !== undefined && { cmeHours: parsed.data.cmeHours }),
-        settings: nextSettings as unknown as Prisma.InputJsonValue,
-      },
-      select: { id: true, cmeHours: true, settings: true },
-    });
+    let finalCmeHours: Prisma.Decimal | number | null;
+    if (parsed.data.cmeHours !== undefined) {
+      const updated = await db.event.update({
+        where: { id: eventId },
+        data: { cmeHours: parsed.data.cmeHours },
+        select: { cmeHours: true },
+      });
+      finalCmeHours = updated.cmeHours;
+    } else {
+      const fresh = await db.event.findUnique({
+        where: { id: eventId },
+        select: { cmeHours: true },
+      });
+      finalCmeHours = fresh?.cmeHours ?? null;
+    }
 
     db.auditLog
       .create({
@@ -183,9 +190,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       changedAccreditations: parsed.data.accreditations !== undefined,
     });
 
-    const finalCme = readEventCmeSettings(updated.settings);
+    const finalCme = readEventCmeSettings(mergedSettings);
     return NextResponse.json({
-      cmeHours: updated.cmeHours == null ? null : Number(updated.cmeHours),
+      cmeHours: finalCmeHours == null ? null : Number(finalCmeHours),
       accreditations: finalCme.accreditations ?? [],
     });
   } catch (error) {

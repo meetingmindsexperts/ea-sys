@@ -259,6 +259,13 @@ A new read-only role for stakeholders who need dashboard visibility without writ
 
 The following items are candidates for the next development phases. Priorities can be adjusted based on business needs.
 
+### Data-loss audit — residual follow-ups (June 29, 2026)
+
+From the concurrency/data-loss sweep (most fixes shipped: contact-sync + EventsAir import enrich-only, MCP accommodation atomic re-book, bulk-type + import-contacts oversell guards, and the `updateEventSettings`/`updateOrganizationSettings` atomic settings helper). Two review-flagged residuals, both LOW/MED real-world risk (admin single-actor flows), left as tracked follow-ups so the settings-migration commit didn't balloon:
+
+- **MED — cross-field atomicity in the split settings PUTs.** `event PUT`, `org PUT`, and the cert-settings routes (REST + MCP) now write the `settings` blob via the atomic helper and the **scalar columns** (name/dates/cmeHours/etc.) via a separate `db.*.update` — two sequential writes. A crash/error *between* them leaves a partial update (settings persisted, scalars not, or vice-versa); the original single-`update` was atomic across both. Fix: give the helper an optional `tx` param and wrap the scalar update + settings merge in one `$transaction` per caller (settings-merge first so the scalar update returns the merged row for the response). Low risk (admin single-actor; window is a crash between two awaits).
+- **LOW — `settings.webinar` sub-key last-write-wins.** The webinar PUT / provisioner / MCP webinar tools read `settings.webinar`, spread a sub-patch, and write the whole `webinar` key via the object-form helper. Cross-*top-level*-key clobber is fixed, but two concurrent edits to *different sub-keys of `webinar`* (e.g. `lobbyMessage` vs `viewingMode`) still lose one. Fix: use the helper's function-form to read `cur.webinar` inside the lock and merge there. Pre-existing; concurrent webinar-settings edits are unlikely.
+
 ### Reviewer/submitter lifecycle audit — open findings (June 26, 2026)
 
 A 3-agent end-to-end trace of the reviewer + submitter + crossover flows. **Two production-breaking HIGHs were fixed in-session** (commit pending): self-registered submitter-speakers now mint a companion registration (badge/check-in/survey/cert), and resubmit-after-revision now re-stamps `submittedAt` + emails the author + notifies organizers. The rest are tracked here:

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { updateEventSettings } from "@/lib/event-settings";
 import { readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -149,20 +150,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }),
     );
 
-    const settingsObj = (event.settings as Record<string, unknown>) || {};
     // JSON.parse(JSON.stringify(...)) strips undefined — Prisma's Json
-    // type rejects them — and gives us a clean value to persist.
-    const mergedSettings = JSON.parse(
-      JSON.stringify({
-        ...settingsObj,
-        sponsors: normalizedSponsors,
-      }),
-    );
+    // type rejects them. Apply it to the sponsors value before the
+    // atomic merge so the persisted blob stays clean.
+    const cleanSponsors = JSON.parse(JSON.stringify(normalizedSponsors));
 
-    await db.event.update({
-      where: { id: eventId },
-      data: { settings: mergedSettings },
-    });
+    await updateEventSettings(eventId, { sponsors: cleanSponsors });
 
     apiLogger.info(
       {

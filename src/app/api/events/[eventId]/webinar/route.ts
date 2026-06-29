@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
@@ -147,18 +148,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const settingsObj = (event.settings as Record<string, unknown>) || {};
     const existingWebinar = readWebinarSettings(event.settings) ?? {};
     const nextWebinar: WebinarSettings = { ...existingWebinar, ...validated.data };
 
-    const mergedSettings = JSON.parse(
-      JSON.stringify({ ...settingsObj, webinar: nextWebinar }),
-    );
-
-    await db.event.update({
-      where: { id: eventId },
-      data: { settings: mergedSettings },
-    });
+    // JSON round-trip strips undefined values (Prisma's Json type rejects
+    // them) before the atomic merge.
+    const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar));
+    await updateEventSettings(eventId, { webinar: cleanWebinar });
 
     apiLogger.info(
       { eventId, userId: session.user.id, webinar: nextWebinar },

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { updateEventSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
 const zoomSettingsSchema = z.object({
@@ -88,19 +89,12 @@ export async function PUT(
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const currentSettings = (event.settings as Record<string, unknown>) || {};
-    const updatedSettings = {
-      ...currentSettings,
+    await updateEventSettings(eventId, {
       zoom: {
         enabled: validated.data.enabled,
         defaultMeetingType: validated.data.defaultMeetingType || "MEETING",
         autoCreateForSessions: validated.data.autoCreateForSessions || false,
       },
-    };
-
-    await db.event.update({
-      where: { id: eventId },
-      data: { settings: updatedSettings },
     });
 
     apiLogger.info({ eventId, userId: session.user.id, zoom: validated.data }, "zoom:settings-updated");

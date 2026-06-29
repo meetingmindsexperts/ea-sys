@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { encryptSecret } from "@/lib/eventsair-client";
+import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
 const credentialsSchema = z.object({
@@ -58,24 +59,14 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const org = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
-      select: { settings: true },
-    });
-
-    const currentSettings = (org?.settings as Record<string, unknown>) || {};
-    const updatedSettings = {
-      ...currentSettings,
+    // Atomic merge — only the eventsAir key is written; other settings keys
+    // are preserved by the helper.
+    await updateOrganizationSettings(session.user.organizationId, {
       eventsAir: {
         clientId: validated.data.clientId,
         clientSecretEncrypted: encryptSecret(validated.data.clientSecret),
         configuredAt: new Date().toISOString(),
       },
-    };
-
-    await db.organization.update({
-      where: { id: session.user.organizationId },
-      data: { settings: updatedSettings },
     });
 
     return NextResponse.json({ success: true });

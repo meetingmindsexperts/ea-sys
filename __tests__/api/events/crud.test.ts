@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDb } = vi.hoisted(() => ({
+const { mockAuth, mockDb, mockUpdateEventSettings } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: {
@@ -14,6 +14,9 @@ const { mockAuth, mockDb } = vi.hoisted(() => ({
     },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
+  // Settings now merge through the atomic helper (its own test covers the merge);
+  // here we just assert the route hands it the right patch.
+  mockUpdateEventSettings: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("next/server", () => ({
@@ -33,6 +36,11 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
+
+vi.mock("@/lib/event-settings", () => ({
+  updateEventSettings: (...args: unknown[]) => mockUpdateEventSettings(...args),
+  updateOrganizationSettings: vi.fn(),
+}));
 
 vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: vi.fn(
@@ -203,12 +211,19 @@ describe("PUT /api/events/[eventId]", () => {
       makeParams("evt-1")
     );
 
-    const updateCall = mockDb.event.update.mock.calls[0][0];
-    expect(updateCall.data.settings).toEqual({
+    // Settings now merge atomically via updateEventSettings (row-locked) instead
+    // of an inline spread on db.event.update. The route hands it the incoming
+    // patch; the helper merges it over the locked-current settings (covered in
+    // event-settings.test.ts). The general PUT must NOT carry the settings on
+    // the scalar db.event.update anymore.
+    expect(mockUpdateEventSettings).toHaveBeenCalledWith("evt-1", {
       registrationOpen: false,
-      maxAttendees: 100,
       waitlistEnabled: true,
     });
+    const scalarUpdate = mockDb.event.update.mock.calls[0]?.[0];
+    if (scalarUpdate) {
+      expect(scalarUpdate.data).not.toHaveProperty("settings");
+    }
   });
 
   it("creates audit log on successful update", async () => {
