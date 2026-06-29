@@ -14,6 +14,7 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
       create: vi.fn(),
       update: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     auditLog: { create: vi.fn() },
   },
@@ -26,6 +27,7 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 import {
   createBillingAccount,
   updateBillingAccount,
+  findOrCreateBillingAccount,
 } from "@/services/billing-account-service";
 
 const CALLER = {
@@ -129,5 +131,52 @@ describe("updateBillingAccount", () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("NAME_REQUIRED");
+  });
+});
+
+describe("findOrCreateBillingAccount — event-level entry, org consolidation", () => {
+  it("NAME_REQUIRED when blank (no create)", async () => {
+    const res = await findOrCreateBillingAccount({ ...CALLER, name: "  " });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("NAME_REQUIRED");
+    expect(mockDb.billingAccount.create).not.toHaveBeenCalled();
+  });
+
+  it("reuses an existing org payer on exact (case-insensitive) name — no create", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue({ id: "ba-1", name: "Cleveland Clinic", needsReview: false });
+    const res = await findOrCreateBillingAccount({ ...CALLER, name: "  cleveland clinic " });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.reused).toBe(true);
+      expect(res.billingAccount.id).toBe("ba-1");
+    }
+    expect(mockDb.billingAccount.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a new payer when no name matches (not flagged)", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue(null);
+    mockDb.billingAccount.findMany.mockResolvedValue([{ name: "Acme Corp" }]);
+    mockDb.billingAccount.create.mockResolvedValue({ id: "ba-2", name: "Pfizer", needsReview: false });
+    const res = await findOrCreateBillingAccount({ ...CALLER, name: "Pfizer" });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.reused).toBe(false);
+      expect(res.flaggedReview).toBe(false);
+    }
+    expect(mockDb.billingAccount.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ needsReview: false }) }),
+    );
+  });
+
+  it("flags needsReview when a near-duplicate name exists (fuzzy)", async () => {
+    mockDb.billingAccount.findFirst.mockResolvedValue(null);
+    mockDb.billingAccount.findMany.mockResolvedValue([{ name: "Cleveland Clinic" }]);
+    mockDb.billingAccount.create.mockResolvedValue({ id: "ba-3", name: "Cleveland Clinic Foundation", needsReview: true });
+    const res = await findOrCreateBillingAccount({ ...CALLER, name: "Cleveland Clinic Foundation" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.flaggedReview).toBe(true);
+    expect(mockDb.billingAccount.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ needsReview: true }) }),
+    );
   });
 });

@@ -157,6 +157,65 @@ export async function createBillingAccount(
   }
 }
 
+// ── Find-or-create (event-level entry, org-level consolidation) ───────────────
+
+export type FindOrCreateBillingAccountResult =
+  | { ok: true; billingAccount: BillingAccount; reused: boolean; flaggedReview: boolean }
+  | { ok: false; code: BillingAccountErrorCode; message: string; meta?: Record<string, unknown> };
+
+/** Loose key for near-duplicate detection: alphanumerics only, lowercased. */
+function fuzzyKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Event-level payer entry with org-level consolidation — mirrors the Contact
+ * model (capture in context, dedupe into one org record). Behavior:
+ *   1. Exact (case-insensitive, trimmed) name → REUSE the existing org payer
+ *      (never a duplicate); the inline-entered details are ignored — the
+ *      consolidated record is the source of truth (edit it in Settings → Billing).
+ *   2. Otherwise CREATE — and if a near-duplicate name exists (fuzzy: one
+ *      alphanumeric key contains the other, e.g. "Cleveland Clinic" vs
+ *      "Cleveland Clinic Foundation"), flag `needsReview` so an admin can merge
+ *      later. The flag is advisory; it never blocks the create.
+ */
+export async function findOrCreateBillingAccount(
+  input: CreateBillingAccountInput,
+): Promise<FindOrCreateBillingAccountResult> {
+  const { organizationId } = input;
+  const name = (input.name ?? "").trim();
+  if (!name) {
+    return { ok: false, code: "NAME_REQUIRED", message: "Billing account name is required" };
+  }
+
+  // 1. Exact (case-insensitive) name → reuse the consolidated org payer.
+  const exact = await db.billingAccount.findFirst({
+    where: { organizationId, name: { equals: name, mode: "insensitive" } },
+  });
+  if (exact) {
+    return { ok: true, billingAccount: exact, reused: true, flaggedReview: exact.needsReview };
+  }
+
+  // 2. No exact match — flag a likely near-duplicate for later merge.
+  const incomingKey = fuzzyKey(name);
+  let flaggedReview = false;
+  if (incomingKey.length > 0) {
+    const orgPayers = await db.billingAccount.findMany({
+      where: { organizationId },
+      select: { name: true },
+    });
+    flaggedReview = orgPayers.some((p) => {
+      const k = fuzzyKey(p.name);
+      return k.length > 0 && (k.includes(incomingKey) || incomingKey.includes(k));
+    });
+  }
+
+  // 3. Create, carrying the needsReview flag.
+  const created = await createBillingAccount({ ...input, name, needsReview: flaggedReview });
+  if (!created.ok) return created;
+  return { ok: true, billingAccount: created.billingAccount, reused: false, flaggedReview };
+}
+
 // ── Update / soft-delete ─────────────────────────────────────────────────────
 
 export async function updateBillingAccount(

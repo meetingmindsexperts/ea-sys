@@ -608,6 +608,24 @@ export function useDetachBillingAccountFromEvent(eventId: string) {
   });
 }
 
+/**
+ * Create-or-reuse a payer at the org level (exact-name reuse; near-dup flagged)
+ * AND auto-attach it to this event — the inline "+ New payer" path from the
+ * registration Charge-to picker. Returns { billingAccount, reused, needsReview }.
+ */
+export function useCreateAndAttachBillingAccount(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      fetchApi<{ billingAccount: { id: string; name: string }; reused: boolean; needsReview: boolean }>(
+        `/api/events/${eventId}/billing-accounts`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) },
+      ),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts }),
+  });
+}
+
 export function useBillingAccount(id: string) {
   return useQuery({
     queryKey: queryKeys.billingAccount(id),

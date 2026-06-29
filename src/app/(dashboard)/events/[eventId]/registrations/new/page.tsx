@@ -17,6 +17,7 @@ import {
 import { PersonFormFields, type PersonFormData } from "@/components/forms/person-form-fields";
 import { ArrowLeft, UserPlus, Save, Ticket } from "lucide-react";
 import { useTickets, useBillingAccounts, useEventTags, useEvent } from "@/hooks/use-api";
+import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import type { TicketType } from "../types";
@@ -56,6 +57,7 @@ export default function NewRegistrationPage() {
   // EventBillingAccount junction appear here. Manage attachments from
   // Settings → Billing → Used in N events.
   const { data: billingAccounts = [] } = useBillingAccounts({ eventId });
+  const [addPayerOpen, setAddPayerOpen] = useState(false);
   // Feed the tag autocomplete dropdown — same source as the bulk-tag
   // dialog and the filter, so the operator sees a consistent set of
   // existing tags across all entry points.
@@ -431,9 +433,24 @@ export default function NewRegistrationPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <button
+                  type="button"
+                  onClick={() => setAddPayerOpen(true)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  + Add a new payer
+                </button>
                 <p className="text-xs text-muted-foreground">
-                  Manage payers in Settings → Billing → Billing Accounts.
+                  Payers are saved to your organization and reused across events; manage them in Settings → Billing.
                 </p>
+                <AddPayerDialog
+                  eventId={eventId}
+                  open={addPayerOpen}
+                  onOpenChange={setAddPayerOpen}
+                  onCreated={(payer) =>
+                    setFormData((prev) => ({ ...prev, billingAccountId: payer.id }))
+                  }
+                />
               </div>
               {formData.billingAccountId && (
                 <>
