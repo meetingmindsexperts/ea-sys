@@ -106,7 +106,14 @@ export interface BulkEmailFilters {
    * audience or fall back to external tools.
    */
   paymentStatus?: string;
+  /** Single ticket-type filter (legacy / tile pass-through). Prefer `ticketTypeIds`. */
   ticketTypeId?: string;
+  /**
+   * Registrations recipient only — send only to registrations on ANY of these
+   * ticket types (Prisma `in`). Multi-select. Takes precedence over the single
+   * `ticketTypeId` when present.
+   */
+  ticketTypeIds?: string[];
   /**
    * Registrations recipient only — send only to registrations whose
    * `Registration.badgeType` is ANY of these (Prisma `in`). Empty / absent =
@@ -246,6 +253,7 @@ export const bulkEmailSchema = z.object({
       // e.g. the Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
       paymentStatus: z.string().max(200).optional(),
       ticketTypeId: z.string().max(100).optional(),
+      ticketTypeIds: z.array(z.string().max(100)).max(50).optional(),
       badgeTypes: z.array(z.string().max(255)).max(50).optional(),
       tagsInclude: z.array(z.string().max(100)).max(50).optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
@@ -558,7 +566,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
           : paymentStatuses.length > 1
             ? { paymentStatus: { in: paymentStatuses } }
             : {}),
-        ...(filters?.ticketTypeId ? { ticketTypeId: filters.ticketTypeId } : {}),
+        ...(filters?.ticketTypeIds?.length
+          ? { ticketTypeId: { in: filters.ticketTypeIds } }
+          : filters?.ticketTypeId
+            ? { ticketTypeId: filters.ticketTypeId }
+            : {}),
         ...(filters?.badgeTypes?.length ? { badgeType: { in: filters.badgeTypes } } : {}),
         // Tag filter — attendees with ANY of the requested tags. Relation
         // filter on the linked Attendee row.

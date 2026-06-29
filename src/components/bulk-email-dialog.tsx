@@ -22,7 +22,16 @@ import {
 } from "@/components/ui/select";
 import { Calendar, Eye, Loader2, Mail, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { useBulkEmail, useEmailTemplates, usePreviewEmailBySlug, useScheduleBulkEmail } from "@/hooks/use-api";
+import { Checkbox } from "@/components/ui/checkbox";
+import { TagInput } from "@/components/ui/tag-input";
+import {
+  useBulkEmail,
+  useEmailTemplates,
+  usePreviewEmailBySlug,
+  useScheduleBulkEmail,
+  useTickets,
+  useEventTags,
+} from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import {
@@ -42,6 +51,8 @@ export interface BulkEmailEffectiveFilters {
   status?: string;
   paymentStatus?: string;
   ticketTypeId?: string;
+  /** Registrations recipient only — multi ticket-type filter (ANY of). */
+  ticketTypeIds?: string[];
   /** Registrations recipient only — registrations with ANY of these badge types. */
   badgeTypes?: string[];
   /** Registrations recipient only — attendees with ANY of these tags. */
@@ -94,6 +105,12 @@ interface BulkEmailDialogProps {
    */
   badgeTypesFilter?: string[];
   tagsFilter?: string[];
+  /**
+   * Registrations recipient only — the distinct badge-type values available
+   * on this event, used to populate the in-dialog Badge type checkbox list.
+   * The host page computes it from its loaded registrations.
+   */
+  badgeOptions?: string[];
   /**
    * Tier-1 speaker filters (speakers recipient only). Passed through to
    * the bulk-email `filters` payload — backend applies them to the
@@ -237,6 +254,7 @@ export function BulkEmailDialog({
   ticketTypeFilter,
   badgeTypesFilter,
   tagsFilter,
+  badgeOptions,
   agreementSignedFilter,
   hasSessionFilter,
   sessionRoleFilter,
@@ -255,6 +273,13 @@ export function BulkEmailDialog({
   // without the re-seed a stale value from the previous open would drive
   // the send (the bug: page filtered to UNPAID, dialog still sent to all).
   const [localPaymentFilter, setLocalPaymentFilter] = useState<string>(paymentStatusFilter ?? "all");
+  // Registrations-only in-dialog multi-select filters. Seeded from the host
+  // page's current selection on open (same re-seed-on-open pattern as payment).
+  const [localTicketTypeIds, setLocalTicketTypeIds] = useState<string[]>(
+    ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : [],
+  );
+  const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
+  const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
   // Reset emailType + payment filter on the closed → open transition only
   // (so users who change a control mid-dialog don't lose it on a
   // re-render). Uses React's documented "store info from previous render"
@@ -266,6 +291,9 @@ export function BulkEmailDialog({
     if (open) {
       setEmailType(defaultEmailType ?? getDefaultEmailType(recipientType));
       setLocalPaymentFilter(paymentStatusFilter ?? "all");
+      setLocalTicketTypeIds(ticketTypeFilter && ticketTypeFilter !== "all" ? [ticketTypeFilter] : []);
+      setLocalBadgeTypes(badgeTypesFilter ?? []);
+      setLocalTags(tagsFilter ?? []);
     }
   }
   const [customSubject, setCustomSubject] = useState("");
@@ -280,6 +308,14 @@ export function BulkEmailDialog({
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // Registrations-only filter option sources. Always called (hooks must be
+  // unconditional); only rendered for the registrations recipient type.
+  const { data: ticketTypeData } = useTickets(eventId);
+  const ticketTypeOptions = ((ticketTypeData ?? []) as Array<{ id: string; name: string }>).map(
+    (t) => ({ id: t.id, name: t.name }),
+  );
+  const eventTagsQuery = useEventTags(eventId);
+  const tagSuggestions = (eventTagsQuery.data?.tags ?? []).map((t) => t.tag);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
 
@@ -319,15 +355,14 @@ export function BulkEmailDialog({
   // dialog's current effective filters (so tiles + the in-dialog payment
   // override show the true number); fall back to the static prop when no
   // counter is provided. "selected" mode always shows the selected count.
+  const isRegistrations = recipientType === "registrations";
   const effectiveFilters: BulkEmailEffectiveFilters = {
     status: statusFilter,
     paymentStatus:
-      recipientType === "registrations" && localPaymentFilter !== "all"
-        ? localPaymentFilter
-        : undefined,
-    ticketTypeId: ticketTypeFilter,
-    badgeTypes: badgeTypesFilter,
-    tags: tagsFilter,
+      isRegistrations && localPaymentFilter !== "all" ? localPaymentFilter : undefined,
+    ticketTypeIds: isRegistrations && localTicketTypeIds.length ? localTicketTypeIds : undefined,
+    badgeTypes: isRegistrations && localBadgeTypes.length ? localBadgeTypes : undefined,
+    tags: isRegistrations && localTags.length ? localTags : undefined,
     agreementSigned: agreementSignedFilter,
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
@@ -442,13 +477,16 @@ export function BulkEmailDialog({
         ...(recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all"
           ? { paymentStatus: localPaymentFilter }
           : {}),
-        ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
-        // Registrations recipient only — badge types + tag include (both multi).
-        ...(recipientType === "registrations" && badgeTypesFilter && badgeTypesFilter.length > 0
-          ? { badgeTypes: badgeTypesFilter }
+        // Registrations recipient only — ticket type / badge / tags, all
+        // multi-select, driven by the in-dialog controls (seeded from the page).
+        ...(recipientType === "registrations" && localTicketTypeIds.length > 0
+          ? { ticketTypeIds: localTicketTypeIds }
           : {}),
-        ...(recipientType === "registrations" && tagsFilter && tagsFilter.length > 0
-          ? { tagsInclude: tagsFilter }
+        ...(recipientType === "registrations" && localBadgeTypes.length > 0
+          ? { badgeTypes: localBadgeTypes }
+          : {}),
+        ...(recipientType === "registrations" && localTags.length > 0
+          ? { tagsInclude: localTags }
           : {}),
         // Tier-1 speaker filters (speakers recipient only).
         ...(recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all"
@@ -686,6 +724,66 @@ export function BulkEmailDialog({
             </div>
           )}
 
+          {/* Registration type — multi-select (checkbox). Empty = all types. */}
+          {recipientType === "registrations" && ticketTypeOptions.length > 0 && (
+            <div className="space-y-2">
+              <Label>Registration type</Label>
+              <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                {ticketTypeOptions.map((tt) => (
+                  <label key={tt.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={localTicketTypeIds.includes(tt.id)}
+                      onCheckedChange={(c) =>
+                        setLocalTicketTypeIds((prev) =>
+                          c === true ? [...prev, tt.id] : prev.filter((id) => id !== tt.id),
+                        )
+                      }
+                    />
+                    <span>{tt.name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Leave all unchecked to include every registration type.
+              </p>
+            </div>
+          )}
+
+          {/* Badge type — multi-select (checkbox). Empty = all badges. */}
+          {recipientType === "registrations" && badgeOptions && badgeOptions.length > 0 && (
+            <div className="space-y-2">
+              <Label>Badge type</Label>
+              <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                {badgeOptions.map((b) => (
+                  <label key={b} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={localBadgeTypes.includes(b)}
+                      onCheckedChange={(c) =>
+                        setLocalBadgeTypes((prev) =>
+                          c === true ? [...prev, b] : prev.filter((x) => x !== b),
+                        )
+                      }
+                    />
+                    <span>{b}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tags — any of (multi). Empty = no tag filter. */}
+          {recipientType === "registrations" && (
+            <div className="space-y-2">
+              <Label>Tags (any of)</Label>
+              <TagInput
+                value={localTags}
+                onChange={setLocalTags}
+                suggestions={tagSuggestions}
+                placeholder="Filter by tag(s)…"
+              />
+            </div>
+          )}
+
           {/* survey-invitation only — link expiry (days). Mirrors the
               dashboard shareable-link expiry control; default 7. */}
           {emailType === "survey-invitation" && (
@@ -719,11 +817,19 @@ export function BulkEmailDialog({
             {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by payment: {formatPaymentLabel(localPaymentFilter)}</p>
             )}
-            {recipientType === "registrations" && badgeTypesFilter && badgeTypesFilter.length > 0 && (
-              <p className="text-muted-foreground">Filtered by badge: {badgeTypesFilter.join(", ")}</p>
+            {recipientType === "registrations" && localTicketTypeIds.length > 0 && (
+              <p className="text-muted-foreground">
+                Filtered by type:{" "}
+                {localTicketTypeIds
+                  .map((id) => ticketTypeOptions.find((t) => t.id === id)?.name ?? id)
+                  .join(", ")}
+              </p>
             )}
-            {recipientType === "registrations" && tagsFilter && tagsFilter.length > 0 && (
-              <p className="text-muted-foreground">Filtered by tags: {tagsFilter.join(", ")}</p>
+            {recipientType === "registrations" && localBadgeTypes.length > 0 && (
+              <p className="text-muted-foreground">Filtered by badge: {localBadgeTypes.join(", ")}</p>
+            )}
+            {recipientType === "registrations" && localTags.length > 0 && (
+              <p className="text-muted-foreground">Filtered by tags: {localTags.join(", ")}</p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>

@@ -271,10 +271,22 @@ export default function RegistrationsPage() {
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
-      if (f.ticketTypeId && f.ticketTypeId !== "all" && r.ticketType?.id !== f.ticketTypeId) return false;
+      if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
+      if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
+      if (f.tags && f.tags.length > 0 && !f.tags.some((t) => r.attendee.tags.includes(t))) return false;
       return true;
     }).length;
   };
+
+  // Distinct non-empty badge types present on the loaded registrations —
+  // feeds the dialog's in-dialog Badge type checkbox list.
+  const badgeOptionsForEmail = Array.from(
+    new Set(
+      registrations
+        .map((r) => r.badgeType)
+        .filter((b): b is string => !!b && b.trim().length > 0),
+    ),
+  ).sort();
 
   // Pagination
   const totalFiltered = filteredRegistrations.length;
@@ -960,6 +972,8 @@ export default function RegistrationsPage() {
         statusFilter={statusFilter}
         paymentStatusFilter={paymentFilter}
         ticketTypeFilter={ticketFilter}
+        tagsFilter={tagFilter}
+        badgeOptions={badgeOptionsForEmail}
         recipientCountFor={countRegistrationsForEmail}
       />
 

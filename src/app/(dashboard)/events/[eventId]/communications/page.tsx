@@ -414,7 +414,7 @@ export default function CommunicationsPage() {
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
-      if (f.ticketTypeId && f.ticketTypeId !== "all" && r.ticketType?.id !== f.ticketTypeId) return false;
+      if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
       if (f.tags && f.tags.length > 0) {
         const tags = r.attendee?.tags ?? [];
@@ -1150,6 +1150,7 @@ export default function CommunicationsPage() {
         ticketTypeFilter={activeTicketTypeFilter}
         badgeTypesFilter={activeBadgeTypesFilter}
         tagsFilter={activeTagsFilter}
+        badgeOptions={badgeTypes}
         agreementSignedFilter={activeAgreementSignedFilter}
         hasSessionFilter={activeHasSessionFilter}
         sessionRoleFilter={activeSessionRoleFilter}
