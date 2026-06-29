@@ -794,6 +794,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="step"><div class="step-n"></div><div class="step-b">Pick a <strong>Registration Type</strong></div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">If the type has tiers, pick a <strong>Pricing Tier</strong> (Early Bird / Standard / Onsite). This drives reporting.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Set <strong>Payment Status</strong>: <code>UNASSIGNED</code> for paid tickets pending follow-up, <code>UNPAID</code> if the registrant should self-pay via Stripe, <code>PAID</code> if already settled, <code>COMPLIMENTARY</code> for VIP/no-charge, <code>INCLUSIVE</code> for sponsor-paid (see <a href="#s5">Section 5</a>).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>(Optional) Charge to another account</strong> &mdash; if a hospital, company, or grant is paying instead of the attendee, pick a payer under <strong>Charge to</strong> (or click <strong>+ Add a new payer</strong> to create one inline). Full details in <a href="#s8">Finance &amp; Invoicing &rarr; Charging to a third-party payer</a>.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Register</strong>. The system generates a QR code, serial ID, and (for outstanding-payment registrations) sends a confirmation email with quote PDF attached.</div></div>
         </div>
       </div>
@@ -1104,6 +1105,22 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="ic gold"><div class="ic-title">Invoice (PAID)</div><div class="ic-body">Generated automatically when Stripe payment succeeds (promotes the existing Quote) or when finance manually records a payment. PDF includes &ldquo;Paid on X via Visa ending 4242&rdquo; line.</div></div>
           <div class="ic teal"><div class="ic-title">Credit Note</div><div class="ic-body">Issued for refunds or partial credits. Created alongside the refund transaction.</div></div>
         </div>
+      </div>
+
+      <div class="sub" id="s8-payer">
+        <div class="sub-title">Charging a registration to a third-party payer</div>
+        <p><strong>Why.</strong> Faculty and delegates are often paid for by someone other than themselves &mdash; a hospital sponsoring its doctor, or a pharma <em>grant</em> covering a specific HCP. The invoice needs to be addressed to (and chased from) that institution, not the attendee, even though the attendee is the person attending.</p>
+        <p><strong>What.</strong> A <strong>payer</strong> (the &ldquo;Charge to another account&rdquo; option) is a reusable billing party &mdash; name, address, VAT/tax number, contact &mdash; stored once at the <em>organisation</em> level and attached to whichever events use it, so &ldquo;Cleveland Clinic&rdquo; is a single record, never duplicated per event. Setting a payer on a registration changes who the <strong>invoice is billed to</strong>: the PDF&rsquo;s bill-to becomes the payer, the attendee drops to a reference line, and the attendee&rsquo;s own &ldquo;Pay now&rdquo; button is suppressed. It is <strong>orthogonal to payment status</strong> &mdash; the money is still owed and the registration stays <code>UNPAID</code> until the payer settles.</p>
+        <div class="callout c-new"><div class="c-icon">&#x1F4A1;</div><div class="c-body"><div class="c-title">Payer vs. Sponsor-paid (INCLUSIVE) &mdash; which one?</div><div class="c-text">Use a <strong>payer</strong> when an invoice will be sent and money is <em>still owed</em> (bill the hospital, then collect). Use <strong>INCLUSIVE</strong> (<a href="#s5">Section 5</a>) when a sponsor has <em>already</em> pre-paid a block out-of-band and the attendee owes nothing. Payer = &ldquo;who gets the bill&rdquo;; INCLUSIVE = &ldquo;already settled by a sponsor&rdquo;.</div></div></div>
+        <p><strong>How &mdash; add a payer inline while registering:</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">On the <strong>Add Registration</strong> form, under <strong>Charge to</strong>, pick an existing payer &mdash; or click <strong>+ Add a new payer</strong>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Enter the payer&rsquo;s <strong>name</strong> (required) and any details you have (type, contact, email, address, tax/VAT number). You can complete or edit these later in Settings &rarr; Billing.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Save. The payer is created at the organisation level <em>and</em> attached to this event in one step, then selected on the registration &mdash; no trip to Settings.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Optionally add a <strong>PO / grant reference</strong> and tick <strong>attendee is guarantor</strong> (the attendee backstops the bill if the payer doesn&rsquo;t settle).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Register</strong>. The quote/invoice is now billed to the payer.</div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Same name = same payer (consolidated org-wide)</div><div class="c-text">Typing a payer name that already exists (any capitalisation) <em>reuses</em> the existing organisation record rather than creating a duplicate &mdash; just like Contacts. A <em>near</em>-duplicate name (e.g. &ldquo;Cleveland Clinic&rdquo; vs &ldquo;Cleveland Clinic Foundation&rdquo;) is still created but flagged for an admin to review/merge in Settings &rarr; Billing. To change a payer&rsquo;s address or tax number, edit the single record in Settings &rarr; Billing &mdash; it updates everywhere that payer is used.</div></div></div>
       </div>
 
       <div class="sub" id="s8-3">
