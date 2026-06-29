@@ -18,33 +18,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-type ActivitySource = "speaker" | "registration";
-
-interface ActivityItem {
-  id: string;
-  source: ActivitySource;
-  kind: "audit" | "email" | "certificate";
-  at: string;
-  action?: string;
-  actor?: string | null;
-  ipAddress?: string | null;
-  subject?: string;
-  to?: string;
-  status?: string;
-  templateSlug?: string | null;
-  errorMessage?: string | null;
-  serial?: string;
-  certType?: string;
-  pdfUrl?: string | null;
-  revoked?: boolean;
-  diffs?: Array<{ field: string; before: string; after: string }>;
-}
-
-interface ActivityResponse {
-  items: ActivityItem[];
-  linked: { type: ActivitySource; id: string; linkedBy: "pointer" | "email" } | null;
-}
+import type { ActivitySource, ActivityItem, ActivityFeed } from "@/lib/activity-feed-types";
 
 interface Props {
   /** Full activity API URL for this entity. */
@@ -111,7 +85,7 @@ function primaryText(item: ActivityItem): string {
 }
 
 export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Activity" }: Props) {
-  const { data, isLoading, isError } = useQuery<ActivityResponse>({
+  const { data, isLoading, isError } = useQuery<ActivityFeed>({
     queryKey: ["activity", ...queryKey],
     queryFn: async () => {
       const res = await fetch(endpoint);

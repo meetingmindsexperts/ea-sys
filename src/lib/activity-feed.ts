@@ -22,47 +22,16 @@ import { db } from "@/lib/db";
 import { getEmailLogsFor } from "@/lib/email-log";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 
-export type ActivitySource = "speaker" | "registration";
-
-export interface ActivityFieldDiff {
-  field: string; // humanized label, e.g. "Payment status"
-  before: string;
-  after: string;
-}
-
-export interface ActivityItem {
-  id: string;
-  source: ActivitySource;
-  kind: "audit" | "email" | "certificate";
-  at: string; // ISO
-  // audit
-  action?: string;
-  actor?: string | null;
-  ipAddress?: string | null;
-  /**
-   * Field-level before→after changes for UPDATE entries, derived from the
-   * audit row's `changes.before`/`changes.after`. Financial fields are
-   * redacted for non-finance viewers. Empty/absent for non-UPDATE entries.
-   */
-  diffs?: ActivityFieldDiff[];
-  // email
-  subject?: string;
-  to?: string;
-  status?: string;
-  templateSlug?: string | null;
-  errorMessage?: string | null;
-  // certificate
-  serial?: string;
-  certType?: string;
-  pdfUrl?: string | null;
-  revoked?: boolean;
-}
-
-export interface ActivityFeed {
-  items: ActivityItem[];
-  /** The linked counterpart entity, when one was resolved. */
-  linked: { type: ActivitySource; id: string; linkedBy: "pointer" | "email" } | null;
-}
+// Activity types live in a client-safe module (no `db` import) so the client
+// card can share them. Re-exported here so existing `@/lib/activity-feed`
+// type importers keep working.
+import type {
+  ActivitySource,
+  ActivityFieldDiff,
+  ActivityItem,
+  ActivityFeed,
+} from "./activity-feed-types";
+export type { ActivitySource, ActivityFieldDiff, ActivityItem, ActivityFeed };
 
 const AUDIT_SELECT = {
   id: true,

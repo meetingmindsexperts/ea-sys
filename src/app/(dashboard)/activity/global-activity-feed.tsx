@@ -3,18 +3,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
+import { Activity, RefreshCw } from "lucide-react";
 import {
-  UserPlus,
-  Activity,
-  Tag,
-  Mic,
-  Calendar,
-  Building2,
-  Ticket,
-  FileText,
-  Users,
-  RefreshCw,
-} from "lucide-react";
+  auditEntityIcon,
+  auditActionColor,
+  describeAuditAction,
+  auditActorLabel,
+} from "@/components/activity/audit-log-display";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,25 +26,6 @@ interface GlobalActivityLog {
   user: { firstName: string; lastName: string; email: string } | null;
   event: { id: string; name: string } | null;
 }
-
-const entityIcons: Record<string, typeof Activity> = {
-  Registration: UserPlus,
-  Speaker: Mic,
-  Session: Calendar,
-  Hotel: Building2,
-  TicketType: Ticket,
-  Abstract: FileText,
-  User: Users,
-  Track: Tag,
-};
-
-const actionColors: Record<string, string> = {
-  CREATE: "bg-green-100 text-green-700",
-  UPDATE: "bg-blue-100 text-blue-700",
-  DELETE: "bg-red-100 text-red-700",
-  EMAIL_SENT: "bg-violet-100 text-violet-700",
-  BULK_UPDATE: "bg-amber-100 text-amber-700",
-};
 
 const timeRanges = [
   { label: "All time", value: "" },
@@ -79,55 +55,6 @@ const entityTypes = [
   { label: "User", value: "User" },
   { label: "Track", value: "Track" },
 ];
-
-function getActivityDescription(log: GlobalActivityLog): string {
-  const changes = log.changes || {};
-  const source = changes.source as string | undefined;
-
-  if (log.entityType === "Registration" && log.action === "CREATE") {
-    const attendee = changes.attendee as
-      | { firstName?: string; lastName?: string; email?: string }
-      | undefined;
-    const ticketType = (changes.ticketType as string) || "";
-    const name = attendee
-      ? `${attendee.firstName || ""} ${attendee.lastName || ""}`.trim()
-      : "";
-    const confirmId =
-      (changes.confirmationNumber as string) || log.entityId;
-    const shortId =
-      confirmId.length > 12
-        ? `${confirmId.slice(0, 4)}...${confirmId.slice(-4)}`
-        : confirmId;
-
-    if (source === "public_registration") {
-      return `${name || "Someone"} registered${ticketType ? ` as ${ticketType}` : ""} (${shortId})`;
-    }
-    return `Registration created for ${name || "attendee"}${ticketType ? ` — ${ticketType}` : ""} (${shortId})`;
-  }
-
-  if (log.action === "EMAIL_SENT") {
-    const recipient = changes.recipient as string | undefined;
-    return `Email sent to ${recipient || "recipient"}`;
-  }
-
-  if (log.action === "DELETE") return `${log.entityType} deleted`;
-  if (log.action === "UPDATE") return `${log.entityType} updated`;
-  if (log.action === "BULK_UPDATE")
-    return `Bulk update on ${log.entityType}`;
-
-  return `${log.action} ${log.entityType}`;
-}
-
-function getActorLabel(log: GlobalActivityLog): string {
-  if (log.user) {
-    return (
-      `${log.user.firstName} ${log.user.lastName}`.trim() || log.user.email
-    );
-  }
-  const source = (log.changes as Record<string, unknown>)?.source;
-  if (source === "public_registration") return "Public Registration";
-  return "System";
-}
 
 export function GlobalActivityFeed() {
   const [eventId, setEventId] = useState("");
@@ -275,9 +202,8 @@ export function GlobalActivityFeed() {
             </div>
             <div className="space-y-1">
               {logs.map((log) => {
-                const Icon = entityIcons[log.entityType] || Activity;
-                const colorCls =
-                  actionColors[log.action] || "bg-slate-100 text-slate-600";
+                const Icon = auditEntityIcon(log.entityType);
+                const colorCls = auditActionColor(log.action);
 
                 return (
                   <div
@@ -291,7 +217,7 @@ export function GlobalActivityFeed() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-800 leading-snug">
-                        {getActivityDescription(log)}
+                        {describeAuditAction(log)}
                       </p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {log.event && (
@@ -303,7 +229,7 @@ export function GlobalActivityFeed() {
                           </Badge>
                         )}
                         <span className="text-xs text-muted-foreground">
-                          {getActorLabel(log)}
+                          {auditActorLabel(log)}
                         </span>
                         <span className="text-xs text-slate-300">&middot;</span>
                         <span className="text-xs text-muted-foreground">
