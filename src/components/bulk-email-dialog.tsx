@@ -597,7 +597,11 @@ export function BulkEmailDialog({
             <Select value={emailType} onValueChange={setEmailType}>
               {/* h-auto + extra py so the two-line option (title + description)
                   isn't cramped by the trigger's default fixed h-9. */}
-              <SelectTrigger className="h-12 py-3">
+              {/* The base trigger has `data-[size=default]:h-9` (a data-variant);
+                  a plain h-12/h-auto loses to it via tailwind-merge, so the
+                  height stayed 36px. Override the SAME variant to actually win,
+                  + min-h-12 + py-3 so the two-line option never clips. */}
+              <SelectTrigger className="data-[size=default]:h-auto min-h-12 py-1">
                 <SelectValue placeholder="Select email type" />
               </SelectTrigger>
               <SelectContent>
@@ -729,7 +733,7 @@ export function BulkEmailDialog({
                 aria-expanded={filtersOpen}
                 className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 font-semibold text-primary">
                   <svg
                     className={`h-3 w-3 transition-transform ${filtersOpen ? "rotate-90" : ""}`}
                     viewBox="0 0 12 12"
@@ -891,7 +895,8 @@ export function BulkEmailDialog({
           {/* Recipient summary */}
           <div className="rounded-md border p-3 text-sm">
             <p className="font-medium">
-              {displayCount} {displayCount === 1 ? "recipient" : "recipients"}
+              <span className="font-bold text-primary">{displayCount}</span>{" "}
+              {displayCount === 1 ? "recipient" : "recipients"}
             </p>
             {statusFilter && statusFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by status: {statusFilter}</p>
