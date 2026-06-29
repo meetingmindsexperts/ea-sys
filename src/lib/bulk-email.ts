@@ -108,6 +108,19 @@ export interface BulkEmailFilters {
   paymentStatus?: string;
   ticketTypeId?: string;
   /**
+   * Registrations recipient only — send only to registrations whose
+   * `Registration.badgeType` is ANY of these (Prisma `in`). Empty / absent =
+   * no badge filter. Multi-select.
+   */
+  badgeTypes?: string[];
+  /**
+   * Registrations recipient only — send only to attendees whose
+   * `Attendee.tags` include ANY of these tags (Prisma `hasSome`). Empty /
+   * absent = no tag filter. The "filter by tag" capability organizers asked
+   * for; pairs naturally with a future `tagsExclude`.
+   */
+  tagsInclude?: string[];
+  /**
    * Speakers recipient only — filter on signed agreement state.
    *   "signed"   → `Speaker.agreementAcceptedAt IS NOT NULL`
    *   "unsigned" → `Speaker.agreementAcceptedAt IS NULL`
@@ -233,6 +246,8 @@ export const bulkEmailSchema = z.object({
       // e.g. the Welcome-Paid tile sends PAID,COMPLIMENTARY,INCLUSIVE).
       paymentStatus: z.string().max(200).optional(),
       ticketTypeId: z.string().max(100).optional(),
+      badgeTypes: z.array(z.string().max(255)).max(50).optional(),
+      tagsInclude: z.array(z.string().max(100)).max(50).optional(),
       agreementSigned: z.enum(["signed", "unsigned"]).optional(),
       hasSession: z.enum(["yes", "no"]).optional(),
       sessionRole: z.nativeEnum(SessionRole).optional(),
@@ -544,6 +559,12 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             ? { paymentStatus: { in: paymentStatuses } }
             : {}),
         ...(filters?.ticketTypeId ? { ticketTypeId: filters.ticketTypeId } : {}),
+        ...(filters?.badgeTypes?.length ? { badgeType: { in: filters.badgeTypes } } : {}),
+        // Tag filter — attendees with ANY of the requested tags. Relation
+        // filter on the linked Attendee row.
+        ...(filters?.tagsInclude?.length
+          ? { attendee: { tags: { hasSome: filters.tagsInclude } } }
+          : {}),
       },
       select: {
         id: true,

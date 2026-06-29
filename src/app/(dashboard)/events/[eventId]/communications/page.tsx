@@ -57,7 +57,9 @@ import {
   useReviewers,
   useTickets,
   useEmailTemplates,
+  useEventTags,
 } from "@/hooks/use-api";
+import { TagInput } from "@/components/ui/tag-input";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import {
@@ -75,8 +77,9 @@ interface RegistrationItem {
   serialId: number | null;
   status: string;
   paymentStatus: string;
+  badgeType?: string | null;
   ticketType?: { id: string; name: string };
-  attendee?: { email?: string | null } | null;
+  attendee?: { email?: string | null; tags?: string[] } | null;
 }
 
 interface SpeakerItem {
@@ -275,6 +278,9 @@ export default function CommunicationsPage() {
   const reviewersQuery = useReviewers(eventId);
   const ticketsQuery = useTickets(eventId);
   const templatesQuery = useEmailTemplates(eventId);
+  // Existing attendee tags → autocomplete suggestions for the tag filter.
+  const tagsQuery = useEventTags(eventId);
+  const tagSuggestions = (tagsQuery.data?.tags ?? []).map((t) => t.tag);
 
   // Active organizer-created templates (excludes system defaults) — surfaced
   // as one-click tiles so a custom template an organizer activated is
@@ -289,6 +295,15 @@ export default function CommunicationsPage() {
   const reviewerData = reviewersQuery.data as { reviewers?: ReviewerItem[] } | undefined;
   const reviewers = (reviewerData?.reviewers ?? []) as ReviewerItem[];
   const ticketTypes = (ticketsQuery.data ?? []) as TicketTypeItem[];
+  // Distinct non-empty badge types present on this event's registrations —
+  // drives the Badge Type filter dropdown.
+  const badgeTypes = Array.from(
+    new Set(
+      registrations
+        .map((r) => r.badgeType)
+        .filter((b): b is string => !!b && b.trim().length > 0),
+    ),
+  ).sort();
 
   const isLoading =
     registrationsQuery.isLoading ||
@@ -301,6 +316,8 @@ export default function CommunicationsPage() {
   const [regStatusFilter, setRegStatusFilter] = useState("all");
   const [regPaymentFilter, setRegPaymentFilter] = useState("all");
   const [regTypeFilter, setRegTypeFilter] = useState("all");
+  const [regBadgeFilter, setRegBadgeFilter] = useState<string[]>([]);
+  const [regTagsFilter, setRegTagsFilter] = useState<string[]>([]);
   const [speakerStatusFilter, setSpeakerStatusFilter] = useState("all");
   // Tier-1 speaker filters
   const [speakerAgreementFilter, setSpeakerAgreementFilter] = useState("all");
@@ -313,6 +330,8 @@ export default function CommunicationsPage() {
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | undefined>();
   const [activePaymentStatusFilter, setActivePaymentStatusFilter] = useState<string | undefined>();
   const [activeTicketTypeFilter, setActiveTicketTypeFilter] = useState<string | undefined>();
+  const [activeBadgeTypesFilter, setActiveBadgeTypesFilter] = useState<string[]>([]);
+  const [activeTagsFilter, setActiveTagsFilter] = useState<string[]>([]);
   const [activeAgreementSignedFilter, setActiveAgreementSignedFilter] = useState<string | undefined>();
   const [activeHasSessionFilter, setActiveHasSessionFilter] = useState<string | undefined>();
   const [activeSessionRoleFilter, setActiveSessionRoleFilter] = useState<string | undefined>();
@@ -341,6 +360,11 @@ export default function CommunicationsPage() {
     if (regStatusFilter !== "all" && r.status !== regStatusFilter) return false;
     if (regPaymentFilter !== "all" && r.paymentStatus !== regPaymentFilter) return false;
     if (regTypeFilter !== "all" && r.ticketType?.id !== regTypeFilter) return false;
+    if (regBadgeFilter.length > 0 && !(r.badgeType && regBadgeFilter.includes(r.badgeType))) return false;
+    if (regTagsFilter.length > 0) {
+      const tags = r.attendee?.tags ?? [];
+      if (!regTagsFilter.some((t) => tags.includes(t))) return false;
+    }
     return true;
   });
 
@@ -391,6 +415,11 @@ export default function CommunicationsPage() {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeId && f.ticketTypeId !== "all" && r.ticketType?.id !== f.ticketTypeId) return false;
+      if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
+      if (f.tags && f.tags.length > 0) {
+        const tags = r.attendee?.tags ?? [];
+        if (!f.tags.some((t) => tags.includes(t))) return false;
+      }
       return true;
     }).length;
   }
@@ -437,6 +466,8 @@ export default function CommunicationsPage() {
       setActiveTicketTypeFilter(
         regTypeFilter !== "all" ? regTypeFilter : undefined
       );
+      setActiveBadgeTypesFilter(regBadgeFilter);
+      setActiveTagsFilter(regTagsFilter);
       setActiveAgreementSignedFilter(undefined);
       setActiveHasSessionFilter(undefined);
       setActiveSessionRoleFilter(undefined);
@@ -446,6 +477,8 @@ export default function CommunicationsPage() {
       );
       setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
       setActiveAgreementSignedFilter(
         speakerAgreementFilter !== "all" ? speakerAgreementFilter : undefined
       );
@@ -459,6 +492,8 @@ export default function CommunicationsPage() {
       setActiveStatusFilter(undefined);
       setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
       setActiveAgreementSignedFilter(undefined);
       setActiveHasSessionFilter(undefined);
       setActiveSessionRoleFilter(undefined);
@@ -484,6 +519,8 @@ export default function CommunicationsPage() {
       const f = tile.filters as RegistrationTile["filters"];
       setActivePaymentStatusFilter(f.paymentStatus);
       setActiveTicketTypeFilter(f.ticketTypeId);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
       setActiveAgreementSignedFilter(undefined);
       setActiveHasSessionFilter(undefined);
       setActiveSessionRoleFilter(undefined);
@@ -491,6 +528,8 @@ export default function CommunicationsPage() {
       const f = tile.filters as SpeakerTile["filters"];
       setActivePaymentStatusFilter(undefined);
       setActiveTicketTypeFilter(undefined);
+      setActiveBadgeTypesFilter([]);
+      setActiveTagsFilter([]);
       setActiveAgreementSignedFilter(f.agreementSigned);
       setActiveHasSessionFilter(f.hasSession);
       setActiveSessionRoleFilter(f.sessionRole);
@@ -509,6 +548,8 @@ export default function CommunicationsPage() {
     setActiveStatusFilter(undefined);
     setActivePaymentStatusFilter(undefined);
     setActiveTicketTypeFilter(undefined);
+    setActiveBadgeTypesFilter([]);
+    setActiveTagsFilter([]);
     setActiveAgreementSignedFilter(undefined);
     setActiveHasSessionFilter(undefined);
     setActiveSessionRoleFilter(undefined);
@@ -767,6 +808,26 @@ export default function CommunicationsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {badgeTypes.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Badge Type</label>
+                  <TagInput
+                    value={regBadgeFilter}
+                    onChange={setRegBadgeFilter}
+                    suggestions={badgeTypes}
+                    placeholder="Pick badge type(s)…"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Tags (any of)</label>
+              <TagInput
+                value={regTagsFilter}
+                onChange={setRegTagsFilter}
+                suggestions={tagSuggestions}
+                placeholder="Filter by tag(s)…"
+              />
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
               <span className="text-sm font-medium">
@@ -1087,6 +1148,8 @@ export default function CommunicationsPage() {
         statusFilter={activeStatusFilter}
         paymentStatusFilter={activePaymentStatusFilter}
         ticketTypeFilter={activeTicketTypeFilter}
+        badgeTypesFilter={activeBadgeTypesFilter}
+        tagsFilter={activeTagsFilter}
         agreementSignedFilter={activeAgreementSignedFilter}
         hasSessionFilter={activeHasSessionFilter}
         sessionRoleFilter={activeSessionRoleFilter}

@@ -42,6 +42,10 @@ export interface BulkEmailEffectiveFilters {
   status?: string;
   paymentStatus?: string;
   ticketTypeId?: string;
+  /** Registrations recipient only — registrations with ANY of these badge types. */
+  badgeTypes?: string[];
+  /** Registrations recipient only — attendees with ANY of these tags. */
+  tags?: string[];
   agreementSigned?: string;
   hasSession?: string;
   sessionRole?: string;
@@ -83,6 +87,13 @@ interface BulkEmailDialogProps {
    */
   paymentStatusFilter?: string;
   ticketTypeFilter?: string;
+  /**
+   * Registrations recipient only — pass-through filters (the Communications
+   * page Advanced-filters block provides the controls; the dialog carries
+   * them into the send payload + recap + live count, like ticketTypeFilter).
+   */
+  badgeTypesFilter?: string[];
+  tagsFilter?: string[];
   /**
    * Tier-1 speaker filters (speakers recipient only). Passed through to
    * the bulk-email `filters` payload — backend applies them to the
@@ -224,6 +235,8 @@ export function BulkEmailDialog({
   statusFilter,
   paymentStatusFilter,
   ticketTypeFilter,
+  badgeTypesFilter,
+  tagsFilter,
   agreementSignedFilter,
   hasSessionFilter,
   sessionRoleFilter,
@@ -313,6 +326,8 @@ export function BulkEmailDialog({
         ? localPaymentFilter
         : undefined,
     ticketTypeId: ticketTypeFilter,
+    badgeTypes: badgeTypesFilter,
+    tags: tagsFilter,
     agreementSigned: agreementSignedFilter,
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
@@ -428,6 +443,13 @@ export function BulkEmailDialog({
           ? { paymentStatus: localPaymentFilter }
           : {}),
         ...(ticketTypeFilter && ticketTypeFilter !== "all" ? { ticketTypeId: ticketTypeFilter } : {}),
+        // Registrations recipient only — badge types + tag include (both multi).
+        ...(recipientType === "registrations" && badgeTypesFilter && badgeTypesFilter.length > 0
+          ? { badgeTypes: badgeTypesFilter }
+          : {}),
+        ...(recipientType === "registrations" && tagsFilter && tagsFilter.length > 0
+          ? { tagsInclude: tagsFilter }
+          : {}),
         // Tier-1 speaker filters (speakers recipient only).
         ...(recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all"
           ? { agreementSigned: agreementSignedFilter }
@@ -696,6 +718,12 @@ export function BulkEmailDialog({
             )}
             {recipientType === "registrations" && localPaymentFilter && localPaymentFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by payment: {formatPaymentLabel(localPaymentFilter)}</p>
+            )}
+            {recipientType === "registrations" && badgeTypesFilter && badgeTypesFilter.length > 0 && (
+              <p className="text-muted-foreground">Filtered by badge: {badgeTypesFilter.join(", ")}</p>
+            )}
+            {recipientType === "registrations" && tagsFilter && tagsFilter.length > 0 && (
+              <p className="text-muted-foreground">Filtered by tags: {tagsFilter.join(", ")}</p>
             )}
             {recipientType === "speakers" && agreementSignedFilter && agreementSignedFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by agreement: {agreementSignedFilter}</p>
