@@ -26,6 +26,8 @@ export async function POST(
         ticketTypes: { include: { pricingTiers: true } },
         speakers: true,
         tracks: true,
+        // Custom/edited email templates (Communications → Email Templates).
+        emailTemplates: true,
         hotels: { include: { roomTypes: true } },
         eventSessions: {
           include: {
@@ -285,6 +287,23 @@ export async function POST(
               },
             });
           }
+        }
+
+        // 7. Clone custom email templates (Communications → Email Templates).
+        // No ID remapping needed — they reference only the event. The new event
+        // has no templates yet, so the @@unique([eventId, slug]) can't collide.
+        if (source.emailTemplates.length > 0) {
+          await tx.emailTemplate.createMany({
+            data: source.emailTemplates.map((t) => ({
+              eventId: event.id,
+              slug: t.slug,
+              name: t.name,
+              subject: t.subject,
+              htmlContent: t.htmlContent,
+              textContent: t.textContent,
+              isActive: t.isActive,
+            })),
+          });
         }
 
         return event;

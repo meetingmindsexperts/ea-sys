@@ -249,6 +249,7 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
         topics: [],
       },
     ],
+    emailTemplates: [],
     ...overrides,
   };
 }
@@ -738,6 +739,47 @@ describe("POST /api/events/[eventId]/clone", () => {
       expect(ssData.sessionId).toBe("new-sess-1");
       expect(ssData.speakerId).toBe("new-sp-1"); // Remapped from sp-1
       expect(ssData.role).toBe("keynote");
+    });
+
+    it("clones custom email templates onto the new event", async () => {
+      setupSuccessfulClone({
+        emailTemplates: [
+          { slug: "registration-confirmation", name: "Reg Confirm", subject: "Hi {{firstName}}", htmlContent: "<p>Custom</p>", textContent: "Custom", isActive: true },
+          { slug: "speaker-invitation", name: "Speaker Invite", subject: "Invite", htmlContent: "<p>Inv</p>", textContent: null, isActive: false },
+        ],
+      });
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+        sessionTopic: { create: vi.fn().mockResolvedValue({ id: "top" }) },
+        emailTemplate: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
+      };
+
+      await txFn(mockTx);
+
+      expect(mockTx.emailTemplate.createMany).toHaveBeenCalledTimes(1);
+      const data = mockTx.emailTemplate.createMany.mock.calls[0][0].data;
+      expect(data).toHaveLength(2);
+      expect(data[0]).toEqual({
+        eventId: "new-evt",
+        slug: "registration-confirmation",
+        name: "Reg Confirm",
+        subject: "Hi {{firstName}}",
+        htmlContent: "<p>Custom</p>",
+        textContent: "Custom",
+        isActive: true,
+      });
+      expect(data[1].slug).toBe("speaker-invitation");
+      expect(data[1].isActive).toBe(false);
     });
 
     it("clones session topics + per-topic speakers with remapped IDs", async () => {
