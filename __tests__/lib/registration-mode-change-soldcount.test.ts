@@ -48,7 +48,7 @@ function existingReg(over: Record<string, unknown>) {
   return {
     id: "r1", eventId: "ev1", status: "CONFIRMED", paymentStatus: "COMPLIMENTARY",
     sponsorId: null, ticketTypeId: "T", attendeeId: "a1", promoCodeId: null,
-    attendanceMode: "VIRTUAL", qrCode: null,
+    attendanceMode: "VIRTUAL", qrCode: null, pricingTierId: null, createdSource: "ADMIN_DASHBOARD",
     attendee: { id: "a1", firstName: "J", lastName: "D", email: "j@x.com", tags: [] },
     event: { settings: {} },
     ...over,
@@ -91,11 +91,13 @@ describe("update_registration — hybrid attendanceMode seat + barcode", () => {
     const res = (await update({ registrationId: "r1", attendanceMode: "VIRTUAL" }, ctx)) as { error?: string };
     expect(res.error).toBeUndefined();
 
-    // released the seat, no claim
-    expect(mockDb._tx.ticketType.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "T" }, data: { soldCount: { decrement: 1 } } }),
+    // released the seat via the guarded updateMany (never below 0), no claim
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "T", soldCount: { gte: 1 } },
+        data: { soldCount: { decrement: 1 } },
+      }),
     );
-    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
 
     const regData = mockDb._tx.registration.updateMany.mock.calls[0][0].data;
     expect(regData.attendanceMode).toBe("VIRTUAL");

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus, AttendanceMode } from "@prisma/client";
-import { planSeatTransition, needsQrCode } from "@/lib/registration-seat";
+import { planSeatTransition, needsQrCode, holdsSeat, seatCounter } from "@/lib/registration-seat";
+import { releaseSeat, claimSeat } from "@/lib/registration-seat-db";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -476,41 +477,40 @@ export async function PUT(req: Request, { params }: RouteParams) {
       const isBecomingCancelled = effectiveStatus === "CANCELLED" && existingRegistration.status !== "CANCELLED";
       const isChangingType = ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId;
 
-      // Seat accounting (TicketType.soldCount) — routed through the single seat
-      // model so status / attendanceMode / ticketType changes are all handled
-      // correctly. A VIRTUAL registration holds no venue seat, so cancelling /
-      // reactivating / type-changing it no longer moves the counter (the old
-      // status-only logic mis-counted those). The atomic `soldCount < quantity`
-      // predicate on each claim is the oversell guard; a virtual→in-person on a
-      // sold-out type hard-fails CAPACITY_EXCEEDED (the reg stays virtual — a
-      // valid state — so nobody is stranded).
+      // Seat accounting — routed through the single seat model, which now picks
+      // the correct counter (PricingTier vs TicketType) per registration, so a
+      // public+tier registration releases/claims its TIER counter rather than
+      // wrongly moving the ticket-type counter (ROADMAP P1.1 double-leak fix).
+      // A VIRTUAL registration holds no venue seat, so cancelling / reactivating
+      // / type-changing it doesn't move any counter. `claimSeat` carries the
+      // atomic `soldCount < quantity` oversell guard; `releaseSeat` is guarded so
+      // a counter can never go negative. A virtual→in-person onto a sold-out
+      // counter hard-fails CAPACITY_EXCEEDED (the reg stays virtual — nobody is
+      // stranded). On a type change the old tier belongs to the old type, so the
+      // seat moves to the new ticket-type counter (next.pricingTierId nulled +
+      // changeData nulls the stored value to match).
       const seat = planSeatTransition(
         {
           status: existingRegistration.status,
           attendanceMode: existingRegistration.attendanceMode,
           ticketTypeId: existingRegistration.ticketTypeId,
+          pricingTierId: existingRegistration.pricingTierId,
+          createdSource: existingRegistration.createdSource,
         },
-        { status: effectiveStatus, attendanceMode: effectiveMode, ticketTypeId: effectiveTypeId },
+        {
+          status: effectiveStatus,
+          attendanceMode: effectiveMode,
+          ticketTypeId: effectiveTypeId,
+          pricingTierId: isChangingType ? null : existingRegistration.pricingTierId,
+          createdSource: existingRegistration.createdSource,
+        },
       );
       if (seat.release) {
-        await tx.ticketType.update({
-          where: { id: seat.release },
-          data: { soldCount: { decrement: 1 } },
-        });
+        await releaseSeat(tx, seat.release);
       }
       if (seat.claim) {
-        const ticket = await tx.ticketType.findUnique({
-          where: { id: seat.claim },
-          select: { quantity: true },
-        });
-        if (!ticket) {
-          throw new Error("CAPACITY_EXCEEDED");
-        }
-        const claimed = await tx.ticketType.updateMany({
-          where: { id: seat.claim, soldCount: { lt: ticket.quantity } },
-          data: { soldCount: { increment: 1 } },
-        });
-        if (claimed.count === 0) {
+        const claimed = await claimSeat(tx, seat.claim);
+        if (!claimed) {
           throw new Error("CAPACITY_EXCEEDED");
         }
       }
@@ -553,6 +553,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(badgeType !== undefined && { badgeType }),
         ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),
+        // A type change invalidates any pricing tier (tiers belong to a ticket
+        // type). Null it so the stored row stays consistent with where its seat
+        // now lives (the new ticket-type counter) — else a later cancel would
+        // release the wrong counter.
+        ...(isChangingType && { pricingTierId: null }),
         ...(attendanceMode !== undefined && { attendanceMode }),
         // Lazy entry-barcode mint: a registration becoming (or already)
         // in-person with no barcode gets one — the virtual→in-person fix so
@@ -712,11 +717,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     // Wrap soldCount decrement + delete in a transaction
     await db.$transaction(async (tx) => {
-      if (registration.status !== "CANCELLED" && registration.ticketTypeId) {
-        await tx.ticketType.update({
-          where: { id: registration.ticketTypeId },
-          data: { soldCount: { decrement: 1 } },
-        });
+      // Release the seat this registration actually held, on the correct counter
+      // (tier vs ticket type). Gating on holdsSeat also fixes the latent bug
+      // where deleting a VIRTUAL (uncapped) reg wrongly decremented the counter.
+      const heldSeat = holdsSeat(registration.status, registration.attendanceMode)
+        ? seatCounter(registration)
+        : null;
+      if (heldSeat) {
+        await releaseSeat(tx, heldSeat);
       }
       // DATA-1: release the promo code's usage count on delete (unless this row
       // was already CANCELLED, in which case the cancel already released it).

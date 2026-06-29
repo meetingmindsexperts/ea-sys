@@ -9,7 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth } = vi.hoisted(() => {
   const tx = {
-    ticketType: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn() },
+    ticketType: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn(), findUnique: vi.fn() },
+    pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
     registration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "reg" }) },
     attendee: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), create: vi.fn().mockResolvedValue({ id: "att" }) },
   };
@@ -57,10 +58,11 @@ describe("bulk-type — soldCount oversell guard", () => {
   beforeEach(() => {
     mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100 });
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", ticketTypeId: "old", attendeeId: "a1" },
-      { id: "r2", ticketTypeId: "old", attendeeId: "a2" },
+      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD" },
+      { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD" },
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 2 });
+    mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it("claims seats atomically with the capacity predicate", async () => {
@@ -69,6 +71,29 @@ describe("bulk-type — soldCount oversell guard", () => {
     expect(res.status).toBeLessThan(400);
     expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "T", soldCount: { lte: 98 } }, data: { soldCount: { increment: 2 } } }),
+    );
+  });
+
+  it("a PUBLIC+TIER reg releases its TIER counter on the move, claims the new ticket type (P1.1)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: "pt_old", createdSource: "PUBLIC_REGISTER" },
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+    const res = await bulkType(req({ registrationIds: ["r3"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    // released the TIER (not the old ticket type)
+    expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
+      where: { id: "pt_old", soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
+    });
+    // claimed the new ticket type
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "T", soldCount: { lte: 99 } }, data: { soldCount: { increment: 1 } } }),
+    );
+    // the moved row's stale tier is nulled
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ ticketTypeId: "T", pricingTierId: null }) }),
     );
   });
 

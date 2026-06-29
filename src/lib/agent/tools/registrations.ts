@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
-import { planSeatTransition, needsQrCode } from "@/lib/registration-seat";
+import { planSeatTransition, needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
+import { releaseSeat, claimSeat, releaseSeats } from "@/lib/registration-seat-db";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -427,6 +428,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         // Hybrid seat accounting + lazy barcode mint on virtual↔in-person.
         attendanceMode: true,
         qrCode: true,
+        // Seat-counter routing (tier vs ticket type) — ROADMAP P1.1.
+        pricingTierId: true,
+        createdSource: true,
         attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
         event: { select: { settings: true } },
       },
@@ -601,16 +605,21 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
 
       // Seat accounting via the single seat model (mirrors REST PUT): status /
-      // attendanceMode / ticketType changes are all handled, and a VIRTUAL reg
-      // holds no seat so cancel/reactivate/type-change of a virtual reg no
-      // longer moves the counter. Atomic `soldCount < quantity` claim = the
-      // oversell guard; virtual→in-person on a sold-out type hard-fails
-      // CAPACITY_EXCEEDED (the reg stays virtual — a valid state).
+      // attendanceMode / ticketType changes are all handled, the correct counter
+      // (tier vs ticket type) is released/claimed per registration (ROADMAP
+      // P1.1), and a VIRTUAL reg holds no seat so cancel/reactivate/type-change
+      // of a virtual reg moves nothing. `claimSeat` carries the atomic oversell
+      // guard; `releaseSeat` is guarded so a counter can't go negative;
+      // virtual→in-person on a sold-out counter hard-fails CAPACITY_EXCEEDED. On
+      // a type change the old tier belongs to the old type → drop it (regData
+      // nulls the stored value to match).
       const seat = planSeatTransition(
         {
           status: existing.status,
           attendanceMode: existing.attendanceMode,
           ticketTypeId: existing.ticketTypeId,
+          pricingTierId: existing.pricingTierId,
+          createdSource: existing.createdSource,
         },
         {
           // effectiveStatus/effectiveMode are validated strings here; cast to
@@ -619,27 +628,16 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
           status: effectiveStatus as typeof existing.status,
           attendanceMode: effectiveMode as typeof existing.attendanceMode,
           ticketTypeId: effectiveTypeId,
+          pricingTierId: isChangingType ? null : existing.pricingTierId,
+          createdSource: existing.createdSource,
         },
       );
       if (seat.release) {
-        await tx.ticketType.update({
-          where: { id: seat.release },
-          data: { soldCount: { decrement: 1 } },
-        });
+        await releaseSeat(tx, seat.release);
       }
       if (seat.claim) {
-        const ticket = await tx.ticketType.findUnique({
-          where: { id: seat.claim },
-          select: { quantity: true },
-        });
-        if (!ticket) {
-          throw new Error("CAPACITY_EXCEEDED");
-        }
-        const claimed = await tx.ticketType.updateMany({
-          where: { id: seat.claim, soldCount: { lt: ticket.quantity } },
-          data: { soldCount: { increment: 1 } },
-        });
-        if (claimed.count === 0) {
+        const claimed = await claimSeat(tx, seat.claim);
+        if (!claimed) {
           throw new Error("CAPACITY_EXCEEDED");
         }
       }
@@ -676,6 +674,10 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (payerReferenceInput !== undefined) regData.payerReference = payerReferenceInput;
       if (attendeeIsGuarantorInput !== undefined) regData.attendeeIsGuarantor = attendeeIsGuarantorInput;
       if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
+      // A type change invalidates the pricing tier (tiers belong to a ticket
+      // type) — null it so the stored row stays consistent with where its seat
+      // now lives (else a later cancel would release the wrong counter).
+      if (isChangingType) regData.pricingTierId = null;
       if (attendanceMode !== undefined) regData.attendanceMode = attendanceMode as never;
       // Lazy entry-barcode mint when becoming (or already) in-person with none.
       if (needsQrCode(effectiveMode, existing.qrCode)) regData.qrCode = generateBarcode();
@@ -838,22 +840,46 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           id: { in: registrationIds },
           event: { organizationId: ctx.organizationId },
         },
-        select: { id: true, status: true, ticketTypeId: true, promoCodeId: true },
+        // Seat-routing fields: release/claim the counter each reg actually holds
+        // (tier vs ticket type), and skip virtual regs (no seat) — P1.1 + hybrid.
+        select: {
+          id: true,
+          status: true,
+          ticketTypeId: true,
+          promoCodeId: true,
+          pricingTierId: true,
+          createdSource: true,
+          attendanceMode: true,
+        },
       });
-      const toDecrement = new Map<string, number>(); // ticketTypeId → seats released
-      const toIncrement = new Map<string, number>(); // ticketTypeId → seats re-acquired
+      const toRelease = new Map<string, { counter: SeatCounter; count: number }>();
+      const toClaim = new Map<string, { counter: SeatCounter; count: number }>();
       const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
+      const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
+        const k = `${c.kind}:${c.id}`;
+        const e = m.get(k);
+        if (e) e.count++;
+        else m.set(k, { counter: c, count: 1 });
+      };
       for (const r of affected) {
         const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
+        const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
         // DATA-1: bulk cancel releases each consumed promo code's usage count.
         if (becomingCancelled && r.promoCodeId) {
           promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
         }
-        if (!r.ticketTypeId) continue;
         if (becomingCancelled) {
-          toDecrement.set(r.ticketTypeId, (toDecrement.get(r.ticketTypeId) ?? 0) + 1);
-        } else if (status !== "CANCELLED" && r.status === "CANCELLED") {
-          toIncrement.set(r.ticketTypeId, (toIncrement.get(r.ticketTypeId) ?? 0) + 1);
+          // Release only the seat it actually held (in-person + was non-cancelled).
+          if (holdsSeat(r.status, r.attendanceMode)) {
+            const c = seatCounter(r);
+            if (c) bump(toRelease, c);
+          }
+        } else if (reactivating) {
+          // Claim only if it will hold a seat after reactivation (in-person).
+          if (holdsSeat(status as typeof r.status, r.attendanceMode)) {
+            const c = seatCounter(r);
+            if (c) bump(toClaim, c);
+          }
         }
       }
       updatedCount = await db.$transaction(async (tx) => {
@@ -863,35 +889,51 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
             data: { usedCount: { decrement: n } },
           });
         }
-        for (const [ttId, n] of toDecrement) {
-          await tx.ticketType.update({
-            where: { id: ttId },
-            data: { soldCount: { decrement: n } },
-          });
+        for (const { counter, count } of toRelease.values()) {
+          await releaseSeats(tx, counter, count);
         }
-        for (const [ttId, n] of toIncrement) {
-          const tt = await tx.ticketType.findUnique({
-            where: { id: ttId },
-            select: { quantity: true, soldCount: true, name: true },
-          });
-          await tx.ticketType.update({
-            where: { id: ttId },
-            data: { soldCount: { increment: n } },
-          });
-          // Bulk reactivation can't cleanly partial-fail 200 rows on a
-          // capacity guard, so admin reactivation is allowed to oversell —
-          // but it's logged so the oversell is never silent (matches the
-          // "every anomaly leaves a trail" rule; single-row paths still
-          // hard-block via CAPACITY_EXCEEDED).
-          if (tt && tt.soldCount + n > tt.quantity) {
-            apiLogger.warn({
-              msg: "registration:bulk-reactivate-oversold",
-              ticketTypeId: ttId,
-              ticketName: tt.name,
-              newSoldCount: tt.soldCount + n,
-              quantity: tt.quantity,
-              source: "mcp",
+        for (const { counter, count } of toClaim.values()) {
+          // Bulk reactivation can't cleanly partial-fail 200 rows on a capacity
+          // guard, so it's allowed to oversell — but logged so it's never silent
+          // (single-row paths still hard-block via CAPACITY_EXCEEDED).
+          if (counter.kind === "tier") {
+            const t = await tx.pricingTier.findUnique({
+              where: { id: counter.id },
+              select: { quantity: true, soldCount: true, name: true },
             });
+            await tx.pricingTier.updateMany({
+              where: { id: counter.id },
+              data: { soldCount: { increment: count } },
+            });
+            if (t && t.soldCount + count > t.quantity) {
+              apiLogger.warn({
+                msg: "registration:bulk-reactivate-oversold",
+                pricingTierId: counter.id,
+                tierName: t.name,
+                newSoldCount: t.soldCount + count,
+                quantity: t.quantity,
+                source: "mcp",
+              });
+            }
+          } else {
+            const tt = await tx.ticketType.findUnique({
+              where: { id: counter.id },
+              select: { quantity: true, soldCount: true, name: true },
+            });
+            await tx.ticketType.updateMany({
+              where: { id: counter.id },
+              data: { soldCount: { increment: count } },
+            });
+            if (tt && tt.soldCount + count > tt.quantity) {
+              apiLogger.warn({
+                msg: "registration:bulk-reactivate-oversold",
+                ticketTypeId: counter.id,
+                ticketName: tt.name,
+                newSoldCount: tt.soldCount + count,
+                quantity: tt.quantity,
+                source: "mcp",
+              });
+            }
           }
         }
         const res = await tx.registration.updateMany({

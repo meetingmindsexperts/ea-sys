@@ -1,30 +1,30 @@
 /**
- * Pins the fix for the BLOCKER found in the May 2026 audit: the MCP
- * `bulk_update_registration_status` tool was a bare updateMany with NO
- * soldCount adjustment, so "cancel all unpaid registrations" via the AI
- * agent / n8n silently left TicketType.soldCount inflated → the event
- * falsely reported sold-out and rejected legitimate paying registrants.
- *
- * It must now release soldCount per ticket type for rows transitioning
- * INTO cancelled (and re-acquire on reactivation), mirroring the REST PUT
- * route. paymentStatus-only bulk updates must NOT touch soldCount.
+ * MCP `bulk_update_registration_status` seat accounting. Originally pinned the
+ * May-2026 BLOCKER (bulk cancel left soldCount inflated). Now also pins the
+ * ROADMAP P1.1 fix: each row releases/claims the counter it actually holds
+ * (PricingTier vs TicketType), virtual rows move nothing, and releases are
+ * guarded so a counter can't go negative. paymentStatus-only updates skip it.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
-  const ticketTypeUpdate = vi.fn().mockResolvedValue({});
-  const ticketTypeFindUnique = vi.fn();
+  const ttUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+  const ttFindUnique = vi.fn();
+  const tierUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+  const tierFindUnique = vi.fn();
   const regUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+  const promoUpdate = vi.fn().mockResolvedValue({});
+  const tx = {
+    ticketType: { updateMany: ttUpdateMany, findUnique: ttFindUnique },
+    pricingTier: { updateMany: tierUpdateMany, findUnique: tierFindUnique },
+    registration: { updateMany: regUpdateMany },
+    promoCode: { update: promoUpdate },
+  };
   const db = {
     registration: { findMany: vi.fn(), updateMany: regUpdateMany },
-    ticketType: { update: ticketTypeUpdate, findUnique: ticketTypeFindUnique },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
-    $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-      cb({
-        ticketType: { update: ticketTypeUpdate, findUnique: ticketTypeFindUnique },
-        registration: { updateMany: regUpdateMany },
-      }),
-    ),
+    $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
+    _tx: tx,
   };
   return {
     mockDb: db,
@@ -49,57 +49,85 @@ const ctx = {
   counters: { creates: 0, emailsSent: 0 },
 };
 
+// Defaults model an in-person, admin/no-tier registration (counts on the ticket
+// type). Override createdSource/pricingTierId/attendanceMode per case.
+function row(over: Record<string, unknown>) {
+  return {
+    status: "CONFIRMED",
+    ticketTypeId: "tt1",
+    promoCodeId: null,
+    pricingTierId: null,
+    createdSource: "ADMIN_DASHBOARD",
+    attendanceMode: "IN_PERSON",
+    ...over,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
-  mockDb.ticketType.update.mockResolvedValue({});
+  mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("bulk_update_registration_status — soldCount on cancel", () => {
-  it("releases soldCount per ticket type only for rows transitioning INTO cancelled", async () => {
+  it("releases the ticket-type counter (guarded) only for rows transitioning INTO cancelled", async () => {
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", status: "CONFIRMED", ticketTypeId: "tt1" }, // → decrement
-      { id: "r2", status: "PENDING", ticketTypeId: "tt1" }, // → decrement
-      { id: "r3", status: "CANCELLED", ticketTypeId: "tt1" }, // already cancelled → skip
-      { id: "r4", status: "CONFIRMED", ticketTypeId: null }, // no ticket type → skip
-      { id: "r5", status: "CONFIRMED", ticketTypeId: "tt2" }, // → decrement (other type)
+      row({ id: "r1", status: "CONFIRMED", ticketTypeId: "tt1" }), // → release
+      row({ id: "r2", status: "PENDING", ticketTypeId: "tt1" }), // → release
+      row({ id: "r3", status: "CANCELLED", ticketTypeId: "tt1" }), // already cancelled → skip
+      row({ id: "r4", status: "CONFIRMED", ticketTypeId: null }), // no type → skip
+      row({ id: "r5", status: "CONFIRMED", ticketTypeId: "tt2" }), // → release (other type)
+      row({ id: "r6", status: "CONFIRMED", ticketTypeId: "tt1", attendanceMode: "VIRTUAL" }), // virtual → skip
     ]);
-    mockDb.registration.updateMany.mockResolvedValue({ count: 5 });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 6 });
 
     const res = (await bulk(
-      { registrationIds: ["r1", "r2", "r3", "r4", "r5"], status: "CANCELLED" },
+      { registrationIds: ["r1", "r2", "r3", "r4", "r5", "r6"], status: "CANCELLED" },
       ctx,
     )) as { success: boolean; updated: number };
 
     expect(res.success).toBe(true);
-    expect(res.updated).toBe(5);
-    // tt1 had 2 in-flight cancellations (r1, r2); tt2 had 1 (r5).
-    expect(mockDb.ticketType.update).toHaveBeenCalledWith({
-      where: { id: "tt1" },
+    expect(res.updated).toBe(6);
+    // tt1 had 2 in-flight cancellations (r1, r2 — r6 is virtual, no seat); tt2 had 1 (r5).
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt1", soldCount: { gte: 2 } },
       data: { soldCount: { decrement: 2 } },
     });
-    expect(mockDb.ticketType.update).toHaveBeenCalledWith({
-      where: { id: "tt2" },
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
+      where: { id: "tt2", soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
-    expect(mockDb.ticketType.update).toHaveBeenCalledTimes(2);
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledTimes(2);
+    expect(mockDb._tx.pricingTier.updateMany).not.toHaveBeenCalled();
   });
 
-  it("re-acquires soldCount per ticket type when reactivating cancelled rows", async () => {
+  it("cancelling a PUBLIC+TIER reg releases the TIER counter, never the ticket type (P1.1)", async () => {
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", status: "CANCELLED", ticketTypeId: "tt1" }, // → increment
-      { id: "r2", status: "CONFIRMED", ticketTypeId: "tt1" }, // already active → skip
+      row({ id: "r1", status: "CONFIRMED", ticketTypeId: "tt1", pricingTierId: "pt1", createdSource: "PUBLIC_REGISTER" }),
     ]);
-    mockDb.ticketType.findUnique.mockResolvedValue({
-      quantity: 100,
-      soldCount: 10,
-      name: "Standard",
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+
+    await bulk({ registrationIds: ["r1"], status: "CANCELLED" }, ctx);
+
+    expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
+      where: { id: "pt1", soldCount: { gte: 1 } },
+      data: { soldCount: { decrement: 1 } },
     });
+    expect(mockDb._tx.ticketType.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("re-acquires the counter when reactivating cancelled rows", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      row({ id: "r1", status: "CANCELLED", ticketTypeId: "tt1" }), // → claim
+      row({ id: "r2", status: "CONFIRMED", ticketTypeId: "tt1" }), // already active → skip
+    ]);
+    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, soldCount: 10, name: "Standard" });
     mockDb.registration.updateMany.mockResolvedValue({ count: 2 });
 
     await bulk({ registrationIds: ["r1", "r2"], status: "CONFIRMED" }, ctx);
 
-    expect(mockDb.ticketType.update).toHaveBeenCalledWith({
+    expect(mockDb._tx.ticketType.updateMany).toHaveBeenCalledWith({
       where: { id: "tt1" },
       data: { soldCount: { increment: 1 } },
     });
@@ -107,13 +135,9 @@ describe("bulk_update_registration_status — soldCount on cancel", () => {
 
   it("logs (does not silently swallow) a bulk reactivation that oversells", async () => {
     mockDb.registration.findMany.mockResolvedValue([
-      { id: "r1", status: "CANCELLED", ticketTypeId: "tt1" },
+      row({ id: "r1", status: "CANCELLED", ticketTypeId: "tt1" }),
     ]);
-    mockDb.ticketType.findUnique.mockResolvedValue({
-      quantity: 10,
-      soldCount: 10,
-      name: "Standard",
-    });
+    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 10, soldCount: 10, name: "Standard" });
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
 
     await bulk({ registrationIds: ["r1"], status: "CONFIRMED" }, ctx);
@@ -134,8 +158,6 @@ describe("bulk_update_registration_status — soldCount on cancel", () => {
     expect(res.success).toBe(true);
     expect(res.updated).toBe(3);
     expect(mockDb.registration.findMany).not.toHaveBeenCalled();
-    expect(mockDb.ticketType.update).not.toHaveBeenCalled();
-    // plain path: updateMany called directly, not inside a transaction
     expect(mockDb.$transaction).not.toHaveBeenCalled();
   });
 });

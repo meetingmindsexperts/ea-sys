@@ -6,6 +6,8 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
+import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
+import { releaseSeats } from "@/lib/registration-seat-db";
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -62,7 +64,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    // Fetch all registrations being moved (only non-cancelled, and not already this type)
+    // Fetch all registrations being moved (only non-cancelled, and not already
+    // this type). Need the seat-routing fields so we release the counter each
+    // reg actually holds (tier vs ticket type) rather than blindly decrementing
+    // the old ticket type (ROADMAP P1.1 fix).
     const registrations = await db.registration.findMany({
       where: {
         id: { in: registrationIds },
@@ -70,47 +75,64 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         status: { not: "CANCELLED" },
         ticketTypeId: { not: ticketTypeId },
       },
-      select: { id: true, ticketTypeId: true, attendeeId: true },
+      select: {
+        id: true,
+        ticketTypeId: true,
+        attendeeId: true,
+        pricingTierId: true,
+        createdSource: true,
+        attendanceMode: true,
+        status: true,
+      },
     });
 
     if (registrations.length === 0) {
       return NextResponse.json({ updated: 0 });
     }
 
-    // Group by old ticket type to batch soldCount decrements
-    const oldTypeCounts = new Map<string, number>();
+    // Release side: group each reg's HELD seat by its actual counter (tier or
+    // ticket type). A virtual reg holds no seat (skipped). Claim side: only
+    // in-person regs claim a seat on the new type — virtual ones just change
+    // type. After a type change the old tier is invalid, so all moved rows get
+    // pricingTierId nulled (their seat now lives on the new ticket-type counter).
+    const releaseCounts = new Map<string, { counter: SeatCounter; count: number }>();
+    let claimCount = 0;
     for (const r of registrations) {
-      if (r.ticketTypeId) {
-        oldTypeCounts.set(r.ticketTypeId, (oldTypeCounts.get(r.ticketTypeId) || 0) + 1);
-      }
+      if (!holdsSeat(r.status, r.attendanceMode)) continue;
+      claimCount++;
+      const counter = seatCounter(r);
+      if (!counter) continue;
+      const key = `${counter.kind}:${counter.id}`;
+      const entry = releaseCounts.get(key);
+      if (entry) entry.count++;
+      else releaseCounts.set(key, { counter, count: 1 });
     }
 
     await db.$transaction(async (tx) => {
-      // Decrement old types
-      for (const [oldTypeId, count] of oldTypeCounts) {
-        await tx.ticketType.update({
-          where: { id: oldTypeId },
-          data: { soldCount: { decrement: count } },
+      // Release each held counter (guarded, never below 0)
+      for (const { counter, count } of releaseCounts.values()) {
+        await releaseSeats(tx, counter, count);
+      }
+
+      // Claim the in-person seats on the new type ATOMICALLY — guard against
+      // oversell. `soldCount <= quantity - N` ensures soldCount + N never
+      // exceeds the cap even under a concurrent claim. All-or-nothing: if it
+      // can't fit, the whole move rolls back (admin raises quantity / moves
+      // fewer). Skipped entirely when every moved reg is virtual.
+      if (claimCount > 0) {
+        const claimed = await tx.ticketType.updateMany({
+          where: { id: ticketTypeId, soldCount: { lte: targetType.quantity - claimCount } },
+          data: { soldCount: { increment: claimCount } },
         });
+        if (claimed.count === 0) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
       }
 
-      // Increment new type ATOMICALLY — guard against oversell. The predicate
-      // `soldCount <= quantity - N` ensures soldCount + N never exceeds the cap,
-      // even if a concurrent bulk move / public registration is also claiming
-      // seats on this type. All-or-nothing: if it can't fit, the whole move
-      // rolls back (admin raises the quantity or moves fewer).
-      const claimed = await tx.ticketType.updateMany({
-        where: { id: ticketTypeId, soldCount: { lte: targetType.quantity - registrations.length } },
-        data: { soldCount: { increment: registrations.length } },
-      });
-      if (claimed.count === 0) {
-        throw new Error("CAPACITY_EXCEEDED");
-      }
-
-      // Update all registrations
+      // Update all registrations — new type + drop the now-invalid tier.
       await tx.registration.updateMany({
         where: { id: { in: registrations.map((r) => r.id) } },
-        data: { ticketTypeId },
+        data: { ticketTypeId, pricingTierId: null },
       });
 
       // Sync attendee.registrationType
