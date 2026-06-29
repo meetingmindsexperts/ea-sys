@@ -595,7 +595,9 @@ export function BulkEmailDialog({
           <div className="space-y-2">
             <Label>Email Type</Label>
             <Select value={emailType} onValueChange={setEmailType}>
-              <SelectTrigger>
+              {/* h-auto + extra py so the two-line option (title + description)
+                  isn't cramped by the trigger's default fixed h-9. */}
+              <SelectTrigger className="h-12 py-3">
                 <SelectValue placeholder="Select email type" />
               </SelectTrigger>
               <SelectContent>

@@ -555,7 +555,7 @@ export default function CommunicationsPage() {
               onClick={() => openTemplateDialog(audience, t.slug)}
               className="flex items-center gap-2 rounded-lg border p-3 text-left transition hover:border-primary hover:bg-muted/50"
             >
-              <FileEdit className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <FileEdit className="h-4 w-4 flex-shrink-0 text-primary" />
               <span className="truncate text-sm font-medium">{t.name}</span>
             </button>
           ))}
@@ -578,7 +578,7 @@ export default function CommunicationsPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Mail className="h-8 w-8" />
+            <Mail className="h-8 w-8 text-primary" />
             Communications
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -655,7 +655,7 @@ export default function CommunicationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
+              <Users className="h-5 w-5 text-primary" />
               Registrations
             </CardTitle>
             <CardDescription>
@@ -678,10 +678,10 @@ export default function CommunicationsPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <Icon className="h-4 w-4 flex-shrink-0 text-primary" />
                         <span className="truncate text-sm font-medium">{tile.label}</span>
                       </div>
-                      <span className="text-sm font-semibold tabular-nums">{count}</span>
+                      <span className="text-sm font-semibold tabular-nums text-primary">{count}</span>
                     </div>
                     <p className="line-clamp-1 text-xs text-muted-foreground">{tile.description}</p>
                   </button>
@@ -729,7 +729,7 @@ export default function CommunicationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Mic className="h-5 w-5" />
+              <Mic className="h-5 w-5 text-primary" />
               Speakers
             </CardTitle>
             <CardDescription>
@@ -752,10 +752,10 @@ export default function CommunicationsPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <Icon className="h-4 w-4 flex-shrink-0 text-primary" />
                         <span className="truncate text-sm font-medium">{tile.label}</span>
                       </div>
-                      <span className="text-sm font-semibold tabular-nums">{count}</span>
+                      <span className="text-sm font-semibold tabular-nums text-primary">{count}</span>
                     </div>
                     <p className="line-clamp-1 text-xs text-muted-foreground">{tile.description}</p>
                   </button>
@@ -878,7 +878,7 @@ export default function CommunicationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
+              <FileText className="h-5 w-5 text-primary" />
               Abstract Submitters
             </CardTitle>
             <CardDescription>
@@ -916,7 +916,7 @@ export default function CommunicationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <UserCheck className="h-5 w-5" />
+              <UserCheck className="h-5 w-5 text-primary" />
               Reviewers
             </CardTitle>
             <CardDescription>
