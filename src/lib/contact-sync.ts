@@ -42,24 +42,25 @@ export interface ContactSyncData {
 }
 
 /**
- * Enrich-only field cleaner. Skips `undefined`, `null`, AND `""` so a sync can
+ * Enrich-only field filter. Drops `undefined`, `null`, AND `""` so a write can
  * fill in or update a field with real data but **never clears** an already-
- * populated Contact field. This prevents a sparse later sync (e.g. a new-event
- * registration that leaves optional fields blank — the public register passes
- * `field || null`) from wiping richer data an earlier event populated. The
- * Contact thus accumulates the best-known value per field across events.
+ * populated field. This prevents a sparse write (e.g. a new-event registration
+ * that leaves optionals blank — the public register passes `field || null`, or
+ * a re-import with blanks) from wiping richer data an earlier event populated.
+ * The record thus accumulates the best-known value per field across events.
  *
- * To deliberately clear a Contact field, edit the Contact directly — that path
- * does NOT go through this sync, so it isn't subject to enrich-only.
+ * Shared by the Contact sync (below) and the EventsAir contact import — both
+ * upsert into the same org-wide Contact. To deliberately clear a field, edit the
+ * record directly; those paths don't go through this filter.
  */
-function cleanFields(data: Omit<ContactSyncData, "organizationId" | "email" | "firstName" | "lastName" | "eventId">) {
-  const cleaned: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(data)) {
+export function omitBlankFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined && value !== null && value !== "") {
-      cleaned[key] = value;
+      out[key] = value;
     }
   }
-  return cleaned;
+  return out;
 }
 
 /**
@@ -72,7 +73,7 @@ export async function syncToContact(data: ContactSyncData): Promise<void> {
     const email = data.email.toLowerCase().trim();
     if (!email) return;
 
-    const optional = cleanFields({
+    const optional = omitBlankFields({
       title: data.title,
       role: data.role,
       additionalEmail: data.additionalEmail,

@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { downloadExternalPhoto } from "@/lib/storage";
+import { omitBlankFields } from "@/lib/contact-sync";
 
 // Allow up to 60s for external EventsAir API calls
 export const maxDuration = 60;
@@ -123,23 +124,30 @@ export async function POST(req: Request) {
           }
         }
 
-        // Download external photo and re-host in our storage
+        // Download external photo and re-host in our storage (null if none).
         const photo = contact.photo?.url
           ? await downloadExternalPhoto(contact.photo.url)
           : null;
+
+        // Enrich-only: only write fields that actually have a value, so a sparse
+        // EventsAir record (blank phone/bio/photo/etc.) never wipes richer data
+        // an earlier event populated on the Contact. Same rule as syncToContact.
+        const enriched = omitBlankFields({
+          organization: contact.organizationName,
+          jobTitle: contact.jobTitle,
+          phone: contact.contactPhoneNumbers?.mobile || contact.workPhone,
+          city: contact.primaryAddress?.city,
+          country: contact.primaryAddress?.country,
+          bio: contact.biography,
+          photo,
+        });
 
         await db.contact.upsert({
           where: { organizationId_email: { organizationId, email } },
           update: {
             firstName: contact.firstName,
             lastName: contact.lastName,
-            organization: contact.organizationName || null,
-            jobTitle: contact.jobTitle || null,
-            phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
-            city: contact.primaryAddress?.city || null,
-            country: contact.primaryAddress?.country || null,
-            bio: contact.biography || null,
-            photo,
+            ...enriched,
             ...(eventIds && { eventIds }),
           },
           create: {
@@ -147,13 +155,7 @@ export async function POST(req: Request) {
             email,
             firstName: contact.firstName,
             lastName: contact.lastName,
-            organization: contact.organizationName || null,
-            jobTitle: contact.jobTitle || null,
-            phone: contact.contactPhoneNumbers?.mobile || contact.workPhone || null,
-            city: contact.primaryAddress?.city || null,
-            country: contact.primaryAddress?.country || null,
-            bio: contact.biography || null,
-            photo,
+            ...enriched,
             ...(eventIds && { eventIds }),
           },
         });

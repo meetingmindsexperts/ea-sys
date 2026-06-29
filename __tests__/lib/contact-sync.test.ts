@@ -21,11 +21,20 @@ const { mockDb } = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-import { syncToContact } from "@/lib/contact-sync";
+import { syncToContact, omitBlankFields } from "@/lib/contact-sync";
 
 const base = { organizationId: "org1", email: "Krishna@X.com", firstName: "Krishna", lastName: "P" };
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("omitBlankFields (shared enrich-only filter)", () => {
+  it("drops undefined, null, and empty string; keeps real values incl. false/0", () => {
+    expect(omitBlankFields({ a: "x", b: null, c: undefined, d: "", e: 0, f: false })).toEqual({ a: "x", e: 0, f: false });
+  });
+  it("returns an empty object when everything is blank", () => {
+    expect(omitBlankFields({ a: null, b: undefined, c: "" })).toEqual({});
+  });
+});
 
 describe("syncToContact — enrich-only merge", () => {
   it("does NOT overwrite an existing field with a blank (null/undefined) — preserves Contact data", async () => {
