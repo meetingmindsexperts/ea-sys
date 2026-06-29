@@ -9,6 +9,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
+import { canViewFinance } from "@/lib/finance-visibility";
 
 interface RouteParams {
   params: Promise<{ eventId: string; speakerId: string }>;
@@ -43,7 +44,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
     }
 
-    const { items, linked } = await buildSpeakerActivity(eventId, speaker, session.user.organizationId);
+    const { items, linked } = await buildSpeakerActivity(
+      eventId,
+      speaker,
+      session.user.organizationId,
+      canViewFinance(session.user.role),
+    );
     return NextResponse.json({ items, linked });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error loading speaker activity timeline" });

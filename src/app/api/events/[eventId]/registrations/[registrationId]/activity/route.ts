@@ -9,6 +9,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildRegistrationActivity } from "@/lib/activity-feed";
+import { canViewFinance } from "@/lib/finance-visibility";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -45,6 +46,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       eventId,
       { id: registration.id, attendeeEmail: registration.attendee?.email ?? null },
       session.user.organizationId,
+      canViewFinance(session.user.role),
     );
     return NextResponse.json({ items, linked });
   } catch (error) {

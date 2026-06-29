@@ -38,6 +38,7 @@ interface ActivityItem {
   certType?: string;
   pdfUrl?: string | null;
   revoked?: boolean;
+  diffs?: Array<{ field: string; before: string; after: string }>;
 }
 
 interface ActivityResponse {
@@ -220,6 +221,18 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                       </>
                     )}
                   </p>
+                  {item.kind === "audit" && item.diffs && item.diffs.length > 0 && (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {item.diffs.map((d, di) => (
+                        <li key={di} className="text-xs text-slate-600">
+                          <span className="font-medium text-slate-700">{d.field}:</span>{" "}
+                          <span className="text-slate-400 line-through">{d.before}</span>
+                          <span className="mx-1 text-slate-400">→</span>
+                          <span className="text-slate-700">{d.after}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {item.kind === "email" && item.status !== "SENT" && item.errorMessage && (
                     <p className="text-xs text-red-500 mt-1">{item.errorMessage}</p>
                   )}
