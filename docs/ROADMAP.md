@@ -259,6 +259,14 @@ A new read-only role for stakeholders who need dashboard visibility without writ
 
 The following items are candidates for the next development phases. Priorities can be adjusted based on business needs.
 
+### Billing payers — inline-entry follow-ups (June 29, 2026)
+
+Shipped: event-level **inline payer create** from the registration Charge-to picker (full-page Add Registration form) with org-level consolidation — `findOrCreateBillingAccount()` (exact-name reuse; near-duplicate → create + flag `needsReview`), event-scoped `POST /api/events/[eventId]/billing-accounts` (find-or-create + auto-attach junction), reusable `AddPayerDialog` + `useCreateAndAttachBillingAccount`. The reusable dialog makes these follow-ups cheap:
+
+- **Inline create on the other two payer surfaces** *(S each)* — drop `AddPayerDialog` into (a) the registration **detail-sheet reassign** picker and (b) the **quick-add registration dialog** (which today has no payer picker at all — needs the picker first, like its pre-existing pricingTier/sponsor gap). Same component, same hook.
+- **Admin merge UI for `needsReview` payers** *(M)* — Settings → Billing "possible duplicates → merge" flow: pick a survivor, **re-point** every `Registration.billingAccountId` + `EventBillingAccount` from the duplicate to it inside a `$transaction`, then delete the duplicate, clear `needsReview`. Today the flag is set but there's no merge action (admins can only soft-delete/edit). Needs careful re-pointing + an audit row.
+- **Optional niceties** *(S)* — a "Payer" column + filter on the registrations list/CSV; surface `needsReview` count as a badge in Settings → Billing; public-registration "who pays" step (schema/route already carry the fields).
+
 ### Data-loss audit — residual follow-ups (June 29, 2026)
 
 From the concurrency/data-loss sweep (most fixes shipped: contact-sync + EventsAir import enrich-only, MCP accommodation atomic re-book, bulk-type + import-contacts oversell guards, and the `updateEventSettings`/`updateOrganizationSettings` atomic settings helper). Two review-flagged residuals, both LOW/MED real-world risk (admin single-actor flows), left as tracked follow-ups so the settings-migration commit didn't balloon:

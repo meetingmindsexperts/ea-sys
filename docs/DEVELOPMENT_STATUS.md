@@ -9,13 +9,13 @@
 
 This document tracks the development status of the Event Administration System. **The detailed phase history below (Phases 1–10, dated changelogs) is preserved as a historical record and reflects its own as-of dates — do not read individual phase "NOT STARTED / Pending" labels as current.** The "Current Status" block immediately below is the authoritative snapshot; for the live feature changelog, [CLAUDE.md → Recent Features](../CLAUDE.md) is the most current source.
 
-### Current Status (June 23, 2026)
+### Current Status (June 29, 2026)
 
 **EA-SYS is in live production** ([events.meetingmindsgroup.com](https://events.meetingmindsgroup.com)) running real Meeting Minds Group events — real registrants, payments, check-in. Accountability is high: additive/idempotent migrations only on the shared prod DB, full verification gate (tsc/lint/vitest/build) before every push, blue-green deploys.
 
 **Everything in the "Remaining Phases" section below that predates 2026 is now SHIPPED** — most notably the entire Payment stack (Phase 5/7) which that section still calls "NOT STARTED." What's actually live:
 
-- **Finance:** Stripe Checkout + webhook (signature-verified, idempotent) + refunds + manual/offline payment capture (cash/bank/card-onsite); quote PDF at registration → PAID invoice PDF after payment; tax/VAT; promo codes; pricing tiers; third-party payer (BillingAccount); sponsor-paid INCLUSIVE; comp registrations; an **invoice-reconciliation worker** that recovers any invoice the webhook drops. Finance RBAC via `canViewFinance` (only SUPER_ADMIN/ADMIN/ORGANIZER + desk roles see money).
+- **Finance:** Stripe Checkout + webhook (signature-verified, idempotent) + refunds + manual/offline payment capture (cash/bank/card-onsite); quote PDF at registration → PAID invoice PDF after payment; tax/VAT; promo codes; pricing tiers; third-party payer (BillingAccount — addable **inline** from the registration form, consolidated org-wide by name); sponsor-paid INCLUSIVE; comp registrations; an **invoice-reconciliation worker** that recovers any invoice the webhook drops. Finance RBAC via `canViewFinance` (only SUPER_ADMIN/ADMIN/ORGANIZER + desk roles see money).
 - **Abstracts & reviewers:** themes, weighted review criteria, per-event `requiredReviewCount` gate, per-abstract reviewer assignment (role + advisory COI flag), per-reviewer scoring, `/my-reviews` portal, score aggregation, status-change emails.
 - **Services layer:** 5 services shipped (`accommodation`, `abstract`, `speaker`, `registration`, `billing-account`) — shared by REST + MCP. The "extract services layer" tech-debt item is **done**.
 - **Webinars:** first-class WEBINAR type — auto-provisioning, Zoom embed + custom HLS stream, recording/attendance/**engagement (polls + Q&A)** sync, producer-gated waiting room with real-time presence (June 23).
