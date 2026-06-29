@@ -568,7 +568,7 @@ export function BulkEmailDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
@@ -768,6 +768,8 @@ export function BulkEmailDialog({
                     </p>
                   </div>
 
+                  {/* The three multi-select filters sit side by side on wide screens. */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-start">
                   {/* Registration type — multi-select (checkbox). Empty = all types. */}
                   {ticketTypeOptions.length > 0 && (
                     <div className="space-y-2">
@@ -831,6 +833,7 @@ export function BulkEmailDialog({
                     <p className="text-xs text-muted-foreground">
                       Send to anyone who has <strong>any</strong> of these tags.
                     </p>
+                  </div>
                   </div>
                 </div>
               )}
