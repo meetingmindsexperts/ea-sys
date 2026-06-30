@@ -318,8 +318,11 @@ Clients (including AI agents) should parse `retryAfterSeconds` and back off. Do 
 | `send_bulk_email` MCP tool (per event) | 10 | 1 hr |
 | `research_sponsor` MCP tool (per user+event) | 30 | 1 hr |
 | `speaker-agreement-template` upload (per user) | 10 | 1 hr |
-| Public checkout (per IP) | 3 | 60 s |
-| Public register preflight `check-email` (per IP) | 20 | 1 hr |
+| Public register — burst (per IP) | 15 | 60 s |
+| Public register — sustained (per IP) | 100 | 15 min |
+| Public register — per email address | 10 | 15 min |
+| Public checkout (per IP) | 15 | 60 s |
+| Public register preflight `check-email` (per IP) | 200 | 1 hr |
 | Public `zoom-join` (per IP) | 60 | 1 hr |
 | Mobile login/refresh (per IP) | 10 | 5 min |
 

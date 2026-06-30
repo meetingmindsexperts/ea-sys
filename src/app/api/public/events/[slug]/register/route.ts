@@ -84,10 +84,13 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
 
-    // Burst limiter: catch bots hammering the endpoint (3 req / 60s per IP)
+    // Burst limiter: catch bots hammering the endpoint (15 req / 60s per IP).
+    // Raised from 3 → 15 so several genuine registrants behind one shared NAT
+    // (hospital / office / venue WiFi) submitting near-simultaneously aren't
+    // throttled, while still stopping a script hammering the endpoint.
     const burstLimit = checkRateLimit({
       key: `public-register:burst:${clientIp}`,
-      limit: 3,
+      limit: 15,
       windowMs: 60 * 1000,
     });
     if (!burstLimit.allowed) {
@@ -98,10 +101,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Sustained limiter: 10 registrations per IP per 15 min (covers shared WiFi)
+    // Sustained limiter: 100 registrations per IP per 15 min. Raised from 10 so a
+    // large shared NAT (a hospital/office with many staff registering for a
+    // conference, or venue WiFi) isn't blocked; still caps runaway abuse from a
+    // single source.
     const ipRateLimit = checkRateLimit({
       key: `public-register:ip:${clientIp}`,
-      limit: 10,
+      limit: 100,
       windowMs: 15 * 60 * 1000,
     });
 
@@ -130,9 +136,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const email = validated.data.email.toLowerCase();
     const attendanceModeInput = validated.data.attendanceMode;
 
+    // Per-email-address limiter (keyed on the email, not IP) — 10 / 15 min.
+    // Raised from 5 to allow genuine retries/edits without throttling; still
+    // prevents one address from spamming many registrations.
     const emailRateLimit = checkRateLimit({
       key: `public-register:email:${email}`,
-      limit: 5,
+      limit: 10,
       windowMs: 15 * 60 * 1000,
     });
 

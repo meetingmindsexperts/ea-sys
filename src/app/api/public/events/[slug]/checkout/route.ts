@@ -17,10 +17,12 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const clientIp = getClientIp(req);
 
-    // Rate limit: 3 checkout attempts per 60s per IP
+    // Rate limit: 15 checkout attempts per 60s per IP. Raised from 3 so multiple
+    // genuine payers behind one shared NAT (hospital/office) aren't blocked;
+    // still caps a single source hammering Stripe session creation.
     const rateLimit = checkRateLimit({
       key: `checkout:${clientIp}`,
-      limit: 3,
+      limit: 15,
       windowMs: 60 * 1000,
     });
     if (!rateLimit.allowed) {

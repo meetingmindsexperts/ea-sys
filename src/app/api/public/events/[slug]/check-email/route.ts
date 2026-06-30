@@ -28,11 +28,13 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug } = await params;
 
-    // 20/hr/IP — cheap endpoint, but this is a public one.
+    // 200/hr/IP — cheap preflight endpoint. Raised from 20 so a shared NAT
+    // (hospital/office/venue) where many people check their email before
+    // registering isn't exhausted; still bounded for a public endpoint.
     const ip = getClientIp(req);
     const rate = checkRateLimit({
       key: `check-email:${ip}`,
-      limit: 20,
+      limit: 200,
       windowMs: 60 * 60 * 1000,
     });
     if (!rate.allowed) {
