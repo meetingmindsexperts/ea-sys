@@ -21,7 +21,12 @@ export const {
   adapter: PrismaAdapter(db) as ReturnType<typeof PrismaAdapter>,
   session: {
     strategy: "jwt",
-    maxAge: 24 * 60 * 60, // 24 hours — forces re-authentication daily
+    // 24h ROLLING (idle) timeout — NOT a hard cap from login. NextAuth re-signs
+    // the JWT with exp = now + maxAge and re-sets the cookie on every session
+    // read (mount/focus/navigation), so the window slides forward on activity;
+    // only a full 24h of inactivity logs the user out. No refresh token (single
+    // signed JWT cookie). See docs/HANDOVER.md §4 "Session lifetime".
+    maxAge: 24 * 60 * 60,
   },
   // Trust the host header from Vercel/proxies
   trustHost: true,
