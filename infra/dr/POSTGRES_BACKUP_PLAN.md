@@ -40,7 +40,7 @@ the Singapore bucket becomes a one-stop recovery target.
 
 ### RPO/RTO targets
 
-- **RPO**: 24 hours (worst case — disaster hits just before the nightly 23:00 UTC dump). Tunable up to a tighter window by adding cron entries; scripts are unchanged.
+- **RPO**: 12 hours — dumps run twice daily at 11:00 and 23:00 UTC (`0 11,23 * * *`). Tunable to a tighter window by adding cron entries; scripts are unchanged. (Was 24h / once-daily until 2026-06-30.)
 - **RTO** (full restore): ~30 minutes (download dump + `pg_restore` to a fresh Supabase project or scratch Postgres)
 - **RTO** (single-table or row-level recovery): faster — `pg_restore -t TABLE` is fast
 

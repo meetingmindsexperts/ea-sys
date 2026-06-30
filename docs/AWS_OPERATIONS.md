@@ -214,8 +214,8 @@ sudo -u ubuntu aws s3api copy-object --bucket ea-sys-dr-singapore \
 
 ### 2.4 Database restore from `pg_dump`
 
-Daily dumps land at `s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`
-(`pg_dump -Fc --schema=public`, portable to any vanilla PG 17). RPO ≤ 24h.
+Twice-daily dumps (`0 11,23 * * *`) land at `s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`
+(`pg_dump -Fc --schema=public`, portable to any vanilla PG 17). RPO ≤ 12h.
 
 ```bash
 # Newest dump → scratch:
