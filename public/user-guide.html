@@ -1244,8 +1244,22 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </div>
 
       <div class="sub" id="s9-5">
-        <div class="sub-title">Scheduled emails</div>
-        <p>Future-dated sends. The bulk email dialog has a &ldquo;Send now / Schedule for later&rdquo; toggle. <strong>Both</strong> immediate &ldquo;Send now&rdquo; and future-dated sends land in the Scheduled tab, where you can edit, cancel, or retry failed sends and see per-send success/failure counts. Recipient filters are <strong>re-evaluated at fire time</strong> &mdash; so a &ldquo;remind unpaid&rdquo; scheduled email naturally excludes anyone who paid in the meantime.</p>
+        <div class="sub-title">Scheduled emails &mdash; and reaching people who register later</div>
+
+        <p><strong>Why this matters.</strong> A common need is &ldquo;send the agenda to everyone next Monday&rdquo; or &ldquo;remind unpaid registrants three days before the event.&rdquo; Between now and then, more people register. You almost always want those late registrations to receive the email too &mdash; without having to remember to re-send.</p>
+
+        <p><strong>What happens now.</strong> When you schedule an email, its audience is worked out <strong>at the moment it sends</strong>, not the moment you schedule it. So a reminder you queue today will reach anyone who registers (and still matches your filters) before it goes out. A &ldquo;remind unpaid&rdquo; send likewise drops anyone who has paid by then. Both immediate &ldquo;Send now&rdquo; and future-dated sends appear in the <strong>Scheduled</strong> tab, where you can edit, cancel, or retry failed sends and watch per-send success/failure counts.</p>
+
+        <p><strong>How to use it.</strong></p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b">Open an audience card (e.g. Registrations) &rarr; <strong>Send / Schedule</strong>. Set any <strong>Filter recipients</strong> options (payment status, registration type, badge, tags, exclude faculty) &mdash; these define <em>who matches</em>.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Choose <strong>Schedule for later</strong> and pick a date/time (at least 5 minutes out).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">If you started from an &ldquo;Email All&rdquo; (no rows ticked), it&rsquo;s automatically late-inclusive &mdash; you&rsquo;ll see a &ldquo;&check; Includes anyone matching at send time, including new registrations&rdquo; note.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">If you <em>ticked specific rows</em> first, you&rsquo;ll be asked who it should reach at send time: <strong>Everyone matching the current filters at send time</strong> (recommended &mdash; includes people who register later, your tick-selection is ignored) or <strong>Only the N selected now (fixed list)</strong> (exactly those rows, nobody added).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">In the Scheduled tab, each row is labelled <strong>&ldquo;matching at send time&rdquo;</strong> (late-inclusive) or <strong>&ldquo;N fixed&rdquo;</strong> so you can tell at a glance which kind it is.</div></div>
+        </div>
+
+        <div class="callout c-new"><div class="c-icon">&#x1F4A1;</div><div class="c-body"><div class="c-title">New: choose late-inclusive vs a fixed list (June 2026)</div><div class="c-text">Previously, an oversight meant a scheduled send didn&rsquo;t reliably honour a row selection &mdash; selecting specific people and scheduling could quietly fall back to &ldquo;everyone matching the filters.&rdquo; That&rsquo;s fixed: scheduling now makes the choice <strong>explicit</strong>. The default for a future send is <strong>late-inclusive</strong> (everyone matching when it fires, so new registrations are included), and you can deliberately pin a <strong>fixed list</strong> when you want exactly the rows you picked. &ldquo;Send now&rdquo; still goes to your selected/filtered recipients exactly as before.</div></div></div>
       </div>
 
       <div class="sub" id="s9-6">

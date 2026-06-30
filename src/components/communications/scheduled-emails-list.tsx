@@ -178,7 +178,28 @@ export function ScheduledEmailsList({ eventId }: Props) {
                     <TableCell className="font-mono text-xs">
                       {new Date(row.scheduledFor).toLocaleString()}
                     </TableCell>
-                    <TableCell>{RECIPIENT_LABEL[row.recipientType]}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span>{RECIPIENT_LABEL[row.recipientType]}</span>
+                        {row.recipientIds.length > 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            {row.recipientIds.length} fixed
+                          </span>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-xs text-muted-foreground underline decoration-dotted">
+                                matching at send time
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Audience is re-evaluated when this sends, so it includes
+                              registrations added after it was scheduled.
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{EMAIL_TYPE_LABEL[row.emailType] ?? row.emailType}</TableCell>
                     <TableCell className="max-w-[200px] truncate">
                       {row.customSubject || <span className="text-muted-foreground">—</span>}

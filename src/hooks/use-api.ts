@@ -1170,6 +1170,12 @@ export function useBulkEmail(eventId: string) {
 export interface ScheduledEmailItem {
   id: string;
   recipientType: "speakers" | "registrations" | "reviewers" | "abstracts";
+  /**
+   * Explicitly-selected recipient ids. Empty = filter-based send (audience
+   * re-evaluated at fire time, so it includes registrations added after the
+   * email was scheduled). Non-empty = fixed snapshot of exactly these rows.
+   */
+  recipientIds: string[];
   emailType: string;
   customSubject: string | null;
   customMessage: string | null;

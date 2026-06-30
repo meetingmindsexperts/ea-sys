@@ -1,6 +1,6 @@
 # Event Management System - Development Status
 
-**Last Updated:** June 23, 2026
+**Last Updated:** June 30, 2026
 **Project:** EA-SYS (Event Administration System)
 
 ---
@@ -21,6 +21,7 @@ This document tracks the development status of the Event Administration System. 
 - **Webinars:** first-class WEBINAR type — auto-provisioning, Zoom embed + custom HLS stream, recording/attendance/**engagement (polls + Q&A)** sync, producer-gated waiting room with real-time presence (June 23).
 - **Speaker-as-attendee + multi-role certificates (June 25, 2026):** every speaker auto-gets a linked comp "Faculty" registration so they receive badge / barcode / DTCM / check-in / survey (excluded from delegate counts); certificates are now **per-template** (one person can hold several role-specific certs — Speaker + Moderator + Committee), each with its own role label + manually-entered CME hours (`{{role}}` / `{{cmeHours}}` tokens). Plan + status: [docs/SPEAKER_AS_ATTENDEE_PLAN.md](SPEAKER_AS_ATTENDEE_PLAN.md). (Survey-completion auto-issue = the planned Phase 2.)
 - **Platform:** MCP server (70+ tools) + OAuth 2.1, AI agent, dedicated background-worker tier (6 jobs, advisory-lock singleton), certificates, surveys, CloudWatch/Sentry/DB logging, Singapore DR (S3 + pg_dump), multiple security audits (latest: June 23 multi-tenant readiness — see [docs/PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) Round 2).
+- **Communications (June 30, 2026):** scheduled emails are **"one-shot, late-inclusive"** — a future-dated send re-resolves its audience at fire time, so it reaches people who register after it was scheduled. Fixed an overlook where the schedule-create route dropped `recipientIds` (every scheduled send fell back to filter-based; a ticked-row schedule over-sent to everyone matching the filters); the dialog now makes the filter-vs-fixed-list choice explicit. See [docs/SCHEDULED_EMAILS.md](SCHEDULED_EMAILS.md) §4.
 
 **Genuinely still open (all non-blocking nice-to-haves / tech debt):** ICS calendar export, session feedback/ratings, attendee directory, PWA, multi-language; a few small UI gaps for API-driven ops (Room-Type edit/delete dialog, abstract→session dashboard picker); email-preferences management; Redis-backed shared cache/rate-limiter; bundle trim + remove unused tRPC deps; staging environment. None block running a conference. See [docs/ROADMAP.md](ROADMAP.md) for the tracked backlog.
 

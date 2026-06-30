@@ -283,6 +283,13 @@ export function BulkEmailDialog({
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
   const [localExcludeFaculty, setLocalExcludeFaculty] = useState(false);
+  // When scheduling a send that started from a row selection, the organizer
+  // chooses whether the scheduled email goes to that fixed set of rows or to
+  // everyone matching the current filters at send time. The latter is
+  // re-evaluated when the email fires, so it INCLUDES registrations added
+  // between now and the scheduled time ("one-shot, late-inclusive"). Defaults
+  // to the late-inclusive option — that's the common intent for a future send.
+  const [scheduledAudience, setScheduledAudience] = useState<"matching" | "selected">("matching");
   // Collapsible "Filter recipients" section — collapsed by default so the
   // dialog opens compact; auto-opens when the host arrived with a filter
   // already applied (a tile, or the list page's filter bar).
@@ -302,6 +309,7 @@ export function BulkEmailDialog({
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
       setLocalExcludeFaculty(false);
+      setScheduledAudience("matching");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
           (ticketTypeFilter != null && ticketTypeFilter !== "all") ||
@@ -390,12 +398,17 @@ export function BulkEmailDialog({
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
   };
-  const displayCount =
-    selectionMode === "selected"
-      ? recipientCount
-      : recipientCountFor
-        ? recipientCountFor(effectiveFilters)
-        : recipientCount;
+  // Whether the *effective* send resolves to a filter-based ("matching")
+  // audience rather than a fixed list of selected rows. Always true in "all"
+  // mode; for a row selection it's true only when scheduling for later with the
+  // late-inclusive "matching" choice. Immediate selected sends stay a fixed list.
+  const resolvesToMatching =
+    selectionMode === "all" || (sendMode === "later" && scheduledAudience === "matching");
+  const displayCount = resolvesToMatching
+    ? recipientCountFor
+      ? recipientCountFor(effectiveFilters)
+      : recipientCount
+    : recipientCount;
 
   const totalAttachmentSize = attachments.reduce((sum, a) => sum + a.size, 0);
 
@@ -476,9 +489,16 @@ export function BulkEmailDialog({
       }
     }
 
+    // Send a fixed recipient list only when there's a selection AND the
+    // effective audience is NOT "matching" (i.e. immediate selected send, or a
+    // scheduled send where the organizer kept the fixed-list choice). A
+    // "matching" resolution drops the ids so the backend re-evaluates the
+    // filters at send time — picking up registrations added later.
+    const useFixedList = selectionMode === "selected" && !resolvesToMatching;
+
     const payload = {
       recipientType,
-      recipientIds: selectionMode === "selected" ? recipientIds : undefined,
+      recipientIds: useFixedList ? recipientIds : undefined,
       // A saved custom template sends as emailType "template" with the slug
       // carried in filters.templateSlug (so it survives schedule → worker).
       emailType: isSavedTemplate ? "template" : emailType,
@@ -567,6 +587,7 @@ export function BulkEmailDialog({
     setAttachments([]);
     setSendMode("now");
     setScheduledFor("");
+    setScheduledAudience("matching");
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -584,7 +605,7 @@ export function BulkEmailDialog({
             Send Bulk Email
           </DialogTitle>
           <DialogDescription>
-            {selectionMode === "all"
+            {resolvesToMatching
               ? `Send to all ${displayCount} ${label}`
               : `Send to ${displayCount} selected ${displayCount === 1 ? label.slice(0, -1) : label}`}
           </DialogDescription>
@@ -975,6 +996,57 @@ export function BulkEmailDialog({
                 <p className="text-xs text-muted-foreground">
                   Recipients are re-evaluated at send time so this list will reflect the latest data.
                 </p>
+
+                {/* Recipient resolution. Only meaningful when the organizer
+                    started from a row selection — they choose between the fixed
+                    selected rows and the late-inclusive "everyone matching"
+                    audience. For an "all" send there's nothing to choose (it's
+                    always matching), so we just reassure them it's late-inclusive. */}
+                {selectionMode === "selected" ? (
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label>Who should this go to at send time?</Label>
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScheduledAudience("matching")}
+                        className={`rounded-md border p-2 text-left text-sm transition-colors ${
+                          scheduledAudience === "matching"
+                            ? "border-primary bg-primary/10"
+                            : "border-input hover:bg-accent"
+                        }`}
+                      >
+                        <span className="font-medium">
+                          Everyone matching the current filters at send time
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Recommended. Re-evaluated when it sends, so it includes
+                          {label === "registrations" ? " registrations" : ` ${label}`} added
+                          after you schedule it. Your row selection is ignored.
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScheduledAudience("selected")}
+                        className={`rounded-md border p-2 text-left text-sm transition-colors ${
+                          scheduledAudience === "selected"
+                            ? "border-primary bg-primary/10"
+                            : "border-input hover:bg-accent"
+                        }`}
+                      >
+                        <span className="font-medium">
+                          Only the {recipientCount} selected now (fixed list)
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Sends to exactly these rows. New {label} won&apos;t be added.
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs font-medium text-primary">
+                    ✓ Includes anyone matching at send time, including new {label}.
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -87,6 +87,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: session.user.organizationId!,
         createdById: session.user.id,
         recipientType: data.recipientType,
+        // Persist the explicit selection so a scheduled "selected" send goes to
+        // exactly those rows (mirrors the immediate-send route). Empty array =
+        // filter-based send, which the worker re-evaluates at fire time, so the
+        // audience naturally INCLUDES registrations added between now and the
+        // scheduled time ("one-shot, late-inclusive"). Previously this field was
+        // parsed but never written, so every scheduled send silently fell back
+        // to filter-based — meaning a selected-row schedule over-sent to
+        // everyone matching the filters. The dialog now makes the choice explicit.
+        recipientIds: data.recipientIds ?? [],
         emailType: data.emailType,
         customSubject: data.customSubject,
         customMessage: data.customMessage,
@@ -145,6 +154,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         recipientType: true,
+        // Surfaced so the Scheduled Emails list can show "fixed list (N)" vs
+        // "matching at send time" — empty array means filter-based (late-inclusive).
+        recipientIds: true,
         emailType: true,
         customSubject: true,
         customMessage: true,

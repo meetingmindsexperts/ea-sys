@@ -119,6 +119,7 @@ model ScheduledEmail {
   createdById    String   // who scheduled it (used as the email's organizer/replyTo)
 
   recipientType  String   // "speakers" | "registrations" | "reviewers" | "abstracts"
+  recipientIds   String[] @default([]) // empty = filter-based (late-inclusive); non-empty = fixed list
   emailType      String   // "invitation" | "confirmation" | "reminder" | "custom" …
   customSubject  String?
   customMessage  String?  @db.Text
@@ -144,17 +145,42 @@ The two indexes matter:
 - `(status, scheduledFor)` is what the cron uses to find due rows. Without it, every tick would table-scan.
 - `(eventId, status)` is what the list endpoint uses when an organizer opens the page.
 
-### Why filters, not snapshot recipient IDs
+### Two ways the audience is resolved — filters vs a fixed list
 
-When the organizer picks "all unpaid registrants" we save **the filter**
-(`{ status: "UNPAID" }`), not the list of registration IDs. When the cron fires
-30 hours later, it re-runs the query — so anyone who paid in the meantime is
-**automatically excluded**. This is by design and is the most important property
-to remember about the feature.
+A scheduled row resolves its recipients **one of two ways**, decided by whether
+`recipientIds` is empty:
 
-The trade-off: the count shown in the dialog at scheduling time is not
-guaranteed to match the count actually sent. The UI tells the user this in a
-small note under the datetime picker.
+1. **Filter-based (late-inclusive, the default for scheduled sends).** When the
+   organizer schedules to "everyone matching the filters" we save **the filter**
+   (`{ status: "UNPAID" }`, etc.) and leave `recipientIds = []`. When the cron
+   fires 30 hours later it re-runs the query, so the audience reflects the data
+   **at fire time** — anyone who paid in the meantime is excluded, and **anyone
+   who registered after the email was scheduled is included** ("one-shot,
+   late-inclusive"). This is the most important property to remember.
+2. **Fixed list.** When the organizer deliberately schedules to a specific set of
+   selected rows, `recipientIds` holds those ids and the cron sends to exactly
+   them — new registrations are **not** added.
+
+The bulk-email dialog makes this an explicit choice when you schedule from a row
+selection (radio: "Everyone matching the current filters at send time" — the
+recommended, late-inclusive default — vs "Only the N selected now (fixed list)").
+An "all matching" send is always filter-based. The Scheduled Emails list labels
+each row **"N fixed"** or **"matching at send time"** so the resolution is visible.
+
+The trade-off for filter-based: the count shown in the dialog at scheduling time
+is not guaranteed to match the count actually sent. The UI says so under the
+picker.
+
+> **History — a fixed overlook (June 30, 2026).** Originally the schedule-create
+> route *parsed* `recipientIds` but **never wrote it** to the row (only the
+> immediate-send route persisted it). So **every** scheduled send silently fell
+> back to filter-based, and a "schedule to these 5 selected rows" actually
+> fanned out to *everyone* matching the filters at fire time (often *all*
+> registrations when no filter bar was active) — an over-send risk. The fix
+> persists `recipientIds` so a fixed-list schedule honors the selection, and the
+> dialog now surfaces the filter-vs-fixed choice explicitly. The desired
+> behavior — a scheduled blast that includes late registrations — is now the
+> correct, deliberate default rather than an accidental side effect.
 
 ---
 
@@ -530,12 +556,15 @@ End-to-end smoke test after deploy:
 
 ## 14. Known limits & caveats
 
-- **Recipient count drift.** The count shown in the dialog is "right now".
-  When the cron sends, the actual count may differ. This is a feature, not
-  a bug — see §4.
+- **Recipient count drift (filter-based sends).** The count shown in the dialog
+  is "right now". When the cron sends a filter-based row, the actual count may
+  differ — by design, this is how late registrations get included (see §4).
+  Fixed-list sends don't drift.
 - **Editing recipients is not supported.** The Edit dialog only updates
-  subject/message/sendAt. To change the audience, cancel and create a new
-  scheduled email. This is a deliberate UX simplification.
+  subject/message/sendAt — it does **not** touch `recipientIds` or the
+  filter-vs-fixed resolution (it leaves them as stored). To change the audience,
+  cancel and create a new scheduled email. This is a deliberate UX
+  simplification.
 - **Attachments are stored inline as base64 in the row.** Five 2 MB
   attachments live in the database for the entire lead time. If you need
   weeks-long lead times with large attachments, move attachment storage to

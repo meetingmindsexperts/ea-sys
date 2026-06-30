@@ -210,7 +210,18 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
-## Current Release — June 29, 2026
+## Current Release — June 30, 2026
+
+### Scheduled email — "one-shot, late-inclusive" + fixed `recipientIds` overlook
+
+- **Behavior:** a scheduled email now reliably reaches people who register *after* it is scheduled. Filter-based scheduled sends already re-resolved recipients at fire time; this makes that the explicit, recommended default and closes the gap where a row-selected schedule froze the audience.
+- **Overlook fixed:** the schedule-create route (`POST /api/events/[eventId]/emails/schedule`) **parsed `recipientIds` but never persisted it** — only the immediate-send route did. So every scheduled send silently fell back to filter-based, and a "schedule to these N ticked rows" actually fanned out to **everyone matching the filters** at fire time (often *all* registrations when no filter bar was active) — an over-send risk on a live system. Now the route writes `recipientIds` (and exposes it on GET).
+- **UX:** `src/components/bulk-email-dialog.tsx` — when scheduling from a row selection, an explicit choice (default **"Everyone matching the current filters at send time"** = late-inclusive, drops the ids; alt **"Only the N selected (fixed list)"**). "Email All" schedules show a "✓ includes new registrations" note. `scheduled-emails-list.tsx` labels each row **"matching at send time"** vs **"N fixed"**. "Send now" unchanged.
+- **No schema/migration** (`ScheduledEmail.recipientIds` already existed). New test `__tests__/api/scheduled-email-create.test.ts`. Full design in [docs/SCHEDULED_EMAILS.md](SCHEDULED_EMAILS.md) §4; user guide `public/user-guide.html` §9.
+
+---
+
+## Previous Release — June 29, 2026
 
 ### Communications filters + Activity edit-history + public SEO + Add-form parity + faculty data fix
 
