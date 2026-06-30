@@ -16,6 +16,7 @@ import {
   Settings,
   ArrowRight,
   TrendingUp,
+  Sparkles,
 } from "lucide-react";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
@@ -275,6 +276,39 @@ export default async function EventPage({ params }: EventPageProps) {
               </Card>
             </Link>
           ))}
+          {/* Discovery card — surfaces the advanced tools that ship with every
+              event so organizers know they're available. Not a single link;
+              each tool is its own chip. */}
+          <Card className="h-full border-primary/20 bg-primary/[0.02]">
+            <CardContent className="p-5">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 bg-primary/10 text-primary">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <h3 className="font-medium text-sm mb-1">More tools available</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Included with every event — explore the extras
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: "Analytics", href: `/events/${eventId}/analytics` },
+                  { label: "AI Agent", href: `/events/${eventId}/agent` },
+                  { label: "Certificates", href: `/events/${eventId}/certificates` },
+                  { label: "Sponsors", href: `/events/${eventId}/sponsors` },
+                ].map((t) => (
+                  <Link
+                    key={t.label}
+                    href={t.href}
+                    className="inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    {t.label}
+                  </Link>
+                ))}
+                <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium text-muted-foreground/70">
+                  + more
+                </span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
