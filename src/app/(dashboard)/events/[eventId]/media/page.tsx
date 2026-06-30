@@ -226,47 +226,71 @@ export default function EventMediaPage() {
               ))}
             </div>
           ) : (
-            <div className="space-y-2">
-              {mediaFiles.map((media) => (
-                <Card key={media.id} className="flex items-center gap-3 p-2">
-                  <div className="h-12 w-12 shrink-0 rounded bg-slate-50 overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={media.url} alt={media.filename} className="w-full h-full object-contain" />
-                  </div>
-                  <div className="flex-1 min-w-0 flex items-baseline gap-3">
-                    <span className="text-sm font-medium text-slate-700 truncate" title={media.filename}>
-                      {media.filename}
-                    </span>
-                    <span className="text-xs text-slate-400 shrink-0 whitespace-nowrap">
-                      {media.mimeType.replace("image/", "").toUpperCase()} · {formatFileSize(media.size)} · {format(new Date(media.createdAt), "MMM d, yyyy")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 text-xs"
-                      onClick={() => copyUrl(media)}
-                    >
-                      {copiedId === media.id ? (
-                        <><Check className="h-3 w-3 mr-1" /> Copied</>
-                      ) : (
-                        <><Copy className="h-3 w-3 mr-1" /> Copy URL</>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(media.id)}
-                      disabled={deleteMutation.isPending}
-                      aria-label="Delete image"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </Card>
-              ))}
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <th className="w-12 px-3 py-2"><span className="sr-only">Preview</span></th>
+                    <th className="px-3 py-2 text-left">Name</th>
+                    <th className="hidden px-3 py-2 text-left sm:table-cell">Type</th>
+                    <th className="hidden px-3 py-2 text-left sm:table-cell">Size</th>
+                    <th className="hidden px-3 py-2 text-left md:table-cell">Uploaded</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {mediaFiles.map((media) => (
+                    <tr key={media.id} className="hover:bg-muted/30">
+                      <td className="px-3 py-2">
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-slate-50">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={media.url} alt={media.filename} className="h-full w-full object-contain" />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="block max-w-[220px] truncate font-medium text-slate-700 sm:max-w-[360px]" title={media.filename}>
+                          {media.filename}
+                        </span>
+                      </td>
+                      <td className="hidden px-3 py-2 text-xs text-muted-foreground sm:table-cell">
+                        {media.mimeType.replace("image/", "").toUpperCase()}
+                      </td>
+                      <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-muted-foreground sm:table-cell">
+                        {formatFileSize(media.size)}
+                      </td>
+                      <td className="hidden whitespace-nowrap px-3 py-2 text-xs text-muted-foreground md:table-cell">
+                        {format(new Date(media.createdAt), "MMM d, yyyy")}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs"
+                            onClick={() => copyUrl(media)}
+                          >
+                            {copiedId === media.id ? (
+                              <><Check className="h-3 w-3 mr-1" /> Copied</>
+                            ) : (
+                              <><Copy className="h-3 w-3 mr-1" /> Copy URL</>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleDelete(media.id)}
+                            disabled={deleteMutation.isPending}
+                            aria-label="Delete image"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </>
