@@ -476,6 +476,50 @@ debugger to the live prod Node process.
 > are almost no tools, so inspect from the **host** (via `docker inspect` PID),
 > not `docker exec`.
 
+### 3.8 Docker disk usage — build cache + the weekly auto-prune
+
+**What "Docker disk" is, in plain terms.** When you build a container image,
+Docker saves every build step as a **build cache** so the next build is faster,
+and it keeps old **image layers** even after a new build replaces them. The prod
+box rebuilds the app image on **every deploy** (`docker compose build` in
+[scripts/deploy.sh](../scripts/deploy.sh)), so both pile up over time. This space
+is **invisible to a normal `df`** — `df` just shows "disk getting full" with no
+obvious culprit — but `docker system df` breaks it out:
+
+```bash
+sudo docker system df
+# TYPE          TOTAL  ACTIVE  SIZE      RECLAIMABLE
+# Images        7      4       23.6GB    19.9GB (84%)   ← old layers from past builds
+# Build Cache   154    0       20.6GB    18.2GB         ← rebuildable scratch
+# Local Volumes 1      0        1.1GB
+```
+
+On 2026-06-30 this was **~38 GB reclaimable at 74% disk** — none of it live data,
+all rebuildable scratch. Left unchecked it eventually fills `/`, and then a
+deploy's image build can fail or freeze the box (the disk cousin of INC-001).
+
+**Manual reclaim (safe — keeps running + rollback images):**
+```bash
+docker builder prune -af   # build cache — usually the biggest win
+docker image prune -f      # dangling/untagged layers ONLY (no -a → tagged rollback images stay)
+```
+**Do NOT** use `docker system prune -a` (deletes the last-3 **rollback image
+tags**) or `--volumes` (the local volume / uploads bind-mount).
+
+**Weekly auto-prune (the standing fix).** [scripts/docker-prune.sh](../scripts/docker-prune.sh)
+runs exactly those two safe prunes and logs how much it reclaimed. Install it on
+the box crontab (ubuntu user), Fridays 03:00 UTC = 07:00 GST, low traffic:
+```cron
+0 3 * * 5 /home/ubuntu/ea-sys/scripts/docker-prune.sh >> /home/ubuntu/cron-docker-prune.log 2>&1
+```
+Check it ran: `tail /home/ubuntu/cron-docker-prune.log` → look for
+`docker-prune:done … reclaimed_gb=…`.
+
+**Durable fix (removes the cause):** stop building on the box — build in CI →
+push to **ECR** → the box only `docker pull`s (the "CI → ECR" item in
+[docs/ROADMAP.md](ROADMAP.md), and INC-001 in [docs/INCIDENTS.md](INCIDENTS.md)).
+Then no build cache accumulates and the weekly prune becomes belt-and-braces.
+
 ---
 
 ## 4. Security — DDoS / bot posture
