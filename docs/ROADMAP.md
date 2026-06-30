@@ -515,6 +515,19 @@ insurance; these are the durable fixes, deferred for a future pass.
 | LOW | **External uptime check on `/api/health`** (action item #4) | Route 53 health check or UptimeRobot — catches a frozen-but-"running" box (EC2 status checks don't). |
 | — | **Instance sizing — NOT recommended as the fix** | Bumping t3.large (8 GB) → t3.xlarge (16 GB) would give the build headroom, but it's **~+$60/mo (≈2×) of always-on RAM for a few seconds of transient build need**, and it doesn't fix the root cause (building on the prod host) — a future heavier build could still approach the higher ceiling. With swap already added (freeze → slow-down) and the CI/ECR fix above (box never builds), upsizing is unnecessary. Revisit only if the *runtime* footprint (not the build) genuinely outgrows 8 GB. |
 
+### DR / backup + nginx hardening (added June 30, 2026)
+
+Surfaced during the conference-readiness + backup review. None blocking; verified
+context in [infra/dr/](../infra/dr/) and the DR memory.
+
+| Priority | Item | Detail |
+|---|---|---|
+| MEDIUM | **nginx box ↔ repo reconciliation** | The live `/etc/nginx/sites-available/ea-sys` has diverged from `deploy/nginx.conf` — and the **box is the LEANER one** (Certbot-stripped). Exact live state captured in [`deploy/nginx.live-snapshot.conf`](../deploy/nginx.live-snapshot.conf) (2026-06-30). The box is MISSING vs the intended config: **HTTP/2** (`listen 443 ssl`, no `http2`) + **security headers** (`X-Frame-Options` / `X-Content-Type-Options: nosniff` / `Referrer-Policy`). Most other deltas (gzip, `/_next/static` caching, agent-SSE buffering) are already handled by Next.js itself, so low-impact. **Fix = targeted on-box edits** (add `http2 on;` + the `add_header` lines) — Certbot manages this file, so do NOT wholesale-replace it. Re-capture the snapshot after any change. |
+| LOW | **nginx config → S3 DR backup cron** | The live nginx file is NOT in the scheduled S3 DR backup (only `db/` + `uploads/` + `env/` are). Add a daily `aws s3 cp /etc/nginx/sites-available/ea-sys s3://ea-sys-dr-singapore/nginx/$(date -u +%F).conf …` line mirroring the `.env` backup, so a box rebuild has the exact config. The repo snapshot is the interim backup. |
+| LOW | **DB RPO tightening — 2h day / 4h night** | Hand-over command prepared (crontab → `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC = ≤2h RPO Dubai 08:00–22:00, ≤4h overnight). Apply when ready; the dump script is unchanged. Currently 12h (`0 11,23`). Update [infra/dr](../infra/dr) docs + memory after applying. |
+| LOW | **Supabase PITR (true zero-RPO)** | Snapshot dumps still lose up to the window (2h/12h) of new rows on a Supabase-loss. PITR (~$25–50/mo) gives seconds-level recovery. Worth it for payment-critical events — though **Stripe is already the payment system-of-record** (the invoice-reconciliation worker recovers payments), so the real exposure is lost DB rows (registrations), not payments. |
+| LOW | **DB pool burst headroom** | Verified `connection_limit=10&pool_timeout=15` on the box (fine for the authenticated-desk conference profile). For a heavy public registration-open burst, bump to 15–20 in the box `.env` + `scripts/deploy.sh` (env change needs a deploy, not a restart). Optional. |
+
 ### Audit Hardening Backlog (deferred from the May 18, 2026 multi-agent review)
 
 The May 18 review (supervisor + React/Prisma/backend/architecture agents)
