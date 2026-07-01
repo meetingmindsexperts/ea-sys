@@ -559,10 +559,12 @@ For honesty:
   ECR lives in `ap-south-1`, so a **full-Mumbai-region loss** takes it down too,
   and a Singapore recovery box can't pull. **Fix:** enable ECR **cross-region
   replication → `ap-southeast-1`** (this bucket's region) so images exist in both.
-  Tracked in [ROADMAP.md](../../docs/ROADMAP.md). NOTE: while the CI→ECR cutover is
-  mid-flight (Step 1 done, Step 2 pending), the box still *can* build from source
-  (GitHub) as a fallback, so recovery isn't blocked either way. Once Step 2 lands,
-  update the "Full recovery" steps below from *build* → *pull from ECR*.
+  Tracked in [ROADMAP.md](../../docs/ROADMAP.md). NOTE: the CI→ECR cutover is
+  **complete** (Step 1 + Step 2 shipped 2026-07-01) — deploys now pull from ECR,
+  but `scripts/deploy.sh` still falls back to an **on-box build from the GitHub
+  checkout** if the pull fails, so a box-only recovery isn't blocked even if ECR
+  is briefly unreachable. For a full-region loss, either enable cross-region
+  replication (above) or let the Singapore box use that on-box-build fallback.
 - **Uploads written during the outage window itself are at risk.** The normal
   flow is Mumbai hourly sync → S3 bucket → DR box pulls on boot. During an
   outage, Mumbai's cron can't run. Uploads that happen *on the DR box* during

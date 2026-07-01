@@ -144,12 +144,15 @@ aws s3 ls s3://ea-sys-dr-singapore/db/      --region ap-southeast-1 --recursive 
 Deploys are **GitHub Actions → SSH (`appleboy`) → `bash scripts/deploy.sh`**
 (blue-green). You don't run them by hand.
 
-> **ECR migration in progress (2026-07-01).** A `build-push` CI job now builds the
-> web + worker images and pushes them to **ECR** (`…/ea-sys`, see §5.x) on every
-> deploy — **Step 1 is live**. The box **still builds on-box** for now (Step 2 will
-> flip `deploy.sh` to `docker compose pull` from ECR + migrate from the worker
-> image, dropping the SSH step from ~8 min → ~1–2 min). Until Step 2 lands, the
-> notes below (on-box build) are accurate.
+> **ECR deploy is live (2026-07-01, Step 2 shipped `e118830`).** A `build-push` CI
+> job builds the web + worker images and pushes them to **ECR** (`…/ea-sys`, see
+> §5.x); the deploy job then **pulls** those exact images on the box
+> (`docker compose pull`, keyed on `IMAGE_TAG=<git-sha>`) instead of building
+> on-box — SSH deploy ~8 min → ~1–2 min, and the box never runs a memory-heavy
+> build (the INC-001 fix). Migrations run **from the pulled worker image** (it
+> ships the Prisma CLI) so DB creds stay in `.env`, never CI. **Fallbacks:** a
+> failed ECR pull → on-box build; a failed migration → deploy aborts before the
+> nginx swap (old slot keeps serving). Rollback = redeploy a previous `:<sha>`.
 
 Two things to know:
 
@@ -526,12 +529,11 @@ the box crontab (ubuntu user), Fridays 03:00 UTC = 07:00 GST, low traffic:
 Check it ran: `tail /home/ubuntu/cron-docker-prune.log` → look for
 `docker-prune:done … reclaimed_gb=…`.
 
-**Durable fix (IN PROGRESS 2026-07-01):** stop building on the box — build in CI →
-push to **ECR** → the box only `docker pull`s (§5.x; the "CI → ECR" item in
+**Durable fix (DONE 2026-07-01):** the box no longer builds — CI builds + pushes to
+**ECR** and the box only `docker compose pull`s (§5.x; the "CI → ECR" item in
 [docs/ROADMAP.md](ROADMAP.md), and INC-001 in [docs/INCIDENTS.md](INCIDENTS.md)).
-Step 1 (build+push to ECR) is live; Step 2 (box pulls, no on-box build) will
-eliminate this build-cache creep entirely. Until then the weekly prune covers it.
-Then no build cache accumulates and the weekly prune becomes belt-and-braces.
+No build cache accumulates from deploys anymore, so the weekly prune is now
+belt-and-braces (it still reaps the pulled-image churn / dangling layers).
 
 ---
 
@@ -656,7 +658,10 @@ These are setup operations you rarely run — full context in the linked docs.
 ### 5.x ECR — the deploy image registry (2026-07-01)
 
 The app deploys as pre-built images from a private ECR repo instead of building
-on the box (Step 2 completes the cutover — see the ROADMAP "CI → ECR" item).
+on the box (cutover complete — Step 1 + Step 2 shipped; see the ROADMAP "CI → ECR"
+item). `scripts/deploy.sh` ECR-logs-in, `docker compose pull`s the `:<sha>` images,
+and swaps blue/green; if the pull fails it falls back to an on-box build so a
+deploy never hard-fails.
 
 - **Repo:** `803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys` (Mumbai, AES256, scan-on-push).
 - **Tags:** web = `:<git-sha>` + `:latest`; worker = `:worker-<git-sha>` + `:worker-latest`.
@@ -674,7 +679,9 @@ aws ecr get-login-password --region ap-south-1 | docker login --username AWS \
 docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<tag>
 ```
 
-- **Rollback** (after Step 2) = redeploy a previous `:<sha>` (no rebuild).
+- **Rollback** = redeploy a previous `:<sha>` (no rebuild) — e.g. run
+  `IMAGE_TAG=<old-sha> bash scripts/deploy.sh` on the box, or re-run the older
+  green Actions deploy.
 - **DR caveat:** ECR is in **Mumbai** — a full-region loss takes it down too. For
   region-independent recovery, enable **ECR cross-region replication → Singapore**
   (`ap-southeast-1`, where the DR S3 bucket is) — a one-time registry setting.
