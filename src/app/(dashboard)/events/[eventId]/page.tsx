@@ -17,6 +17,7 @@ import {
   ArrowRight,
   TrendingUp,
   Sparkles,
+  Rocket,
 } from "lucide-react";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
@@ -221,6 +222,28 @@ export default async function EventPage({ params }: EventPageProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Launch Readiness CTA ────────────────────────────────────────────── */}
+      {!isRestricted && (
+        <Link href={`/events/${eventId}/readiness`} className="group block">
+          <Card className="border-primary/30 bg-primary/5 transition-all duration-200 hover:border-primary/60 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Rocket className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Conference Launch Readiness</p>
+                <p className="text-xs text-muted-foreground">
+                  Pre-launch checklist — set up payments, abstracts &amp; content, then dry-run before you open registration.
+                </p>
+              </div>
+              <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                Open <ArrowRight className="h-3 w-3" />
+              </span>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
 
       {/* ── Stats Grid ──────────────────────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
