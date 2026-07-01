@@ -12,9 +12,11 @@ import {
   Loader2,
   AlertCircle,
   FileText,
+  MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { formatDateRange } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface EventBranding {
@@ -22,6 +24,11 @@ interface EventBranding {
   footerHtml: string | null;
   registrationConfirmationHtml: string | null;
   name: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  venue?: string | null;
+  city?: string | null;
+  country?: string | null;
   organization?: { name: string; logo: string | null } | null;
 }
 
@@ -72,6 +79,11 @@ function ConfirmationContent() {
           footerHtml: data.footerHtml,
           registrationConfirmationHtml: data.registrationConfirmationHtml || null,
           name: data.name,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          venue: data.venue,
+          city: data.city,
+          country: data.country,
           organization: data.organization,
         });
       })
@@ -198,6 +210,28 @@ function ConfirmationContent() {
       ) : (
         /* No banner — thin gradient accent line */
         <div className="h-1 bg-gradient-primary" />
+      )}
+
+      {/* ── Event details (name / dates / venue) — under the banner now that
+             the overlay is gone ────────────────────────────────────────────── */}
+      {branding?.name && (
+        <div className="w-full max-w-4xl mx-auto px-4 pt-4 text-center">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900">{branding.name}</h2>
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-sm text-slate-500">
+            {branding.startDate && (
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-slate-400" />
+                {formatDateRange(branding.startDate, branding.endDate || branding.startDate)}
+              </span>
+            )}
+            {[branding.venue, branding.city, branding.country].filter(Boolean).length > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="h-4 w-4 text-slate-400" />
+                {[branding.venue, branding.city, branding.country].filter(Boolean).join(", ")}
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Main Content ───────────────────────────────────────────────────── */}
