@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -57,10 +57,30 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
+        // Company block + logo needed for the confirmation delegation's quote PDF.
+        include: {
+          organization: {
+            select: {
+              name: true,
+              companyName: true,
+              companyAddress: true,
+              companyCity: true,
+              companyState: true,
+              companyZipCode: true,
+              companyCountry: true,
+              taxId: true,
+              logo: true,
+            },
+          },
+        },
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
-        include: { ticketType: true, attendee: true },
+        include: {
+          ticketType: true,
+          attendee: true,
+          pricingTier: { select: { name: true, price: true, currency: true } },
+        },
       }),
     ]);
 
@@ -94,6 +114,111 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const { type, templateSlug, customSubject, customMessage, daysUntilEvent } = validated.data;
+
+    // Built-in "Registration Confirmation" → delegate to the single source of
+    // truth so the payment-pending block AND the quote PDF match the public /
+    // registrant-resend sends. The generic template path below (used by
+    // reminder / payment-reminder / custom / a saved custom templateSlug) never
+    // built vars.paymentBlock for confirmation and never attached the quote —
+    // that was the "quote not sent + invalid paymentBlock" bug. A custom saved
+    // template (templateSlug) intentionally stays on the generic path.
+    if (type === "confirmation" && !templateSlug) {
+      const org = event.organization;
+      const finalPrice = registration.pricingTier
+        ? Number(registration.pricingTier.price)
+        : Number(registration.ticketType?.price ?? 0);
+      const finalCurrency = registration.pricingTier
+        ? registration.pricingTier.currency
+        : registration.ticketType?.currency ?? "USD";
+
+      const result = await sendRegistrationConfirmation({
+        to: registration.attendee.email,
+        additionalEmail: registration.attendee.additionalEmail,
+        firstName: registration.attendee.firstName,
+        lastName: registration.attendee.lastName,
+        title: registration.attendee.title,
+        organization: registration.attendee.organization,
+        jobTitle: registration.attendee.jobTitle,
+        eventName: event.name,
+        eventDate: event.startDate,
+        eventVenue: event.venue || "",
+        eventCity: event.city || "",
+        ticketType: registration.ticketType?.name ?? "General",
+        pricingTierName: registration.pricingTier?.name ?? null,
+        registrationId: registration.id,
+        serialId: registration.serialId,
+        qrCode: registration.qrCode ?? "",
+        attendanceMode: registration.attendanceMode,
+        eventId: event.id,
+        organizationId: event.organizationId,
+        eventSlug: event.slug,
+        ticketPrice: finalPrice,
+        ticketCurrency: finalCurrency,
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+        bankDetails: event.bankDetails,
+        supportEmail: event.supportEmail,
+        organizationName: org?.name,
+        companyName: org?.companyName,
+        companyAddress: org?.companyAddress,
+        companyCity: org?.companyCity,
+        companyState: org?.companyState,
+        companyZipCode: org?.companyZipCode,
+        companyCountry: org?.companyCountry,
+        taxId: org?.taxId,
+        logoPath: org?.logo,
+        billingFirstName: registration.billingFirstName,
+        billingLastName: registration.billingLastName,
+        billingEmail: registration.billingEmail,
+        billingPhone: registration.billingPhone,
+        billingAddress: registration.billingAddress,
+        billingCity: registration.billingCity || registration.attendee.city,
+        billingState: registration.billingState,
+        billingZipCode: registration.billingZipCode,
+        billingCountry: registration.billingCountry || registration.attendee.country,
+        taxNumber: registration.taxNumber,
+      });
+
+      if (!result.success) {
+        apiLogger.warn({
+          msg: "events/registrations/email:confirmation-send-failed",
+          eventId,
+          registrationId,
+          error: result.error,
+        });
+        return NextResponse.json(
+          { error: result.error || "Failed to send email" },
+          { status: 502 },
+        );
+      }
+
+      // Fire-and-forget audit — the email already sent, so a log write failure
+      // must not surface as a misleading send failure.
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "EMAIL_SENT",
+            entityType: "Registration",
+            entityId: registration.id,
+            changes: {
+              emailType: "confirmation",
+              templateSlug: "registration-confirmation",
+              recipient: registration.attendee.email,
+              ip: getClientIp(req),
+            },
+          },
+        })
+        .catch((err) =>
+          apiLogger.warn({ msg: "events/registrations/email:audit-log-failed", eventId, registrationId, err }),
+        );
+
+      return NextResponse.json({
+        success: true,
+        message: `Confirmation email sent to ${registration.attendee.email}`,
+      });
+    }
 
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
