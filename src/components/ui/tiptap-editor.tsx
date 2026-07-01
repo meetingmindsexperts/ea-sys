@@ -147,6 +147,7 @@ import {
   Square,
   Minus,
   ChevronDown,
+  CornerDownLeft,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -255,6 +256,12 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
         title="Strikethrough"
       >
         <Strikethrough className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() => editor.chain().focus().setHardBreak().run()}
+        title="Line break (Shift+Enter)"
+      >
+        <CornerDownLeft className="h-4 w-4" />
       </ToolbarButton>
 
       <div className="mx-1 h-6 w-px bg-border" />

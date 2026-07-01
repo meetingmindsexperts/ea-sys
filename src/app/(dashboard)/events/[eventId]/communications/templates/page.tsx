@@ -47,6 +47,17 @@ const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "custom-notification": "Template for custom/ad-hoc emails",
 };
 
+// Grouped variable reference shown in the create-custom-template dialog. Each
+// group merges the variable sets of the listed system slugs (deduped by key),
+// so an organizer sees the attendee/payment/abstract/speaker palettes. Which
+// ones actually resolve depends on who the template is sent to.
+const VARIABLE_GROUPS: { label: string; slugs: string[] }[] = [
+  { label: "Attendee & Event", slugs: ["registration-confirmation"] },
+  { label: "Payment", slugs: ["payment-confirmation", "payment-reminder"] },
+  { label: "Abstract", slugs: ["abstract-status-update", "abstract-submission-confirmation"] },
+  { label: "Speaker", slugs: ["speaker-invitation"] },
+];
+
 type TemplateRow = {
   id: string;
   slug: string;
@@ -233,6 +244,24 @@ export default function EmailTemplatesPage() {
 
   const templates = (data?.templates || []) as TemplateRow[];
 
+  // Variables an organizer can drop into a custom template, grouped by context
+  // (attendee/payment/abstract/speaker). Merged + deduped per group from the
+  // system slug variable sets; which ones resolve depends on the recipient.
+  const allVars = (data?.variables ?? {}) as Record<string, { key: string; description: string }[]>;
+  const variableGroups = VARIABLE_GROUPS.map((g) => {
+    const seen = new Set<string>();
+    const vars: { key: string; description: string }[] = [];
+    for (const slug of g.slugs) {
+      for (const v of allVars[slug] ?? []) {
+        if (!seen.has(v.key)) {
+          seen.add(v.key);
+          vars.push(v);
+        }
+      }
+    }
+    return { label: g.label, vars };
+  }).filter((g) => g.vars.length > 0);
+
   // Search (name / subject / slug) + status filter, then classify with the
   // SAME shared helper the send dialogs use, so "Custom Templates" here is
   // exactly what appears in the bulk-email / single-registration send pickers.
@@ -277,7 +306,7 @@ export default function EmailTemplatesPage() {
               New Template
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Create Email Template</DialogTitle>
               <DialogDescription>
@@ -311,6 +340,41 @@ export default function EmailTemplatesPage() {
                   maxLength={500}
                 />
               </div>
+              {variableGroups.length > 0 && (
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Available variables
+                  </Label>
+                  <div className="max-h-56 space-y-3 overflow-y-auto pr-1">
+                    {variableGroups.map((g) => (
+                      <div key={g.label} className="space-y-1.5">
+                        <p className="text-[11px] font-semibold text-foreground/70">{g.label}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {g.vars.map((v) => (
+                            <button
+                              key={`${g.label}:${v.key}`}
+                              type="button"
+                              title={v.description}
+                              onClick={() => {
+                                navigator.clipboard?.writeText(`{{${v.key}}}`);
+                                toast.success(`Copied {{${v.key}}}`);
+                              }}
+                              className="rounded-md border bg-background px-2 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary hover:text-primary"
+                            >
+                              {`{{${v.key}}}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Click a chip to copy. Which variables actually resolve depends on who you
+                    send to (e.g. abstract fields only apply to abstract emails). The editor
+                    also offers click-to-insert once the template is created.
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>
@@ -372,7 +436,7 @@ export default function EmailTemplatesPage() {
             System Templates
             <span className="text-sm font-normal text-muted-foreground">({systemTemplates.length})</span>
           </h2>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {systemTemplates.map((template) => (
               <TemplateCard
                 key={template.id}
@@ -394,7 +458,7 @@ export default function EmailTemplatesPage() {
             Custom Templates
             <span className="text-sm font-normal text-muted-foreground">({customTemplates.length})</span>
           </h2>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {customTemplates.map((template) => (
               <TemplateCard
                 key={template.id}
