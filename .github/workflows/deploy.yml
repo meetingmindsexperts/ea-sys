@@ -121,6 +121,11 @@ jobs:
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+          # Don't push provenance/SBOM attestation manifests — buildx defaults to
+          # provenance:true, which adds an extra untagged manifest per build that
+          # nothing here pulls and just clutters ECR.
+          provenance: false
+          sbom: false
 
       - name: Build & push WORKER image
         uses: docker/build-push-action@v6
@@ -133,6 +138,8 @@ jobs:
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-latest
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
+          provenance: false
+          sbom: false
 
   # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
   # Depends on build-push so the ECR images for THIS commit exist before we

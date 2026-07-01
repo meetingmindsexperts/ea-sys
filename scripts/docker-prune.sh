@@ -2,29 +2,29 @@
 #
 # scripts/docker-prune.sh
 #
-# Weekly Docker disk reclaim. Removes stale BUILD CACHE and DANGLING (untagged)
-# image layers so the root disk doesn't slowly fill.
+# Weekly Docker disk reclaim. Removes stale BUILD CACHE, DANGLING (untagged)
+# image layers, AND old pulled ECR image tags so the root disk doesn't fill.
 #
 # ── Why this is needed (plain English) ───────────────────────────────────────
-# Docker keeps a "build cache": every step of building an image is saved so the
-# NEXT build is faster. The prod box rebuilds the app image on EVERY deploy
-# (`docker compose build` in scripts/deploy.sh), so that cache — plus the old
-# image layers each new build replaces — piles up over time. It's invisible in a
-# normal `df` ("where did my disk go?") but `docker system df` shows it. On this
-# box it reached ~38 GB reclaimable at 74% full. None of it is live data; it's
-# just rebuildable scratch.
-#
-# The durable fix is to stop building on the box at all (build in CI → push to
-# ECR → box only `docker pull`s — see the "CI → ECR" item in docs/ROADMAP.md and
-# INC-001 in docs/INCIDENTS.md). Until then, this weekly prune keeps it in check.
+# Since the CI→ECR cutover (2026-07-01) the box no longer BUILDS the app image —
+# it `docker compose pull`s a fresh `ea-sys:<sha>` web + `ea-sys:worker-<sha>`
+# worker image from ECR on every deploy. That fixed the build-cache blowup, but
+# introduces a new, slower leak: each deploy pulls TWO new tagged images
+# (~290 MB web + ~487 MB worker ≈ 780 MB) and the PREVIOUS `:<sha>` images stay
+# **tagged** — so `docker image prune -f` (dangling-only) never reaps them. Left
+# alone the box grows ~780 MB/deploy forever. This script now also trims those,
+# keeping the newest few for rollback. (The build cache prune is retained because
+# deploy.sh can still fall back to an on-box build if an ECR pull fails.)
 #
 # ── Safe by design — it does NOT remove ──────────────────────────────────────
-#   • running containers or their images (the live blue + green app slots)
-#   • TAGGED images  → your last-3 rollback image tags stay intact
+#   • running containers or their images (the live blue + green app slots +
+#     worker — `docker rmi` refuses in-use images; we skip on failure)
+#   • the newest KEEP_IMAGES web + worker `:<sha>` tags (rollback) + the moving
+#     `:latest` / `:worker-latest` pointers
 #   • named volumes  (the local volume, the uploads bind-mount, etc.)
-# It removes ONLY: build cache (`builder prune`) + untagged/dangling image layers
-# (`image prune` WITHOUT -a). It deliberately never runs `system prune -a` (that
-# would delete the rollback image tags) and never `--volumes`.
+# It removes ONLY: build cache (`builder prune`), untagged/dangling layers
+# (`image prune` WITHOUT -a), and OLD `ea-sys:<sha>` repo tags beyond the keep
+# window. It never runs `system prune -a` and never `--volumes`.
 #
 # ── Install (Mumbai box, ubuntu user) ────────────────────────────────────────
 #   Fridays 03:00 UTC (07:00 GST — low traffic):
@@ -34,8 +34,41 @@
 
 set -euo pipefail
 
+# Full ECR repo the box pulls from, and how many recent :<sha> tags to keep per
+# class (web + worker) for rollback. KEEP_IMAGES=3 → 3 deploys of rollback each.
+ECR_REPO="${ECR_REPO:-803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys}"
+KEEP_IMAGES="${KEEP_IMAGES:-3}"
+
 log() {
   printf '{"ts":"%s","msg":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
+# Trim old ECR repo image tags, keeping the newest KEEP_IMAGES of one class.
+#   $1 = class: "web" (tags = <sha> / latest) or "worker" (tags = worker-<sha> /
+#        worker-latest). `docker images` lists newest-first, so we keep the first
+#        KEEP_IMAGES matching :<sha> tags and `docker rmi` the rest. The moving
+#        `latest`/`worker-latest` pointers are never removed, and rmi refuses
+#        (→ we skip) any image still in use by the running blue/green/worker.
+prune_old_repo_images() {
+  local kind="$1" kept=0 tag id
+  while read -r tag id; do
+    [ -z "$tag" ] && continue
+    [ "$tag" = "<none>" ] && continue
+    case "$tag" in
+      latest|worker-latest) continue ;;                       # never touch pointers
+      worker-*) [ "$kind" = "worker" ] || continue ;;
+      *)        [ "$kind" = "web" ]    || continue ;;
+    esac
+    if [ "$kept" -lt "$KEEP_IMAGES" ]; then
+      kept=$((kept + 1))
+      continue
+    fi
+    if docker rmi "$ECR_REPO:$tag" >/dev/null 2>&1; then
+      log "docker-prune:removed-old-image kind=$kind tag=$tag"
+    else
+      log "docker-prune:skip-in-use-or-failed kind=$kind tag=$tag"
+    fi
+  done < <(docker images "$ECR_REPO" --format '{{.Tag}} {{.ID}}' 2>/dev/null || true)
 }
 
 avail_gb() {
@@ -60,6 +93,12 @@ if docker image prune -f >/dev/null 2>&1; then
 else
   log "docker-prune:image-prune-FAILED"
 fi
+
+# Old pulled ECR image tags beyond the keep window (the CI→ECR-era leak). Runs
+# after the dangling prune so any tag we untag here can be reclaimed same pass.
+prune_old_repo_images web
+prune_old_repo_images worker
+log "docker-prune:old-repo-images-trimmed keep=${KEEP_IMAGES}"
 
 AFTER=$(avail_gb)
 log "docker-prune:done avail_gb_after=${AFTER} reclaimed_gb=$((AFTER - BEFORE))"
