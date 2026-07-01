@@ -176,6 +176,10 @@ export interface Registration {
   pricingTier?: PricingTier | null;
   payments?: Payment[];
   accommodation?: Accommodation | null;
+  // Applied promo code (organizer can apply/remove while payment is
+  // outstanding). discountAmount is the stored per-registration discount.
+  discountAmount?: string | number | null;
+  promoCode?: { code: string } | null;
   // Computed money breakdown from the detail GET. Absent for the MEMBER
   // role (redacted server-side) — UI must treat it as optional.
   financials?: {

@@ -93,6 +93,8 @@ interface Registration {
   };
   ticketType: { id: string; name: string; price?: string; currency?: string } | null;
   pricingTier: { id: string; name: string; price: string; currency: string } | null;
+  discountAmount?: string | null;
+  promoCode?: { code: string } | null;
   payments: { id: string; amount: string; currency: string; status: string; receiptUrl: string | null; createdAt: string }[];
 }
 
@@ -115,6 +117,8 @@ export default function EventMyRegistrationPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<Record<string, string | null>>({});
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [promoInput, setPromoInput] = useState<Record<string, string>>({});
+  const [promoBusy, setPromoBusy] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchEvent() {
@@ -201,6 +205,55 @@ export default function EventMyRegistrationPage() {
       toast.error(err.message);
     },
   });
+
+  async function handleApplyPromo(registrationId: string) {
+    const code = (promoInput[registrationId] ?? "").trim();
+    if (!code) return;
+    setPromoBusy(registrationId);
+    try {
+      const res = await fetch(`/api/registrant/registrations/${registrationId}/promo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Couldn't apply that promo code");
+        return;
+      }
+      toast.success(
+        data.discountAmount > 0
+          ? `Promo applied — you save ${formatCurrency(Number(data.discountAmount), data.currency)}`
+          : "Promo code applied",
+      );
+      setPromoInput((p) => ({ ...p, [registrationId]: "" }));
+      await queryClient.invalidateQueries({ queryKey: ["registrant", "registrations"] });
+    } catch (err) {
+      console.error("[MyRegistration] Promo apply failed:", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setPromoBusy(null);
+    }
+  }
+
+  async function handleRemovePromo(registrationId: string) {
+    setPromoBusy(registrationId);
+    try {
+      const res = await fetch(`/api/registrant/registrations/${registrationId}/promo`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Couldn't remove the promo code");
+        return;
+      }
+      toast.success("Promo code removed");
+      await queryClient.invalidateQueries({ queryKey: ["registrant", "registrations"] });
+    } catch (err) {
+      console.error("[MyRegistration] Promo remove failed:", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setPromoBusy(null);
+    }
+  }
 
   const startEdit = (reg: Registration) => {
     setEditingId(reg.id);
@@ -361,13 +414,17 @@ export default function EventMyRegistrationPage() {
               const isEditing = editingId === reg.id;
               const price = Number(reg.pricingTier?.price ?? reg.ticketType?.price ?? 0);
               const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
+              // Promo discount is stored on the registration; the net (post-discount)
+              // amount is what checkout actually charges + taxes, so mirror that here.
+              const regDiscount = Math.min(Number(reg.discountAmount ?? 0), price);
+              const netPrice = Math.max(0, price - regDiscount);
               const isPaid = reg.paymentStatus === "PAID";
-              const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || price === 0;
+              const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
               const isConfirmed = reg.status === "CONFIRMED";
               const showPayment = !isPaid && !isComplimentary && reg.status !== "CANCELLED";
               const regTaxRate = Number(reg.event.taxRate ?? 0);
-              const regTaxAmount = regTaxRate > 0 ? price * regTaxRate / 100 : 0;
-              const regTotal = price + regTaxAmount;
+              const regTaxAmount = regTaxRate > 0 ? netPrice * regTaxRate / 100 : 0;
+              const regTotal = netPrice + regTaxAmount;
               const regHasTax = regTaxRate > 0;
               const regTaxLabel = reg.event.taxLabel || "VAT";
 
@@ -405,21 +462,24 @@ export default function EventMyRegistrationPage() {
                     )}
 
                     {showPayment && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <CreditCard className="h-6 w-6 text-amber-600 shrink-0" />
                             <div>
                               <p className="font-semibold text-amber-800">Payment Required</p>
-                              {regHasTax ? (
-                                <div className="text-sm text-amber-700 space-y-0.5">
-                                  <p>Subtotal: {formatCurrency(price, currency)}</p>
+                              <div className="text-sm text-amber-700 space-y-0.5">
+                                <p>Subtotal: {formatCurrency(price, currency)}</p>
+                                {regDiscount > 0 && (
+                                  <p className="text-emerald-700">
+                                    Promo{reg.promoCode?.code ? ` ${reg.promoCode.code}` : ""}: −{formatCurrency(regDiscount, currency)}
+                                  </p>
+                                )}
+                                {regHasTax && (
                                   <p>{regTaxLabel} ({regTaxRate}%): {formatCurrency(regTaxAmount, currency)}</p>
-                                  <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
-                                </div>
-                              ) : (
-                                <p className="text-sm text-amber-700">Amount due: {formatCurrency(price, currency)}</p>
-                              )}
+                                )}
+                                <p className="font-semibold">Total Due: {formatCurrency(regTotal, currency)}</p>
+                              </div>
                             </div>
                           </div>
                           <Button className="btn-gradient" disabled={checkoutLoading === reg.id} onClick={async () => {
@@ -441,6 +501,43 @@ export default function EventMyRegistrationPage() {
                           }}>
                             {checkoutLoading === reg.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />} Pay Now
                           </Button>
+                        </div>
+
+                        {/* Promo code — apply/remove before paying */}
+                        <div className="border-t border-amber-200 pt-3">
+                          {reg.promoCode ? (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium text-emerald-700">Promo code {reg.promoCode.code} applied</span>
+                              <button
+                                type="button"
+                                className="text-amber-700 underline underline-offset-2 hover:text-amber-900 disabled:opacity-50"
+                                disabled={promoBusy === reg.id}
+                                onClick={() => handleRemovePromo(reg.id)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                placeholder="Have a promo code?"
+                                value={promoInput[reg.id] ?? ""}
+                                onChange={(e) => setPromoInput((p) => ({ ...p, [reg.id]: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(reg.id); } }}
+                                disabled={promoBusy === reg.id}
+                                className="h-9 max-w-[220px] bg-white uppercase placeholder:normal-case"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9"
+                                disabled={promoBusy === reg.id || !(promoInput[reg.id] ?? "").trim()}
+                                onClick={() => handleApplyPromo(reg.id)}
+                              >
+                                {promoBusy === reg.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

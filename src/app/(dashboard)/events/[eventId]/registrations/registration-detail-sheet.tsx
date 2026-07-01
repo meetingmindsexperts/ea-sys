@@ -98,6 +98,7 @@ import {
 import {
   ApiError,
   apiDelete,
+  apiFetch,
   apiPostJson,
   apiPutJson,
 } from "@/lib/api-fetch";
@@ -205,6 +206,8 @@ export function RegistrationDetailSheet({
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(registration);
   const [isEditing, setIsEditing] = useState(false);
   const [printingBadge, setPrintingBadge] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
@@ -277,6 +280,45 @@ export function RegistrationDetailSheet({
       toast.error(error.message);
     },
   });
+
+  // Promo code apply/remove (organizer). The endpoint returns the discount
+  // financials; we re-fetch the full detail (with recomputed `financials`) so
+  // the Payment Summary + quote reflect it, then refresh the list.
+  async function refreshSelectedRegistration(id: string) {
+    const fresh = await apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`);
+    setSelectedRegistration(fresh);
+    queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+  }
+
+  async function applyPromoCode() {
+    const code = promoCodeInput.trim();
+    if (!code || !selectedRegistration) return;
+    setPromoBusy(true);
+    try {
+      await apiPostJson(`/api/events/${eventId}/registrations/${selectedRegistration.id}/promo`, { code });
+      await refreshSelectedRegistration(selectedRegistration.id);
+      setPromoCodeInput("");
+      toast.success("Promo code applied");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Couldn't apply promo code");
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+
+  async function removePromoCode() {
+    if (!selectedRegistration) return;
+    setPromoBusy(true);
+    try {
+      await apiDelete(`/api/events/${eventId}/registrations/${selectedRegistration.id}/promo`);
+      await refreshSelectedRegistration(selectedRegistration.id);
+      toast.success("Promo code removed");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Couldn't remove promo code");
+    } finally {
+      setPromoBusy(false);
+    }
+  }
 
   const checkInRegistration = useMutation({
     mutationFn: (id: string) =>
@@ -1579,6 +1621,48 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     )}
+                    {/* Promo code — apply/remove while payment is still
+                        outstanding. Same rules as the registrant self-apply
+                        (organizers don't bypass a promo's own limits). */}
+                    {(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) &&
+                      !!f && f.subtotal > 0 && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Promo code</p>
+                          {selectedRegistration.promoCode ? (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium text-emerald-700">{selectedRegistration.promoCode.code} applied</span>
+                              <button
+                                type="button"
+                                className="text-slate-600 underline underline-offset-2 hover:text-slate-900 disabled:opacity-50"
+                                disabled={promoBusy}
+                                onClick={removePromoCode}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                placeholder="Enter code"
+                                value={promoCodeInput}
+                                onChange={(e) => setPromoCodeInput(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyPromoCode(); } }}
+                                disabled={promoBusy}
+                                className="h-9 uppercase placeholder:normal-case"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 shrink-0"
+                                disabled={promoBusy || !promoCodeInput.trim()}
+                                onClick={applyPromoCode}
+                              >
+                                {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     {!!f && f.subtotal > 0 && (
                       <Button variant="outline" size="sm" asChild className="w-full">
                         <a href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/quote`} download>

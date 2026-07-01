@@ -132,6 +132,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           billingAccount: {
             select: { id: true, name: true, type: true, email: true, taxNumber: true },
           },
+          // Applied promo code — organizer can apply/remove one on the
+          // Billing tab while payment is still outstanding.
+          promoCode: { select: { code: true } },
           payments: {
             orderBy: { createdAt: "desc" },
           },
