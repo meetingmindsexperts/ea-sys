@@ -2483,10 +2483,13 @@ export async function sendRegistrationConfirmation(params: {
     paymentBlock = `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
       <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">Payment Pending</p>
       ${amountLine}
+      <p style="margin: 0 0 8px 0; font-size: 14px; color: #78350f;">Please find attached the quote to make the bank transfer if you have chosen to pay later.</p>
+      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>
       <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
-      <p style="margin: 8px 0 0 0; font-size: 12px; color: #92400e;">You can also pay later using this link anytime.</p>
+      <span style="font-size: 12px; color: #92400e; margin-left: 8px;">(This link must not be shared with others)</span>
+      <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;"><strong>IMPORTANT:</strong> Kindly note that your registration will be considered as complete only upon receipt of your payment.</p>
     </div>`;
-    paymentBlockText = `Payment Pending\n${amountLineText}\nPay Now: ${paymentLink}`;
+    paymentBlockText = `Payment Pending\n${amountLineText}\nPlease find attached the quote to make the bank transfer if you have chosen to pay later.\nShould you wish to complete the payment online, please use the online form below.\nPay Now: ${paymentLink} (This link must not be shared with others)\nIMPORTANT: Kindly note that your registration will be considered as complete only upon receipt of your payment.`;
   }
 
   const vars: Record<string, string | number | undefined> = {
