@@ -57,6 +57,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         attendee: true,
         ticketType: { select: { name: true, price: true, currency: true } },
         pricingTier: { select: { name: true, price: true, currency: true } },
+        promoCode: { select: { code: true } },
         event: {
           select: {
             id: true,
@@ -122,6 +123,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventSlug: registration.event.slug,
       ticketPrice: finalPrice,
       ticketCurrency: finalCurrency,
+      discountAmount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      promoCode: registration.promoCode?.code ?? null,
       taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
       taxLabel: registration.event.taxLabel,
       bankDetails: registration.event.bankDetails,

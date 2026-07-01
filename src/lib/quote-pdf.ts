@@ -72,6 +72,10 @@ interface QuoteData {
   pricingTier: string | null;
   price: number;
   currency: string;
+  /** Promo discount applied to the line item (0/omitted = none). */
+  discountAmount?: number;
+  /** Label for the discount row, e.g. "Promo SAVE10" (defaults to "Discount"). */
+  discountLabel?: string | null;
 
   // Tax
   taxRate: number | null;
@@ -231,8 +235,8 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       y = drawTotals(doc, y, {
         currency: data.currency,
         subtotal: data.price,
-        discountAmount: 0,
-        discountLabel: null,
+        discountAmount: data.discountAmount ?? 0,
+        discountLabel: data.discountLabel ?? null,
         taxRate: data.taxRate,
         taxLabel: data.taxLabel,
       });
@@ -319,6 +323,9 @@ export interface RegistrationForQuotePDF {
   // structural type and Number()-coerce inside the builder.
   ticketType: { name: string; price: unknown; currency: string } | null;
   pricingTier: { name: string; price: unknown; currency: string } | null;
+  // Applied promo discount — surfaced as a Discount row on the quote.
+  discountAmount?: unknown;
+  promoCode?: { code: string } | null;
   event: {
     name: string;
     code: string | null;
@@ -434,6 +441,8 @@ export async function buildQuotePDFFromRegistration(
     pricingTier: registration.pricingTier?.name || null,
     price,
     currency,
+    discountAmount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+    discountLabel: registration.promoCode?.code ? `Promo ${registration.promoCode.code}` : null,
     taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
     taxLabel: registration.event.taxLabel || "VAT",
     bankDetails: registration.event.bankDetails,

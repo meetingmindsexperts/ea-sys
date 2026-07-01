@@ -58,6 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         attendee: true,
         ticketType: { select: { name: true, price: true, currency: true } },
         pricingTier: { select: { name: true, price: true, currency: true } },
+        promoCode: { select: { code: true } },
         billingAccount: {
           select: {
             name: true, contactName: true, email: true, phone: true,

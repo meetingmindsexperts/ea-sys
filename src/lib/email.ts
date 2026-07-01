@@ -2416,6 +2416,10 @@ export async function sendRegistrationConfirmation(params: {
   eventSlug?: string;
   ticketPrice?: number;
   ticketCurrency?: string;
+  /** Promo discount applied to the base ticket price (0/omitted = none). */
+  discountAmount?: number;
+  /** Applied promo code — used for the "Promo X" discount label + quote row. */
+  promoCode?: string | null;
   taxRate?: number | null;
   taxLabel?: string | null;
   bankDetails?: string | null;
@@ -2463,18 +2467,33 @@ export async function sendRegistrationConfirmation(params: {
   if (params.ticketPrice && params.ticketPrice > 0) {
     const currency = params.ticketCurrency || "USD";
     const baseAmount = Number(params.ticketPrice);
+    // Promo discount is subtracted from the base before tax, mirroring the
+    // Stripe checkout (base − discount, then tax on the net) so the email, the
+    // attached quote, and the actual charge all agree.
+    const discount = Math.min(Number(params.discountAmount ?? 0), baseAmount);
+    const netAmount = Math.max(0, baseAmount - discount);
     const taxRate = params.taxRate ? Number(params.taxRate) : 0;
-    const taxAmount = taxRate > 0 ? baseAmount * (taxRate / 100) : 0;
-    const totalAmount = baseAmount + taxAmount;
+    const taxAmount = taxRate > 0 ? netAmount * (taxRate / 100) : 0;
+    const totalAmount = netAmount + taxAmount;
     const taxLabel = params.taxLabel || "Tax";
+    const discountLabel = params.promoCode ? `Promo ${params.promoCode}` : "Discount";
 
     let amountLine = "";
     let amountLineText = "";
-    if (taxRate > 0) {
+    if (discount > 0 || taxRate > 0) {
+      // Full breakdown when there's a discount and/or tax to itemise.
+      const discountRow = discount > 0
+        ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #047857;">${escapeHtml(discountLabel)}: −${escapeHtml(currency)} ${discount.toFixed(2)}</p>`
+        : "";
+      const taxRow = taxRate > 0
+        ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">${escapeHtml(taxLabel)} (${taxRate}%): ${escapeHtml(currency)} ${taxAmount.toFixed(2)}</p>`
+        : "";
       amountLine = `<p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">Subtotal: ${escapeHtml(currency)} ${baseAmount.toFixed(2)}</p>
-      <p style="margin: 0 0 4px 0; font-size: 14px; color: #78350f;">${escapeHtml(taxLabel)} (${taxRate}%): ${escapeHtml(currency)} ${taxAmount.toFixed(2)}</p>
+      ${discountRow}${taxRow}
       <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;"><strong>Total: ${escapeHtml(currency)} ${totalAmount.toFixed(2)}</strong></p>`;
-      amountLineText = `Subtotal: ${currency} ${baseAmount.toFixed(2)}\n${taxLabel} (${taxRate}%): ${currency} ${taxAmount.toFixed(2)}\nTotal: ${currency} ${totalAmount.toFixed(2)}`;
+      const discountRowText = discount > 0 ? `\n${discountLabel}: -${currency} ${discount.toFixed(2)}` : "";
+      const taxRowText = taxRate > 0 ? `\n${taxLabel} (${taxRate}%): ${currency} ${taxAmount.toFixed(2)}` : "";
+      amountLineText = `Subtotal: ${currency} ${baseAmount.toFixed(2)}${discountRowText}${taxRowText}\nTotal: ${currency} ${totalAmount.toFixed(2)}`;
     } else {
       amountLine = `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Amount due: <strong>${escapeHtml(currency)} ${baseAmount.toFixed(2)}</strong></p>`;
       amountLineText = `Amount due: ${currency} ${baseAmount.toFixed(2)}`;
@@ -2611,6 +2630,8 @@ export async function sendRegistrationConfirmation(params: {
         pricingTier: params.pricingTierName || null,
         price: params.ticketPrice,
         currency: params.ticketCurrency || "USD",
+        discountAmount: params.discountAmount ?? 0,
+        discountLabel: params.promoCode ? `Promo ${params.promoCode}` : null,
         taxRate: params.taxRate || null,
         taxLabel: params.taxLabel || "VAT",
         bankDetails: params.bankDetails || null,

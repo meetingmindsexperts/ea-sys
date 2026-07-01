@@ -193,7 +193,7 @@ function ConfirmationContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {branding?.bannerImage ? (
-        <div className="w-full max-w-4xl mx-auto px-4 pt-6">
+        <div className="w-full max-w-4xl mx-auto px-4">
           {/* Wide hero — the banner graphic carries its own branding, so no
               dark overlay or event-name bar over it. */}
           <div className="relative w-full h-40 sm:h-56 overflow-hidden rounded-2xl">
@@ -201,7 +201,7 @@ function ConfirmationContent() {
               src={branding.bannerImage}
               alt={branding.name || "Event banner"}
               width={1600}
-              height={400}
+              height={200}
               className="w-full h-full object-contain object-center"
               unoptimized
             />

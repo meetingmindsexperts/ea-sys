@@ -39,6 +39,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         attendee: true,
         ticketType: { select: { name: true, price: true, currency: true } },
         pricingTier: { select: { name: true, price: true, currency: true } },
+        promoCode: { select: { code: true } },
         event: {
           select: {
             name: true, code: true, startDate: true, venue: true, city: true,
@@ -108,6 +109,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       pricingTier: registration.pricingTier?.name || null,
       price,
       currency,
+      discountAmount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      discountLabel: registration.promoCode?.code ? `Promo ${registration.promoCode.code}` : null,
       taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
       taxLabel: registration.event.taxLabel || "VAT",
       bankDetails: registration.event.bankDetails,

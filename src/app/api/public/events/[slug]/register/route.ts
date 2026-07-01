@@ -488,10 +488,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       }
 
-      return { registration, discountAmount, originalPrice, finalPrice };
+      return { registration, discountAmount, originalPrice, finalPrice, appliedPromoCode: promoCodeRecord?.code ?? null };
     });
 
-    const { registration, discountAmount: appliedDiscount, finalPrice: registrationFinalPrice } = result;
+    const {
+      registration,
+      discountAmount: appliedDiscount,
+      finalPrice: registrationFinalPrice,
+      originalPrice: registrationOriginalPrice,
+      appliedPromoCode,
+    } = result;
 
     // Notify admins/organizers (non-blocking)
     notifyEventAdmins(event.id, {
@@ -660,8 +666,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId: event.id,
           organizationId: event.organizationId,
           eventSlug: slug,
-          ticketPrice: finalPrice,
+          // Base price + discount (not the pre-discounted finalPrice) so the
+          // email's payment breakdown itemises the promo and taxes the net —
+          // matching the attached quote + the Stripe charge.
+          ticketPrice: registrationOriginalPrice,
           ticketCurrency: finalCurrency,
+          discountAmount: appliedDiscount,
+          promoCode: appliedPromoCode,
           taxRate: event.taxRate ? Number(event.taxRate) : null,
           taxLabel: event.taxLabel,
           bankDetails: event.bankDetails,
