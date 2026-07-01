@@ -226,50 +226,6 @@ export default async function EventPage({ params }: EventPageProps) {
         </div>
       </div>
 
-      {/* ── Launch Readiness CTA ────────────────────────────────────────────── */}
-      {!isRestricted && (
-        <Link href={`/events/${eventId}/readiness`} className="group block">
-          <Card className="border-primary/30 bg-primary/5 transition-all duration-200 hover:border-primary/60 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Rocket className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Conference Launch Readiness</p>
-                <p className="text-xs text-muted-foreground">
-                  Pre-launch checklist — set up payments, abstracts &amp; content, then dry-run before you open registration.
-                </p>
-              </div>
-              <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-                Open <ArrowRight className="h-3 w-3" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-      )}
-
-      {/* ── Invoices CTA (finance-gated) — prominent, distinct colour ───────── */}
-      {canFinance && !isRestricted && (
-        <Link href={`/events/${eventId}/invoices`} className="group block">
-          <Card className="border-emerald-300 bg-emerald-50 transition-all duration-200 hover:border-emerald-500 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] dark:border-emerald-800 dark:bg-emerald-950/30">
-            <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-                <Receipt className="h-6 w-6" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Invoices &amp; Quotes</p>
-                <p className="text-sm text-emerald-700/80 dark:text-emerald-300/70">
-                  View, download and manage invoices, quotes &amp; receipts for this event.
-                </p>
-              </div>
-              <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold text-emerald-700 opacity-0 transition-opacity group-hover:opacity-100 dark:text-emerald-300">
-                Open <ArrowRight className="h-4 w-4" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-      )}
-
       {/* ── Stats Grid ──────────────────────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
@@ -425,13 +381,55 @@ export default async function EventPage({ params }: EventPageProps) {
                 </CardContent>
               </Card>
             )}
+            {/* Invoices & Quotes — finance-gated. Lives in the left column so it
+                matches the width of the Registration Link + Registrations-by-Tier
+                cards above (not full-width). */}
+            {canFinance && (
+              <Link href={`/events/${eventId}/invoices`} className="group block">
+                <Card className="border-emerald-300 bg-emerald-50 transition-all duration-200 hover:border-emerald-500 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] dark:border-emerald-800 dark:bg-emerald-950/30">
+                  <CardContent className="flex items-center gap-4 p-5">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                      <Receipt className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Invoices &amp; Quotes</p>
+                      <p className="text-sm text-emerald-700/80 dark:text-emerald-300/70">
+                        View, download and manage invoices, quotes &amp; receipts for this event.
+                      </p>
+                    </div>
+                    <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold text-emerald-700 opacity-0 transition-opacity group-hover:opacity-100 dark:text-emerald-300">
+                      Open <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
+            {/* Conference Launch Readiness */}
+            <Link href={`/events/${eventId}/readiness`} className="group block">
+              <Card className="border-primary/30 bg-primary/5 transition-all duration-200 hover:border-primary/60 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+                <CardContent className="flex items-center gap-4 p-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Rocket className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Conference Launch Readiness</p>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-launch checklist — set up payments, abstracts &amp; content, then dry-run before you open registration.
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                    Open <ArrowRight className="h-3 w-3" />
+                  </span>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
           <Card>
             <CardContent className="p-5">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">
                 Recent Activity
               </h3>
-              <div className="max-h-[400px] overflow-y-auto">
+              <div className="max-h-[600px] overflow-y-auto">
                 <ActivityFeed eventId={eventId} />
               </div>
             </CardContent>
