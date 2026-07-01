@@ -413,7 +413,10 @@ export async function createRegistration(
   // `virtualPrice` when set (null ⇒ fall back to the in-person price);
   // in-person uses the base price (pricing-tier resolution below still
   // applies to in-person). Drives the free/paid email gate + the quote.
-  const effectiveTicketPrice = ticketType
+  // In-person: the pricing-tier price (resolved below) supersedes the base
+  // ticket-type price; virtual: virtualPrice (flat) when set. `let` because the
+  // tier price is applied after the tier is validated a few lines down.
+  let effectiveTicketPrice = ticketType
     ? Number(
         isVirtual && ticketType.virtualPrice != null
           ? ticketType.virtualPrice
@@ -473,7 +476,7 @@ export async function createRegistration(
   if (pricingTierId && ticketType) {
     const tier = await db.pricingTier.findFirst({
       where: { id: pricingTierId, ticketTypeId: ticketType.id },
-      select: { id: true },
+      select: { id: true, price: true },
     });
     if (!tier) {
       return {
@@ -483,6 +486,9 @@ export async function createRegistration(
       };
     }
     validPricingTierId = tier.id;
+    // In-person tier price supersedes the base ticket-type price (which is
+    // often 0 for tier-priced types). Virtual is flat-priced, tier-independent.
+    if (!isVirtual) effectiveTicketPrice = Number(tier.price);
   }
 
   // Default paymentStatus: UNASSIGNED for paid tickets, COMPLIMENTARY for
@@ -656,6 +662,10 @@ export async function createRegistration(
           payerReference,
           attendeeIsGuarantor,
           qrCode,
+          // Stamp the resolved base price (tier/virtual-aware) so every read
+          // surface has an authoritative subtotal — never resolves to 0 for a
+          // tier-priced or virtual registration.
+          originalPrice: effectiveTicketPrice,
           notes: notes || null,
         },
         include: { attendee: true, ticketType: true },

@@ -1,6 +1,7 @@
 import { PaymentStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 /**
  * Promo-code application against an EXISTING registration.
@@ -111,9 +112,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         );
       }
 
-      const basePrice = reg.pricingTier
-        ? Number(reg.pricingTier.price)
-        : Number(reg.ticketType?.price ?? 0);
+      const basePrice = readRegistrationBasePrice(reg);
       const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
       if (basePrice <= 0) {
         throw new PromoSentinel("FREE_REGISTRATION", "This registration has no charge to discount.");

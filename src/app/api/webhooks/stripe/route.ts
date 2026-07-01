@@ -8,7 +8,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { createPaidInvoice, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
 import { getTitleLabel } from "@/lib/utils";
-import { computeRegistrationFinancials } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       const sessionCurrency = (session.currency || registration.pricingTier?.currency || registration.ticketType?.currency || "USD").toUpperCase();
       const amount = session.amount_total
         ? fromStripeAmount(session.amount_total, sessionCurrency)
-        : Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
+        : readRegistrationBasePrice(registration);
       const currency = sessionCurrency;
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
@@ -330,7 +330,7 @@ async function sendPaymentConfirmationEmail(
   // rounding. These breakdown vars feed only CUSTOM templates; the default
   // payment-confirmation template renders {{amount}} (the actual paid amount),
   // so the default email is unchanged.
-  const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
+  const basePrice = readRegistrationBasePrice(registration);
   const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
   const taxLabel = registration.event.taxLabel || "VAT";
   const fin = computeRegistrationFinancials({

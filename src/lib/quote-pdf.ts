@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { apiLogger } from "./logger";
 import { formatQuoteNumber } from "./invoice-numbering";
+import { readRegistrationBasePrice } from "./registration-financials";
 import {
   PAGE_MARGIN,
   drawHeader,
@@ -323,6 +324,9 @@ export interface RegistrationForQuotePDF {
   // structural type and Number()-coerce inside the builder.
   ticketType: { name: string; price: unknown; currency: string } | null;
   pricingTier: { name: string; price: unknown; currency: string } | null;
+  // Stamped base price (preferred over the tier/ticket price so tier-priced /
+  // VIRTUAL registrations don't resolve to 0).
+  originalPrice?: unknown;
   // Applied promo discount — surfaced as a Discount row on the quote.
   discountAmount?: unknown;
   promoCode?: { code: string } | null;
@@ -383,9 +387,7 @@ function deriveQuoteNumber(
 export async function buildQuotePDFFromRegistration(
   registration: RegistrationForQuotePDF,
 ): Promise<QuotePDFBuildResult> {
-  const price = registration.pricingTier
-    ? Number(registration.pricingTier.price)
-    : Number(registration.ticketType?.price ?? 0);
+  const price = readRegistrationBasePrice(registration);
 
   const currency = registration.pricingTier
     ? registration.pricingTier.currency

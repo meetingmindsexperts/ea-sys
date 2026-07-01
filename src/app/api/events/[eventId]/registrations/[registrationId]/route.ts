@@ -17,7 +17,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { readSponsors } from "@/lib/webinar";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { computeRegistrationFinancials } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -166,9 +166,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Payment block + Payment Summary. `totalPaid` mirrors the existing
     // detail-sheet rule (succeeded/PAID payments only) so a partial
     // bank-transfer capture correctly leaves a balance.
-    const subtotal = Number(
-      registration.pricingTier?.price ?? registration.ticketType?.price ?? 0,
-    );
+    // Prefer the stamped originalPrice so tier-priced (base 0, no tier) and
+    // VIRTUAL registrations don't wrongly resolve to 0 → "Free registration".
+    const subtotal = readRegistrationBasePrice(registration);
     const currency =
       registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD";
     const totalPaid = (registration.payments ?? [])

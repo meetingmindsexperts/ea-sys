@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 interface RouteParams {
   params: Promise<{ slug: string; registrationId: string }>;
@@ -53,7 +54,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
+    const basePrice = readRegistrationBasePrice(registration);
     const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
 
     const response = NextResponse.json({

@@ -455,7 +455,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           qrCode: generatedBarcode,
           promoCodeId: promoCodeRecord?.id || null,
           discountAmount: discountAmount > 0 ? discountAmount : null,
-          originalPrice: discountAmount > 0 ? originalPrice : null,
+          // Always stamp the resolved base price (incl. virtual pricing), not
+          // only when discounted — the authoritative subtotal for every read
+          // surface, so tier-priced / VIRTUAL regs never resolve to 0.
+          originalPrice,
           referrer: referrer || null,
           utmSource: utmSource || null,
           utmMedium: utmMedium || null,

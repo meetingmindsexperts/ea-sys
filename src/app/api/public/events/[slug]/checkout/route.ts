@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 const checkoutSchema = z.object({
   registrationId: z.string().min(1).max(100),
@@ -74,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration has no ticket type" }, { status: 400 });
     }
 
-    const basePrice = Number(registration.pricingTier?.price ?? registration.ticketType.price);
+    const basePrice = readRegistrationBasePrice(registration);
     const discountAmount = registration.discountAmount ? Number(registration.discountAmount) : 0;
     const ticketPrice = Math.max(0, basePrice - discountAmount);
 

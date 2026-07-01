@@ -1001,7 +1001,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
     // without hitting the DB N times.
     const ticketTypes = await db.ticketType.findMany({
       where: { eventId: ctx.eventId },
-      select: { id: true, name: true, quantity: true },
+      select: { id: true, name: true, quantity: true, price: true },
     });
     const ticketTypeById = new Map(ticketTypes.map((t) => [t.id, t]));
 
@@ -1094,6 +1094,9 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               createdSource: "MCP_AGENT",
               status: rawStatus as never,
               qrCode,
+              // In-person, no-tier bulk create → base price is the ticket-type
+              // price. Stamp it so the subtotal never resolves to 0.
+              originalPrice: Number(ticketType.price ?? 0),
             },
             select: { id: true },
           });

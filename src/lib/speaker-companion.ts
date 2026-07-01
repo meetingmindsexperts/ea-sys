@@ -156,6 +156,9 @@ export async function ensureSpeakerCompanionRegistration(
         serialId,
         badgeType: "Faculty",
         createdSource: "SPEAKER_COMPANION",
+        // Faculty companion is comp (price 0) — stamp it so the read surfaces
+        // treat it as a $0 registration, not an unresolved one.
+        originalPrice: 0,
       },
       select: { id: true },
     });

@@ -7,6 +7,7 @@ import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail } from "@/lib/email";
 import { getTitleLabel, deriveEventCode } from "@/lib/utils";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import type { Invoice } from "@prisma/client";
 
 // ── Shared query for building PDF data ──────────────────────────────────────
@@ -109,7 +110,7 @@ function calcInvoicePricing(registration: {
   promoCode?: { code: string } | null;
   event: { taxRate: unknown; taxLabel: string | null };
 }) {
-  const price = Number(registration.pricingTier?.price ?? registration.ticketType?.price ?? 0);
+  const price = readRegistrationBasePrice(registration);
   const currency = registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD";
   const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
   const discountedPrice = Math.max(0, price - discount);

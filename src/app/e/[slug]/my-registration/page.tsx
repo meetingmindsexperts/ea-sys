@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
 
 interface Event {
@@ -93,6 +94,7 @@ interface Registration {
   };
   ticketType: { id: string; name: string; price?: string; currency?: string } | null;
   pricingTier: { id: string; name: string; price: string; currency: string } | null;
+  originalPrice?: string | null;
   discountAmount?: string | null;
   promoCode?: { code: string } | null;
   payments: { id: string; amount: string; currency: string; status: string; receiptUrl: string | null; createdAt: string }[];
@@ -412,7 +414,7 @@ export default function EventMyRegistrationPage() {
           <div className="space-y-6">
             {registrations.map((reg) => {
               const isEditing = editingId === reg.id;
-              const price = Number(reg.pricingTier?.price ?? reg.ticketType?.price ?? 0);
+              const price = readRegistrationBasePrice(reg);
               const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
               // Promo discount is stored on the registration; the net (post-discount)
               // amount is what checkout actually charges + taxes, so mirror that here.

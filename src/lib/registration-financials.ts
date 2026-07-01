@@ -55,6 +55,52 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+const toNum = (v: unknown): number | null => {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * The base (pre-discount) price a registration is charged, resolving virtual
+ * pricing and pricing tiers. Used to STAMP `Registration.originalPrice` at
+ * create time + in the backfill. VIRTUAL uses `TicketType.virtualPrice`
+ * (falling back to the in-person price when null); in-person uses the pricing
+ * tier price when a tier applies, else the ticket-type price.
+ */
+export function resolveRegistrationBasePrice(input: {
+  attendanceMode?: string | null;
+  virtualPrice?: unknown;
+  tierPrice?: unknown;
+  ticketTypePrice?: unknown;
+}): number {
+  if (input.attendanceMode === "VIRTUAL") {
+    return toNum(input.virtualPrice) ?? toNum(input.ticketTypePrice) ?? 0;
+  }
+  return toNum(input.tierPrice) ?? toNum(input.ticketTypePrice) ?? 0;
+}
+
+/**
+ * Read a registration's base price for display/financials, preferring the
+ * stamped `originalPrice` (authoritative — set at create + backfilled) and
+ * falling back to the tier/ticket-type price for any not-yet-backfilled row.
+ * This is the fix for the "Free registration" false-positive: a tier-priced
+ * ticket type (base 0) with no `pricingTierId`, or a VIRTUAL reg (which nulls
+ * the tier + prices via `virtualPrice`), no longer resolves to 0.
+ */
+export function readRegistrationBasePrice(reg: {
+  originalPrice?: unknown;
+  pricingTier?: { price?: unknown } | null;
+  ticketType?: { price?: unknown } | null;
+}): number {
+  return (
+    toNum(reg.originalPrice) ??
+    toNum(reg.pricingTier?.price) ??
+    toNum(reg.ticketType?.price) ??
+    0
+  );
+}
+
 export function computeRegistrationFinancials(
   input: RegistrationFinancialsInput,
 ): RegistrationFinancials {
