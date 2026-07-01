@@ -21,18 +21,8 @@ import { ArrowLeft, Loader2, Mail, Pencil, Plus } from "lucide-react";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useEmailTemplates, useCreateEmailTemplate } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { toast } from "sonner";
-
-const DEFAULT_SLUGS = new Set([
-  "registration-confirmation",
-  "speaker-invitation",
-  "speaker-agreement",
-  "event-reminder",
-  "abstract-submission-confirmation",
-  "abstract-status-update",
-  "submitter-welcome",
-  "custom-notification",
-]);
 
 const TEMPLATE_DESCRIPTIONS: Record<string, string> = {
   "registration-confirmation": "Sent when someone registers for the event",
@@ -108,8 +98,12 @@ export default function EmailTemplatesPage() {
   }
 
   const templates = data?.templates || [];
-  const systemTemplates = templates.filter((t: { slug: string }) => DEFAULT_SLUGS.has(t.slug));
-  const customTemplates = templates.filter((t: { slug: string }) => !DEFAULT_SLUGS.has(t.slug));
+  // Classify with the SAME shared helper the send dialogs use, so a template
+  // shown under "Custom Templates" here is exactly one that appears in the
+  // bulk-email / single-registration send pickers (previously a stale local
+  // slug list mislabeled system templates like payment-* / survey-* as custom).
+  const systemTemplates = templates.filter((t: { slug: string }) => !isCustomTemplateSlug(t.slug));
+  const customTemplates = templates.filter((t: { slug: string }) => isCustomTemplateSlug(t.slug));
 
   return (
     <div className="space-y-6">

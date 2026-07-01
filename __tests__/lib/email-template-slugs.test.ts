@@ -7,7 +7,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
-import { SYSTEM_TEMPLATE_SLUGS, isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import {
+  SYSTEM_TEMPLATE_SLUGS,
+  WEBINAR_TEMPLATE_SLUGS,
+  isCustomTemplateSlug,
+  isWebinarTemplateSlug,
+} from "@/lib/email-template-slugs";
 
 describe("email-template-slugs", () => {
   it("mirrors every DEFAULT_TEMPLATES slug (no drift)", () => {
@@ -33,5 +38,22 @@ describe("email-template-slugs", () => {
     expect(isCustomTemplateSlug("vip-welcome")).toBe(true);
     expect(isCustomTemplateSlug("sponsor-thank-you")).toBe(true);
     expect(isCustomTemplateSlug("my-custom-blast")).toBe(true);
+  });
+
+  it("identifies the webinar-sequence templates (hidden on non-webinar events)", () => {
+    // Derived from the `webinar-` prefix, so it can't drift from the mirror.
+    for (const slug of SYSTEM_TEMPLATE_SLUGS) {
+      expect(isWebinarTemplateSlug(slug)).toBe(slug.startsWith("webinar-"));
+    }
+    // Every webinar template is also a system template.
+    for (const slug of WEBINAR_TEMPLATE_SLUGS) {
+      expect(SYSTEM_TEMPLATE_SLUGS.has(slug)).toBe(true);
+    }
+    expect(isWebinarTemplateSlug("webinar-confirmation")).toBe(true);
+    expect(isWebinarTemplateSlug("registration-confirmation")).toBe(false);
+    // A custom template that merely happens to start with "webinar" (but isn't
+    // one of the system sequence slugs) is NOT treated as a webinar template.
+    expect(isWebinarTemplateSlug("webinar-custom-blast")).toBe(false);
+    expect(WEBINAR_TEMPLATE_SLUGS.size).toBe(6);
   });
 });

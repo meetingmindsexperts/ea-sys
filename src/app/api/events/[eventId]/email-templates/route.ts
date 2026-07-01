@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { DEFAULT_TEMPLATES, TEMPLATE_VARIABLES } from "@/lib/email";
+import { isWebinarTemplateSlug } from "@/lib/email-template-slugs";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -19,21 +20,31 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      select: { id: true, eventType: true },
     });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const templates = await db.emailTemplate.findMany({
+    // The auto-webinar email templates only apply to WEBINAR events. On a
+    // conference (or any non-webinar) event they're never sent, so we neither
+    // seed them nor return them — keeping them out of the Email Templates list
+    // and every surface that reads this endpoint.
+    const isWebinarEvent = event.eventType === "WEBINAR";
+    const isVisible = (slug: string) => isWebinarEvent || !isWebinarTemplateSlug(slug);
+
+    let templates = await db.emailTemplate.findMany({
       where: { eventId },
       orderBy: { createdAt: "asc" },
     });
 
-    // Seed missing templates — covers both fresh events and newly added templates
+    // Seed missing templates — covers both fresh events and newly added
+    // templates. Skip webinar templates on non-webinar events.
     const existingSlugs = new Set(templates.map((t) => t.slug));
-    const missing = DEFAULT_TEMPLATES.filter((t) => !existingSlugs.has(t.slug));
+    const missing = DEFAULT_TEMPLATES.filter(
+      (t) => !existingSlugs.has(t.slug) && isVisible(t.slug),
+    );
 
     if (missing.length > 0) {
       await db.emailTemplate.createMany({
@@ -49,19 +60,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
       });
 
       // Re-fetch with the newly added templates
-      const allTemplates = await db.emailTemplate.findMany({
+      templates = await db.emailTemplate.findMany({
         where: { eventId },
         orderBy: { createdAt: "asc" },
-      });
-
-      return NextResponse.json({
-        templates: allTemplates,
-        variables: TEMPLATE_VARIABLES,
       });
     }
 
     return NextResponse.json({
-      templates,
+      // Hide webinar templates on non-webinar events even if they were seeded
+      // by an earlier build (before this filter existed).
+      templates: templates.filter((t) => isVisible(t.slug)),
       variables: TEMPLATE_VARIABLES,
     });
   } catch (error) {

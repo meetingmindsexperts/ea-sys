@@ -38,6 +38,21 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The auto-webinar email-sequence templates. These only make sense on a
+ * WEBINAR event (they're sent by the webinar sequence), so they're hidden from
+ * the Email Templates list on non-webinar events. Derived from
+ * `SYSTEM_TEMPLATE_SLUGS` (the `webinar-` prefix) so it can never drift from it.
+ */
+export const WEBINAR_TEMPLATE_SLUGS: ReadonlySet<string> = new Set(
+  [...SYSTEM_TEMPLATE_SLUGS].filter((s) => s.startsWith("webinar-")),
+);
+
+/** True for a webinar-sequence system template (see `WEBINAR_TEMPLATE_SLUGS`). */
+export function isWebinarTemplateSlug(slug: string): boolean {
+  return WEBINAR_TEMPLATE_SLUGS.has(slug);
+}
+
+/**
  * True when a slug is NOT a system default — i.e. an organizer-created custom
  * template that the bulk-email dialog should offer as a selectable send option.
  */
