@@ -24,6 +24,25 @@ NGINX_UPSTREAM="/etc/nginx/conf.d/ea-sys-upstream.conf"
 HEALTH_RETRIES=40   # 40 × 1s = 40 seconds max wait
 COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.prod.yml"
 
+# ── ECR image config ──────────────────────────────────────────────────────────
+# CI (the "build-push" job) builds + pushes the web + worker images to ECR and
+# the deploy job passes IMAGE_TAG=<git-sha>. The box then just `docker compose
+# pull`s (seconds) instead of building on-box (~8 min). A manual/unparameterised
+# run (no IMAGE_TAG) falls back to the moving :latest / :worker-latest tags.
+# If the pull fails (ECR unreachable / image missing) the deploy falls back to
+# building on the box — so a deploy never hard-fails on ECR.
+ECR_REGISTRY="803726282629.dkr.ecr.ap-south-1.amazonaws.com"
+ECR_REPO="$ECR_REGISTRY/ea-sys"
+AWS_REGION="ap-south-1"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+if [ "$IMAGE_TAG" = "latest" ]; then
+  export EA_SYS_WEB_IMAGE="$ECR_REPO:latest"
+  export EA_SYS_WORKER_IMAGE="$ECR_REPO:worker-latest"
+else
+  export EA_SYS_WEB_IMAGE="$ECR_REPO:$IMAGE_TAG"
+  export EA_SYS_WORKER_IMAGE="$ECR_REPO:worker-$IMAGE_TAG"
+fi
+
 cd "$DEPLOY_DIR"
 
 # ── Determine slots ────────────────────────────────────────────────────────────
@@ -55,40 +74,55 @@ phase_done "Bind-mount dirs"
 docker image prune -f > /dev/null 2>&1 &
 PRUNE_PID=$!
 
-# ── Build inactive slot with BuildKit ─────────────────────────────────────────
-# Build web slot + worker in parallel — the worker image is independent of the
-# blue/green swap (it has no traffic to fail over) so we can rebuild both at
-# the same time. BuildKit caches each Dockerfile's layers independently.
-echo "==> Building ea-sys-$INACTIVE + ea-sys-worker..."
-DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE" ea-sys-worker
-phase_done "Build ea-sys-$INACTIVE + ea-sys-worker"
+# ── Pull images from ECR (fall back to on-box build) ──────────────────────────
+# Fast path: CI already built + pushed the web + worker images, so the box just
+# pulls (seconds). Fallback: if ECR login or pull fails (unreachable / image
+# missing), build on the box exactly as before so a deploy never hard-fails.
+# Both the web slot's `image:` and the worker's `image:` in the compose file
+# resolve to EA_SYS_WEB_IMAGE / EA_SYS_WORKER_IMAGE (exported above), so `pull`
+# and `up -d` both reference the same pinned tags.
+echo "==> Logging in to ECR + pulling images ($IMAGE_TAG)..."
+IMAGE_SOURCE="ecr-pull"
+if aws ecr get-login-password --region "$AWS_REGION" 2>/dev/null \
+     | docker login --username AWS --password-stdin "$ECR_REGISTRY" > /dev/null 2>&1 \
+   && $COMPOSE pull "ea-sys-$INACTIVE" ea-sys-worker; then
+  echo "✓ Pulled web + worker images from ECR"
+else
+  echo "⚠ ECR login/pull failed — falling back to on-box build"
+  DOCKER_BUILDKIT=1 $COMPOSE build "ea-sys-$INACTIVE" ea-sys-worker
+  IMAGE_SOURCE="on-box-build"
+fi
+phase_done "Pull/build images ($IMAGE_SOURCE)"
 
 # Collect background prune (already finished by now, just reap the process)
 wait $PRUNE_PID 2>/dev/null || true
 
-# ── Run DB migrations using the builder stage (has full node_modules) ─────────
-# The builder stage is already cached by BuildKit — tagging it is near-instant.
+# ── Run DB migrations from the worker image (ships the full node_modules) ─────
+# The worker image (Dockerfile.worker) carries the full node_modules — including
+# the Prisma CLI + generated client — and prisma/ (schema + migrations), so it
+# can run `prisma migrate deploy` directly. No separate builder-image build, and
+# the DB creds stay in .env on the box (never in CI / GitHub). We pulled/built
+# this image above, so this step is fast.
 # docker run --env-file does NOT strip quotes from values (unlike dotenv), so we
 # extract and unquote both URLs explicitly.
 # - DIRECT_URL bypasses the connection pooler (required for schema migrations)
 # - Both DATABASE_URL and DIRECT_URL must be set; schema.prisma references both
-echo "==> Running database migrations..."
+# - --user root avoids any write-permission surprises from the image's default
+#   non-root user during the migration run
+echo "==> Running database migrations (from worker image)..."
 MIGRATION_DIRECT_URL=$(grep -E "^DIRECT_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DIRECT_URL=//; s/^["'"'"']//; s/["'"'"']$//')
 MIGRATION_DATABASE_URL=$(grep -E "^DATABASE_URL=" "$DEPLOY_DIR/.env" | head -1 | sed 's/^DATABASE_URL=//; s/^["'"'"']//; s/["'"'"']$//')
 # Fall back to DATABASE_URL if DIRECT_URL is not set
 if [ -z "$MIGRATION_DIRECT_URL" ]; then
   MIGRATION_DIRECT_URL="$MIGRATION_DATABASE_URL"
 fi
-DOCKER_BUILDKIT=1 docker build --target builder -t ea-sys-migrator "$DEPLOY_DIR"
-if ! docker run --rm \
+if ! docker run --rm --user root \
     -e "DATABASE_URL=$MIGRATION_DIRECT_URL" \
     -e "DIRECT_URL=$MIGRATION_DIRECT_URL" \
-    ea-sys-migrator npx prisma migrate deploy; then
+    "$EA_SYS_WORKER_IMAGE" npx prisma migrate deploy; then
   echo "✗ Migration failed. Aborting deploy."
-  docker rmi ea-sys-migrator || true
   exit 1
 fi
-docker rmi ea-sys-migrator || true
 phase_done "Database migrations"
 
 # ── Ensure target port is free before starting inactive slot ──────────────────

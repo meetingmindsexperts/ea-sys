@@ -1,5 +1,9 @@
 services:
   ea-sys-blue:
+    # Pre-built image from ECR (deploy.sh sets EA_SYS_WEB_IMAGE to :<sha>).
+    # `build:` is kept as the on-box fallback: `docker compose build` still works
+    # and tags the result as this image, so a deploy survives ECR being down.
+    image: ${EA_SYS_WEB_IMAGE:-803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -30,6 +34,7 @@ services:
         tag: "{{.Name}}/{{.ID}}"
 
   ea-sys-green:
+    image: ${EA_SYS_WEB_IMAGE:-803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -72,6 +77,11 @@ services:
   # Healthcheck hits localhost:3099/health inside the container — no port
   # is published externally, the endpoint is for Docker only.
   ea-sys-worker:
+    # Pre-built worker image from ECR (deploy.sh sets EA_SYS_WORKER_IMAGE to
+    # :worker-<sha>). This image also runs `prisma migrate deploy` during deploy
+    # (it ships the full node_modules incl. the Prisma CLI). `build:` kept as the
+    # on-box fallback.
+    image: ${EA_SYS_WORKER_IMAGE:-803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-latest}
     build:
       context: .
       dockerfile: Dockerfile.worker

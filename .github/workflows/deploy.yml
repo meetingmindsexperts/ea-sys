@@ -81,12 +81,11 @@ jobs:
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: npx next build
 
-  # ── Build + push images to ECR (Step 1 of the ECR migration) ─────────────────
+  # ── Build + push images to ECR ───────────────────────────────────────────────
   # Builds the web (Dockerfile) + worker (Dockerfile.worker) images on GitHub's
   # fast runners and pushes them to ECR (ap-south-1). Auth is via GitHub OIDC —
-  # NO stored AWS keys. This job is INDEPENDENT of the deploy job for now (deploy
-  # still builds on the box) so populating ECR carries zero risk to deploys.
-  # Step 2 will point the box's deploy.sh at these images and drop the on-box build.
+  # NO stored AWS keys. The deploy job depends on this (Step 2): the box pulls
+  # these images instead of building on-box (~8 min → ~1-2 min).
   build-push:
     name: Build & push images → ECR
     needs: ci
@@ -136,13 +135,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=worker
 
   # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
-  # STEP 1: unchanged — still builds on the box via scripts/deploy.sh. Depends
-  # only on `ci`, so a build-push failure does NOT block a deploy while we
-  # validate the ECR path. Step 2 will switch this to `needs: build-push` and a
-  # pull-based deploy.
+  # Depends on build-push so the ECR images for THIS commit exist before we
+  # deploy. The box pulls those images (scripts/deploy.sh, keyed on IMAGE_TAG =
+  # the git SHA) instead of building on-box. If the pull ever fails, deploy.sh
+  # falls back to an on-box build, so a deploy never hard-fails on ECR.
   deploy:
     name: Deploy → Mumbai (ap-south-1)
-    needs: ci
+    needs: build-push
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -155,6 +154,8 @@ jobs:
           port: 22
           script_stop: true
           command_timeout: 25m
+          # IMAGE_TAG pins the exact images CI just pushed for this commit.
+          envs: IMAGE_TAG
           script: |
             set -e
             cd /home/ubuntu/ea-sys
@@ -166,5 +167,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "==> Running blue-green deploy"
+            echo "==> Running blue-green deploy (IMAGE_TAG=$IMAGE_TAG)"
             bash scripts/deploy.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
