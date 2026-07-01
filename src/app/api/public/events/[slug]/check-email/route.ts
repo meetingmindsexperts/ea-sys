@@ -70,20 +70,26 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         select: { id: true },
       }),
-      // Global account role by email — lets the abstract-submission flow tell a
-      // plain REGISTRANT (who the submitter route can UPGRADE to SUBMITTER)
-      // apart from an existing SUBMITTER / staff account (who must sign in
-      // instead). `null` = no account yet.
+      // Look up the account only to decide ONE coarse thing (below). We never
+      // return the raw role — this is a public, unauthenticated endpoint and
+      // leaking whether an email is an ADMIN/ORGANIZER/etc. would let anyone
+      // harvest privileged accounts for phishing.
       db.user.findUnique({ where: { email }, select: { role: true } }),
     ]);
-    const accountRole = account?.role ?? null;
+
+    // Can the abstract-submission flow take this email through the self-serve
+    // submitter form? True for no account or a plain REGISTRANT (the submitter
+    // route upgrades REGISTRANT→SUBMITTER); false for an existing SUBMITTER /
+    // staff account, who must sign in instead. Coarse boolean by design —
+    // collapses every privileged role into "false" so nothing is enumerable.
+    const canSelfUpgrade = !account || account.role === "REGISTRANT";
 
     if (existingReg) {
       const reason: Reason = "already_registered";
-      return NextResponse.json({ exists: true, reason, accountRole });
+      return NextResponse.json({ exists: true, reason, canSelfUpgrade });
     }
 
-    return NextResponse.json({ exists: false, accountRole });
+    return NextResponse.json({ exists: false, canSelfUpgrade });
   } catch (error) {
     apiLogger.error({ err: error, msg: "check-email failed" });
     return NextResponse.json({ error: "Check failed" }, { status: 500 });

@@ -122,15 +122,18 @@ function EventLoginForm() {
         router.push(`/e/${slug}/my-registration`);
       } else if (redirectParam === "abstracts") {
         // A plain REGISTRANT can't reach the dashboard abstracts route —
-        // middleware confines them to /my-registration. Send them to the
-        // abstract-register flow, which upgrades REGISTRANT→SUBMITTER; an
-        // actual SUBMITTER goes to /events (middleware lands them on their
-        // event's abstracts).
-        const session = await getSession();
-        if (session?.user?.role === "REGISTRANT") {
-          router.push(`/e/${slug}/abstract/register`);
-        } else {
+        // middleware confines them to /my-registration. Route by role, but
+        // fail SAFE: only send a confirmed SUBMITTER/staff account to /events;
+        // anyone else — a REGISTRANT, OR a session that hasn't propagated yet
+        // (getSession null/throw right after sign-in) — goes to the abstract-
+        // register upgrade flow (a public /e/* page), which never dead-ends at
+        // /my-registration. Defaulting the unknown case to /events was what
+        // could silently re-trap the user.
+        const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
+        if (role && role !== "REGISTRANT") {
           router.push("/events");
+        } else {
+          router.push(`/e/${slug}/abstract/register`);
         }
       } else {
         // Default: middleware will auto-redirect based on role

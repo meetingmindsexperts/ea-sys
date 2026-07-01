@@ -147,7 +147,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Check if email is already taken
     const existingUser = await db.user.findUnique({
       where: { email: emailLower },
-      select: { id: true, role: true, termsAcceptedAt: true },
+      select: { id: true, role: true, termsAcceptedAt: true, passwordHash: true },
     });
 
     // Allow REGISTRANT to upgrade to SUBMITTER; reject other existing roles
@@ -156,6 +156,24 @@ export async function POST(req: Request, { params }: RouteParams) {
         { error: "An account with this email already exists. Please log in instead." },
         { status: 409 }
       );
+    }
+
+    // Ownership check for the REGISTRANT→SUBMITTER upgrade: this POST mutates an
+    // EXISTING account (flips role, updates profile, mints a Speaker), so it must
+    // prove the caller owns it — verify the account's current password. Without
+    // this, anyone who knows a delegate's email could flip their account and
+    // overwrite their name from an unauthenticated request.
+    if (existingUser) {
+      const passwordOk = existingUser.passwordHash
+        ? await bcrypt.compare(data.password, existingUser.passwordHash)
+        : false;
+      if (!passwordOk) {
+        apiLogger.warn({ msg: "public/submitter:upgrade-password-mismatch", email: emailLower, ip: clientIp });
+        return NextResponse.json(
+          { error: "That email already has an account. Enter your existing password to continue, or sign in instead." },
+          { status: 401 }
+        );
+      }
     }
 
     // Hash password

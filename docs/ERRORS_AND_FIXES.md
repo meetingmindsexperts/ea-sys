@@ -774,4 +774,96 @@ Added 30s `AbortController` timeout wrapper.
 
 ---
 
+## 12. Abstract submission — "registrant can't submit an abstract" (July 2026)
+
+Plain-English record of a bug fix and the follow-up problems an adversarial code
+review caught in the first attempt. Read top to bottom — each part says *what
+went wrong* and *what we did*.
+
+### The original problem (the bug we set out to fix)
+
+**Symptom:** A person registers for an event as a normal attendee, then later
+wants to submit an abstract. They click "Sign in", and instead of reaching the
+abstract form they get dumped on the **My Registration** page — a dead end.
+
+**Why it happened (three things lined up):**
+1. Everyone has a *role*. Someone who registered as an attendee has the role
+   **REGISTRANT**. A person who submits abstracts needs the role **SUBMITTER**.
+2. Our page-guard (middleware) sends **REGISTRANT** users to `/my-registration`
+   for *everything* else — correct for attendees, but it also blocked the
+   abstract page.
+3. Signing in **never changes your role**. Only filling in the abstract sign-up
+   *form* upgrades a REGISTRANT into a SUBMITTER. So "just signing in" left them a
+   REGISTRANT → bounced to My Registration.
+
+On top of that, the abstract sign-up form showed "You've already registered —
+sign in instead" to *anyone* who had a registration, pushing attendees straight
+into that dead end.
+
+**What we did (first attempt):**
+- Let a REGISTRANT go through the abstract sign-up form (which upgrades them),
+  instead of blocking them.
+- After sign-in, if the person is a REGISTRANT, send them to the abstract sign-up
+  flow instead of the dashboard.
+
+### The adversarial review — what the first attempt got wrong
+
+We ran an independent "try to break it" review. It found three real issues:
+
+**B1 (most serious — a new leak we introduced).**
+To tell "attendee" apart from "already a submitter", the first attempt made a
+**public** endpoint return each email's **exact role**
+(ADMIN / ORGANIZER / SUBMITTER / …). That's an information leak: anyone could feed
+in a list of emails and learn which ones are admins — a gift for phishing.
+**Fix:** the endpoint now returns a single yes/no flag — `canSelfUpgrade`
+(true only for "no account" or a plain REGISTRANT) — and **never** the real role.
+Everything privileged just looks like "false", so nothing can be harvested. The
+form was also made to **fail safe**: if that flag is ever missing, it blocks
+(shows "sign in") rather than letting someone through.
+*Files:* `check-email/route.ts`, `abstract/register/page.tsx`.
+
+**H1 (serious — an old hole our change made easy to reach).**
+Upgrading a REGISTRANT to SUBMITTER **never checked the password**. It took an
+email + any password and flipped the account (and overwrote the person's name).
+This hole existed before, but the old "block everyone" behavior hid it; our fix
+routed people straight into it. So a stranger who knew your email could flip your
+account and rename you.
+**Fix:** before upgrading an existing account, we now **verify the account's
+current password** (`bcrypt.compare`). Wrong password → `401` with a clear
+message ("enter your existing password, or sign in"). Only the real owner can
+upgrade.
+*File:* `submitter/route.ts`.
+
+**M1 (medium — the dead end could quietly come back).**
+Our post-sign-in routing asked the browser for the fresh session to read the
+role. If that lookup was momentarily empty (a known timing quirk right after
+sign-in), the code fell back to the dashboard → middleware → **My Registration**
+again — the exact bug, reappearing at random.
+**Fix:** flipped the default to **fail safe** — only a *confirmed* SUBMITTER/staff
+goes to the dashboard; a REGISTRANT **or any unknown/empty session** goes to the
+abstract sign-up flow (a public page that never dead-ends). Also guarded the
+session lookup so it can't throw.
+*File:* `login/page.tsx`.
+
+### Result
+- An attendee can now submit an abstract two ways: fill the abstract form
+  directly (gets upgraded), or click "Sign in" and be routed into that upgrade
+  flow — no more dead end.
+- Only the account owner (correct password) can upgrade an account.
+- The public endpoint no longer reveals anyone's role.
+
+**Lessons:**
+1. When you make a hidden/blocked path reachable, re-check the code at the *end*
+   of that path — old, latent bugs suddenly become exploitable (H1).
+2. A public preflight should answer the *narrowest* question (a boolean), never
+   hand back raw identity/role data (B1).
+3. Role-based routing should **fail safe** — send the ambiguous case to the
+   harmless place, not the one a guard will bounce (M1).
+
+*Files:* `src/app/api/public/events/[slug]/check-email/route.ts`,
+`src/app/api/public/events/[slug]/submitter/route.ts`,
+`src/app/e/[slug]/abstract/register/page.tsx`, `src/app/e/[slug]/login/page.tsx`.
+
+---
+
 *Cross-references: `docs/SECURITY_AUDIT_FIXES.md`, `docs/PRODUCTION_AUDIT.md`, `docs/VERCEL_COMPATIBILITY.md`, `docs/github_action_errors.md`*

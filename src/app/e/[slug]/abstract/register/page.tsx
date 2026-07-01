@@ -438,14 +438,14 @@ export default function AbstractRegisterPage() {
                           });
                           if (res.ok) {
                             const data = await res.json();
-                            // Only push "sign in" for an existing NON-registrant
-                            // account (SUBMITTER / staff). A REGISTRANT — or an
-                            // attendee with no login yet — can proceed: the
-                            // submitter route upgrades REGISTRANT→SUBMITTER, so a
-                            // delegate can also submit an abstract. (Blocking every
-                            // "already registered" email here was the trap that
-                            // funneled registrants to /my-registration via sign-in.)
-                            if (data.accountRole && data.accountRole !== "REGISTRANT") {
+                            // The server says whether this email may self-upgrade
+                            // (no account / plain REGISTRANT). If not — an existing
+                            // SUBMITTER/staff account — push "sign in". Fail CLOSED:
+                            // a missing flag (stale cache) also blocks, so we never
+                            // wrongly let a real account through the upgrade form.
+                            // (Blocking every "already registered" email here was
+                            // the trap that funneled registrants to /my-registration.)
+                            if (!data.canSelfUpgrade) {
                               setEmailCheck({ state: "conflict", reason: "already_registered" });
                               return;
                             }
