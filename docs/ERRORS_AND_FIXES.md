@@ -852,6 +852,16 @@ session lookup so it can't throw.
 - Only the account owner (correct password) can upgrade an account.
 - The public endpoint no longer reveals anyone's role.
 
+### M2 (follow-up) — removed the duplicate abstract form
+The review also flagged a **second** public abstract form,
+`/e/[slug]/submitAbstract` — the *original* form (Feb 2026), superseded by the
+2-step `abstract/register` (Mar 2026) that everything now links to. Nothing
+linked to `submitAbstract` anymore, yet it had to be kept in sync (drift risk,
+and its own upgrade path). We replaced its page with a **permanent redirect** to
+`/e/[slug]/abstract/register`, so the old URL still works for any bookmark/emailed
+link but there's now **one** canonical form to maintain.
+*File:* `src/app/e/[slug]/submitAbstract/page.tsx`.
+
 **Lessons:**
 1. When you make a hidden/blocked path reachable, re-check the code at the *end*
    of that path — old, latent bugs suddenly become exploitable (H1).

@@ -12,7 +12,7 @@ Last verified: **2026-04-21** against `main`.
 |---|---|---|---|---|---|
 | 1 | `/e/[slug]/register/[category]` | `POST /api/public/events/[slug]/register` | [src/app/e/[slug]/register/[category]/page.tsx](../src/app/e/%5Bslug%5D/register/%5Bcategory%5D/page.tsx) | [route.ts L17-73](../src/app/api/public/events/%5Bslug%5D/register/route.ts#L17-L73) | `Attendee`, `Registration`, optionally `User` (REGISTRANT), `Contact` |
 | 2 | `/e/[slug]/abstract/register` | `POST /api/public/events/[slug]/submitter` | [src/app/e/[slug]/abstract/register/page.tsx](../src/app/e/%5Bslug%5D/abstract/register/page.tsx) | [submitter/route.ts L12-34](../src/app/api/public/events/%5Bslug%5D/submitter/route.ts#L12-L34) | `User` (SUBMITTER), `Speaker`, `Contact` |
-| 3 | `/e/[slug]/submitAbstract` | `POST /api/public/events/[slug]/submitter` | [src/app/e/[slug]/submitAbstract/page.tsx](../src/app/e/%5Bslug%5D/submitAbstract/page.tsx) | (same as #2) | (same as #2) |
+| 3 | `/e/[slug]/submitAbstract` | — | **LEGACY: permanent redirect → `/e/[slug]/abstract/register` (#2).** [page.tsx](../src/app/e/%5Bslug%5D/submitAbstract/page.tsx) | — | — (redirect only) |
 | 4 | `/e/[slug]/complete-registration?token=…` | `POST /api/public/events/[slug]/complete-registration` | [src/app/e/[slug]/complete-registration/page.tsx](../src/app/e/%5Bslug%5D/complete-registration/page.tsx) | [completion/route.ts L158-188](../src/app/api/public/events/%5Bslug%5D/complete-registration/route.ts#L158-L188) | `Attendee`, `Registration` (termsAccepted side-effects on `User`), optionally `User` (REGISTRANT), `Contact` |
 | 5 | (preflight — no page) | `POST /api/public/events/[slug]/check-email` | called from forms #1 and #2 step 1 | inline `{ email }` schema | reads only — no writes |
 
@@ -94,7 +94,11 @@ Two-step form. Step 1 is the account block; Step 2 is personal + billing + optio
 
 ---
 
-## 2 & 3. Submitter / Speaker Registration — `/e/[slug]/abstract/register` and `/e/[slug]/submitAbstract`
+## 2. Submitter / Speaker Registration — `/e/[slug]/abstract/register`
+
+(Form #3, `/e/[slug]/submitAbstract`, is a **legacy permanent redirect** to this
+form — the older duplicate was retired to avoid schema drift. The section below
+is the single canonical submitter form.)
 
 Both forms POST to the same endpoint. Three-step UX on the client (identity / details / account), single Zod schema on the server.
 
@@ -219,4 +223,4 @@ When adding or renaming a public registration field:
 
 - **`additionalEmail` not persisted on form #2/#3** — Zod on form #1 accepts it and lands on `Attendee.additionalEmail`. The submitter route has no equivalent column on `Speaker` and the field isn't in that route's Zod at all. If the field is meaningful for submitters, add to `submitter/route.ts` Zod + `Speaker` schema.
 - **`role` field dropped on submitter path** — the submitter Zod accepts `role: attendeeRoleEnum` but `Speaker` has no `role` column and the server doesn't persist it. Today the value is validated-then-ignored.
-- **Form #3 (`submitAbstract`) client Zod uses plain `z.string().min(1)` for title/role** — the canonical form #2 uses `titleEnum` / `attendeeRoleEnum`. Cosmetic drift; both POST to the same server-validated endpoint so correctness is preserved, but the client-side error UX differs slightly.
+- ~~**Form #3 (`submitAbstract`) client Zod drift**~~ — RESOLVED: form #3 was retired to a permanent redirect to form #2, so there's no longer a second submitter form to drift.

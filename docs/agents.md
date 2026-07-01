@@ -29,7 +29,7 @@ src/app/(auth)/                        # Login, accept-invitation pages
 src/app/(dashboard)/                   # Protected dashboard (events, contacts, settings)
 src/app/e/[slug]/                      # Redirects to /e/[slug]/register
 src/app/e/[slug]/register/             # Public submitter registration form
-src/app/e/[slug]/submitAbstract/       # Public abstract submission form
+src/app/e/[slug]/submitAbstract/       # LEGACY — permanent redirect to abstract/register
 src/app/uploads/[...path]/route.ts     # Streams uploaded files from public/uploads/
 src/app/api/                           # API routes (events, organization, public, upload)
 src/app/api/upload/photo/route.ts      # Photo upload endpoint (auth required)
