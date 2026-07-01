@@ -60,7 +60,7 @@ export function setup() {
   requireEnv('TICKET_TYPE_ID', TICKET_TYPE_ID);
 }
 
-export default function () {
+export default function registerBurst() {
   const email = uniqueEmail();
   // Representative valid payload. Adjust fields to match your event's required
   // set (public registration requires title/role/names/email/jobTitle/

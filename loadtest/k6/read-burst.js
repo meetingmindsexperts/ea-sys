@@ -48,7 +48,7 @@ export const options = {
   thresholds: commonThresholds,
 };
 
-export default function () {
+export default function readBurst() {
   requireEnv('EVENT_SLUG', EVENT_SLUG);
 
   // 1) Public event detail — the heaviest read on the register page.

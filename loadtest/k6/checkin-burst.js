@@ -65,7 +65,7 @@ export function setup() {
   if (QRCODES.length === 0) throw new Error('Missing QRCODES (comma-separated). See header.');
 }
 
-export default function () {
+export default function checkinBurst() {
   const qrCode = QRCODES[(__VU + __ITER) % QRCODES.length];
   const res = http.put(
     `${BASE_URL}/api/events/${EVENT_ID}/registrations/scan/check-in`,
