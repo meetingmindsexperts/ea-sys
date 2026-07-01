@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
-import type { Title } from "@prisma/client";
+import { Prisma, type Title, type AttendeeRole } from "@prisma/client";
 
 /**
  * Find-or-create the event's hidden Faculty ticket type. Comp (price 0),
@@ -229,4 +229,119 @@ export async function ensureCompanionsForSpeakerEmails(
     }
   }
   return summary;
+}
+
+/** Profile fields for `upsertEventSpeaker`. Only name is required; the rest are
+ *  optional (a Speaker only requires eventId/email/firstName/lastName). */
+export interface EventSpeakerProfile {
+  firstName: string;
+  lastName: string;
+  title?: Title | null;
+  role?: AttendeeRole | null;
+  additionalEmail?: string | null;
+  organization?: string | null;
+  jobTitle?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  country?: string | null;
+  specialty?: string | null;
+  customSpecialty?: string | null;
+  registrationType?: string | null;
+  /** Only applied on CREATE (links the speaker to an existing registration). */
+  sourceRegistrationId?: string | null;
+}
+
+/**
+ * Find-or-create the Speaker for `(eventId, email)` and link it to `userId`,
+ * returning the speaker id. **Transaction-aware** — the caller passes its own
+ * `tx` so this runs inside the caller's atomic boundary (the submitter route
+ * creates the User + Speaker in ONE transaction).
+ *
+ * `overwriteExisting`:
+ *   - `true`  (sign-UP form) — the user just typed fresh details, so refresh the
+ *     existing speaker's profile from `profile`.
+ *   - `false` (sign-IN flow) — don't clobber an existing profile; only ensure
+ *     the `userId` link so `/abstracts/new` recognises it as "my speaker".
+ *
+ * Both abstract-onboarding routes (`submitter` + `abstract-start`) shared this
+ * ~40-line block verbatim; centralising it removes the Speaker-shape drift risk.
+ * (Pair with `ensureSpeakerCompanionRegistration` for the badge/check-in facet.)
+ */
+export async function upsertEventSpeaker(
+  tx: Prisma.TransactionClient,
+  args: {
+    eventId: string;
+    email: string;
+    userId: string;
+    profile: EventSpeakerProfile;
+    overwriteExisting: boolean;
+  },
+): Promise<string> {
+  const { eventId, email, userId, profile, overwriteExisting } = args;
+
+  const existing = await tx.speaker.findUnique({
+    where: { eventId_email: { eventId, email } },
+    select: { id: true },
+  });
+
+  if (existing) {
+    await tx.speaker.update({
+      where: { id: existing.id },
+      // Sign-in flow: only ensure the link. Sign-up flow: refresh the profile
+      // from `profile`. Values are passed THROUGH (not `?? null`): Prisma treats
+      // `undefined` as "leave unchanged" and `null` as "set null", so the caller
+      // controls each field's semantics (e.g. pass `data.state || null` to clear
+      // an empty field, or `data.title` to leave it untouched when absent).
+      data: overwriteExisting
+        ? {
+            userId,
+            title: profile.title,
+            role: profile.role,
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            additionalEmail: profile.additionalEmail,
+            organization: profile.organization,
+            jobTitle: profile.jobTitle,
+            phone: profile.phone,
+            city: profile.city,
+            state: profile.state,
+            zipCode: profile.zipCode,
+            country: profile.country,
+            specialty: profile.specialty,
+            customSpecialty: profile.customSpecialty,
+            registrationType: profile.registrationType,
+          }
+        : { userId },
+    });
+    return existing.id;
+  }
+
+  const created = await tx.speaker.create({
+    data: {
+      eventId,
+      userId,
+      email,
+      title: profile.title ?? null,
+      role: profile.role ?? null,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      additionalEmail: profile.additionalEmail ?? null,
+      organization: profile.organization ?? null,
+      jobTitle: profile.jobTitle ?? null,
+      phone: profile.phone ?? null,
+      city: profile.city ?? null,
+      state: profile.state ?? null,
+      zipCode: profile.zipCode ?? null,
+      country: profile.country ?? null,
+      specialty: profile.specialty ?? null,
+      customSpecialty: profile.customSpecialty ?? null,
+      registrationType: profile.registrationType ?? null,
+      sourceRegistrationId: profile.sourceRegistrationId ?? null,
+      status: "CONFIRMED",
+    },
+    select: { id: true },
+  });
+  return created.id;
 }

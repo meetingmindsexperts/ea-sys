@@ -83,13 +83,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // staff account, who must sign in instead. Coarse boolean by design —
     // collapses every privileged role into "false" so nothing is enumerable.
     const canSelfUpgrade = !account || account.role === "REGISTRANT";
+    // Whether a platform account exists for this email — drives the abstract
+    // flow's "sign in vs sign up" branch. This reveals only account existence
+    // (the standard tradeoff of any email-first sign-in form), never the role.
+    const hasAccount = !!account;
 
     if (existingReg) {
       const reason: Reason = "already_registered";
-      return NextResponse.json({ exists: true, reason, canSelfUpgrade });
+      return NextResponse.json({ exists: true, reason, canSelfUpgrade, hasAccount });
     }
 
-    return NextResponse.json({ exists: false, canSelfUpgrade });
+    return NextResponse.json({ exists: false, canSelfUpgrade, hasAccount });
   } catch (error) {
     apiLogger.error({ err: error, msg: "check-email failed" });
     return NextResponse.json({ error: "Check failed" }, { status: 500 });

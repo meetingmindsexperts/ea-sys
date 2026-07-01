@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, type ReactNode } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import Image from "next/image";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -163,11 +164,16 @@ export default function AbstractRegisterPage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  // Step-1 mode: "idle" = new-account sign-up; "signin" = an account already
+  // exists for the entered email, so we ask for the password and sign them in
+  // instead of making them re-register.
   const [emailCheck, setEmailCheck] = useState<
     | { state: "idle" }
     | { state: "checking" }
-    | { state: "conflict"; reason: "already_registered" }
+    | { state: "signin" }
   >({ state: "idle" });
+  const [signingIn, setSigningIn] = useState(false);
+  const router = useRouter();
 
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -257,6 +263,67 @@ export default function AbstractRegisterPage() {
       console.error("[abstract/register] Submission failed:", err);
       toast.error("Something went wrong. Please try again.");
       setSubmitting(false);
+    }
+  }
+
+  // Step-1 primary action for the sign-UP path: validate the email, then check
+  // whether an account already exists. If it does, flip to sign-IN mode (don't
+  // make an existing user re-register); otherwise validate the password fields
+  // and move to the details step.
+  async function handleContinue() {
+    if (!(await form.trigger(["email"]))) return;
+    setEmailCheck({ state: "checking" });
+    let hasAccount = false;
+    try {
+      const res = await fetch(`/api/public/events/${slug}/check-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.getValues("email") }),
+      });
+      if (res.ok) hasAccount = !!(await res.json()).hasAccount;
+    } catch (err) {
+      console.warn("[abstract/register] check-email failed, continuing as new", err);
+    }
+    if (hasAccount) {
+      setEmailCheck({ state: "signin" });
+      return;
+    }
+    const pwOk = await form.trigger(["password", "confirmPassword"]);
+    setEmailCheck({ state: "idle" });
+    if (pwOk) setStep(2);
+  }
+
+  // Step-1 sign-IN path (existing account): verify + set up as a submitter
+  // (prefilled from any existing registration) via abstract-start, THEN sign in
+  // so the fresh session carries the upgraded role, then go straight to the
+  // new-abstract form (which auto-uses their speaker as the author).
+  async function handleExistingSignIn() {
+    if (!(await form.trigger(["email", "password"]))) return;
+    setSigningIn(true);
+    try {
+      const email = form.getValues("email");
+      const password = form.getValues("password");
+      const res = await fetch(`/api/public/events/${slug}/abstract-start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Sign in failed. Please check your password.");
+        return;
+      }
+      const signInRes = await signIn("credentials", { email, password, redirect: false });
+      if (signInRes?.error) {
+        toast.error("Couldn't sign you in automatically — please sign in and try again.");
+        return;
+      }
+      router.push(`/events/${data.eventId}/abstracts/new`);
+    } catch (err) {
+      console.error("[abstract/register] existing sign-in failed", err);
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setSigningIn(false);
     }
   }
 
@@ -379,8 +446,14 @@ export default function AbstractRegisterPage() {
                         <Lock className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <h3 className="text-lg font-bold text-slate-800">Create your speaker account</h3>
-                        <p className="text-sm text-slate-500">You&apos;ll use these credentials to sign in and submit your abstract.</p>
+                        <h3 className="text-lg font-bold text-slate-800">
+                          {emailCheck.state === "signin" ? "Sign in to submit your abstract" : "Create your speaker account"}
+                        </h3>
+                        <p className="text-sm text-slate-500">
+                          {emailCheck.state === "signin"
+                            ? "You already have an account — enter your password and we'll take you straight to the abstract form."
+                            : "You'll use these credentials to sign in and submit your abstract."}
+                        </p>
                       </div>
                     </div>
 
@@ -388,7 +461,7 @@ export default function AbstractRegisterPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Email Address <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input type="email" placeholder="john@university.edu" className="rounded-lg border-slate-200 text-base" disabled={emailCheck.state === "signin"} {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -397,76 +470,55 @@ export default function AbstractRegisterPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="text-sm font-medium text-slate-600">Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Min. 6 characters" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                          <FormControl><Input type="password" placeholder={emailCheck.state === "signin" ? "Your password" : "Min. 6 characters"} className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )} />
 
-                    <FormField control={form.control} name="confirmPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
-                          <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-
-                    {emailCheck.state === "conflict" && (
-                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                        You already have an account for this event.{" "}
-                        <a
-                          href={`/e/${slug}/login?redirect=abstracts&email=${encodeURIComponent(form.getValues("email"))}`}
-                          className="underline font-medium"
-                        >
-                          Sign in instead
-                        </a>
-                        .
-                      </div>
+                    {emailCheck.state !== "signin" && (
+                      <FormField control={form.control} name="confirmPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-medium text-slate-600">Confirm Password <span className="text-red-400">*</span></FormLabel>
+                            <FormControl><Input type="password" placeholder="Re-enter password" className="rounded-lg border-slate-200 text-base" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
                     )}
 
-                    <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
-                      disabled={emailCheck.state === "checking"}
-                      onClick={async () => {
-                        const valid = await form.trigger(["email", "password", "confirmPassword"]);
-                        if (!valid) return;
-                        setEmailCheck({ state: "checking" });
-                        try {
-                          const res = await fetch(`/api/public/events/${slug}/check-email`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ email: form.getValues("email") }),
-                          });
-                          if (res.ok) {
-                            const data = await res.json();
-                            // The server says whether this email may self-upgrade
-                            // (no account / plain REGISTRANT). If not — an existing
-                            // SUBMITTER/staff account — push "sign in". Fail CLOSED:
-                            // a missing flag (stale cache) also blocks, so we never
-                            // wrongly let a real account through the upgrade form.
-                            // (Blocking every "already registered" email here was
-                            // the trap that funneled registrants to /my-registration.)
-                            if (!data.canSelfUpgrade) {
-                              setEmailCheck({ state: "conflict", reason: "already_registered" });
-                              return;
-                            }
-                          }
-                        } catch (err) {
-                          console.warn("[abstract/register] check-email failed, continuing", err);
-                        }
-                        setEmailCheck({ state: "idle" });
-                        setStep(2);
-                      }}>
-                      {emailCheck.state === "checking" ? (
-                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
-                      ) : (
-                        <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
-                      )}
-                    </Button>
-
-                    <p className="text-center text-sm text-slate-400">
-                      Already have an account?{" "}
-                      <a href={`/e/${slug}/login?redirect=abstracts`} className="text-primary hover:underline font-medium">Sign in</a>
-                    </p>
+                    {emailCheck.state === "signin" ? (
+                      <>
+                        <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                          disabled={signingIn}
+                          onClick={handleExistingSignIn}>
+                          {signingIn ? (
+                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in…</>
+                          ) : (
+                            <>Sign in &amp; continue <ChevronRight className="ml-1 h-5 w-5" /></>
+                          )}
+                        </Button>
+                        <p className="text-center text-sm text-slate-400">
+                          Not you?{" "}
+                          <button
+                            type="button"
+                            className="text-primary hover:underline font-medium"
+                            onClick={() => { form.setValue("password", ""); setEmailCheck({ state: "idle" }); }}
+                          >
+                            Use a different email
+                          </button>
+                        </p>
+                      </>
+                    ) : (
+                      <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                        disabled={emailCheck.state === "checking"}
+                        onClick={handleContinue}>
+                        {emailCheck.state === "checking" ? (
+                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
+                        ) : (
+                          <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
+                        )}
+                      </Button>
+                    )}
                     </div>
                   </div>
                 )}

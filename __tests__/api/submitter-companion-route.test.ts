@@ -50,7 +50,12 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn().mockReturnValue({ email: "f@x.com" }),
   brandingCc: vi.fn().mockReturnValue([]),
 }));
-vi.mock("@/lib/speaker-companion", () => ({ ensureSpeakerCompanionRegistration: ensureCompanionSpy }));
+// Keep the real module (so the shared `upsertEventSpeaker` runs against the tx
+// mock) and override only the companion function with a spy.
+vi.mock("@/lib/speaker-companion", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/speaker-companion")>()),
+  ensureSpeakerCompanionRegistration: ensureCompanionSpy,
+}));
 
 import { POST } from "@/app/api/public/events/[slug]/submitter/route";
 

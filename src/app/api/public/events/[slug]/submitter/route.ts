@@ -7,7 +7,7 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/speaker-companion";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 
@@ -217,63 +217,33 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
       }
 
-      // Find or create speaker linked to this event
-      const existingSpeaker = await tx.speaker.findUnique({
-        where: {
-          eventId_email: {
-            eventId: event.id,
-            email: emailLower,
-          },
+      // Find-or-create + link the speaker (shared with abstract-start). Sign-up
+      // form → refresh the profile from the submitted details. Values pass
+      // through as the original inline block did (empty-string → null to clear;
+      // absent title/registrationType → undefined → left unchanged on update).
+      await upsertEventSpeaker(tx, {
+        eventId: event.id,
+        email: emailLower,
+        userId: user.id,
+        overwriteExisting: true,
+        profile: {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          title: data.title,
+          role: data.role,
+          additionalEmail: data.additionalEmail || null,
+          organization: data.organization,
+          jobTitle: data.jobTitle,
+          phone: data.phone,
+          city: data.city,
+          state: data.state || null,
+          zipCode: data.zipCode || null,
+          country: data.country,
+          specialty: data.specialty,
+          customSpecialty: data.customSpecialty || null,
+          registrationType: data.registrationType || undefined,
         },
       });
-
-      if (existingSpeaker) {
-        await tx.speaker.update({
-          where: { id: existingSpeaker.id },
-          data: {
-            userId: user.id,
-            title: data.title,
-            role: data.role,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            additionalEmail: data.additionalEmail || null,
-            organization: data.organization,
-            jobTitle: data.jobTitle,
-            phone: data.phone,
-            city: data.city,
-            state: data.state || null,
-            zipCode: data.zipCode || null,
-            country: data.country,
-            specialty: data.specialty,
-            customSpecialty: data.customSpecialty || null,
-            ...(data.registrationType && { registrationType: data.registrationType }),
-          },
-        });
-      } else {
-        await tx.speaker.create({
-          data: {
-            eventId: event.id,
-            userId: user.id,
-            title: data.title,
-            role: data.role,
-            email: emailLower,
-            additionalEmail: data.additionalEmail || null,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            organization: data.organization,
-            jobTitle: data.jobTitle,
-            phone: data.phone,
-            city: data.city,
-            state: data.state || null,
-            zipCode: data.zipCode || null,
-            country: data.country,
-            specialty: data.specialty,
-            customSpecialty: data.customSpecialty || null,
-            registrationType: data.registrationType || null,
-            status: "CONFIRMED",
-          },
-        });
-      }
     });
 
     // Sync submitter to org contact store (awaited — errors caught internally)
