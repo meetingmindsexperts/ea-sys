@@ -685,8 +685,45 @@ docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<tag>
 - **DR caveat:** ECR is in **Mumbai** — a full-region loss takes it down too. For
   region-independent recovery, enable **ECR cross-region replication → Singapore**
   (`ap-southeast-1`, where the DR S3 bucket is) — a one-time registry setting.
-- Consider an **ECR lifecycle policy** (keep last ~10 images) so old `:<sha>` tags
-  don't accumulate storage.
+
+#### Image hygiene (applied 2026-07-01)
+
+Three separate accumulation sources, three fixes — **all in place**:
+
+1. **Untagged attestation manifests (registry).** `docker/build-push-action`
+   defaults to `provenance: true`, which pushes an extra **untagged** provenance
+   manifest per build (~4/deploy) that nothing pulls. Turned OFF with
+   `provenance: false` + `sbom: false` on both build steps in `deploy.yml`
+   (from commit `7092f8a` on). A clean image now shows
+   `artifactMediaType = docker.container.image.v1+json`; older builds show a
+   blank media type = an **OCI image index / manifest list** (image + attestation).
+2. **Old `:<sha>` images accumulating in the registry** → **ECR lifecycle policy**
+   (applied; `aws ecr get-lifecycle-policy --repository-name ea-sys`):
+   rule 1 expires **untagged** after 1 day; rule 2 keeps the **10 most recent
+   tagged** (≈5 deploys of web+worker rollback), expiring older ones.
+3. **Old pulled `:<sha>` images accumulating on the box** (~780 MB/deploy, tagged
+   so the dangling-only prune missed them) → `scripts/docker-prune.sh` now trims
+   old repo tags, keeping the newest 3 web + 3 worker + the `:latest` pointers.
+
+```bash
+# Re-apply / view the lifecycle policy:
+aws ecr get-lifecycle-policy --repository-name ea-sys --region ap-south-1
+# Non-destructive preview of what it WOULD expire:
+aws ecr start-lifecycle-policy-preview --repository-name ea-sys --region ap-south-1
+aws ecr get-lifecycle-policy-preview  --repository-name ea-sys --region ap-south-1
+```
+
+> **Gotcha — you CANNOT `batch-delete-image` an untagged child of a manifest list.**
+> ECR rejects it with `ImageReferencedByManifestList`. Those untagged entries are
+> the attestation children of the *older* (pre-`provenance:false`) `:<sha>` index
+> manifests, so they can't be deleted directly — they're removed automatically
+> when their **parent `:<sha>` tag** rotates out of the keep-10 window (deleting
+> the index takes its children with it). They cost ~nothing meanwhile (ECR dedupes
+> layer blobs). So: don't hand-delete untagged — let the lifecycle policy rotate
+> the parents. New (`provenance:false`) builds are plain single manifests with no
+> child, so this only applies to the handful of pre-2026-07-01 images.
+
+- **DR follow-up (LOW, ROADMAP):** enable ECR cross-region replication → Singapore.
 
 ```bash
 # Attach the CloudWatch agent policy to the instance role (logs setup):
