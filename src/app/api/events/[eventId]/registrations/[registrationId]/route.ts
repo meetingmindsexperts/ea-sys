@@ -715,6 +715,76 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    // ── Data-loss guard: never cascade-delete financial records ──────────
+    // Invoice + Payment both `onDelete: Cascade` from Registration, so deleting
+    // a registration would silently destroy its invoices / receipts / credit
+    // notes + payment history (the delete audit snapshots only the registration
+    // row, not these). Block when any exist AND write a DELETE_BLOCKED audit
+    // entry that snapshots them — a permanent trail of the attempt + the
+    // protected records. Cancel the registration instead of deleting it.
+    const [invoiceRecords, paymentRecords] = await Promise.all([
+      db.invoice.findMany({
+        where: { registrationId },
+        select: { id: true, invoiceNumber: true, type: true, status: true, total: true, currency: true },
+      }),
+      db.payment.findMany({
+        where: { registrationId },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          status: true,
+          stripePaymentId: true,
+          receiptUrl: true,
+          paidAt: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    if (invoiceRecords.length > 0 || paymentRecords.length > 0) {
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE_BLOCKED",
+            entityType: "Registration",
+            entityId: registrationId,
+            changes: {
+              reason: "has-financial-records",
+              invoices: invoiceRecords,
+              payments: paymentRecords,
+              ip: getClientIp(req),
+            },
+          },
+        })
+        .catch((err) =>
+          apiLogger.warn({ msg: "registration:delete-blocked-audit-failed", eventId, registrationId, err }),
+        );
+      apiLogger.warn({
+        msg: "registration:delete-blocked-financial-records",
+        eventId,
+        registrationId,
+        invoiceCount: invoiceRecords.length,
+        paymentCount: paymentRecords.length,
+      });
+      const invNums = invoiceRecords.map((i) => i.invoiceNumber).join(", ");
+      return NextResponse.json(
+        {
+          error:
+            `This registration has ${invoiceRecords.length} invoice(s)` +
+            `${invNums ? ` (${invNums})` : ""} and ${paymentRecords.length} payment(s). ` +
+            "Deleting it would permanently remove those financial records. " +
+            "Cancel the registration instead, or void/credit the invoices first.",
+          code: "HAS_FINANCIAL_RECORDS",
+          invoiceCount: invoiceRecords.length,
+          paymentCount: paymentRecords.length,
+        },
+        { status: 409 },
+      );
+    }
+
     // Wrap soldCount decrement + delete in a transaction
     await db.$transaction(async (tx) => {
       // Release the seat this registration actually held, on the correct counter
