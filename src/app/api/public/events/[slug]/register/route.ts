@@ -399,6 +399,12 @@ export async function POST(req: Request, { params }: RouteParams) {
             throw new Error("PROMO_CODE_NOT_APPLICABLE");
         }
 
+        // Serialize concurrent applies of this promo so the per-email
+        // count→insert below can't race past a maxUsesPerEmail cap (two
+        // near-simultaneous registrations on the same email + code). Tx-scoped
+        // row lock, auto-released at commit; same fix as the promo-code-service.
+        await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promo.id} FOR UPDATE`;
+
         // Atomic usedCount increment (same pattern as soldCount)
         if (promo.maxUses !== null) {
           const updated = await tx.promoCode.updateMany({

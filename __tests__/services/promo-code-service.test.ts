@@ -10,6 +10,7 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
   const registration = { findFirst: vi.fn(), update: vi.fn() };
   const promoCode = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() };
   const promoCodeRedemption = { deleteMany: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn() };
+  const $queryRaw = vi.fn().mockResolvedValue([{ id: "promo-1" }]);
   return {
     mockDb: {
       registration,
@@ -17,8 +18,9 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
       promoCodeRedemption,
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
-        cb({ registration, promoCode, promoCodeRedemption }),
+        cb({ registration, promoCode, promoCodeRedemption, $queryRaw }),
       ),
+      $queryRaw,
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   };
@@ -82,6 +84,14 @@ describe("applyPromoCodeToRegistration", () => {
     expect(mockDb.promoCodeRedemption.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ email: "jane@example.com", originalPrice: 100, discountAmount: 10, finalPrice: 90 }) }),
     );
+  });
+
+  it("acquires a FOR UPDATE row lock on the promo before applying (per-email race guard)", async () => {
+    await applyPromoCodeToRegistration(BASE);
+    expect(mockDb.$queryRaw).toHaveBeenCalled();
+    const call = mockDb.$queryRaw.mock.calls[0];
+    const sql = Array.isArray(call?.[0]) ? (call[0] as string[]).join("?") : String(call?.[0]);
+    expect(sql).toContain("FOR UPDATE");
   });
 
   it("caps a FIXED_AMOUNT discount at the base price and uses the tier price", async () => {

@@ -300,6 +300,7 @@ export function RegistrationDetailSheet({
       setPromoCodeInput("");
       toast.success("Promo code applied");
     } catch (error) {
+      console.error("[RegistrationDetail] Promo apply failed:", error);
       toast.error(error instanceof ApiError ? error.message : "Couldn't apply promo code");
     } finally {
       setPromoBusy(false);
@@ -314,6 +315,7 @@ export function RegistrationDetailSheet({
       await refreshSelectedRegistration(selectedRegistration.id);
       toast.success("Promo code removed");
     } catch (error) {
+      console.error("[RegistrationDetail] Promo remove failed:", error);
       toast.error(error instanceof ApiError ? error.message : "Couldn't remove promo code");
     } finally {
       setPromoBusy(false);

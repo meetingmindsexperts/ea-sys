@@ -126,6 +126,17 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
       });
       if (!promo || !promo.isActive) throw new PromoSentinel("INVALID_CODE", "Invalid promo code");
 
+      // Serialize concurrent applies of THIS promo code so the per-email
+      // count→insert below can't race two applications past a maxUsesPerEmail
+      // cap (two registrations sharing an email applying at the same instant —
+      // e.g. the pay-later-then-re-register flow). A transaction-scoped row lock
+      // (auto-released at commit; safe across the pgbouncer transaction pooler
+      // since the whole $transaction runs on one backend). Scoped to this promo
+      // row only, so different codes / events never block each other. Preferred
+      // over a @@unique([promoCodeId, email]) constraint, which would break
+      // maxUsesPerEmail > 1 and risk failing the migration on existing data.
+      await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promo.id} FOR UPDATE`;
+
       const now = new Date();
       if (promo.validFrom && now < promo.validFrom) {
         throw new PromoSentinel("INVALID_CODE", "This promo code is not yet active.");
