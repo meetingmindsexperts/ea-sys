@@ -34,8 +34,10 @@ import {
   HelpCircle,
   BarChart3,
   BookOpen,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { canViewFinance } from "@/lib/finance-visibility";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useHelpChatLauncher } from "@/components/help-chat/help-chat-provider";
@@ -76,6 +78,8 @@ type EventNavItem = {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   webinarOnly?: boolean;
+  /** Only shown to finance-capable roles (canViewFinance). */
+  financeOnly?: boolean;
 };
 
 const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
@@ -96,6 +100,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
       // it's a different persona (reports viewers / MEMBER role)
       // than the daily registration/program teams using this section.
       { name: "Registrations", href: "/registrations", icon: Users },
+      { name: "Invoices",      href: "/invoices",      icon: Receipt, financeOnly: true },
       { name: "Check-In",      href: "/check-in",      icon: ScanBarcode },
       { name: "Speakers",      href: "/speakers",      icon: Mic },
       { name: "Agenda",        href: "/agenda",        icon: Clock },
@@ -170,6 +175,7 @@ export function Sidebar() {
   const isRegistrant  = session?.user?.role === "REGISTRANT";
   const isOnsite      = session?.user?.role === "ONSITE";
   const isRestricted  = isReviewer || isSubmitter;
+  const canFinance    = canViewFinance(session?.user?.role);
 
   // Fetch all orgs for SUPER_ADMIN switcher
   const { data: allOrgs } = useOrganizations(isSuperAdmin);
@@ -227,7 +233,9 @@ export function Sidebar() {
       : eventNavigationSections
           .map((section) => ({
             ...section,
-            items: section.items.filter(webinarFilter),
+            items: section.items
+              .filter(webinarFilter)
+              .filter((item) => !item.financeOnly || canFinance),
           }))
           .filter((section) => section.items.length > 0);
 

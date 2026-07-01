@@ -37,12 +37,14 @@ import {
   ImageIcon,
   Mail,
   PenLine,
+  Receipt,
   Ticket,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { canViewFinance } from "@/lib/finance-visibility";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -150,6 +152,19 @@ const SETUP_CARDS: SetupCardConfig[] = [
   },
 ];
 
+// Finance-only card — appended to the hub for finance-capable roles
+// (canViewFinance). Not a "configure-once" item; it's a live view of every
+// invoice/receipt/quote for the event (also linked in the sidebar).
+const INVOICES_CARD: SetupCardConfig = {
+  slug: "invoices",
+  title: "Invoices & Quotes",
+  description:
+    "Every invoice, receipt, and quote for this event in one place — filter, download PDFs, resend, export CSV.",
+  icon: Receipt,
+  colorClasses: "bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300",
+  hoverBorder: "hover:border-teal-400",
+};
+
 // Status shape — one entry per slug. `configured` drives the pill;
 // `count` (optional) shows next to the pill when informative.
 interface SetupStatus {
@@ -157,6 +172,9 @@ interface SetupStatus {
   count?: number;
   /** Set when the status fetch itself failed — renders as "Status unavailable" */
   unavailable?: boolean;
+  /** Custom pill text (neutral/informational) — overrides the configured
+   *  wording. Used for live-data cards like Invoices ("12 invoices"). */
+  labelOverride?: string;
 }
 
 type StatusMap = Record<string, SetupStatus>;
@@ -202,6 +220,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       // override" (i.e. the operator has customised something away
       // from the platform default).
       db.emailTemplate.count({ where: { eventId } }),
+      db.invoice.count({ where: { eventId } }),
     ]);
   } catch (err) {
     apiLogger.error({ err, msg: "setup-hub:load-failed", eventId });
@@ -217,8 +236,12 @@ export default async function SetupPage({ params }: SetupPageProps) {
     certificateTemplateCount,
     mediaFileCount,
     emailTemplateCount,
+    invoiceCount,
   ] = result;
   if (!event) notFound();
+
+  const canFinance = canViewFinance(session.user.role);
+  const visibleCards = canFinance ? [...SETUP_CARDS, INVOICES_CARD] : SETUP_CARDS;
 
   // Compute per-card statuses. Each is intentionally cheap — boolean
   // for binary configure/not-configure cases, count where the number
@@ -268,6 +291,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
       configured: mediaFileCount > 0,
       count: mediaFileCount,
     },
+    invoices: {
+      configured: true,
+      labelOverride: `${invoiceCount} invoice${invoiceCount === 1 ? "" : "s"}`,
+    },
   };
 
   return (
@@ -294,7 +321,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {SETUP_CARDS.map((card) => (
+        {visibleCards.map((card) => (
           <SetupCard
             key={card.slug}
             card={card}
@@ -361,6 +388,13 @@ function StatusPill({ status }: { status: SetupStatus }) {
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
         <Circle className="h-3 w-3" />
         Status unavailable
+      </span>
+    );
+  }
+  if (status.labelOverride) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        {status.labelOverride}
       </span>
     );
   }
