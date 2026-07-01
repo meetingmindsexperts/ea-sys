@@ -356,13 +356,21 @@ async function sendPaymentConfirmationEmail(
     ? `<tr><td style="padding: 4px 0; color: #555; font-size: 14px;">${taxLabel} (${taxRate}%)</td><td style="padding: 4px 0; text-align: right; font-size: 14px;">${currency} ${taxAmount.toFixed(2)}</td></tr>`
     : "";
 
-  // Build receipt block — only shown if Stripe provided a receipt URL
-  const receiptBlock = receiptUrl
-    ? `<div style="text-align: center; margin: 20px 0;">
-        <a href="${receiptUrl}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">View Receipt / Invoice</a>
+  // Receipt block: the Stripe-hosted receipt button (only when Stripe gave us a
+  // receipt URL) + a note that the formal invoice PDF arrives in a separate
+  // email (sent by createPaidInvoice → sendInvoiceEmail below). The note always
+  // renders so the attendee knows to expect the invoice even if there's no
+  // receipt URL.
+  const receiptButton = receiptUrl
+    ? `<div style="text-align: center; margin: 20px 0 0 0;">
+        <a href="${receiptUrl}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">View Receipt</a>
       </div>`
     : "";
-  const receiptBlockText = receiptUrl ? `View Receipt: ${receiptUrl}` : "";
+  const invoiceNote = `<p style="text-align: center; font-size: 13px; color: #6b7280; margin: 10px 0 0 0;">A copy of your invoice will be sent to your email separately.</p>`;
+  const receiptBlock = receiptButton + invoiceNote;
+  const receiptBlockText =
+    (receiptUrl ? `View Receipt: ${receiptUrl}\n` : "") +
+    "A copy of your invoice will be sent to your email separately.";
 
   // registrationId → the padded serial number (e.g. "002") that matches the
   // first confirmation email the user already has. paymentReference → Stripe
