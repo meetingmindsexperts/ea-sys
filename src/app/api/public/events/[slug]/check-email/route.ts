@@ -61,20 +61,29 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const existingReg = await db.registration.findFirst({
-      where: {
-        eventId: event.id,
-        attendee: { email },
-        status: { not: "CANCELLED" },
-      },
-      select: { id: true },
-    });
+    const [existingReg, account] = await Promise.all([
+      db.registration.findFirst({
+        where: {
+          eventId: event.id,
+          attendee: { email },
+          status: { not: "CANCELLED" },
+        },
+        select: { id: true },
+      }),
+      // Global account role by email — lets the abstract-submission flow tell a
+      // plain REGISTRANT (who the submitter route can UPGRADE to SUBMITTER)
+      // apart from an existing SUBMITTER / staff account (who must sign in
+      // instead). `null` = no account yet.
+      db.user.findUnique({ where: { email }, select: { role: true } }),
+    ]);
+    const accountRole = account?.role ?? null;
+
     if (existingReg) {
       const reason: Reason = "already_registered";
-      return NextResponse.json({ exists: true, reason });
+      return NextResponse.json({ exists: true, reason, accountRole });
     }
 
-    return NextResponse.json({ exists: false });
+    return NextResponse.json({ exists: false, accountRole });
   } catch (error) {
     apiLogger.error({ err: error, msg: "check-email failed" });
     return NextResponse.json({ error: "Check failed" }, { status: 500 });

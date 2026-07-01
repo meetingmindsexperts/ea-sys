@@ -413,7 +413,7 @@ export default function AbstractRegisterPage() {
 
                     {emailCheck.state === "conflict" && (
                       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                        You&apos;ve already signed up as a submitter for this event.{" "}
+                        You already have an account for this event.{" "}
                         <a
                           href={`/e/${slug}/login?redirect=abstracts&email=${encodeURIComponent(form.getValues("email"))}`}
                           className="underline font-medium"
@@ -438,7 +438,14 @@ export default function AbstractRegisterPage() {
                           });
                           if (res.ok) {
                             const data = await res.json();
-                            if (data.exists && data.reason === "already_registered") {
+                            // Only push "sign in" for an existing NON-registrant
+                            // account (SUBMITTER / staff). A REGISTRANT — or an
+                            // attendee with no login yet — can proceed: the
+                            // submitter route upgrades REGISTRANT→SUBMITTER, so a
+                            // delegate can also submit an abstract. (Blocking every
+                            // "already registered" email here was the trap that
+                            // funneled registrants to /my-registration via sign-in.)
+                            if (data.accountRole && data.accountRole !== "REGISTRANT") {
                               setEmailCheck({ state: "conflict", reason: "already_registered" });
                               return;
                             }

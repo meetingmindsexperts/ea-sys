@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -121,7 +121,17 @@ function EventLoginForm() {
       } else if (redirectParam === "registration") {
         router.push(`/e/${slug}/my-registration`);
       } else if (redirectParam === "abstracts") {
-        router.push("/events");
+        // A plain REGISTRANT can't reach the dashboard abstracts route —
+        // middleware confines them to /my-registration. Send them to the
+        // abstract-register flow, which upgrades REGISTRANT→SUBMITTER; an
+        // actual SUBMITTER goes to /events (middleware lands them on their
+        // event's abstracts).
+        const session = await getSession();
+        if (session?.user?.role === "REGISTRANT") {
+          router.push(`/e/${slug}/abstract/register`);
+        } else {
+          router.push("/events");
+        }
       } else {
         // Default: middleware will auto-redirect based on role
         router.push("/dashboard");
