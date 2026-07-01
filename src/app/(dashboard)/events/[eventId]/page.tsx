@@ -18,7 +18,9 @@ import {
   TrendingUp,
   Sparkles,
   Rocket,
+  Receipt,
 } from "lucide-react";
+import { canViewFinance } from "@/lib/finance-visibility";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
@@ -83,6 +85,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const isRestricted =
     session.user.role === "REVIEWER" || session.user.role === "SUBMITTER";
+  const canFinance = canViewFinance(session.user.role);
 
   // ── Registrations-by-Tier breakdown ─────────────────────────────────────────
   // groupBy returns rows like { pricingTierId, _count: { _all: 42 } }. The
@@ -239,6 +242,28 @@ export default async function EventPage({ params }: EventPageProps) {
               </div>
               <span className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
                 Open <ArrowRight className="h-3 w-3" />
+              </span>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+
+      {/* ── Invoices CTA (finance-gated) — prominent, distinct colour ───────── */}
+      {canFinance && !isRestricted && (
+        <Link href={`/events/${eventId}/invoices`} className="group block">
+          <Card className="border-emerald-300 bg-emerald-50 transition-all duration-200 hover:border-emerald-500 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] dark:border-emerald-800 dark:bg-emerald-950/30">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                <Receipt className="h-6 w-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold text-emerald-800 dark:text-emerald-200">Invoices &amp; Quotes</p>
+                <p className="text-sm text-emerald-700/80 dark:text-emerald-300/70">
+                  View, download and manage invoices, quotes &amp; receipts for this event.
+                </p>
+              </div>
+              <span className="flex shrink-0 items-center gap-0.5 text-sm font-semibold text-emerald-700 opacity-0 transition-opacity group-hover:opacity-100 dark:text-emerald-300">
+                Open <ArrowRight className="h-4 w-4" />
               </span>
             </CardContent>
           </Card>

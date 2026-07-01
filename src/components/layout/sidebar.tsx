@@ -34,7 +34,6 @@ import {
   HelpCircle,
   BarChart3,
   BookOpen,
-  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -100,7 +99,6 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
       // it's a different persona (reports viewers / MEMBER role)
       // than the daily registration/program teams using this section.
       { name: "Registrations", href: "/registrations", icon: Users },
-      { name: "Invoices",      href: "/invoices",      icon: Receipt, financeOnly: true },
       { name: "Check-In",      href: "/check-in",      icon: ScanBarcode },
       { name: "Speakers",      href: "/speakers",      icon: Mic },
       { name: "Agenda",        href: "/agenda",        icon: Clock },
