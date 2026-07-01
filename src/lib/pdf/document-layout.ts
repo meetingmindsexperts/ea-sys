@@ -165,18 +165,18 @@ export function drawHeader(doc: PDFKit.PDFDocument, input: HeaderInput): number 
   const centerX = (pageWidth - centerWidth) / 2;
   let centerY = startY + 12;
 
-  doc.fontSize(11).fillColor(COLOR_TEXT).font("Helvetica-Bold")
-    .text(input.centerTitle.toUpperCase(), centerX, centerY, {
-      width: centerWidth,
-      align: "center",
-    });
-  centerY += 32;
+  // Measure the (possibly multi-line) event name and advance by its real
+  // height so a long event name never overlaps the document title below it.
+  const centerTitle = input.centerTitle.toUpperCase();
+  doc.fontSize(11).fillColor(COLOR_TEXT).font("Helvetica-Bold");
+  const titleHeight = doc.heightOfString(centerTitle, { width: centerWidth, align: "center" });
+  doc.text(centerTitle, centerX, centerY, { width: centerWidth, align: "center" });
+  centerY += titleHeight + 8;
 
-  doc.fontSize(16).fillColor(COLOR_TEXT).font("Helvetica-Bold")
-    .text(input.documentTitle, centerX, centerY, {
-      width: centerWidth,
-      align: "center",
-    });
+  doc.fontSize(16).fillColor(COLOR_TEXT).font("Helvetica-Bold");
+  const docTitleHeight = doc.heightOfString(input.documentTitle, { width: centerWidth, align: "center" });
+  doc.text(input.documentTitle, centerX, centerY, { width: centerWidth, align: "center" });
+  const centerBottom = centerY + docTitleHeight;
 
   // ── Right column: logo (top-right) ──
   if (input.logoBuffer) {
@@ -199,8 +199,10 @@ export function drawHeader(doc: PDFKit.PDFDocument, input: HeaderInput): number 
     }
   }
 
-  // Return the lowest of the three columns + a small gap.
-  return Math.max(leftY, startY + 90) + 14;
+  // Return the lowest of the three columns + a small gap. `centerBottom`
+  // accounts for a wrapped (multi-line) event name so the info boxes below
+  // never overlap the header. `startY + 90` keeps room for the logo (70pt).
+  return Math.max(leftY, centerBottom, startY + 90) + 14;
 }
 
 // ── Region 2: bill-to + meta info boxes ──
