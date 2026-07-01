@@ -70,6 +70,10 @@ jobs:
           npm run lint
           wait
 
+      # `next build` here uploads source maps to Sentry (has the auth token) AND
+      # fails fast on any build error before we bother building the Docker image.
+      # The build-push job below builds the runtime image separately; source maps
+      # continue to come from THIS step (the Docker build has no Sentry token).
       - name: Build
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -77,7 +81,65 @@ jobs:
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: npx next build
 
+  # ── Build + push images to ECR (Step 1 of the ECR migration) ─────────────────
+  # Builds the web (Dockerfile) + worker (Dockerfile.worker) images on GitHub's
+  # fast runners and pushes them to ECR (ap-south-1). Auth is via GitHub OIDC —
+  # NO stored AWS keys. This job is INDEPENDENT of the deploy job for now (deploy
+  # still builds on the box) so populating ECR carries zero risk to deploys.
+  # Step 2 will point the box's deploy.sh at these images and drop the on-box build.
+  build-push:
+    name: Build & push images → ECR
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write   # required for GitHub OIDC → AWS role assumption
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials (OIDC — no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::803726282629:role/ea-sys-gha-ecr-push
+          aws-region: ap-south-1
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push WEB image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ github.sha }}
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Build & push WORKER image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: |
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-${{ github.sha }}
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-latest
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
   # ── Deploy to Mumbai (ap-south-1) ──────────────────────────────────────────
+  # STEP 1: unchanged — still builds on the box via scripts/deploy.sh. Depends
+  # only on `ci`, so a build-push failure does NOT block a deploy while we
+  # validate the ECR path. Step 2 will switch this to `needs: build-push` and a
+  # pull-based deploy.
   deploy:
     name: Deploy → Mumbai (ap-south-1)
     needs: ci
