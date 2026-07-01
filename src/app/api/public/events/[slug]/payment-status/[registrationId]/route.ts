@@ -19,6 +19,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       select: {
         status: true,
+        serialId: true,
         paymentStatus: true,
         discountAmount: true,
         originalPrice: true,
@@ -57,6 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const response = NextResponse.json({
       registrationStatus: registration.status,
+      serialId: registration.serialId,
       paymentStatus: registration.paymentStatus,
       ticketName: registration.ticketType?.name ?? "General",
       ticketPrice: Math.max(0, basePrice - discount),

@@ -27,6 +27,7 @@ interface EventBranding {
 
 interface PaymentInfo {
   registrationStatus: string;
+  serialId?: number | null;
   paymentStatus: string;
   ticketName: string;
   ticketPrice: number;
@@ -152,6 +153,14 @@ function ConfirmationContent() {
   };
 
   const isPaid = paymentInfo?.paymentStatus === "PAID" || paymentInfo?.paymentStatus === "COMPLIMENTARY";
+
+  // Registration ID = the short per-event serial (e.g. "001"); the long
+  // registration code (cuid) is shown separately as the Confirmation number.
+  const serial = serialIdParam
+    ? serialIdParam.padStart(3, "0")
+    : paymentInfo?.serialId != null
+      ? String(paymentInfo.serialId).padStart(3, "0")
+      : null;
   // Derive payment display from server-fetched data only — URL params are not trusted
   const ticketPrice = paymentInfo?.ticketPrice ?? 0;
   const ticketCurrency = paymentInfo?.ticketCurrency ?? "USD";
@@ -172,28 +181,18 @@ function ConfirmationContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
       {branding?.bannerImage ? (
-        <div className="w-full max-w-2xl mx-auto px-4 pt-6">
-          <div className="relative w-full h-36 sm:h-44 overflow-hidden rounded-2xl">
+        <div className="w-full max-w-4xl mx-auto px-4 pt-6">
+          {/* Wide hero — the banner graphic carries its own branding, so no
+              dark overlay or event-name bar over it. */}
+          <div className="relative w-full h-40 sm:h-56 overflow-hidden rounded-2xl">
             <Image
               src={branding.bannerImage}
               alt={branding.name || "Event banner"}
-              width={1400}
-              height={300}
+              width={1600}
+              height={400}
               className="w-full h-full object-contain object-center"
               unoptimized
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-black/50" />
-
-            {/* Event name overlay */}
-            {branding.name && (
-              <div className="absolute inset-0 flex flex-col justify-end">
-                <div className="px-5 pb-4 text-center">
-                  <p className="text-white/90 text-sm font-medium drop-shadow-sm">
-                    {branding.name}
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       ) : (
@@ -203,7 +202,7 @@ function ConfirmationContent() {
 
       {/* ── Main Content ───────────────────────────────────────────────────── */}
       <div className="flex-1 flex items-start justify-center px-4 py-8 sm:py-12">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-[600px]">
           {/* Success card */}
           <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
             {/* Top gradient bar */}
@@ -231,15 +230,29 @@ function ConfirmationContent() {
               </p>
             </div>
 
-            {/* Registration ID */}
-            {(serialIdParam || registrationId) && (
-              <div className="mx-6 mb-5 bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
-                <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
-                  Registration ID
-                </p>
-                <p className="font-mono font-bold text-slate-900 text-sm tracking-wider">
-                  {serialIdParam ? serialIdParam.padStart(3, "0") : registrationId!.toUpperCase()}
-                </p>
+            {/* Registration ID (short serial) + Confirmation number (long code) */}
+            {(serial || registrationId) && (
+              <div className="mx-6 mb-5 bg-slate-50 rounded-xl border border-slate-100 p-4 text-center space-y-3">
+                {serial && (
+                  <div>
+                    <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
+                      Registration ID
+                    </p>
+                    <p className="font-mono font-bold text-slate-900 text-lg tracking-wider">
+                      {serial}
+                    </p>
+                  </div>
+                )}
+                {registrationId && (
+                  <div>
+                    <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
+                      Confirmation Number
+                    </p>
+                    <p className="font-mono text-slate-600 text-xs tracking-wider break-all">
+                      {registrationId.toUpperCase()}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
