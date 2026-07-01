@@ -13,6 +13,11 @@ const { mockAuth, mockDb, mockUpdateEventSettings } = vi.hoisted(() => ({
       delete: vi.fn(),
     },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+    // Financial-records guard on event DELETE — default to "none" so existing
+    // delete tests proceed; the guard's own behavior is covered in
+    // event-delete-financial-guard.test.ts.
+    invoice: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
+    payment: { count: vi.fn().mockResolvedValue(0) },
   },
   // Settings now merge through the atomic helper (its own test covers the merge);
   // here we just assert the route hands it the right patch.

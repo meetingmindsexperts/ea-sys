@@ -344,6 +344,57 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // ── Data-loss guard: block event delete when financial records exist ──
+    // Every Invoice (eventId) + Payment (via its registration) cascade-deletes
+    // with the event. Block + write a DELETE_BLOCKED audit snapshot (bounded —
+    // an event can hold many invoices) so nothing financial is destroyed by a
+    // single event delete. Export first, then remove if truly needed.
+    const [invoiceCount, paymentCount] = await Promise.all([
+      db.invoice.count({ where: { eventId } }),
+      db.payment.count({ where: { registration: { eventId } } }),
+    ]);
+    if (invoiceCount > 0 || paymentCount > 0) {
+      const invoiceNumbers = (
+        await db.invoice.findMany({
+          where: { eventId },
+          select: { invoiceNumber: true },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        })
+      ).map((i) => i.invoiceNumber);
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE_BLOCKED",
+            entityType: "Event",
+            entityId: eventId,
+            changes: {
+              reason: "has-financial-records",
+              invoiceCount,
+              paymentCount,
+              invoiceNumbers, // capped at 200
+              ip: getClientIp(req),
+            },
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "Failed to create DELETE_BLOCKED audit log" }));
+      apiLogger.warn({ msg: "event:delete-blocked-financial-records", eventId, invoiceCount, paymentCount });
+      return NextResponse.json(
+        {
+          error:
+            `This event has ${invoiceCount} invoice(s) and ${paymentCount} payment(s). ` +
+            "Deleting it would permanently remove those financial records. " +
+            "Export them first (Invoices → Export CSV / Download PDFs), then remove the event only if it must truly be deleted.",
+          code: "EVENT_HAS_FINANCIAL_RECORDS",
+          invoiceCount,
+          paymentCount,
+        },
+        { status: 409 },
+      );
+    }
+
     await db.event.delete({
       where: { id: eventId },
     });
