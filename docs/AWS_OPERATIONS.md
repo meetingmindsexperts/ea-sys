@@ -725,6 +725,42 @@ aws ecr get-lifecycle-policy-preview  --repository-name ea-sys --region ap-south
 
 - **DR follow-up (LOW, ROADMAP):** enable ECR cross-region replication → Singapore.
 
+#### Restore / roll back from the registry
+
+Every `:<sha>` in ECR is a restore point. List them newest-first:
+```bash
+aws ecr describe-images --repository-name ea-sys --region ap-south-1 \
+  --query 'reverse(sort_by(imageDetails,&imagePushedAt))[?imageTags].{tag:imageTags[0],pushed:imagePushedAt}' \
+  --output table
+```
+
+**A — roll back a bad deploy (box healthy, the 90% case), one line on the box:**
+```bash
+cd /home/ubuntu/ea-sys && IMAGE_TAG=<old-sha> bash scripts/deploy.sh
+```
+Pulls that exact web+worker sha, runs `migrate deploy` from the worker image,
+blue-green swaps, repoints nginx. ~1–2 min, no rebuild. ⚠️ **Migrations only roll
+*forward*** — rolling the image back is safe only if the old code tolerates any
+newer columns (our migrations are additive, so it usually is); a schema revert is
+a manual `prisma migrate resolve` + down-SQL, not this path.
+
+**B — pull one image by hand (surgical / debugging):**
+```bash
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS \
+  --password-stdin 803726282629.dkr.ecr.ap-south-1.amazonaws.com
+docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<sha>
+```
+
+**C — rebuild a lost box (Mumbai region OK):** the registry supplies only the
+*app*; provision box + `git clone` (code) + restore `.env` and `uploads/` from the
+Singapore S3 DR bucket + ensure the DB (Supabase, or a restored `pg_dump`) is
+reachable, then `IMAGE_TAG=<sha> bash scripts/deploy.sh` pulls + starts. Full
+step-by-step in [infra/dr/README.md](../infra/dr/README.md).
+
+**D — full Mumbai-region loss:** ECR is Mumbai-only, so it's down too. `deploy.sh`
+**auto-falls back to an on-box build** from the GitHub checkout (slower but works);
+the durable fix is the cross-region-replication item above.
+
 ```bash
 # Attach the CloudWatch agent policy to the instance role (logs setup):
 aws iam attach-role-policy --role-name ea-sys-mumbai-ec2-role \

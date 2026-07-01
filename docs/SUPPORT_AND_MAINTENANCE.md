@@ -30,7 +30,7 @@ This document is **not** about new features. It's about **what's required to kee
 | **Payments** | Credit card processing | Stripe (US-based, global infrastructure) | Stripe handles the actual payment; we receive webhooks. Stripe rarely fails but its webhook calls into our system are a known fragility point. |
 | **Video / Webinars** | Live streaming, recording, attendance | Zoom (separate org credentials per MMG entity) | Webinar events depend entirely on Zoom. Their API calls into our system on session-end to deliver recording URLs. |
 | **AI features** | Help chat + AI Event Assistant | Anthropic (Claude API) | AI-driven features (natural-language event commands, help chat). If Anthropic is down, those specific features stop; everything else continues. |
-| **Source code + deploys** | Code repository + CI/CD | GitHub (Mumbai EC2 deploy target) | Code change → GitHub push → CI runs → SSH-deploy to Mumbai → blue-green container swap. About 5-10 minutes per deploy. |
+| **Source code + deploys** | Code repository + CI/CD | GitHub (Mumbai EC2 deploy target) | Code change → GitHub push → CI runs → CI builds the image + pushes to ECR → box pulls it → blue-green container swap. The on-box step is ~1–2 min (box pulls, no longer builds). |
 | **DNS + email reputation** | `events.meetingmindsgroup.com`, `meetingmindsexperts.com` | GoDaddy (registrar), AWS Route 53 (some DNS) | If DNS goes down, nothing is reachable. Email reputation lives with whoever owns the sender domain (currently `meetingmindsexperts.com`). |
 | **Error monitoring** | Real-time error capture | Sentry (cloud SaaS) | Captures every error with stack trace + context. Production safety net. |
 
@@ -94,9 +94,9 @@ The platform invests heavily in self-monitoring + self-healing so the maintenanc
 
 - **Three-layer error capture** — Sentry (cloud), SES admin-alert email (~10 sec latency), `/logs` dashboard (Postgres-persisted)
 - **Background worker tier** — cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync) run automatically with Postgres advisory locks for singleton enforcement
-- **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination. CI→ECR migration in progress (2026-07-01): images build in CI + push to ECR (Step 1 live); Step 2 will have the box pull instead of build, cutting the deploy's SSH step from ~8 min → ~1–2 min
+- **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination. **CI→ECR complete (2026-07-01):** CI builds the image + pushes to ECR, the box **pulls** it instead of building (SSH step ~8 min → ~1–2 min; the box no longer runs a memory-heavy build). Rollback = redeploy a previous image tag; runbook in `docs/AWS_OPERATIONS.md §5.x`
 - **Automated DR backups** — hourly upload mirror + frequent Postgres dumps (every 2h Dubai-day / 4h overnight) to AWS Singapore, no human action required
-- **Automated Docker disk reclaim** — weekly `docker-prune.sh` cron (Fri 03:00 UTC) clears build cache + dangling images so the box disk doesn't fill from repeated deploys (safe: keeps running + rollback images)
+- **Automated Docker disk reclaim** — weekly `docker-prune.sh` cron (Fri 03:00 UTC) clears build cache + dangling images **and trims old pulled `:<sha>` images** (keeps the running + newest-3 rollback images) so the box disk doesn't fill from repeated deploys
 - **Health endpoints** — `/health` and `/worker/health` proxy through nginx for external uptime monitoring
 - **Dependabot** — automated PRs for vulnerable npm packages
 - **GitHub Actions CI** — every push runs tsc + lint + 1479 unit tests + production build; broken changes can't reach production

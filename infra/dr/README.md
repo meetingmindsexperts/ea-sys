@@ -583,9 +583,17 @@ For honesty:
   data-lost), the Singapore DR box still can't serve. Fail-over here
   means restoring the latest `pg_dump` to a NEW Supabase project + DNS
   swap on the DB URL. See [Surgical Recovery §E](#e-restore-the-database-or-one-table-from-a-pg_dump).
-- **10-minute RTO includes a Docker build.** `scripts/deploy.sh` does
-  `docker compose build` on first run. If the build time balloons, the
-  RTO balloons with it.
+- **RTO now includes an ECR *pull*, not a build (2026-07-01).** Since the
+  CI→ECR cutover `scripts/deploy.sh` `docker compose pull`s the prebuilt
+  `ea-sys:<sha>` web + worker images (~1–2 min) instead of building on the
+  box (~8 min) — so a box-rebuild RTO is *faster*, and the recovery box just
+  needs ECR reachability (`ecr-pull` on its instance role). **Caveat:** ECR is
+  Mumbai-only, so in a full-region failover to Singapore the pull can't reach it
+  — `deploy.sh` then **falls back to an on-box build from the GitHub checkout**
+  (slower but self-healing), until ECR cross-region replication is enabled.
+  To pin a specific image during recovery: `IMAGE_TAG=<sha> sudo -u ubuntu bash
+  /home/ubuntu/ea-sys/scripts/deploy.sh`. Rollback/restore-from-registry runbook:
+  [AWS_OPERATIONS §5.x "Restore / roll back from the registry"](../../docs/AWS_OPERATIONS.md).
 
 ## Cost estimate
 
