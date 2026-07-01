@@ -42,6 +42,7 @@ import {
   useDeleteEmailTemplate,
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { toast } from "sonner";
 import { stripDocumentWrapper } from "@/lib/email-utils";
 
@@ -50,23 +51,6 @@ const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
   { ssr: false, loading: () => <div className="h-[350px] border rounded-md animate-pulse bg-muted/50" /> }
 );
-
-const SYSTEM_SLUGS = new Set([
-  "registration-confirmation",
-  "speaker-invitation",
-  "speaker-agreement",
-  "event-reminder",
-  "abstract-submission-confirmation",
-  "abstract-status-update",
-  "submitter-welcome",
-  "custom-notification",
-  // Survey: invitation sent via bulk-email workflow tile; thank-you
-  // fires from the public POST handler immediately on submit. Both
-  // have cert-neutral default bodies — CME events override here to
-  // add their cert-delivery language.
-  "survey-invitation",
-  "survey-thankyou",
-]);
 
 export default function EmailTemplateEditorPage() {
   const params = useParams();
@@ -218,7 +202,9 @@ export default function EmailTemplateEditorPage() {
 
   const template = data.template;
   const variables = data.variables || [];
-  const isSystemTemplate = SYSTEM_SLUGS.has(template.slug);
+  // Same shared classifier as the list + send dialogs — Reset for system
+  // defaults, Delete for organizer-created custom templates.
+  const isSystemTemplate = !isCustomTemplateSlug(template.slug);
 
   return (
     <div className="space-y-6">

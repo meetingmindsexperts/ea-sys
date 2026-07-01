@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
 interface RouteParams {
   params: Promise<{ eventId: string; templateId: string }>;
@@ -120,6 +121,17 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     if (!existing) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
+
+    // Only organizer-created custom templates are deletable. A system default
+    // would just be re-seeded on the next list load, so deleting it is a
+    // confusing no-op — offer "Reset to Default" in the editor instead.
+    if (!isCustomTemplateSlug(existing.slug)) {
+      apiLogger.warn({ msg: "email-templates:delete-system-blocked", eventId, templateId, slug: existing.slug });
+      return NextResponse.json(
+        { error: "System templates can't be deleted — use Reset to restore the default.", code: "SYSTEM_TEMPLATE" },
+        { status: 400 }
+      );
     }
 
     await db.emailTemplate.delete({ where: { id: templateId } });
