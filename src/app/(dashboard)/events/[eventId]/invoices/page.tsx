@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Receipt, FileText, Download, Send, Search, Loader2, Lock } from "lucide-react";
+import { Receipt, FileText, Download, Send, Search, Loader2, Lock, FileArchive } from "lucide-react";
 import { toast } from "sonner";
 import {
   useEvent,
@@ -117,6 +117,7 @@ export default function EventInvoicesPage() {
   const [invStatus, setInvStatus] = useState("all");
   const [quoteSearch, setQuoteSearch] = useState("");
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [zipDownloading, setZipDownloading] = useState(false);
 
   if (!canFinance) {
     return (
@@ -180,6 +181,37 @@ export default function EventInvoicesPage() {
       toast.error(e instanceof Error ? e.message : "Failed to re-send invoice");
     } finally {
       setResendingId(null);
+    }
+  };
+
+  // Bundle every invoice PDF matching the current TYPE/STATUS filter into a
+  // ZIP (e.g. Status = Paid → all paid invoices in one download). Server-side
+  // filter only — the free-text search box doesn't apply to the ZIP.
+  const downloadAllPdfs = async () => {
+    setZipDownloading(true);
+    try {
+      const p = new URLSearchParams();
+      if (invType !== "all") p.set("type", invType);
+      if (invStatus !== "all") p.set("status", invStatus);
+      const res = await fetch(`/api/events/${eventId}/invoices/export?${p.toString()}`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast.error(d.error || "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download =
+        res.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ||
+        `invoices-${eventId}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setZipDownloading(false);
     }
   };
 
@@ -267,15 +299,30 @@ export default function EventInvoicesPage() {
                 <SelectItem value="REFUNDED">Refunded</SelectItem>
               </SelectContent>
             </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="sm:ml-auto"
-              onClick={exportInvoicesCsv}
-              disabled={filteredInvoices.length === 0}
-            >
-              <Download className="mr-2 h-4 w-4" /> Export CSV
-            </Button>
+            <div className="flex items-center gap-2 sm:ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportInvoicesCsv}
+                disabled={filteredInvoices.length === 0}
+              >
+                <Download className="mr-2 h-4 w-4" /> Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadAllPdfs}
+                disabled={zipDownloading || invAll.length === 0}
+                title="Download all matching invoice PDFs (current type/status filter) as a ZIP"
+              >
+                {zipDownloading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileArchive className="mr-2 h-4 w-4" />
+                )}
+                Download PDFs
+              </Button>
+            </div>
           </div>
 
           {invoicesLoading ? (
