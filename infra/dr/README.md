@@ -553,6 +553,16 @@ For honesty:
 
 ## Known gaps
 
+- **ECR is Mumbai-only (deploy image registry, added 2026-07-01).** The app now
+  deploys as pre-built images from ECR (`…/ea-sys`) — great for a **box-only**
+  rebuild (a replacement box pulls in ~1–2 min vs an ~8-min on-box build). But
+  ECR lives in `ap-south-1`, so a **full-Mumbai-region loss** takes it down too,
+  and a Singapore recovery box can't pull. **Fix:** enable ECR **cross-region
+  replication → `ap-southeast-1`** (this bucket's region) so images exist in both.
+  Tracked in [ROADMAP.md](../../docs/ROADMAP.md). NOTE: while the CI→ECR cutover is
+  mid-flight (Step 1 done, Step 2 pending), the box still *can* build from source
+  (GitHub) as a fallback, so recovery isn't blocked either way. Once Step 2 lands,
+  update the "Full recovery" steps below from *build* → *pull from ECR*.
 - **Uploads written during the outage window itself are at risk.** The normal
   flow is Mumbai hourly sync → S3 bucket → DR box pulls on boot. During an
   outage, Mumbai's cron can't run. Uploads that happen *on the DR box* during

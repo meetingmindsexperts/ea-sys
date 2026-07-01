@@ -94,7 +94,7 @@ The platform invests heavily in self-monitoring + self-healing so the maintenanc
 
 - **Three-layer error capture** — Sentry (cloud), SES admin-alert email (~10 sec latency), `/logs` dashboard (Postgres-persisted)
 - **Background worker tier** — cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync) run automatically with Postgres advisory locks for singleton enforcement
-- **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination
+- **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination. CI→ECR migration in progress (2026-07-01): images build in CI + push to ECR (Step 1 live); Step 2 will have the box pull instead of build, cutting the deploy's SSH step from ~8 min → ~1–2 min
 - **Automated DR backups** — hourly upload mirror + frequent Postgres dumps (every 2h Dubai-day / 4h overnight) to AWS Singapore, no human action required
 - **Automated Docker disk reclaim** — weekly `docker-prune.sh` cron (Fri 03:00 UTC) clears build cache + dangling images so the box disk doesn't fill from repeated deploys (safe: keeps running + rollback images)
 - **Health endpoints** — `/health` and `/worker/health` proxy through nginx for external uptime monitoring

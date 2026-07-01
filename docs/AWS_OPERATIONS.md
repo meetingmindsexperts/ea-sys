@@ -142,7 +142,16 @@ aws s3 ls s3://ea-sys-dr-singapore/db/      --region ap-southeast-1 --recursive 
 ### 1.6 Deploy
 
 Deploys are **GitHub Actions → SSH (`appleboy`) → `bash scripts/deploy.sh`**
-(blue-green). You don't run them by hand. Two things to know:
+(blue-green). You don't run them by hand.
+
+> **ECR migration in progress (2026-07-01).** A `build-push` CI job now builds the
+> web + worker images and pushes them to **ECR** (`…/ea-sys`, see §5.x) on every
+> deploy — **Step 1 is live**. The box **still builds on-box** for now (Step 2 will
+> flip `deploy.sh` to `docker compose pull` from ECR + migrate from the worker
+> image, dropping the SSH step from ~8 min → ~1–2 min). Until Step 2 lands, the
+> notes below (on-box build) are accurate.
+
+Two things to know:
 
 - The SSH step occasionally fails with `dial tcp :22: i/o timeout` — that's
   **fail2ban transiently banning the GitHub runner IP**, not a config break.
@@ -517,9 +526,11 @@ the box crontab (ubuntu user), Fridays 03:00 UTC = 07:00 GST, low traffic:
 Check it ran: `tail /home/ubuntu/cron-docker-prune.log` → look for
 `docker-prune:done … reclaimed_gb=…`.
 
-**Durable fix (removes the cause):** stop building on the box — build in CI →
-push to **ECR** → the box only `docker pull`s (the "CI → ECR" item in
+**Durable fix (IN PROGRESS 2026-07-01):** stop building on the box — build in CI →
+push to **ECR** → the box only `docker pull`s (§5.x; the "CI → ECR" item in
 [docs/ROADMAP.md](ROADMAP.md), and INC-001 in [docs/INCIDENTS.md](INCIDENTS.md)).
+Step 1 (build+push to ECR) is live; Step 2 (box pulls, no on-box build) will
+eliminate this build-cache creep entirely. Until then the weekly prune covers it.
 Then no build cache accumulates and the weekly prune becomes belt-and-braces.
 
 ---
@@ -641,6 +652,34 @@ Bot Fight Mode, WAF managed/OWASP rulesets, and Cloudflare edge **rate limiting*
 ## 5. One-time / occasional infra
 
 These are setup operations you rarely run — full context in the linked docs.
+
+### 5.x ECR — the deploy image registry (2026-07-01)
+
+The app deploys as pre-built images from a private ECR repo instead of building
+on the box (Step 2 completes the cutover — see the ROADMAP "CI → ECR" item).
+
+- **Repo:** `803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys` (Mumbai, AES256, scan-on-push).
+- **Tags:** web = `:<git-sha>` + `:latest`; worker = `:worker-<git-sha>` + `:worker-latest`.
+- **Auth:** CI pushes via **GitHub OIDC** role `ea-sys-gha-ecr-push` (no stored keys); the box **pulls** via an `ecr-pull` inline policy on `ea-sys-mumbai-ec2-role`.
+- **Migrations** run on the box from the **worker image** (`docker run <worker-image> npx prisma migrate deploy`) — it ships the full node_modules incl. the Prisma CLI, so **DB creds stay in `.env`, never in GitHub**.
+
+```bash
+# What images are in ECR right now:
+aws ecr list-images --region ap-south-1 --repository-name ea-sys \
+  --query 'imageIds[].imageTag' --output json
+
+# Manually pull + run an image on the box (login first):
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS \
+  --password-stdin 803726282629.dkr.ecr.ap-south-1.amazonaws.com
+docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<tag>
+```
+
+- **Rollback** (after Step 2) = redeploy a previous `:<sha>` (no rebuild).
+- **DR caveat:** ECR is in **Mumbai** — a full-region loss takes it down too. For
+  region-independent recovery, enable **ECR cross-region replication → Singapore**
+  (`ap-southeast-1`, where the DR S3 bucket is) — a one-time registry setting.
+- Consider an **ECR lifecycle policy** (keep last ~10 images) so old `:<sha>` tags
+  don't accumulate storage.
 
 ```bash
 # Attach the CloudWatch agent policy to the instance role (logs setup):
