@@ -144,6 +144,21 @@ export default function EventInvoicesPage() {
   );
 
   const invAll = invoices as InvoiceListItem[];
+
+  // Cross-link maps: the shared Registration is the anchor between a quote
+  // (derived, keyed on the reg serial) and its eventual Invoice
+  // (Invoice.registrationId). These let each tab surface the other.
+  const invoicesByReg = new Map<string, InvoiceListItem[]>();
+  for (const inv of invAll) {
+    const rid = inv.registration?.id;
+    if (!rid) continue;
+    const arr = invoicesByReg.get(rid) ?? [];
+    arr.push(inv);
+    invoicesByReg.set(rid, arr);
+  }
+  const regById = new Map<string, QuoteReg>();
+  for (const r of registrations as QuoteReg[]) regById.set(r.id, r);
+
   const kpiInvoiced = sumByCurrency(
     invAll.filter((i) => i.type === "INVOICE").map((i) => ({ currency: i.currency, total: Number(i.total) })),
   );
@@ -338,6 +353,7 @@ export default function EventInvoicesPage() {
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Attendee</TableHead>
+                    <TableHead>Reg&nbsp;/&nbsp;Quote</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Issued</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -366,6 +382,22 @@ export default function EventInvoicesPage() {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const reg = inv.registration?.id ? regById.get(inv.registration.id) : undefined;
+                          if (!reg) return <span className="text-muted-foreground">—</span>;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => openPdf(`/api/events/${eventId}/registrations/${reg.id}/quote`)}
+                              className="font-mono text-xs text-primary hover:underline"
+                              title="Download the originating quote"
+                            >
+                              #{regNumber(reg)}
+                            </button>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">
                         {money(inv.currency, Number(inv.total))}
@@ -441,6 +473,7 @@ export default function EventInvoicesPage() {
                     <TableHead>Attendee</TableHead>
                     <TableHead>Registration type</TableHead>
                     <TableHead>Payment</TableHead>
+                    <TableHead>Invoice</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead className="text-right">Quote</TableHead>
                   </TableRow>
@@ -460,6 +493,31 @@ export default function EventInvoicesPage() {
                       <TableCell className="text-sm">{r.ticketType?.name ?? "—"}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{r.paymentStatus}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const invs = invoicesByReg.get(r.id) ?? [];
+                          if (invs.length === 0)
+                            return <span className="text-xs text-muted-foreground">Not invoiced</span>;
+                          return (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {invs.slice(0, 2).map((inv) => (
+                                <button
+                                  key={inv.id}
+                                  type="button"
+                                  onClick={() => openPdf(`/api/events/${eventId}/invoices/${inv.id}/pdf`)}
+                                  className="font-mono text-xs text-primary hover:underline"
+                                  title={`Open ${inv.invoiceNumber} (${inv.status})`}
+                                >
+                                  {inv.invoiceNumber}
+                                </button>
+                              ))}
+                              {invs.length > 2 && (
+                                <span className="text-xs text-muted-foreground">+{invs.length - 2}</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-right text-sm tabular-nums">
                         {money(currency, price)}
