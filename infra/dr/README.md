@@ -123,7 +123,7 @@ inline policy on `ea-sys-mumbai-ec2-role` is missing `s3:GetObject` and/
 or `kms:Decrypt`. Add them — the [surgical recovery section](#surgical-recovery--mumbai-is-up-you-lost-specific-files)
 below depends on this path working.
 
-### 6. Set up the Postgres backup cron (12h RPO)
+### 6. Set up the Postgres backup cron (≤2h day / ≤4h night RPO)
 
 Closes the database-side DR gap. Without this, the only recovery option
 for Supabase data loss is the Supabase platform's own backups (daily,
@@ -210,15 +210,15 @@ bash /home/ubuntu/ea-sys/scripts/dr-restore-drill.sh
 ```bash
 sudo -u ubuntu crontab -e
 # Append:
-# Twice-daily Postgres dump to Singapore DR bucket (RPO 12h)
-0 11,23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+# Postgres dump to Singapore DR bucket — ≤2h RPO Dubai daytime, ≤4h overnight
+0 2,4,6,8,10,12,14,16,18,22 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 ```
 
-**Timing**: runs at 11:00 and 23:00 UTC (23:00 = 03:00 GST — no event
-traffic, sits in the same nightly maintenance cluster as the `.env`
-snapshot at 21:00 UTC). The 11:00 UTC run gives a 12h RPO. If
-you ever need to tighten RPO, change to `0 11,23 * * *` (twice-daily,
-12h RPO) or `0 */6 * * *` (every 6h, 6h RPO) — scripts are unchanged.
+**Timing** (as of 2026-06-30): `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC — every 2h
+during Dubai daytime (08:00–22:00 GST → 04:00–18:00 UTC) and every 4h overnight,
+so **≤2h RPO in the day, ≤4h at night** (10 dumps/day, ~1.2 MB each — negligible
+load, all inside the S3 30-day retention). To change RPO, edit the cron hours;
+the script is unchanged. (History: 24h once-daily → 12h `0 11,23` → this.)
 
 #### 6.7 Verify the next two scheduled runs
 
@@ -430,8 +430,8 @@ sudo -u ubuntu vim /home/ubuntu/ea-sys/.env
 sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/deploy.sh
 ```
 
-**RPO**: up to 12h (the time between the disaster and the last
-scheduled dump at 23:00 UTC).
+**RPO**: ≤2h during Dubai daytime (08:00–22:00 GST), ≤4h overnight (the time
+between the disaster and the last scheduled dump).
 
 #### Surgical: restore just one table
 
@@ -481,10 +481,10 @@ For honesty:
   Run `aws s3 cp .env s3://ea-sys-dr-singapore/env/$(date -u +%F).env
   --region ap-southeast-1` immediately after rotating a secret to
   tighten that RPO ad-hoc.
-- **Postgres changes between the last 11:00 or 23:00 UTC dump and the
-  disaster** — up to 12h RPO (twice-daily `0 11,23 * * *`). For tighter
-  precision, add more cron entries (same script, no other changes) — or
-  enable Supabase PITR (~$25-50/mo, seconds-precision rollback within 7d
+- **Postgres changes between the last scheduled dump and the disaster** —
+  ≤2h during Dubai daytime, ≤4h overnight (`0 2,4,6,8,10,12,14,16,18,22 * * *`).
+  For tighter precision, add more cron entries (same script, no other changes) —
+  or enable Supabase PITR (~$25-50/mo, seconds-precision rollback within 7d
   retention).
   Trade-off documented in [POSTGRES_BACKUP_PLAN.md §1](POSTGRES_BACKUP_PLAN.md#decisions-locked-in-2026-06-03).
 
@@ -560,11 +560,13 @@ For honesty:
   runbook above sends them back. If you skip that step or `terraform destroy`
   before syncing, those outage-window uploads are lost. Future fix: a reverse
   cron on the DR box that periodically pushes `public/uploads/` back to S3.
-- **Postgres data — 12h RPO** via the twice-daily (`0 11,23 * * *`) `pg_dump`
-  to Singapore (§6 / [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md)). Tighter RPO
-  would need Supabase PITR (~$25-50/mo). Not enabled today by explicit
-  trade-off — the cron + daily Supabase platform backup is sufficient
-  for our stated 12h tolerance.
+- **Postgres data — ≤2h RPO (Dubai day) / ≤4h (overnight)** via the
+  `0 2,4,6,8,10,12,14,16,18,22 * * *` `pg_dump` to Singapore (§6 /
+  [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md)). Truly-zero RPO would need
+  Supabase PITR (~$25-50/mo). Not enabled today by explicit trade-off — the
+  frequent cron + daily Supabase platform backup is sufficient for the stated
+  tolerance (and Stripe is the payment system-of-record, so payment data isn't
+  at risk in the window).
 - **Supabase compute downtime.** If Supabase itself is unreachable (vs
   data-lost), the Singapore DR box still can't serve. Fail-over here
   means restoring the latest `pg_dump` to a NEW Supabase project + DNS

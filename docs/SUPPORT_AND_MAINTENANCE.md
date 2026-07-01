@@ -23,7 +23,7 @@ This document is **not** about new features. It's about **what's required to kee
 |---|---|---|---|
 | **Web application** | EA-SYS dashboard + public registration pages | AWS EC2, Mumbai region (ap-south-1), `t3.large` instance | This is the actual product. If it's down, organisers and registrants can't use the platform. |
 | **Background worker** | Cron-driven jobs (certificate rendering, scheduled emails, webinar recording retrieval, attendance sync) | Same Mumbai EC2 box, separate Docker container | If this is down, scheduled emails don't fire, certificates don't render, webinar attendance doesn't sync. Outage isn't immediately visible to users but accumulates. |
-| **Database** | PostgreSQL — all event data, registrations, speakers, payments, surveys | Supabase (managed Postgres, Mumbai region) | All operational data lives here. Daily backups to AWS Singapore (different region for disaster recovery). |
+| **Database** | PostgreSQL — all event data, registrations, speakers, payments, surveys | Supabase (managed Postgres, Mumbai region) | All operational data lives here. Backed up to AWS Singapore (different region for DR) every 2h during Dubai daytime / 4h overnight (`pg_dump` cron, 10×/day; ≤2h/≤4h RPO). |
 | **File storage (live)** | Photos, certificates, uploaded media, generated PDFs | Local filesystem on the Mumbai EC2 box, mounted as a Docker volume shared between the web + worker containers (`/home/ubuntu/ea-sys/public/uploads/`) | Primary copy of every uploaded file. Lives on the same instance as the application — pragmatic at current scale, but means the instance disk is part of the durability story. |
 | **File storage (DR mirror)** | Hourly snapshot of all uploaded files | AWS S3 Singapore region (`ap-southeast-1`) | Secondary copy for disaster recovery. Different AWS region from the live instance, so a Mumbai-wide outage doesn't lose files. Mirror lags up to 60 minutes (the cron schedule). |
 | **Email delivery** | All outgoing email (registration confirmation, payment receipt, speaker invitation, certificate delivery, admin alerts) | AWS SES (ap-south-1, Mumbai) | If email is down, registrants don't receive confirmations, certificates don't deliver, admin alerts don't fire. Single point of failure for customer communication. |
@@ -95,7 +95,8 @@ The platform invests heavily in self-monitoring + self-healing so the maintenanc
 - **Three-layer error capture** — Sentry (cloud), SES admin-alert email (~10 sec latency), `/logs` dashboard (Postgres-persisted)
 - **Background worker tier** — cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync) run automatically with Postgres advisory locks for singleton enforcement
 - **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination
-- **Automated DR backups** — hourly upload mirror + daily Postgres dump to AWS Singapore, no human action required
+- **Automated DR backups** — hourly upload mirror + frequent Postgres dumps (every 2h Dubai-day / 4h overnight) to AWS Singapore, no human action required
+- **Automated Docker disk reclaim** — weekly `docker-prune.sh` cron (Fri 03:00 UTC) clears build cache + dangling images so the box disk doesn't fill from repeated deploys (safe: keeps running + rollback images)
 - **Health endpoints** — `/health` and `/worker/health` proxy through nginx for external uptime monitoring
 - **Dependabot** — automated PRs for vulnerable npm packages
 - **GitHub Actions CI** — every push runs tsc + lint + 1479 unit tests + production build; broken changes can't reach production
@@ -158,7 +159,7 @@ The platform is largely self-monitoring (errors trigger emails, scheduled jobs a
 |---|---|---|
 | **System errors in production** | Four-layer pipeline: Sentry capture (~30 sec), SES admin-alert email (~10 sec), persisted to dashboard log viewer, and CloudWatch Logs (cross-region durability + Insights queries — see `infra/cloudwatch/README.md`) | Krishna's inbox (`krishna@meetingmindsdubai.com`) |
 | **Email send failures** | Per-failure email with full context (recipient, sender, AWS error code) | Krishna's inbox |
-| **Disaster recovery backups** | Daily Postgres `pg_dump` to AWS Singapore, hourly upload-folder mirror | Failure triggers SES email; success is silent |
+| **Disaster recovery backups** | Postgres `pg_dump` to AWS Singapore every 2h (Dubai day) / 4h (overnight), hourly upload-folder mirror | Failure triggers SES email; success is silent |
 | **Worker health** | `/worker/health` endpoint, Docker health check every 30 seconds | Internal — Docker restarts unhealthy container automatically |
 | **Stripe webhook signature failures** | Logged at error level → admin alert | Krishna's inbox |
 | **Deploy success / failure** | GitHub Actions workflow result | Email + GitHub UI |
@@ -167,7 +168,7 @@ The platform is largely self-monitoring (errors trigger emails, scheduled jobs a
 
 | What | Why it matters | Current cadence |
 |---|---|---|
-| **EC2 disk space** | Disk fills → can't write logs → service degradation | Weekly spot-check (not paged) |
+| **EC2 disk space** | Disk fills → can't write logs → service degradation | Weekly `docker-prune.sh` cron reclaims build cache + dangling images (the main creep); still a weekly spot-check (not paged) — a mem/disk CloudWatch alarm is the durable fix (§7) |
 | **EC2 memory / CPU** | Memory pressure → swap → slow responses | Weekly spot-check (not paged) |
 | **SES reputation score** | Reputation drop → emails go to spam → registrants don't receive confirmations | Monthly review (no automated alert) |
 | **Stripe webhook delivery rate** | Some webhooks failing silently → payment statuses out of sync | Spot-check via Stripe dashboard |
@@ -186,7 +187,7 @@ EA-SYS depends on external vendors. None of them are perfectly reliable; the que
 | Vendor | Service | Blast radius if they're down | Mitigation |
 |---|---|---|---|
 | **AWS** (Mumbai region) | EC2 + S3 + SES + DNS (Route 53 for some) | Total outage — the platform is unreachable | DR backups to AWS Singapore region; documented playbook to spin up in Singapore (~4 hours RTO). Real-world: AWS Mumbai had ~2 outages in last 5 years, none > 4 hours. |
-| **Supabase** | PostgreSQL database | Total outage — no data access | Daily backups stored independently in AWS Singapore S3. Restorable to any vanilla Postgres 17 in ~30 min if Supabase is permanently down. |
+| **Supabase** | PostgreSQL database | Total outage — no data access | Frequent backups (every 2h Dubai-day / 4h overnight) stored independently in AWS Singapore S3. Restorable to any vanilla Postgres 17 in ~30 min via the two cold-standby runbooks (RDS or fresh Supabase) in `infra/dr/`. |
 | **Stripe** | Payment processing | Payment flow down; rest of platform continues | No realistic mitigation — Stripe is the de facto standard. Manual payment recording via dashboard is available as fallback for offline collection. |
 | **AWS SES** | Email sending | Email-dependent flows down (confirmations, alerts, password reset) | Could swap providers (Brevo / SendGrid / Postmark) in ~4 hours of engineering work — the code already has provider-abstraction in place (commented-out blocks from previous setup). |
 | **Anthropic** | AI Agent + Help Chat | Two specific features down; rest unaffected | None — these are best-effort features. Help Chat is a "nice to have" not "must have". |
