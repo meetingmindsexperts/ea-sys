@@ -1258,6 +1258,12 @@ export function RegistrationDetailSheet({
                         <span className="text-muted-foreground">Subtotal</span>
                         <span className="font-medium">{formatCurrency(f.subtotal, f.currency)}</span>
                       </div>
+                      {selectedRegistration.promoCode && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Promo code applied</span>
+                          <span className="font-medium text-emerald-700">{selectedRegistration.promoCode.code}</span>
+                        </div>
+                      )}
                       {f.discount > 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Discount</span>
@@ -1288,7 +1294,7 @@ export function RegistrationDetailSheet({
                       )}
                       {pending && (
                         <div className="flex justify-between border-t pt-1.5">
-                          <span className="font-semibold text-amber-800">Balance Due</span>
+                          <span className="font-semibold text-amber-800">Outstanding</span>
                           <span className="font-bold text-amber-800">
                             {formatCurrency(f.balanceDue, f.currency)}
                           </span>
@@ -1539,6 +1545,12 @@ export function RegistrationDetailSheet({
                           <span className="text-muted-foreground">Subtotal</span>
                           <span className="font-medium">{formatCurrency(f.subtotal, f.currency)}</span>
                         </div>
+                        {selectedRegistration.promoCode && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Promo code applied</span>
+                            <span className="font-medium text-emerald-700">{selectedRegistration.promoCode.code}</span>
+                          </div>
+                        )}
                         {f.discount > 0 && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Discount</span>
@@ -1561,9 +1573,11 @@ export function RegistrationDetailSheet({
                             <span className="font-medium text-emerald-600">{formatCurrency(f.totalPaid, f.currency)}</span>
                           </div>
                         )}
+                        {/* Final outstanding amount — always shown when money is
+                            still owed, prominent so it's unmissable. */}
                         {f.hasOutstandingBalance && (
                           <div className="flex justify-between border-t pt-2">
-                            <span className="font-semibold text-amber-800">Balance Due</span>
+                            <span className="font-semibold text-amber-800">Outstanding</span>
                             <span className="font-bold text-amber-800">{formatCurrency(f.balanceDue, f.currency)}</span>
                           </div>
                         )}
