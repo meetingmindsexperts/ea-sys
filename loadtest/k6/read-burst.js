@@ -25,15 +25,22 @@ import { BASE_URL, EVENT_SLUG, commonThresholds, requireEnv } from './config.js'
 const rateLimited = new Counter('rate_limited_429');
 const okRate = new Rate('checks_ok');
 
+// Load is env-tunable so a single-IP run can stay UNDER the box's own nginx
+// per-IP limits (100 req/s, 100 concurrent). Defaults are the full burst;
+// pass PEAK_VUS / RAMP / HOLD to run gently against prod.
+const PEAK_VUS = Number(__ENV.PEAK_VUS || 200);
+const RAMP = __ENV.RAMP || '30s';
+const HOLD = __ENV.HOLD || '1m';
+
 export const options = {
   scenarios: {
     read_burst: {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '30s', target: 50 }, // ramp to 50 concurrent
-        { duration: '1m', target: 200 }, // burst to 200
-        { duration: '30s', target: 0 }, // ramp down
+        { duration: RAMP, target: Math.max(1, Math.round(PEAK_VUS / 4)) },
+        { duration: HOLD, target: PEAK_VUS },
+        { duration: '15s', target: 0 },
       ],
       gracefulRampDown: '10s',
     },
