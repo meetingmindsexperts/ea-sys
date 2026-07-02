@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Calendar, Clock, Edit, RotateCw, Trash2, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Calendar, Clock, Edit, RotateCw, Trash2, AlertCircle, CheckCircle2, Loader2, Users, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -92,6 +92,81 @@ function StatusBadge({ status }: { status: ScheduledEmailItem["status"] }) {
   );
 }
 
+/** Compact KPI strip summarising every scheduled email for the event — computed
+ *  entirely from the already-loaded rows (no extra fetch). */
+function SummaryStrip({ rows }: { rows: ScheduledEmailItem[] }) {
+  const sent = rows.filter((r) => r.status === "SENT").length;
+  const pending = rows.filter((r) => r.status === "PENDING" || r.status === "PROCESSING").length;
+  const failed = rows.filter((r) => r.status === "FAILED").length;
+  // Recipients reached = successful sends across completed rows; rate is over
+  // what those rows actually attempted (SENT rows with a known total).
+  const delivered = rows.reduce((s, r) => s + (r.status === "SENT" ? r.successCount ?? 0 : 0), 0);
+  const attempted = rows.reduce((s, r) => s + (r.status === "SENT" ? r.totalCount ?? 0 : 0), 0);
+  const rate = attempted > 0 ? Math.round((delivered / attempted) * 1000) / 10 : null;
+
+  const stats: { label: string; value: string; icon: React.ReactNode; className: string }[] = [
+    { label: "Scheduled", value: String(rows.length), icon: <Calendar className="h-4 w-4" />, className: "text-[#00aade]" },
+    { label: "Sent", value: String(sent), icon: <CheckCircle2 className="h-4 w-4" />, className: "text-green-600" },
+    { label: "Pending", value: String(pending), icon: <Clock className="h-4 w-4" />, className: "text-amber-600" },
+    { label: "Failed", value: String(failed), icon: <AlertCircle className="h-4 w-4" />, className: "text-red-600" },
+    { label: "Delivered", value: delivered.toLocaleString(), icon: <Users className="h-4 w-4" />, className: "text-[#00aade]" },
+    { label: "Delivery rate", value: rate != null ? `${rate}%` : "—", icon: <TrendingUp className="h-4 w-4" />, className: "text-green-600" },
+  ];
+
+  return (
+    <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+      {stats.map((s) => (
+        <div key={s.label} className="rounded-lg border bg-muted/30 p-2.5">
+          <div className={`flex items-center gap-1.5 ${s.className}`}>
+            {s.icon}
+            <span className="text-lg font-semibold tabular-nums">{s.value}</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">{s.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Inline delivery outcome for a row — surfaces the counts that were previously
+ *  only visible on a status-badge hover. */
+function ResultsCell({ row }: { row: ScheduledEmailItem }) {
+  if (row.status === "SENT") {
+    const total = row.totalCount ?? 0;
+    const success = row.successCount ?? 0;
+    const failed = row.failureCount ?? 0;
+    if (total === 0) {
+      return <span className="text-xs text-muted-foreground">No recipients</span>;
+    }
+    return (
+      <div className="flex flex-col text-xs">
+        <span className="font-medium text-green-700">
+          {success.toLocaleString()}/{total.toLocaleString()} delivered
+        </span>
+        {failed > 0 && <span className="text-red-600">{failed.toLocaleString()} failed</span>}
+      </div>
+    );
+  }
+  if (row.status === "FAILED") {
+    return row.lastError ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help text-xs text-red-600 underline decoration-dotted">
+            View error
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs break-words">{row.lastError}</TooltipContent>
+      </Tooltip>
+    ) : (
+      <span className="text-xs text-muted-foreground">—</span>
+    );
+  }
+  if (row.status === "PROCESSING") {
+    return <span className="text-xs text-blue-600">Sending…</span>;
+  }
+  return <span className="text-xs text-muted-foreground">—</span>;
+}
+
 const RECIPIENT_LABEL: Record<ScheduledEmailItem["recipientType"], string> = {
   registrations: "Registrations",
   speakers: "Speakers",
@@ -160,6 +235,8 @@ export function ScheduledEmailsList({ eventId }: Props) {
             No scheduled emails yet. Use the audience cards above and choose &ldquo;Schedule for later&rdquo;.
           </div>
         ) : (
+          <>
+            <SummaryStrip rows={scheduledEmails} />
           <TooltipProvider>
             <Table>
               <TableHeader>
@@ -169,6 +246,7 @@ export function ScheduledEmailsList({ eventId }: Props) {
                   <TableHead>Email Type</TableHead>
                   <TableHead>Subject</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Results</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -177,6 +255,11 @@ export function ScheduledEmailsList({ eventId }: Props) {
                   <TableRow key={row.id}>
                     <TableCell className="font-mono text-xs">
                       {new Date(row.scheduledFor).toLocaleString()}
+                      {row.sentAt && (
+                        <div className="mt-0.5 font-sans text-[10px] text-muted-foreground">
+                          Sent {new Date(row.sentAt).toLocaleString()}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
@@ -205,30 +288,17 @@ export function ScheduledEmailsList({ eventId }: Props) {
                       {row.customSubject || <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>
-                      {row.status === "SENT" && row.totalCount != null ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span>
-                              <StatusBadge status={row.status} />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {row.successCount}/{row.totalCount} delivered
-                            {row.failureCount ? ` · ${row.failureCount} failed` : ""}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : row.status === "FAILED" && row.lastError ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span>
-                              <StatusBadge status={row.status} />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">{row.lastError}</TooltipContent>
-                        </Tooltip>
-                      ) : (
+                      <div className="flex flex-col items-start gap-1">
                         <StatusBadge status={row.status} />
-                      )}
+                        {row.retryCount > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            retried ×{row.retryCount}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <ResultsCell row={row} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -270,6 +340,7 @@ export function ScheduledEmailsList({ eventId }: Props) {
               </TableBody>
             </Table>
           </TooltipProvider>
+          </>
         )}
       </CardContent>
 
