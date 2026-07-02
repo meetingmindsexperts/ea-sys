@@ -7,6 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
 import {
   changeAbstractStatus,
   type AbstractTransitionStatus,
@@ -33,7 +34,12 @@ const HTTP_STATUS_FOR_ABSTRACT_ERROR: Record<ChangeAbstractStatusErrorCode, numb
 const updateAbstractSchema = z.object({
   ...optimisticLockField,
   title: z.string().min(1).max(500).optional(),
-  content: z.string().min(1).max(50000).optional(),
+  content: z
+    .string()
+    .min(1)
+    .max(50000)
+    .refine(withinAbstractWordLimit, { message: `Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer` })
+    .optional(),
   trackId: z.string().max(100).nullable().optional(),
   themeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),

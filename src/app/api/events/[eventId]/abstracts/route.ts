@@ -13,6 +13,7 @@ import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -21,7 +22,11 @@ const presentationTypeSchema = z.nativeEnum(PresentationType);
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1).max(100),
   title: z.string().min(1).max(500),
-  content: z.string().min(1).max(50000),
+  content: z
+    .string()
+    .min(1)
+    .max(50000)
+    .refine(withinAbstractWordLimit, { message: `Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer` }),
   specialty: z.string().max(255).optional(),
   presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),

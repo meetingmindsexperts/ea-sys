@@ -38,6 +38,7 @@ import {
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { MAX_ABSTRACT_WORDS, countWords } from "@/lib/abstract-content";
 
 interface Track {
   id: string;
@@ -76,6 +77,8 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const status = abstract.status as string;
   const abstractUpdatedAt = abstract.updatedAt as string;
   const canEdit = editableStatuses.includes(status);
+  const contentWords = countWords(editData.content);
+  const overWords = contentWords > MAX_ABSTRACT_WORDS;
   const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
 
   // Fetch aggregated reviewer feedback from the new submissions API so
@@ -249,6 +252,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 className="resize-y min-h-[300px] text-base leading-relaxed"
                 disabled={!canEdit}
               />
+              <p className={`text-xs text-right ${overWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                {contentWords} / {MAX_ABSTRACT_WORDS} words
+                {overWords && " — over the limit"}
+              </p>
             </CardContent>
           </Card>
 
@@ -272,7 +279,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {status === "DRAFT" && (
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
-                    disabled={isPending}
+                    disabled={isPending || overWords}
                     onClick={() => updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt })}
                   >
                     {updateMutation.isPending ? (
@@ -285,7 +292,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 <Button
                   variant={status === "DRAFT" ? "outline" : "default"}
                   className={status !== "DRAFT" ? "w-full btn-gradient font-semibold h-11" : "w-full"}
-                  disabled={isPending}
+                  disabled={isPending || overWords}
                   onClick={() => updateMutation.mutate({ ...editData, expectedUpdatedAt: abstractUpdatedAt })}
                 >
                   <Save className="mr-2 h-4 w-4" />

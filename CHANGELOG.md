@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Abstracts submitter flow: details page, guidelines, co-authors, presentation types, 300-word cap (July 2)
+
+Cluster of abstract-submission improvements.
+
+- **Submitter details landing page** (`/events/[eventId]/abstracts/profile`) — existing
+  submitters land here after sign-in (profile + linked registration + their abstracts +
+  Submit CTA), backed by an ownership-scoped `GET /abstracts/my-profile` (resolves the
+  caller's own Speaker by userId+eventId; view-only). Under `/abstracts/*` so it passes the
+  SUBMITTER middleware allow-list. Sign-in landing wired here (login `?redirect=abstracts` +
+  the `abstract-start` path) — also fixes the old redirect bug (SUBMITTER→/events,
+  REGISTRANT→bounced to signup). Reciprocal "My Details" button on the My Abstracts page.
+- **Editable submission guidelines** — new `Event.abstractGuidelinesHtml` (additive migration
+  `20260702150000`) + `DEFAULT_ABSTRACT_GUIDELINES_HTML` fallback (shown on all events, no
+  backfill), editable via Content → Abstracts. `{{contactEmail}}` merged at render from
+  `Event.emailFromAddress` (fallback constant — not hardcoded). Shared `AbstractGuidelines`
+  component on `/abstracts/new` + the profile page. Event PUT accepts it; clone copies it.
+- **Co-authors** — up to 20 per abstract (name*, email, phone, job title, organization,
+  country) on the submit + edit forms; new `Abstract.coAuthors` JSON column (additive
+  migration `20260702160000`). Shared `src/lib/abstract-coauthors.ts` (type + zod +
+  `normalizeCoAuthors`) + reusable `CoAuthorFields`; persisted via the abstract POST + both
+  PUT branches; shown on the abstract detail/review view.
+- **Presentation types** are now Oral/Poster (combined — oral & poster not distinguished,
+  stored as the `ORAL` enum value so no enum migration; legacy `POSTER` kept for old
+  abstracts), Video, Workshop.
+- **300-word cap on the abstract body** — server-side (Zod `.refine` on `content` in create +
+  update) and client-side (live "N / 300 words" counter + disabled submit when over) via
+  `src/lib/abstract-content.ts`. Title + author names excluded (entered separately).
+
+Two additive/blue-green-safe migrations. tsc 0, lint 0, vitest 1786, build 0.
+
 ### Added — Attendee "Role" recorded on every form + shown across the dashboard (July 2)
 
 The `AttendeeRole` profession field (ACADEMIA / ALLIED_HEALTH / MEDICAL_DEVICES /
