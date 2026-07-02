@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
-import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
-import { sendEmailVerification } from "@/lib/email-verification";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
-import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
+import { ensureRegistrantAccount } from "@/lib/registrant-account";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -352,64 +349,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     const firstName = registration.attendee.firstName;
     const lastName = registration.attendee.lastName;
 
-    if (password) {
-      try {
-        const clientIp = getClientIp(req);
-        const existingUser = await db.user.findUnique({ where: { email }, select: { id: true, role: true, termsAcceptedAt: true } });
-
-        if (existingUser) {
-          await db.registration.update({
-            where: { id: registrationId },
-            data: { userId: existingUser.id },
-          });
-          await db.registration.updateMany({
-            where: { attendee: { email }, userId: null },
-            data: { userId: existingUser.id },
-          });
-          if (!existingUser.termsAcceptedAt) {
-            await db.user.update({
-              where: { id: existingUser.id },
-              data: { termsAcceptedAt: new Date(), termsAcceptedIp: clientIp },
-            });
-          }
-        } else {
-          const passwordHash = await bcrypt.hash(password, 10);
-          const newUser = await db.user.create({
-            data: {
-              email,
-              passwordHash,
-              firstName,
-              lastName,
-              role: "REGISTRANT",
-              // TRUSTED internal domains (temp accounts) get the org now;
-              // VERIFIED domains (meetingmindsdubai.com) stay org-null until they
-              // verify (link sent below); external attendees stay org-independent.
-              organizationId: isTrustedInternalEmail(email) ? registration.event.organizationId : null,
-              specialty,
-              termsAcceptedAt: new Date(),
-              termsAcceptedIp: clientIp,
-            },
-          });
-          if (needsEmailVerification(email)) {
-            void sendEmailVerification({ email, name: `${firstName} ${lastName}` });
-          }
-          await db.registration.updateMany({
-            where: { attendee: { email }, userId: null },
-            data: { userId: newUser.id },
-          });
-          notifyEventAdmins(registration.event.id, {
-            type: "SIGNUP",
-            title: "New Account Signup",
-            message: `${firstName} ${lastName} (${email}) completed registration and created an account`,
-            link: `/events/${registration.event.id}/registrations`,
-          }).catch((notifyErr) => {
-            apiLogger.warn({ msg: "Failed to notify admins of registration completion signup", registrationId, err: notifyErr instanceof Error ? notifyErr.message : String(notifyErr) });
-          });
-        }
-      } catch (accountError) {
-        apiLogger.error({ err: accountError, msg: "Failed to create/link user account during registration completion" });
-      }
-    }
+    await ensureRegistrantAccount({
+      registrationId,
+      eventId: registration.event.id,
+      organizationId: registration.event.organizationId,
+      email,
+      firstName,
+      lastName,
+      password,
+      specialty,
+      clientIp: getClientIp(req),
+      signupMessage: `${firstName} ${lastName} (${email}) completed registration and created an account`,
+    });
 
     // Sync to contact store
     await syncToContact({

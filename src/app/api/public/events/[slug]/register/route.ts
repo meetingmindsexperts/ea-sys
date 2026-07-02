@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -8,12 +7,11 @@ import { apiLogger } from "@/lib/logger";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
-import { sendEmailVerification } from "@/lib/email-verification";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
+import { ensureRegistrantAccount } from "@/lib/registrant-account";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -564,73 +562,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(event.id);
 
-    // Account creation: create or link user to registration
-    if (password) {
-      try {
-        const clientIpForTerms = getClientIp(req);
-        const existingUser = await db.user.findUnique({ where: { email }, select: { id: true, role: true, termsAcceptedAt: true } });
-
-        if (existingUser) {
-          // Link registration to existing user
-          await db.registration.update({
-            where: { id: registration.id },
-            data: { userId: existingUser.id },
-          });
-          // Also link any other unlinked registrations by this email
-          await db.registration.updateMany({
-            where: { attendee: { email }, userId: null },
-            data: { userId: existingUser.id },
-          });
-          // Record terms acceptance (first time only — never overwrite)
-          if (!existingUser.termsAcceptedAt) {
-            await db.user.update({
-              where: { id: existingUser.id },
-              data: { termsAcceptedAt: new Date(), termsAcceptedIp: clientIpForTerms },
-            });
-          }
-        } else {
-          // Create new REGISTRANT user
-          const passwordHash = await bcrypt.hash(password, 10);
-          const newUser = await db.user.create({
-            data: {
-              email,
-              passwordHash,
-              firstName,
-              lastName,
-              role: "REGISTRANT",
-              // TRUSTED internal domains (temp accounts) belong to the org from
-              // the start. VERIFIED internal domains (meetingmindsdubai.com) are
-              // org-null until they verify their email (link sent below).
-              // External attendees stay org-independent.
-              organizationId: isTrustedInternalEmail(email) ? event.organizationId : null,
-              specialty: specialty || null,
-              termsAcceptedAt: new Date(),
-              termsAcceptedIp: clientIpForTerms,
-            },
-          });
-          // Link this registration + any other unlinked registrations by this email
-          await db.registration.updateMany({
-            where: { attendee: { email }, userId: null },
-            data: { userId: newUser.id },
-          });
-          // Verified-internal domain (real mailbox) → send a verify link; the
-          // org attaches when they click it. Best-effort (won't fail signup).
-          if (needsEmailVerification(email)) {
-            void sendEmailVerification({ email, name: `${firstName} ${lastName}` });
-          }
-          // Notify admins of new signup (non-blocking)
-          notifyEventAdmins(event.id, {
-            type: "SIGNUP",
-            title: "New Account Signup",
-            message: `${firstName} ${lastName} (${email}) created a registrant account`,
-            link: `/events/${event.id}/registrations`,
-          }).catch((err) => apiLogger.warn({ err, msg: "public-register:notify-admins-failed" }));
-        }
-      } catch (accountError) {
-        // Account creation failure should not block the registration
-        apiLogger.error({ err: accountError, msg: "Failed to create/link user account during registration" });
-      }
-    }
+    // Account creation: create or link the REGISTRANT account + sweep any
+    // sibling registrations on this email (failure-isolated — never blocks the
+    // registration). No-ops when no password was supplied (guest registration).
+    await ensureRegistrantAccount({
+      registrationId: registration.id,
+      eventId: event.id,
+      organizationId: event.organizationId,
+      email,
+      firstName,
+      lastName,
+      password,
+      specialty: specialty || null,
+      clientIp: getClientIp(req),
+      signupMessage: `${firstName} ${lastName} (${email}) created a registrant account`,
+    });
 
     const finalPrice = registrationFinalPrice;
     const finalCurrency = pricingTier ? pricingTier.currency : ticketType.currency;
