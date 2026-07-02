@@ -118,7 +118,12 @@ export default function AbstractsPage() {
   const isReviewer   = session?.user?.role === "REVIEWER";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
   const isAdmin      = isSuperAdmin || session?.user?.role === "ADMIN";
-  const canReview    = isAdmin || isReviewer;
+  const isOrganizer  = session?.user?.role === "ORGANIZER";
+  // Organizers manage abstracts with the same powers as admins — edit,
+  // approve/reject, change presentation type, assign reviewers, force-status.
+  // Mirrors the backend PUT, whose `isAdmin` already includes ORGANIZER.
+  const isAbstractManager = isAdmin || isOrganizer;
+  const canReview    = isAbstractManager || isReviewer;
   // Management writes (CSV import, bulk email, add abstract) are blocked by
   // denyReviewer for MEMBER/ONSITE/etc. The previous `!isSubmitter && !isReviewer`
   // gate still showed those buttons to the read-only MEMBER, who then got a 403
@@ -780,7 +785,7 @@ export default function AbstractsPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {isAdmin && (
+                  {isAbstractManager && (
                     <label className="flex items-start gap-2 text-sm text-muted-foreground">
                       <input
                         type="checkbox"
@@ -991,7 +996,7 @@ export default function AbstractsPage() {
                       ) : canReview ? (
                         // Admin / Reviewer actions
                         <>
-                          {isAdmin && (
+                          {isAbstractManager && (
                             <>
                               <Button variant="outline" size="sm" asChild>
                                 <Link href={`/events/${eventId}/abstracts/${abstract.id}/edit`}>
