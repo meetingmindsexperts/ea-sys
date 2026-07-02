@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 
@@ -226,9 +227,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Scope by role, not org: reviewers + submitters are org-independent
+    // (organizationId = null), so the old `organizationId!` filter threw a
+    // Prisma validation error ("must not be null") when a reviewer opened the
+    // abstract edit page (which renders AbstractReviewersCard → fetches this).
     const [event, abstract] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.abstract.findFirst({

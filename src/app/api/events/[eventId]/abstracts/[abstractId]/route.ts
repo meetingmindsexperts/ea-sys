@@ -126,7 +126,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const [event, existingAbstract] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, name: true, settings: true },
+        select: { id: true, organizationId: true, name: true, settings: true },
       }),
       db.abstract.findFirst({
         where: {
@@ -264,7 +264,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if ((isReview || isTerminal) && data.status) {
       const result = await changeAbstractStatus({
         eventId,
-        organizationId: session.user.organizationId!,
+        // Use the EVENT's org (always set), not the caller's — a REVIEWER is
+        // org-independent (organizationId = null), which previously produced a
+        // Prisma validation error inside changeAbstractStatus's org-scoped where.
+        organizationId: event.organizationId,
         userId: session.user.id,
         abstractId,
         newStatus: data.status as AbstractTransitionStatus,
