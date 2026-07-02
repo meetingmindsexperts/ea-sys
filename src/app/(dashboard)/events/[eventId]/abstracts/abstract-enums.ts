@@ -32,17 +32,21 @@ export function abstractStatusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
+// Three presentation-type choices: "Oral/Poster" (a single combined option —
+// oral and poster are not distinguished), Video, and Workshop. The combined
+// option is stored as the ORAL enum value (no enum migration); the standalone
+// POSTER value is kept in the enum + label map so any legacy abstracts still
+// display correctly, but it's no longer offered in the picker.
 export const PRESENTATION_TYPE_OPTIONS: { value: PresentationType; label: string }[] = [
-  { value: "ORAL", label: "Oral Presentation" },
-  { value: "POSTER", label: "Poster Presentation" },
+  { value: "ORAL", label: "Oral/Poster Presentation" },
   { value: "VIDEO", label: "Video Presentation" },
   { value: "WORKSHOP", label: "Workshop Presentation" },
 ];
 
 /** Short label, e.g. for badges. */
 export const PRESENTATION_TYPE_LABELS: Record<PresentationType, string> = {
-  ORAL: "Oral",
-  POSTER: "Poster",
+  ORAL: "Oral/Poster",
+  POSTER: "Poster", // legacy standalone value — kept for old abstracts
   VIDEO: "Video",
   WORKSHOP: "Workshop",
 };

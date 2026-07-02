@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
+import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import {
   changeAbstractStatus,
   type AbstractTransitionStatus,
@@ -37,6 +38,7 @@ const updateAbstractSchema = z.object({
   themeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
   presentationType: z.enum(["ORAL", "POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
+  coAuthors: coAuthorsSchema.optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
   /** Organizer/chair override: bypass the requiredReviewCount gate. Logged. */
   forceStatus: z.boolean().optional(),
@@ -261,6 +263,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.themeId !== undefined && { themeId: data.themeId }),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
+        ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
       };
       const hasFieldUpdates = Object.keys(fieldUpdates).length > 0;
 
@@ -306,6 +309,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.themeId !== undefined && { themeId: data.themeId }),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
+        ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
         ...(data.status && { status: data.status }),
         ...(isSubmission && { submittedAt: new Date() }),
         updatedAt: new Date(),

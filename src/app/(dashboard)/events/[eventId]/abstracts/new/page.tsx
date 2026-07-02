@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
+import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
+import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -75,6 +77,7 @@ export default function NewAbstractPage() {
     presentationType: "",
     trackId: "",
     themeId: "",
+    coAuthors: [] as CoAuthor[],
     status: "SUBMITTED",
   });
 
@@ -187,6 +190,16 @@ export default function NewAbstractPage() {
                 rows={16}
                 placeholder="Enter your abstract content here..."
                 className="resize-y min-h-[300px] text-base leading-relaxed"
+              />
+            </CardContent>
+          </Card>
+
+          {/* Co-authors */}
+          <Card>
+            <CardContent className="pt-6">
+              <CoAuthorFields
+                value={formData.coAuthors}
+                onChange={(coAuthors) => setFormData({ ...formData, coAuthors })}
               />
             </CardContent>
           </Card>

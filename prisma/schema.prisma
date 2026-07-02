@@ -1016,6 +1016,10 @@ model Abstract {
   themeId          String?
   specialty        String?
   presentationType PresentationType?
+  // Co-authors entered by the submitter — array of
+  // { name, email, phone, jobTitle, organization, country }. Stored as JSON
+  // (contact info only, not accounts). See src/lib/abstract-coauthors.ts.
+  coAuthors        Json?
   status           AbstractStatus    @default(SUBMITTED)
   managementToken  String?           @unique
   submittedAt      DateTime          @default(now())

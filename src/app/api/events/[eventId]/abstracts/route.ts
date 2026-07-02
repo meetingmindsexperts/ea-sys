@@ -12,6 +12,7 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandin
 import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
+import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -25,6 +26,7 @@ const createAbstractSchema = z.object({
   presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),
   themeId: z.string().max(100).optional(),
+  coAuthors: coAuthorsSchema.optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
 });
 
@@ -144,7 +146,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId, title, content, specialty, presentationType, trackId, themeId, status } = validated.data;
+    const { speakerId, title, content, specialty, presentationType, trackId, themeId, coAuthors, status } = validated.data;
 
     // SUBMITTER can only submit for their own speaker record
     const speakerWhere = session.user.role === "SUBMITTER"
@@ -204,6 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         presentationType: presentationType || null,
         trackId: trackId || null,
         themeId: themeId || null,
+        coAuthors: normalizeCoAuthors(coAuthors),
         status,
         managementToken: crypto.randomBytes(32).toString("hex"),
         submittedAt: status === "SUBMITTED" ? new Date() : undefined,

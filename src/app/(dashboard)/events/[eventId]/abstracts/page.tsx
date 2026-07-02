@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
+import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -103,6 +104,8 @@ interface Abstract {
   meanOverallScore?: number | null;
   /** Count of per-abstract reviewer assignments (AbstractReviewer rows). */
   assignedReviewerCount?: number;
+  /** Submitter-entered co-authors (JSON on the abstract). */
+  coAuthors?: CoAuthor[] | null;
 }
 
 export default function AbstractsPage() {
@@ -796,6 +799,23 @@ export default function AbstractsPage() {
                     {selectedAbstract.content}
                   </p>
                 </div>
+                {selectedAbstract.coAuthors && selectedAbstract.coAuthors.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      Co-authors ({selectedAbstract.coAuthors.length})
+                    </div>
+                    <ul className="text-sm space-y-1">
+                      {selectedAbstract.coAuthors.map((ca, i) => (
+                        <li key={i} className="text-muted-foreground">
+                          <span className="text-foreground">{ca.name}</span>
+                          {[ca.jobTitle, ca.organization, ca.country].filter(Boolean).length > 0 &&
+                            ` — ${[ca.jobTitle, ca.organization, ca.country].filter(Boolean).join(", ")}`}
+                          {ca.email && ` · ${ca.email}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <form onSubmit={handleReview} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="reviewStatus">Decision</Label>

@@ -36,6 +36,8 @@ import {
   abstractStatusLabel,
 } from "../../abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
+import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
+import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 
 interface Track {
   id: string;
@@ -68,6 +70,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
     presentationType: (abstract.presentationType as string) || "",
     trackId: (abstract.track as { id: string } | null)?.id || "",
     themeId: (abstract.theme as { id: string } | null)?.id || "",
+    coAuthors: normalizeCoAuthors(abstract.coAuthors),
   });
 
   const status = abstract.status as string;
@@ -110,6 +113,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           presentationType: data.presentationType || undefined,
           trackId: data.trackId || undefined,
           themeId: data.themeId || undefined,
+          coAuthors: data.coAuthors,
           ...(data.status && { status: data.status }),
         }),
       });
@@ -243,6 +247,17 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 onChange={(e) => setEditData({ ...editData, content: e.target.value })}
                 rows={16}
                 className="resize-y min-h-[300px] text-base leading-relaxed"
+                disabled={!canEdit}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Co-authors */}
+          <Card>
+            <CardContent className="pt-6">
+              <CoAuthorFields
+                value={editData.coAuthors}
+                onChange={(coAuthors) => setEditData({ ...editData, coAuthors })}
                 disabled={!canEdit}
               />
             </CardContent>
