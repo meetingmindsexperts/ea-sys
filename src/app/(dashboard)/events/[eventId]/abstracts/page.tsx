@@ -144,7 +144,6 @@ export default function AbstractsPage() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
   // Per-abstract reviewer-assignment dialog target.
   const [reviewersForAbstract, setReviewersForAbstract] = useState<Abstract | null>(null);
@@ -178,14 +177,6 @@ export default function AbstractsPage() {
     trackId: "",
     themeId: "" as string,
     status: "SUBMITTED",
-  });
-  const [editData, setEditData] = useState({
-    title: "",
-    content: "",
-    specialty: "",
-    presentationType: "" as string,
-    trackId: "",
-    themeId: "" as string,
   });
   // Sprint B: per-reviewer scoring moved to AbstractReviewSubmission rows
   // (see /submissions route + reviewer portal). This dialog now only handles
@@ -234,35 +225,6 @@ export default function AbstractsPage() {
     onError: (err: Error) => toast.error(err.message || "Failed to submit abstract"),
   });
 
-  // Edit abstract mutation (for submitters)
-  const editAbstractMutation = useMutation({
-    mutationFn: async ({ abstractId, data }: { abstractId: string; data: typeof editData }) => {
-      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: data.title,
-          content: data.content,
-          specialty: data.specialty || undefined,
-          presentationType: data.presentationType || undefined,
-          trackId: data.trackId || undefined,
-          themeId: data.themeId || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to update abstract");
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.abstracts(eventId) });
-      setIsEditDialogOpen(false);
-      setSelectedAbstract(null);
-      toast.success("Abstract updated successfully");
-    },
-    onError: (err: Error) => toast.error(err.message || "Failed to update abstract"),
-  });
 
   // Sprint B: status transitions validated against event.settings.requiredReviewCount
   // by the server; use forceStatus=true to override (logged as chair-override).
@@ -320,7 +282,7 @@ export default function AbstractsPage() {
     deleteAbstractMutation.mutate(abstractId);
   };
 
-  const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending || editAbstractMutation.isPending;
+  const isSubmitting = createAbstractMutation.isPending || reviewAbstractMutation.isPending;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -337,12 +299,6 @@ export default function AbstractsPage() {
       return;
     }
     createAbstractMutation.mutate(formData);
-  };
-
-  const handleEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAbstract) return;
-    editAbstractMutation.mutate({ abstractId: selectedAbstract.id, data: editData });
   };
 
   const handleReview = async (e: React.FormEvent) => {
@@ -862,124 +818,6 @@ export default function AbstractsPage() {
                   </div>
                 </form>
               </div>
-            )}
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Edit Dialog (for submitters editing their own abstracts) */}
-      {isSubmitter && (
-        <Dialog
-          open={isEditDialogOpen}
-          onOpenChange={(open) => {
-            setIsEditDialogOpen(open);
-            if (!open) setSelectedAbstract(null);
-          }}
-        >
-          <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Edit Abstract</DialogTitle>
-            </DialogHeader>
-            {selectedAbstract && (
-              <form onSubmit={handleEdit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="editTitle">Title</Label>
-                  <Input
-                    id="editTitle"
-                    value={editData.title}
-                    onChange={(e) =>
-                      setEditData({ ...editData, title: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="editContent">Abstract Content</Label>
-                  <Textarea
-                    id="editContent"
-                    value={editData.content}
-                    onChange={(e) => setEditData({ ...editData, content: e.target.value })}
-                    rows={10}
-                    className="resize-y min-h-[200px]"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Specialty</Label>
-                  <SpecialtySelect
-                    value={editData.specialty}
-                    onChange={(specialty) =>
-                      setEditData({ ...editData, specialty })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Presentation Type</Label>
-                  <Select
-                    value={editData.presentationType}
-                    onValueChange={(value) =>
-                      setEditData({ ...editData, presentationType: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PRESENTATION_TYPE_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="editTrack">Track</Label>
-                  <Select
-                    value={editData.trackId}
-                    onValueChange={(value) =>
-                      setEditData({ ...editData, trackId: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select track" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tracks.map((track) => (
-                        <SelectItem key={track.id} value={track.id}>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: track.color }}
-                            />
-                            {track.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Theme</Label>
-                  <AbstractThemeSelect
-                    eventId={eventId}
-                    value={editData.themeId || null}
-                    onChange={(v) => setEditData({ ...editData, themeId: v ?? "" })}
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsEditDialogOpen(false)}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Save Changes
-                  </Button>
-                </div>
-              </form>
             )}
           </DialogContent>
         </Dialog>
