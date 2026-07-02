@@ -71,6 +71,12 @@ sudo chown -R 1001:1001 "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
 phase_done "Bind-mount dirs"
 
 # ── Remove only dangling images in background (non-blocking) ──────────────────
+# NOTE (INC-002, 2026-07-02): this is dangling-ONLY and does NOT reap the tagged
+# ea-sys:<sha> / worker-<sha> images that accumulate one pair per deploy — those
+# piled up (~39 images / ~26 GB) and filled the 48 GB root disk, blocking a
+# deploy (prod stayed up; the pull's layer-extract hit "no space"). Durable fix
+# (pending): call scripts/docker-prune.sh HERE, before the pull, so every deploy
+# self-cleans instead of relying on the weekly cron. See docs/INCIDENTS.md INC-002.
 docker image prune -f > /dev/null 2>&1 &
 PRUNE_PID=$!
 
