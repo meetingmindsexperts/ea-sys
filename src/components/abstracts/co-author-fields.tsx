@@ -71,30 +71,22 @@ export function CoAuthorFields({ value, onChange, disabled = false }: CoAuthorFi
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Full name *</Label>
+                  <Label className="text-xs">First name *</Label>
                   <Input
-                    value={row.name}
-                    onChange={(e) => update(i, "name", e.target.value)}
-                    placeholder="Dr. Jane Doe"
+                    value={row.firstName}
+                    onChange={(e) => update(i, "firstName", e.target.value)}
+                    placeholder="Jane"
                     required
                     disabled={disabled}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Email</Label>
+                  <Label className="text-xs">Last name *</Label>
                   <Input
-                    type="email"
-                    value={row.email ?? ""}
-                    onChange={(e) => update(i, "email", e.target.value)}
-                    placeholder="jane@example.com"
-                    disabled={disabled}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Phone</Label>
-                  <Input
-                    value={row.phone ?? ""}
-                    onChange={(e) => update(i, "phone", e.target.value)}
+                    value={row.lastName}
+                    onChange={(e) => update(i, "lastName", e.target.value)}
+                    placeholder="Doe"
+                    required
                     disabled={disabled}
                   />
                 </div>

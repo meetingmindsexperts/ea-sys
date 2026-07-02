@@ -43,7 +43,7 @@ const updateAbstractSchema = z.object({
   trackId: z.string().max(100).nullable().optional(),
   themeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
-  presentationType: z.enum(["ORAL", "POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
+  presentationType: z.enum(["ORAL", "POSTER", "ORAL_POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
   coAuthors: coAuthorsSchema.optional(),
   status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
   /** Organizer/chair override: bypass the requiredReviewCount gate. Logged. */
@@ -165,7 +165,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const canReview = isAdmin || isReviewer;
     const reviewStatuses = ["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"];
 
-    // SUBMITTER restrictions: can only edit own abstracts, can't set review statuses
+    // SUBMITTER restrictions: own abstracts only; can act ONLY while DRAFT
+    // (edit + submit). Once submitted, editing + withdrawal are locked — the
+    // author must contact the organizer team. Can never set review statuses.
     if (session.user.role === "SUBMITTER") {
       if (existingAbstract.speaker?.userId !== session.user.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -173,10 +175,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
       if (data.status && reviewStatuses.includes(data.status)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      const editableStatuses = ["DRAFT", "SUBMITTED", "REVISION_REQUESTED"];
-      if (!editableStatuses.includes(existingAbstract.status)) {
+      // Withdrawal is an organizer action — authors can't withdraw.
+      if (data.status === "WITHDRAWN") {
         return NextResponse.json(
-          { error: "Cannot edit abstract in current status" },
+          {
+            error: "To withdraw an abstract, please contact the organizer team.",
+            code: "WITHDRAW_NOT_ALLOWED",
+          },
+          { status: 403 }
+        );
+      }
+      // Only a DRAFT is editable/submittable by its author. Any submitted (or
+      // later) abstract is locked to the author.
+      if (existingAbstract.status !== "DRAFT") {
+        return NextResponse.json(
+          {
+            error: "This abstract has already been submitted. To edit or withdraw it, please contact the organizer team.",
+            code: "SUBMITTED_LOCKED",
+          },
           { status: 403 }
         );
       }
@@ -229,6 +245,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // (resubmit after addressing feedback). Both must re-stamp submittedAt and
     // re-notify reviewers/organizers; SUBMITTED→SUBMITTED re-saves are not.
     const isSubmission = data.status === "SUBMITTED" && existingAbstract.status !== "SUBMITTED";
+    // Presentation type is mandatory to submit (a DRAFT can have it blank).
+    if (isSubmission && !(data.presentationType ?? existingAbstract.presentationType)) {
+      return NextResponse.json(
+        { error: "Presentation type is required to submit an abstract", code: "PRESENTATION_TYPE_REQUIRED" },
+        { status: 400 }
+      );
+    }
     // WITHDRAWN transitions aren't in `reviewStatuses` (reviewers don't set
     // that) but still need the service's terminal-state bookkeeping.
     const isTerminal = data.status === "WITHDRAWN" && existingAbstract.status !== "WITHDRAWN";

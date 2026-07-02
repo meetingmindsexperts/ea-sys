@@ -31,7 +31,6 @@ import { MAX_ABSTRACT_WORDS, countWords } from "@/lib/abstract-content";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { SpecialtySelect } from "@/components/ui/specialty-select";
 import Link from "next/link";
 import { PRESENTATION_TYPE_OPTIONS } from "../abstract-enums";
 
@@ -74,7 +73,6 @@ export default function NewAbstractPage() {
     speakerId: "",
     title: "",
     content: "",
-    specialty: "",
     presentationType: "",
     trackId: "",
     themeId: "",
@@ -127,6 +125,10 @@ export default function NewAbstractPage() {
     }
     if (countWords(formData.content) > MAX_ABSTRACT_WORDS) {
       toast.error(`Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer`);
+      return;
+    }
+    if (!asDraft && !formData.presentationType) {
+      toast.error("Please select a presentation type to submit");
       return;
     }
     createMutation.mutate({
@@ -276,7 +278,7 @@ export default function NewAbstractPage() {
 
               {/* Presentation Type */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Presentation Type</Label>
+                <Label className="text-xs font-medium">Presentation Type <span className="text-red-400">*</span></Label>
                 <Select
                   value={formData.presentationType}
                   onValueChange={(value) => setFormData({ ...formData, presentationType: value })}
@@ -290,15 +292,6 @@ export default function NewAbstractPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              {/* Specialty */}
-              <div className="space-y-1.5 overflow-visible">
-                <Label className="text-xs font-medium">Specialty</Label>
-                <SpecialtySelect
-                  value={formData.specialty}
-                  onChange={(specialty) => setFormData({ ...formData, specialty })}
-                />
               </div>
 
               {/* Track */}

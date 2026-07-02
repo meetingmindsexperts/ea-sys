@@ -807,10 +807,9 @@ export default function AbstractsPage() {
                     <ul className="text-sm space-y-1">
                       {selectedAbstract.coAuthors.map((ca, i) => (
                         <li key={i} className="text-muted-foreground">
-                          <span className="text-foreground">{ca.name}</span>
+                          <span className="text-foreground">{ca.firstName} {ca.lastName}</span>
                           {[ca.jobTitle, ca.organization, ca.country].filter(Boolean).length > 0 &&
                             ` — ${[ca.jobTitle, ca.organization, ca.country].filter(Boolean).join(", ")}`}
-                          {ca.email && ` · ${ca.email}`}
                         </li>
                       ))}
                     </ul>

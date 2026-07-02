@@ -33,6 +33,15 @@ const createAbstractSchema = z.object({
   themeId: z.string().max(100).optional(),
   coAuthors: coAuthorsSchema.optional(),
   status: abstractStatusSchema.default("SUBMITTED"),
+}).superRefine((data, ctx) => {
+  // Presentation type is mandatory to SUBMIT (a DRAFT save can leave it blank).
+  if (data.status === "SUBMITTED" && !data.presentationType) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["presentationType"],
+      message: "Presentation type is required to submit an abstract",
+    });
+  }
 });
 
 interface RouteParams {

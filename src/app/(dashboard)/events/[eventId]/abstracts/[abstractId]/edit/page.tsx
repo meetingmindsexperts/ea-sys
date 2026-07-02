@@ -23,7 +23,8 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
-import { useTracks, queryKeys } from "@/hooks/use-api";
+import { useSession } from "next-auth/react";
+import { useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -32,6 +33,7 @@ import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import {
   PRESENTATION_TYPE_OPTIONS,
+  PRESENTATION_TYPE_LABELS,
   abstractStatusColor,
   abstractStatusLabel,
 } from "../../abstract-enums";
@@ -74,9 +76,17 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
     coAuthors: normalizeCoAuthors(abstract.coAuthors),
   });
 
+  const { data: session } = useSession();
+  const isSubmitter = session?.user?.role === "SUBMITTER";
+  const { data: eventData } = useEvent(eventId);
+  const contactEmail = (eventData as { emailFromAddress?: string | null } | undefined)?.emailFromAddress;
+
   const status = abstract.status as string;
   const abstractUpdatedAt = abstract.updatedAt as string;
-  const canEdit = editableStatuses.includes(status);
+  // Authors (submitters) can only edit a DRAFT — once submitted it's locked and
+  // they must contact the organizer. Organizers/reviewers keep the broader set.
+  const canEdit = isSubmitter ? status === "DRAFT" : editableStatuses.includes(status);
+  const submitterLocked = isSubmitter && status !== "DRAFT";
   const contentWords = countWords(editData.content);
   const overWords = contentWords > MAX_ABSTRACT_WORDS;
   const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
@@ -183,10 +193,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             </Badge>
             {(abstract.presentationType as string) && (
               <Badge variant="secondary" className="text-xs">
-                {(abstract.presentationType as string) === "ORAL" ? "Oral"
-                  : (abstract.presentationType as string) === "POSTER" ? "Poster"
-                  : (abstract.presentationType as string) === "VIDEO" ? "Video"
-                  : "Workshop"}
+                {PRESENTATION_TYPE_LABELS[abstract.presentationType as keyof typeof PRESENTATION_TYPE_LABELS] ?? (abstract.presentationType as string)}
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
@@ -279,8 +286,14 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {status === "DRAFT" && (
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
-                    disabled={isPending || overWords}
-                    onClick={() => updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt })}
+                    disabled={isPending || overWords || !editData.presentationType}
+                    onClick={() => {
+                      if (!editData.presentationType) {
+                        toast.error("Please select a presentation type to submit");
+                        return;
+                      }
+                      updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt });
+                    }}
                   >
                     {updateMutation.isPending ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting…</>
@@ -337,12 +350,28 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             </Card>
           )}
 
+          {submitterLocked && (
+            <Card className="border-amber-200 bg-amber-50/50">
+              <CardContent className="pt-5 space-y-2">
+                <h3 className="text-sm font-semibold text-amber-900">Abstract submitted</h3>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  This abstract has been submitted and can no longer be edited or withdrawn here.
+                  To request a change or withdrawal, please contact the organizer team
+                  {contactEmail ? (
+                    <> at <a href={`mailto:${contactEmail}`} className="font-medium underline">{contactEmail}</a></>
+                  ) : null}
+                  .
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardContent className="pt-5 space-y-4">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Details</h3>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Presentation Type</Label>
+                <Label className="text-xs font-medium">Presentation Type <span className="text-red-400">*</span></Label>
                 <Select
                   value={editData.presentationType}
                   onValueChange={(value) => setEditData({ ...editData, presentationType: value })}

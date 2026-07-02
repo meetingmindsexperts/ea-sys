@@ -9,9 +9,8 @@ import { z } from "zod";
 export const MAX_CO_AUTHORS = 20;
 
 export const coAuthorSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  email: z.string().trim().email().max(255).optional().or(z.literal("")),
-  phone: z.string().trim().max(50).optional().or(z.literal("")),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
   jobTitle: z.string().trim().max(200).optional().or(z.literal("")),
   organization: z.string().trim().max(255).optional().or(z.literal("")),
   country: z.string().trim().max(100).optional().or(z.literal("")),
@@ -23,9 +22,8 @@ export type CoAuthor = z.infer<typeof coAuthorSchema>;
 
 /** Blank co-author row for the "add" button. */
 export const EMPTY_CO_AUTHOR: CoAuthor = {
-  name: "",
-  email: "",
-  phone: "",
+  firstName: "",
+  lastName: "",
   jobTitle: "",
   organization: "",
   country: "",
@@ -33,8 +31,8 @@ export const EMPTY_CO_AUTHOR: CoAuthor = {
 
 /**
  * Normalize a raw co-authors value (from a form or JSON column) into a clean
- * array: drops rows with no name, trims + empty-string→undefined on optional
- * fields. Safe on unknown input (returns [] when not an array).
+ * array: drops rows missing a first + last name, trims + empty-string→undefined
+ * on optional fields. Safe on unknown input (returns [] when not an array).
  */
 export function normalizeCoAuthors(input: unknown): CoAuthor[] {
   if (!Array.isArray(input)) return [];
@@ -42,13 +40,13 @@ export function normalizeCoAuthors(input: unknown): CoAuthor[] {
   for (const raw of input) {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Record<string, unknown>;
-    const name = typeof r.name === "string" ? r.name.trim() : "";
-    if (!name) continue; // a co-author with no name is meaningless
+    const firstName = typeof r.firstName === "string" ? r.firstName.trim() : "";
+    const lastName = typeof r.lastName === "string" ? r.lastName.trim() : "";
+    if (!firstName || !lastName) continue; // both name parts required
     const clean = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
     out.push({
-      name,
-      email: clean(r.email),
-      phone: clean(r.phone),
+      firstName,
+      lastName,
       jobTitle: clean(r.jobTitle),
       organization: clean(r.organization),
       country: clean(r.country),
