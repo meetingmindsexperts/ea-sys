@@ -10,7 +10,7 @@ import { normalizeTag, generateBarcode } from "@/lib/utils";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -65,6 +65,7 @@ const updateRegistrationSchema = z.object({
   billingCountry: z.string().max(255).optional().nullable(),
   attendee: z.object({
     title: titleEnum.optional().nullable(),
+    role: attendeeRoleEnum.optional().nullable(),
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
     // Secondary inbox auto-CC'd on outgoing registration emails. Empty
@@ -382,6 +383,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         where: { id: existingRegistration.attendeeId },
         data: {
           ...(attendee.title !== undefined && { title: attendee.title || null }),
+          ...(attendee.role !== undefined && { role: attendee.role || null }),
           ...(attendee.firstName && { firstName: attendee.firstName }),
           ...(attendee.lastName && { lastName: attendee.lastName }),
           // Empty-string clears the optional secondary email (rare but
@@ -425,6 +427,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         firstName: attendee.firstName || a.firstName,
         lastName: attendee.lastName || a.lastName,
         title: attendee.title !== undefined ? (attendee.title || null) : a.title,
+        role: attendee.role !== undefined ? (attendee.role || null) : a.role,
         organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
         jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
         phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,

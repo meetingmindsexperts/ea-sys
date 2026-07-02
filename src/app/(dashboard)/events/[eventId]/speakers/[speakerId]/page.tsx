@@ -58,6 +58,8 @@ import {
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { TagInput } from "@/components/ui/tag-input";
@@ -80,6 +82,8 @@ const statusColors: Record<string, string> = {
 interface Speaker {
   id: string;
   title: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role: string | null;
   email: string;
   firstName: string;
   lastName: string;
@@ -163,6 +167,7 @@ export default function SpeakerDetailPage() {
   const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     title: "",
+    role: "",
     email: "",
     firstName: "",
     lastName: "",
@@ -224,6 +229,7 @@ export default function SpeakerDetailPage() {
         setSpeaker(data);
         setFormData({
           title: data.title || "",
+          role: data.role || "",
           email: data.email,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -282,6 +288,7 @@ export default function SpeakerDetailPage() {
     if (!speaker) return;
     setFormData({
       title: speaker.title || "",
+      role: speaker.role || "",
       email: speaker.email,
       firstName: speaker.firstName,
       lastName: speaker.lastName,
@@ -313,7 +320,9 @@ export default function SpeakerDetailPage() {
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, photo: formData.photo ?? null }),
+        // `role` uses the strict AttendeeRole enum (no empty-string member) —
+        // send null when unset so an empty picker doesn't 400.
+        body: JSON.stringify({ ...formData, photo: formData.photo ?? null, role: formData.role || null }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -609,13 +618,17 @@ export default function SpeakerDetailPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
+                      <Label>Role</Label>
+                      <RoleSelect value={formData.role} onChange={(role) => setFormData({ ...formData, role })} placeholder="Select a role (optional)" />
+                    </div>
+                    <div className="space-y-2">
                       <Label>Specialty</Label>
                       <SpecialtySelect value={formData.specialty} onChange={(specialty) => setFormData({ ...formData, specialty })} />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Registration Type</Label>
-                      <RegistrationTypeSelect value={formData.registrationType} onChange={(rt) => setFormData({ ...formData, registrationType: rt })} eventId={eventId} />
-                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Registration Type</Label>
+                    <RegistrationTypeSelect value={formData.registrationType} onChange={(rt) => setFormData({ ...formData, registrationType: rt })} eventId={eventId} />
                   </div>
                   <div className="space-y-2">
                     <Label>Status</Label>
@@ -664,6 +677,15 @@ export default function SpeakerDetailPage() {
                     <div className="flex items-center gap-3">
                       <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm">{[speaker.city, speaker.country].filter(Boolean).join(", ")}</span>
+                    </div>
+                  )}
+                  {speaker.role && (
+                    <div className="flex items-center gap-3">
+                      <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <div className="text-xs text-muted-foreground">Role</div>
+                        <div className="text-sm">{formatAttendeeRole(speaker.role)}</div>
+                      </div>
                     </div>
                   )}
                   {speaker.specialty && (

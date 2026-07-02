@@ -40,7 +40,8 @@ interface PersonFormFieldsProps {
   showBio?: boolean;
   showDietaryReqs?: boolean;
   showWebsite?: boolean;
-  /** Speaker-only Role dropdown (RoleSelect). Off by default. */
+  /** Role dropdown (RoleSelect — AttendeeRole profession category). Off by
+   *  default; enabled on the registration + speaker + contact add forms. */
   showRole?: boolean;
   emailDisabled?: boolean;
   isReviewer?: boolean; // For hiding tags field from reviewers
@@ -106,19 +107,6 @@ export function PersonFormFields({
           />
         </div>
       </div>
-
-      {/* Role (speaker-only) */}
-      {showRole && data.role !== undefined && (
-        <div className="space-y-2">
-          <Label htmlFor="role">Role</Label>
-          <RoleSelect
-            value={data.role}
-            onChange={(role) => updateField("role", role)}
-            placeholder="Select a role (optional)"
-            disabled={disabled}
-          />
-        </div>
-      )}
 
       {/* Email + Additional Email */}
       {(data.email !== undefined || data.additionalEmail !== undefined) && (
@@ -273,8 +261,19 @@ export function PersonFormFields({
         </div>
       </div>
 
-      {/* Specialty + Custom Specialty (when "Others") */}
+      {/* Role + Specialty (side by side) + Custom Specialty (when "Others") */}
       <div className="grid grid-cols-2 gap-4">
+        {showRole && data.role !== undefined && (
+          <div className="space-y-2">
+            <Label htmlFor="role">Role</Label>
+            <RoleSelect
+              value={data.role}
+              onChange={(role) => updateField("role", role)}
+              placeholder="Select a role (optional)"
+              disabled={disabled}
+            />
+          </div>
+        )}
         <div className="space-y-2">
           <Label htmlFor="specialty">Specialty</Label>
           <SpecialtySelect

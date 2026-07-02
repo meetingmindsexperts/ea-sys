@@ -3,6 +3,8 @@ import type { PaymentStatus, RegistrationStatus } from "@prisma/client";
 export interface Attendee {
   id: string;
   title: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role: string | null;
   email: string;
   /**
    * Optional secondary inbox the registrant typed during public signup.

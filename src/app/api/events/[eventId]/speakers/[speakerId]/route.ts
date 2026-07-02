@@ -7,7 +7,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -23,6 +23,7 @@ import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock"
 const updateSpeakerSchema = z.object({
   ...optimisticLockField,
   title: titleEnum.optional().nullable(),
+  role: attendeeRoleEnum.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   // Secondary inbox auto-CC'd on every outgoing speaker email. Empty
@@ -212,6 +213,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // bumps the version token even when no other column changes.
     const changeData = {
       ...(data.title !== undefined && { title: data.title || null }),
+      ...(data.role !== undefined && { role: data.role || null }),
       ...(data.firstName && { firstName: data.firstName }),
       ...(data.lastName && { lastName: data.lastName }),
       // Trim before the empty-to-null collapse so trailing whitespace
@@ -284,6 +286,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       title: speaker.title,
+      role: speaker.role,
       organization: speaker.organization,
       jobTitle: speaker.jobTitle,
       phone: speaker.phone,

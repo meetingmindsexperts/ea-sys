@@ -29,6 +29,7 @@ import {
 } from "../registration-enums";
 
 const initialPersonData: PersonFormData = {
+  role: "",
   email: "",
   additionalEmail: "",
   firstName: "",
@@ -166,6 +167,8 @@ export default function NewRegistrationPage() {
           attendee: {
             email: formData.personData.email,
             additionalEmail: formData.personData.additionalEmail || undefined,
+            title: formData.personData.title || undefined,
+            role: formData.personData.role || undefined,
             firstName: formData.personData.firstName,
             lastName: formData.personData.lastName,
             organization: formData.personData.organization || undefined,
@@ -499,6 +502,7 @@ export default function NewRegistrationPage() {
               onChange={(personData) => setFormData({ ...formData, personData })}
               showBio={true}
               showDietaryReqs={true}
+              showRole={true}
               tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />
           </CardContent>

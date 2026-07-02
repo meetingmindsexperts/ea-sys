@@ -7,12 +7,16 @@ import { checkRateLimit } from "@/lib/security";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import { ATTENDEE_ROLE_ORDER } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { readSponsors } from "@/lib/webinar";
 import type { RegistrationStatus, PaymentStatus } from "@prisma/client";
 
 const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
+// Accepted AttendeeRole ("Role"/profession) values for CSV import. Cells are
+// matched case-insensitively against the enum keys; unknown values are ignored.
+const ROLE_VALUES = new Set<string>(ATTENDEE_ROLE_ORDER);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Admin-settable subsets — Stripe-driven payment states (PENDING / REFUNDED /
@@ -95,6 +99,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       dietaryReqs: headers.indexOf("dietaryreqs"),
       notes: headers.indexOf("notes"),
       title: headers.indexOf("title"),
+      role: headers.indexOf("role"),
       associationName: headers.indexOf("associationname"),
       memberId: headers.indexOf("memberid"),
       studentId: headers.indexOf("studentid"),
@@ -182,6 +187,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       const titleRaw = getField(fields, idx.title)?.toUpperCase();
       const title = titleRaw && TITLE_VALUES.has(titleRaw) ? titleRaw : null;
+      // "Role" is the AttendeeRole profession category (Physician, Academia, …).
+      // Normalize spaces/hyphens to underscores so "Allied Health" matches.
+      const roleRaw = getField(fields, idx.role)?.toUpperCase().replace(/[\s-]/g, "_");
+      const role = roleRaw && ROLE_VALUES.has(roleRaw) ? roleRaw : null;
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
 
@@ -290,6 +299,9 @@ export async function POST(req: Request, { params }: RouteParams) {
               firstName,
               lastName,
               title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
+              role: role as
+                | "ACADEMIA" | "ALLIED_HEALTH" | "MEDICAL_DEVICES" | "PHARMA"
+                | "PHYSICIAN" | "RESIDENT" | "SPEAKER" | "STUDENT" | "OTHERS" | null,
               organization: getField(fields, idx.organization) || null,
               jobTitle: getField(fields, idx.jobTitle) || null,
               phone: getField(fields, idx.phone) || null,

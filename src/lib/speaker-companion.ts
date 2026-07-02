@@ -69,6 +69,9 @@ export interface CompanionSpeakerInput {
    * Left null when the speaker's category wasn't recorded.
    */
   registrationType?: string | null;
+  /** The speaker's `role` (AttendeeRole profession category, e.g. PHYSICIAN).
+   *  Copied onto the companion attendee so the "Role" surfaces the same value. */
+  role?: AttendeeRole | null;
   sourceRegistrationId?: string | null;
 }
 
@@ -139,6 +142,9 @@ export async function ensureSpeakerCompanionRegistration(
         // The professional category (Physician/Nurse/…), NOT "Faculty" — the
         // Faculty designation lives in `badgeType` + the isFaculty ticket type.
         registrationType: speaker.registrationType ?? undefined,
+        // Role (AttendeeRole) carried over from the speaker so the companion
+        // registration's Role matches the speaker's.
+        role: speaker.role ?? undefined,
       },
       select: { id: true },
     });
@@ -214,6 +220,7 @@ export async function ensureCompanionsForSpeakerEmails(
       country: true,
       specialty: true,
       registrationType: true,
+      role: true,
       sourceRegistrationId: true,
     },
   });

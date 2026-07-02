@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { TagInput } from "@/components/ui/tag-input";
 import {
   Select,
@@ -714,6 +716,13 @@ export function RegistrationDetailSheet({
                       </div>
                     </div>
                     <div className="space-y-2">
+                      <Label htmlFor="edit-role">Role</Label>
+                      <RoleSelect
+                        value={editData.role}
+                        onChange={(role) => setEditData({ ...editData, role })}
+                      />
+                    </div>
+                    <div className="space-y-2">
                       <Label>Email</Label>
                       <div className="flex gap-2">
                         <Input value={selectedRegistration.attendee.email} disabled readOnly className="flex-1 bg-muted" />
@@ -948,6 +957,15 @@ export function RegistrationDetailSheet({
                             .filter(Boolean)
                             .join(", ")}
                         </span>
+                      </div>
+                    )}
+                    {selectedRegistration.attendee.role && (
+                      <div className="flex items-center gap-3">
+                        <ClipboardList className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div>
+                          <div className="text-xs text-muted-foreground">Role</div>
+                          <div>{formatAttendeeRole(selectedRegistration.attendee.role)}</div>
+                        </div>
                       </div>
                     )}
                     {selectedRegistration.attendee.specialty && (

@@ -292,6 +292,7 @@ export async function createSpeaker(
       country: normCountry,
       specialty: normSpecialty,
       registrationType: normRegType,
+      role: normRole as SpeakerAttendeeRole | null,
       sourceRegistrationId: null,
     });
   } catch (err) {

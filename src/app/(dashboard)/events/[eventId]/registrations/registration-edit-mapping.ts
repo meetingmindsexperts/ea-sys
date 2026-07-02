@@ -36,6 +36,8 @@ import type { Registration } from "./types";
 
 export interface RegistrationEditData {
   title: string;
+  /** AttendeeRole profession category ("" = unset). */
+  role: string;
   firstName: string;
   lastName: string;
   /**
@@ -85,6 +87,7 @@ export interface RegistrationEditData {
  */
 export const EMPTY_REGISTRATION_EDIT_DATA: RegistrationEditData = {
   title: "",
+  role: "",
   firstName: "",
   lastName: "",
   additionalEmail: "",
@@ -128,6 +131,7 @@ export function toEditData(reg: Registration): RegistrationEditData {
   const att = reg.attendee;
   return {
     title: att.title || "",
+    role: att.role || "",
     firstName: att.firstName,
     lastName: att.lastName,
     additionalEmail: att.additionalEmail || "",
@@ -195,6 +199,7 @@ export function toServerPayload(
     attendeeIsGuarantor: d.billingAccountId ? d.attendeeIsGuarantor : false,
     attendee: {
       title: d.title || undefined,
+      role: d.role || undefined,
       firstName: d.firstName,
       lastName: d.lastName,
       // additionalEmail uses the explicit-clear convention (null on

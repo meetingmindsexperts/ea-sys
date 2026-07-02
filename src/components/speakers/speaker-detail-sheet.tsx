@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { TagInput } from "@/components/ui/tag-input";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
@@ -76,6 +78,8 @@ const statusColors: Record<string, string> = {
 interface Speaker {
   id: string;
   title: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role: string | null;
   email: string;
   /**
    * Optional secondary inbox the speaker provided (e.g. during submitter
@@ -158,6 +162,7 @@ export function SpeakerDetailSheet({
 
   const [editData, setEditData] = useState({
     title: "" as string,
+    role: "" as string,
     firstName: "",
     lastName: "",
     email: "",
@@ -252,6 +257,7 @@ export function SpeakerDetailSheet({
     if (!speaker) return;
     setEditData({
       title: speaker.title || "",
+      role: speaker.role || "",
       firstName: speaker.firstName,
       lastName: speaker.lastName,
       email: speaker.email,
@@ -286,6 +292,10 @@ export function SpeakerDetailSheet({
         body: JSON.stringify({
           ...editable,
           photo: editData.photo ?? null,
+          // `role` uses the strict AttendeeRole enum (no empty-string
+          // member, unlike titleEnum) — send null when unset so an empty
+          // picker doesn't 400.
+          role: editData.role || null,
           // Optimistic-lock token (W2-F8): server compares against the
           // row's current `updatedAt` and returns 409 STALE_WRITE if
           // someone else wrote since this sheet was opened.
@@ -580,13 +590,17 @@ export function SpeakerDetailSheet({
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
+                          <Label>Role</Label>
+                          <RoleSelect value={editData.role} onChange={(role) => setEditData({ ...editData, role })} placeholder="Select a role (optional)" />
+                        </div>
+                        <div className="space-y-2">
                           <Label>Specialty</Label>
                           <SpecialtySelect value={editData.specialty} onChange={(specialty) => setEditData({ ...editData, specialty })} />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Registration Type</Label>
-                          <RegistrationTypeSelect value={editData.registrationType} onChange={(rt) => setEditData({ ...editData, registrationType: rt })} eventId={eventId} />
-                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Registration Type</Label>
+                        <RegistrationTypeSelect value={editData.registrationType} onChange={(rt) => setEditData({ ...editData, registrationType: rt })} eventId={eventId} />
                       </div>
                       <div className="space-y-2">
                         <Label>Status</Label>
@@ -644,6 +658,15 @@ export function SpeakerDetailSheet({
                         <div className="flex items-center gap-3">
                           <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
                           <span className="text-sm">{[speaker.city, speaker.country].filter(Boolean).join(", ")}</span>
+                        </div>
+                      )}
+                      {speaker.role && (
+                        <div className="flex items-center gap-3">
+                          <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div>
+                            <div className="text-xs text-muted-foreground">Role</div>
+                            <div className="text-sm">{formatAttendeeRole(speaker.role)}</div>
+                          </div>
                         </div>
                       )}
                       {speaker.specialty && (

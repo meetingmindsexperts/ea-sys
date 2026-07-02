@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
@@ -48,6 +49,8 @@ const statusColors: Record<string, string> = {
 interface Speaker {
   id: string;
   title: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role: string | null;
   firstName: string;
   lastName: string;
   email: string | null;
@@ -363,6 +366,7 @@ export default function SpeakersPage() {
                   )}
                   <TableHead>Speaker</TableHead>
                   <TableHead>Organization</TableHead>
+                  <TableHead>Role</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Sessions</TableHead>
                   <TableHead>Abstracts</TableHead>
@@ -403,6 +407,11 @@ export default function SpeakersPage() {
                           <div className="text-muted-foreground text-xs">{speaker.jobTitle}</div>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {formatAttendeeRole(speaker.role, "—")}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {speaker.tags && speaker.tags.length > 0 ? (

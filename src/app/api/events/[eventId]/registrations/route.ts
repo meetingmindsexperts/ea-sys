@@ -177,6 +177,7 @@ export async function GET(req: Request, { params }: RouteParams) {
               // recipient resolution carries it into brandingCc().
               additionalEmail: true,
               title: true,
+              role: true,
               phone: true,
               organization: true,
               jobTitle: true,

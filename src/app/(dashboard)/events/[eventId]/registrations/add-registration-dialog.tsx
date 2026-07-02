@@ -39,6 +39,7 @@ interface AddRegistrationDialogProps {
 }
 
 const initialPersonData: PersonFormData = {
+  role: "",
   email: "",
   additionalEmail: "",
   firstName: "",
@@ -90,6 +91,8 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
           attendee: {
             email: data.personData.email,
             additionalEmail: data.personData.additionalEmail || undefined,
+            title: data.personData.title || undefined,
+            role: data.personData.role || undefined,
             firstName: data.personData.firstName,
             lastName: data.personData.lastName,
             organization: data.personData.organization || undefined,
@@ -243,6 +246,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
               onChange={(personData) => setFormData({ ...formData, personData })}
               showBio={true}
               showDietaryReqs={true}
+              showRole={true}
               tagSuggestions={(tagsQuery.data?.tags ?? []).map((t) => t.tag)}
             />
 

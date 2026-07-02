@@ -315,6 +315,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: data.country,
           specialty: data.specialty,
           registrationType: data.registrationType || null,
+          role: data.role ?? null,
           sourceRegistrationId: speakerRow.sourceRegistrationId,
         });
       } catch (err) {

@@ -51,6 +51,7 @@ import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
 import { displayRegistrationType } from "@/lib/faculty-filter";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { TagFilter } from "@/components/registrations/tag-filter";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -175,6 +176,7 @@ export default function RegistrationsPage() {
       "Registration ID",
       "Serial ID",
       "Title",
+      "Role",
       "First Name",
       "Last Name",
       "Email",
@@ -203,6 +205,7 @@ export default function RegistrationsPage() {
       r.id,
       formatSerialId(r.serialId),
       r.attendee.title || "",
+      formatAttendeeRole(r.attendee.role, ""),
       r.attendee.firstName,
       r.attendee.lastName,
       r.attendee.email,
@@ -665,6 +668,7 @@ export default function RegistrationsPage() {
                   )}
                   <TableHead className="w-16">ID</TableHead>
                   <TableHead>Attendee</TableHead>
+                  <TableHead>Role</TableHead>
                   <TableHead>Specialty</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
@@ -704,6 +708,11 @@ export default function RegistrationsPage() {
                           {registration.attendee.email}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {formatAttendeeRole(registration.attendee.role, "-")}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">

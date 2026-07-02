@@ -7,18 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./select";
+import { ATTENDEE_ROLE_ORDER, ATTENDEE_ROLE_LABELS } from "@/lib/schemas";
 
-export const ROLE_OPTIONS = [
-  { value: "ACADEMIA", label: "Academia" },
-  { value: "ALLIED_HEALTH", label: "Allied Health" },
-  { value: "MEDICAL_DEVICES", label: "Medical Devices" },
-  { value: "PHARMA", label: "Pharma" },
-  { value: "PHYSICIAN", label: "Physician" },
-  { value: "RESIDENT", label: "Resident" },
-  { value: "SPEAKER", label: "Speaker" },
-  { value: "STUDENT", label: "Student" },
-  { value: "OTHERS", label: "Others (Spouse)" },
-] as const;
+// Derived from the single source of truth in src/lib/schemas.ts so the picker,
+// tables, and CSV/label rendering can never drift.
+export const ROLE_OPTIONS = ATTENDEE_ROLE_ORDER.map((value) => ({
+  value,
+  label: ATTENDEE_ROLE_LABELS[value],
+}));
 
 interface RoleSelectProps {
   value: string | null | undefined;
