@@ -47,6 +47,7 @@ vi.mock("@/lib/bulk-email", () => ({
 }));
 
 import { runScheduledEmailsTick } from "@/lib/scheduled-emails-worker";
+import { MAX_STORED_ERRORS, parseFailedRecipients } from "@/lib/scheduled-email-failures";
 
 function dueRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -181,5 +182,46 @@ describe("scheduled-emails worker — empty audience is a benign skip", () => {
     expect(mockLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "scheduled-email:send-failed", id: "se_1" }),
     );
+  });
+});
+
+describe("scheduled-emails worker — partial-failure recipient list", () => {
+  it("stores the full (capped) failed-recipient list in lastError; failureCount is the true total", async () => {
+    const errors = Array.from({ length: MAX_STORED_ERRORS + 50 }, (_, i) => ({
+      email: `u${i}@x.com`,
+      error: "hard bounce",
+    }));
+    mockExecuteBulkEmail.mockResolvedValue({
+      total: errors.length + 10,
+      successCount: 10,
+      failureCount: errors.length,
+      errors,
+    });
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+
+    await runScheduledEmailsTick();
+
+    const sentCall = mockDb.scheduledEmail.update.mock.calls.find(
+      (c: unknown[]) => (c[0] as { data?: { status?: string } })?.data?.status === "SENT",
+    );
+    expect(sentCall).toBeTruthy();
+    const data = (sentCall![0] as { data: { failureCount: number; lastError: string } }).data;
+    // True total preserved even though the stored list is capped.
+    expect(data.failureCount).toBe(errors.length);
+    const stored = parseFailedRecipients(data.lastError);
+    expect(stored).toHaveLength(MAX_STORED_ERRORS);
+    expect(stored![0]).toEqual({ email: "u0@x.com", error: "hard bounce" });
+  });
+
+  it("stores no lastError when there were zero failures", async () => {
+    mockExecuteBulkEmail.mockResolvedValue({ total: 3, successCount: 3, failureCount: 0, errors: [] });
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+
+    await runScheduledEmailsTick();
+
+    const sentCall = mockDb.scheduledEmail.update.mock.calls.find(
+      (c: unknown[]) => (c[0] as { data?: { status?: string } })?.data?.status === "SENT",
+    );
+    expect((sentCall![0] as { data: { lastError: string | null } }).data.lastError).toBeNull();
   });
 });

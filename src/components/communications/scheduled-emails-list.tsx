@@ -31,6 +31,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -43,6 +50,7 @@ import {
   type ScheduledEmailItem,
 } from "@/hooks/use-api";
 import { ScheduledEmailEditDialog } from "./scheduled-email-edit-dialog";
+import { parseFailedRecipients } from "@/lib/scheduled-email-failures";
 
 interface Props {
   eventId: string;
@@ -129,8 +137,15 @@ function SummaryStrip({ rows }: { rows: ScheduledEmailItem[] }) {
 }
 
 /** Inline delivery outcome for a row — surfaces the counts that were previously
- *  only visible on a status-badge hover. */
-function ResultsCell({ row }: { row: ScheduledEmailItem }) {
+ *  only visible on a status-badge hover. The failed count opens a per-recipient
+ *  drill-down when a parsed failure list is available. */
+function ResultsCell({
+  row,
+  onShowFailures,
+}: {
+  row: ScheduledEmailItem;
+  onShowFailures: (row: ScheduledEmailItem) => void;
+}) {
   if (row.status === "SENT") {
     const total = row.totalCount ?? 0;
     const success = row.successCount ?? 0;
@@ -138,12 +153,24 @@ function ResultsCell({ row }: { row: ScheduledEmailItem }) {
     if (total === 0) {
       return <span className="text-xs text-muted-foreground">No recipients</span>;
     }
+    const hasFailureList = failed > 0 && (parseFailedRecipients(row.lastError)?.length ?? 0) > 0;
     return (
       <div className="flex flex-col text-xs">
         <span className="font-medium text-green-700">
           {success.toLocaleString()}/{total.toLocaleString()} delivered
         </span>
-        {failed > 0 && <span className="text-red-600">{failed.toLocaleString()} failed</span>}
+        {failed > 0 &&
+          (hasFailureList ? (
+            <button
+              type="button"
+              onClick={() => onShowFailures(row)}
+              className="text-left text-red-600 underline decoration-dotted hover:text-red-700"
+            >
+              {failed.toLocaleString()} failed
+            </button>
+          ) : (
+            <span className="text-red-600">{failed.toLocaleString()} failed</span>
+          ))}
       </div>
     );
   }
@@ -193,6 +220,7 @@ export function ScheduledEmailsList({ eventId }: Props) {
 
   const [editing, setEditing] = useState<ScheduledEmailItem | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<ScheduledEmailItem | null>(null);
+  const [viewingFailures, setViewingFailures] = useState<ScheduledEmailItem | null>(null);
 
   const handleCancel = async () => {
     if (!confirmCancel) return;
@@ -298,7 +326,7 @@ export function ScheduledEmailsList({ eventId }: Props) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <ResultsCell row={row} />
+                      <ResultsCell row={row} onShowFailures={setViewingFailures} />
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -371,6 +399,49 @@ export function ScheduledEmailsList({ eventId }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!viewingFailures} onOpenChange={(o) => !o && setViewingFailures(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Failed recipients</DialogTitle>
+            <DialogDescription>
+              {viewingFailures &&
+                `${(viewingFailures.failureCount ?? 0).toLocaleString()} of ${(
+                  viewingFailures.totalCount ?? 0
+                ).toLocaleString()} recipients didn't receive this email.`}
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const list = parseFailedRecipients(viewingFailures?.lastError ?? null) ?? [];
+            const notShown = Math.max(0, (viewingFailures?.failureCount ?? 0) - list.length);
+            return (
+              <div className="max-h-[50vh] overflow-y-auto rounded-md border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="p-2 text-left font-medium">Email</th>
+                      <th className="p-2 text-left font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map((r, i) => (
+                      <tr key={`${r.email}-${i}`} className="border-t">
+                        <td className="break-all p-2 font-mono">{r.email}</td>
+                        <td className="p-2 text-muted-foreground">{r.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {notShown > 0 && (
+                  <div className="border-t p-2 text-center text-[11px] text-muted-foreground">
+                    …and {notShown.toLocaleString()} more not shown
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

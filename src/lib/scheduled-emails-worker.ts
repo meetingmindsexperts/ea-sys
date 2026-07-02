@@ -42,6 +42,7 @@ import {
   type BulkEmailAttachment,
   type BulkEmailFilters,
 } from "@/lib/bulk-email";
+import { MAX_STORED_ERRORS } from "@/lib/scheduled-email-failures";
 
 // How many due rows to process per cron tick. Each row may dispatch hundreds of
 // emails in serial batches of 25, so keep this small to stay under the route
@@ -130,7 +131,12 @@ async function processRow(
         totalCount: result.total,
         successCount: result.successCount,
         failureCount: result.failureCount,
-        lastError: result.errors.length ? JSON.stringify(result.errors.slice(0, 5)) : null,
+        // Full (capped) per-recipient failure list as JSON — the UI parses this
+        // into a "View failed recipients" drill-down. `failureCount` remains the
+        // authoritative total for the "…and N more" case.
+        lastError: result.errors.length
+          ? JSON.stringify(result.errors.slice(0, MAX_STORED_ERRORS))
+          : null,
       },
     });
 
