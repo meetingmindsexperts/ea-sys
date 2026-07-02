@@ -178,21 +178,6 @@ export function PersonFormFields({
         </div>
       )}
 
-      {/* Bio (for speakers/reviewers/attendees) */}
-      {showBio && data.bio !== undefined && (
-        <div className="space-y-2">
-          <Label htmlFor="bio">Bio</Label>
-          <Textarea
-            id="bio"
-            value={data.bio || ""}
-            onChange={(e) => updateField("bio", e.target.value)}
-            rows={4}
-            placeholder="Professional biography..."
-            disabled={disabled}
-          />
-        </div>
-      )}
-
       {/* Website (for speakers) */}
       {showWebsite && data.website !== undefined && (
         <div className="space-y-2">
@@ -208,14 +193,29 @@ export function PersonFormFields({
         </div>
       )}
 
-      {/* Photo */}
-      <div className="space-y-2">
-        <Label>Photo</Label>
-        <PhotoUpload
-          value={data.photo || null}
-          onChange={(photo) => updateField("photo", photo)}
-          disabled={disabled}
-        />
+      {/* Bio + Photo (side by side) */}
+      <div className="grid grid-cols-2 gap-4">
+        {showBio && data.bio !== undefined && (
+          <div className="space-y-2">
+            <Label htmlFor="bio">Bio</Label>
+            <Textarea
+              id="bio"
+              value={data.bio || ""}
+              onChange={(e) => updateField("bio", e.target.value)}
+              rows={4}
+              placeholder="Professional biography..."
+              disabled={disabled}
+            />
+          </div>
+        )}
+        <div className="space-y-2">
+          <Label>Photo</Label>
+          <PhotoUpload
+            value={data.photo || null}
+            onChange={(photo) => updateField("photo", photo)}
+            disabled={disabled}
+          />
+        </div>
       </div>
 
       {/* Location */}
