@@ -70,15 +70,18 @@ mkdir -p "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
 sudo chown -R 1001:1001 "$DEPLOY_DIR/logs" "$DEPLOY_DIR/public/uploads"
 phase_done "Bind-mount dirs"
 
-# ── Remove only dangling images in background (non-blocking) ──────────────────
-# NOTE (INC-002, 2026-07-02): this is dangling-ONLY and does NOT reap the tagged
-# ea-sys:<sha> / worker-<sha> images that accumulate one pair per deploy — those
-# piled up (~39 images / ~26 GB) and filled the 48 GB root disk, blocking a
-# deploy (prod stayed up; the pull's layer-extract hit "no space"). Durable fix
-# (pending): call scripts/docker-prune.sh HERE, before the pull, so every deploy
-# self-cleans instead of relying on the weekly cron. See docs/INCIDENTS.md INC-002.
-docker image prune -f > /dev/null 2>&1 &
-PRUNE_PID=$!
+# ── Free disk BEFORE pulling: trim old tagged images + build cache (INC-002 fix) ─
+# docker-prune.sh keeps the newest KEEP_IMAGES web + worker :<sha> tags + the
+# latest/worker-latest pointers + every in-use image (docker rmi refuses those),
+# and removes old tagged per-deploy images + build cache + dangling layers. Run
+# SYNCHRONOUSLY here so the space is actually free before the pull extracts new
+# layers. Non-fatal — a prune hiccup must never abort a deploy (guarded `|| echo`).
+# This replaces the old dangling-only background prune, which never reaped the
+# TAGGED per-deploy images and let the disk fill (see docs/INCIDENTS.md INC-002);
+# the weekly cron stays as a backstop.
+echo "==> Pruning old Docker images + build cache before pull..."
+bash "$DEPLOY_DIR/scripts/docker-prune.sh" || echo "⚠ docker-prune failed (continuing)"
+phase_done "Prune old images"
 
 # ── Pull images from ECR (fall back to on-box build) ──────────────────────────
 # Fast path: CI already built + pushed the web + worker images, so the box just
@@ -99,9 +102,6 @@ else
   IMAGE_SOURCE="on-box-build"
 fi
 phase_done "Pull/build images ($IMAGE_SOURCE)"
-
-# Collect background prune (already finished by now, just reap the process)
-wait $PRUNE_PID 2>/dev/null || true
 
 # ── Run DB migrations from the worker image (ships the full node_modules) ─────
 # The worker image (Dockerfile.worker) carries the full node_modules — including
