@@ -9,7 +9,8 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
-import { getTitleLabel } from "@/lib/utils";
+import { getTitleLabel, formatPersonName } from "@/lib/utils";
+import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
@@ -228,6 +229,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       include: {
         speaker: true,
         track: true,
+        theme: { select: { name: true } },
       },
     });
 
@@ -243,6 +245,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         lastName: abstract.speaker.lastName,
         eventName: "",
         abstractTitle: abstract.title,
+        presentationType: abstract.presentationType
+          ? PRESENTATION_TYPE_LABELS[abstract.presentationType] ?? abstract.presentationType
+          : "",
+        theme: abstract.theme?.name ?? "",
+        authorName: formatPersonName(abstract.speaker.title, abstract.speaker.firstName, abstract.speaker.lastName),
+        coAuthorNames: normalizeCoAuthors(abstract.coAuthors).map((c) => `${c.firstName} ${c.lastName}`).join(", "),
         managementLink,
       };
       // Fetch event name for the email

@@ -9,7 +9,10 @@ import {
   brandingCc,
 } from "@/lib/email";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { getTitleLabel } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { getTitleLabel, formatPersonName } from "@/lib/utils";
+import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 
 const REVIEW_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
@@ -92,6 +95,23 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       ? `${appUrl}/e/${eventSlug}/login?redirect=abstracts`
       : `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
 
+    // Self-fetch the abstract's presentation type / theme / co-authors so the
+    // email vars resolve without every caller threading them through.
+    const details = await db.abstract
+      .findUnique({
+        where: { id: abstractId },
+        select: { presentationType: true, coAuthors: true, theme: { select: { name: true } } },
+      })
+      .catch(() => null);
+    const presentationTypeLabel = details?.presentationType
+      ? PRESENTATION_TYPE_LABELS[details.presentationType] ?? details.presentationType
+      : "";
+    const themeName = details?.theme?.name ?? "";
+    const coAuthorNames = normalizeCoAuthors(details?.coAuthors)
+      .map((c) => `${c.firstName} ${c.lastName}`)
+      .join(", ");
+    const authorName = formatPersonName(speaker.title, speaker.firstName, speaker.lastName);
+
     const statusInfo = getAbstractStatusInfo(newStatus);
     const reviewNotesHtml = reviewNotes
       ? `<div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 20px 0;"><strong>Reviewer Notes:</strong><br><span style="white-space: pre-wrap;">${escapeHtml(reviewNotes)}</span></div>`
@@ -103,6 +123,10 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
       lastName: speaker.lastName,
       eventName,
       abstractTitle,
+      presentationType: presentationTypeLabel,
+      theme: themeName,
+      authorName,
+      coAuthorNames,
       newStatus: newStatus.replace(/_/g, " "),
       statusHeading: feedbackOnly ? "Reviewer Feedback Received" : statusInfo.heading,
       statusMessage: feedbackOnly
