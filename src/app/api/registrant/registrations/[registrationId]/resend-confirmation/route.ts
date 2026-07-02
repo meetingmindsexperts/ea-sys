@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
 /**
  * POST /api/registrant/registrations/[registrationId]/resend-confirmation
@@ -100,8 +101,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? registration.pricingTier.currency
       : registration.ticketType?.currency ?? "USD";
 
-    const org = registration.event.organization;
     const result = await sendRegistrationConfirmation({
+      ...buildEventConfirmationFields(registration.event),
       to: registration.attendee.email,
       additionalEmail: registration.attendee.additionalEmail,
       firstName: registration.attendee.firstName,
@@ -109,35 +110,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       title: registration.attendee.title,
       organization: registration.attendee.organization,
       jobTitle: registration.attendee.jobTitle,
-      eventName: registration.event.name,
-      eventDate: registration.event.startDate,
-      eventVenue: registration.event.venue || "",
-      eventCity: registration.event.city || "",
       ticketType: registration.ticketType?.name ?? "General",
       pricingTierName: registration.pricingTier?.name ?? null,
       registrationId: registration.id,
       serialId: registration.serialId,
       qrCode: registration.qrCode ?? "",
-      eventId: registration.event.id,
-      organizationId: registration.event.organizationId,
       eventSlug: registration.event.slug,
       ticketPrice: finalPrice,
       ticketCurrency: finalCurrency,
       discountAmount: registration.discountAmount ? Number(registration.discountAmount) : 0,
       promoCode: registration.promoCode?.code ?? null,
-      taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
-      taxLabel: registration.event.taxLabel,
-      bankDetails: registration.event.bankDetails,
-      supportEmail: registration.event.supportEmail,
-      organizationName: org.name,
-      companyName: org.companyName,
-      companyAddress: org.companyAddress,
-      companyCity: org.companyCity,
-      companyState: org.companyState,
-      companyZipCode: org.companyZipCode,
-      companyCountry: org.companyCountry,
-      taxId: org.taxId,
-      logoPath: org.logo,
       billingFirstName: registration.billingFirstName,
       billingLastName: registration.billingLastName,
       billingEmail: registration.billingEmail,

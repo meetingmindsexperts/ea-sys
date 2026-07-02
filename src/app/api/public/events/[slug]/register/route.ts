@@ -12,6 +12,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
+import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -602,6 +603,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     } else {
       try {
         await sendRegistrationConfirmation({
+          ...buildEventConfirmationFields(event),
           to: email,
           additionalEmail: additionalEmail || null,
           firstName,
@@ -609,17 +611,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           title: title || null,
           organization: organization || null,
           attendanceMode,
-          eventName: event.name,
-          eventDate: event.startDate,
-          eventVenue: event.venue || "",
-          eventCity: event.city || "",
           ticketType: tierLabel,
           pricingTierName: pricingTier?.name || null,
           registrationId: registration.id,
           serialId: registration.serialId,
           qrCode: registration.qrCode || "",
-          eventId: event.id,
-          organizationId: event.organizationId,
           eventSlug: slug,
           // Base price + discount (not the pre-discounted finalPrice) so the
           // email's payment breakdown itemises the promo and taxes the net —
@@ -628,19 +624,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           ticketCurrency: finalCurrency,
           discountAmount: appliedDiscount,
           promoCode: appliedPromoCode,
-          taxRate: event.taxRate ? Number(event.taxRate) : null,
-          taxLabel: event.taxLabel,
-          bankDetails: event.bankDetails,
-          supportEmail: event.supportEmail,
-          organizationName: event.organization.name,
-          companyName: event.organization.companyName,
-          companyAddress: event.organization.companyAddress,
-          companyCity: event.organization.companyCity,
-          companyState: event.organization.companyState,
-          companyZipCode: event.organization.companyZipCode,
-          companyCountry: event.organization.companyCountry,
-          taxId: event.organization.taxId,
-          logoPath: event.organization.logo,
           billingFirstName: registration.billingFirstName,
           billingLastName: registration.billingLastName,
           billingEmail: registration.billingEmail,

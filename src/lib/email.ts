@@ -2377,7 +2377,7 @@ export function brandingCc(
 
 // ── Helper function to send registration confirmation ──────────────────────────
 
-export async function sendRegistrationConfirmation(params: {
+export interface RegistrationConfirmationParams {
   to: string;
   /**
    * Registrant's secondary inbox (Attendee.additionalEmail). Auto-CC'd
@@ -2446,7 +2446,9 @@ export async function sendRegistrationConfirmation(params: {
   billingZipCode?: string | null;
   billingCountry?: string | null;
   taxNumber?: string | null;
-}) {
+}
+
+export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     year: "numeric",

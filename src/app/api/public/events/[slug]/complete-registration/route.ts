@@ -8,6 +8,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
+import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -392,41 +393,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       const finalPrice = registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
       const finalCurrency = registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
 
-      const org = registration.event.organization;
       await sendRegistrationConfirmation({
+        ...buildEventConfirmationFields(registration.event),
         to: email,
         additionalEmail: registration.attendee.additionalEmail,
         firstName,
         lastName,
         title: title || null,
         organization,
-        eventName: registration.event.name,
-        eventDate: registration.event.startDate,
-        eventVenue: registration.event.venue || "",
-        eventCity: registration.event.city || "",
         ticketType: registration.ticketType?.name ?? "General",
         pricingTierName: registration.pricingTier?.name || null,
         registrationId,
         serialId: registration.serialId,
         qrCode: "",
-        eventId: registration.event.id,
-        organizationId: registration.event.organizationId,
         eventSlug: registration.event.slug,
         ticketPrice: finalPrice,
         ticketCurrency: finalCurrency,
-        taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
-        taxLabel: registration.event.taxLabel,
-        bankDetails: registration.event.bankDetails,
-        supportEmail: registration.event.supportEmail,
-        organizationName: org.name,
-        companyName: org.companyName,
-        companyAddress: org.companyAddress,
-        companyCity: org.companyCity,
-        companyState: org.companyState,
-        companyZipCode: org.companyZipCode,
-        companyCountry: org.companyCountry,
-        taxId: org.taxId,
-        logoPath: org.logo,
         jobTitle,
         billingFirstName: registration.billingFirstName,
         billingLastName: registration.billingLastName,

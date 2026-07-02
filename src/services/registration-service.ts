@@ -31,6 +31,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
+import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { readSponsors } from "@/lib/webinar";
 
 // ── Constants (shared with callers) ──────────────────────────────────────────
@@ -783,6 +784,7 @@ export async function createRegistration(
     effectiveTicketPrice > 0 && OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus);
   if (ticketType && (owesMoney || isVirtual)) {
     sendRegistrationConfirmation({
+      ...buildEventConfirmationFields(event),
       to: email,
       additionalEmail,
       firstName,
@@ -791,32 +793,13 @@ export async function createRegistration(
       organization,
       jobTitle,
       attendanceMode,
-      eventName: event.name,
-      eventDate: event.startDate,
-      eventVenue: event.venue || "",
-      eventCity: event.city || "",
       ticketType: ticketType.name,
       registrationId: registration.id,
       serialId: registration.serialId,
       qrCode: registration.qrCode || "",
-      eventId: event.id,
-      organizationId: event.organizationId,
       eventSlug: event.slug,
       ticketPrice: effectiveTicketPrice,
       ticketCurrency: ticketType.currency,
-      taxRate: event.taxRate ? Number(event.taxRate) : null,
-      taxLabel: event.taxLabel,
-      bankDetails: event.bankDetails,
-      supportEmail: event.supportEmail,
-      organizationName: event.organization.name,
-      companyName: event.organization.companyName,
-      companyAddress: event.organization.companyAddress,
-      companyCity: event.organization.companyCity,
-      companyState: event.organization.companyState,
-      companyZipCode: event.organization.companyZipCode,
-      companyCountry: event.organization.companyCountry,
-      taxId: event.organization.taxId,
-      logoPath: event.organization.logo,
       billingCity: city,
       billingCountry: country,
     }).catch((err) =>
