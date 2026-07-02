@@ -36,6 +36,15 @@ Cluster of abstract-submission improvements.
 
 Two additive/blue-green-safe migrations. tsc 0, lint 0, vitest 1786, build 0.
 
+Same-day organizer-feedback revision (a7c0db3): co-authors dropped email + phone
+and split full name into First + Last name; presentation types became five —
+"Oral or Poster" (new combined `ORAL_POSTER` value, additive enum migration
+`20260702170000`) + separate Oral + Poster + Video + Workshop — and are now
+mandatory to submit; authors can no longer edit or withdraw a SUBMITTED abstract
+(submitters act only while DRAFT; server 403 SUBMITTED_LOCKED / WITHDRAW_NOT_ALLOWED;
+edit page turns read-only + shows a "contact the organizer team [email]" notice);
+and the Specialty field was removed from the submit page (kept on the edit page).
+
 ### Added — Attendee "Role" recorded on every form + shown across the dashboard (July 2)
 
 The `AttendeeRole` profession field (ACADEMIA / ALLIED_HEALTH / MEDICAL_DEVICES /

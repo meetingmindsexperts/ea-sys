@@ -327,6 +327,7 @@ A 3-agent end-to-end trace of the reviewer + submitter + crossover flows. **Two 
 | **`feedbackOnly` notification is dead code** | MED | S | A reviewer adding notes without a status change never notifies the author (the `feedbackOnly` branch in `notifyAbstractStatusChange` is never invoked). |
 | **Mean review score (0–100) shown to submitters** | LOW | S | Product decision — many CFP systems hide raw scores and show only the decision + notes. |
 | **Dead `eventSlug` in reviewer invite link; no "my submissions across events" home; coarse `NEEDS_UPDATE`; orphaned reviewer accounts accumulate** | LOW | — | Minor UX/cleanup items. |
+| **Authors can't edit a REVISION_REQUESTED abstract** | LOW | XS | July 2: per organizer request, submitters can now edit/withdraw only while their abstract is **DRAFT** — once submitted it's locked and they contact the organizer ([abstracts/[abstractId]/route.ts](../src/app/api/events/%5BeventId%5D/abstracts/%5BabstractId%5D/route.ts) `SUBMITTED_LOCKED`; edit page `canEdit = isSubmitter ? DRAFT : editableStatuses`). **Consequence:** a `REVISION_REQUESTED` abstract is also locked to the author, so a reviewer asking for changes needs an organizer to reopen it (or the author emails the team). If authors should be able to self-edit when a revision is *explicitly requested*, it's a **one-line tweak** — allow `["DRAFT", "REVISION_REQUESTED"]` for submitters in both the edit page `canEdit` and the server submitter block. Left as a deliberate product call. |
 
 
 ### Backlog — prioritized pick list (June 24, 2026)
