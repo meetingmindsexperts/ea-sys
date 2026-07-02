@@ -47,6 +47,7 @@ import {
   X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -80,6 +81,8 @@ interface Speaker {
   lastName: string;
   email: string;
   userId: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role?: string | null;
 }
 
 interface Abstract {
@@ -775,6 +778,9 @@ export default function AbstractsPage() {
                   <p className="text-sm text-muted-foreground">
                     By {selectedAbstract.speaker.firstName}{" "}
                     {selectedAbstract.speaker.lastName}
+                    {selectedAbstract.speaker.role && (
+                      <span> · {formatAttendeeRole(selectedAbstract.speaker.role)}</span>
+                    )}
                   </p>
                 </div>
                 <div className="bg-muted p-4 rounded-lg max-h-48 overflow-y-auto">
@@ -1084,6 +1090,9 @@ export default function AbstractsPage() {
                           <div className="flex items-center gap-1">
                             <User className="h-4 w-4" />
                             {abstract.speaker.firstName} {abstract.speaker.lastName}
+                            {abstract.speaker.role && (
+                              <span className="text-muted-foreground">· {formatAttendeeRole(abstract.speaker.role)}</span>
+                            )}
                           </div>
                         )}
                         <div className="flex items-center gap-1">

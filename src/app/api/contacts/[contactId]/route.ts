@@ -6,7 +6,7 @@ import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhoto } from "@/lib/storage";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
@@ -18,6 +18,7 @@ type RouteParams = { params: Promise<{ contactId: string }> };
 // this aligns the REST side.
 const updateContactSchema = z.object({
   title: titleEnum.optional().nullable(),
+  role: attendeeRoleEnum.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   organization: z.string().max(255).optional().nullable(),

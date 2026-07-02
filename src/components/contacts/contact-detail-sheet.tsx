@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
+import { formatAttendeeRole } from "@/lib/schemas";
 import { TagInput } from "@/components/ui/tag-input";
 import { CountrySelect } from "@/components/ui/country-select";
 import {
@@ -75,6 +77,7 @@ export function ContactDetailSheet({
   const headerPhotoRef = useRef<HTMLInputElement>(null);
   const [editData, setEditData] = useState({
     title: "" as string,
+    role: "" as string,
     firstName: "",
     lastName: "",
     email: "",
@@ -121,6 +124,7 @@ export function ContactDetailSheet({
     if (contact) {
       setEditData({
         title: contact.title || "",
+        role: contact.role || "",
         firstName: contact.firstName,
         lastName: contact.lastName,
         email: contact.email,
@@ -148,6 +152,7 @@ export function ContactDetailSheet({
     try {
       await updateContact.mutateAsync({
         title: editData.title || undefined,
+        role: editData.role || null,
         firstName: editData.firstName,
         lastName: editData.lastName,
         additionalEmail: editData.additionalEmail || undefined,
@@ -389,12 +394,22 @@ export function ContactDetailSheet({
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Specialty</Label>
-                  <SpecialtySelect
-                    value={editData.specialty}
-                    onChange={(specialty) => setEditData({ ...editData, specialty })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <RoleSelect
+                      value={editData.role}
+                      onChange={(role) => setEditData({ ...editData, role })}
+                      placeholder="Select a role (optional)"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Specialty</Label>
+                    <SpecialtySelect
+                      value={editData.specialty}
+                      onChange={(specialty) => setEditData({ ...editData, specialty })}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Bio</Label>
@@ -501,6 +516,15 @@ export function ContactDetailSheet({
                     <span className="text-sm">
                       {[contact.city, contact.country].filter(Boolean).join(", ")}
                     </span>
+                  </div>
+                )}
+                {contact.role && (
+                  <div className="flex items-center gap-3">
+                    <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <div className="text-xs text-muted-foreground">Role</div>
+                      <div className="text-sm">{formatAttendeeRole(contact.role)}</div>
+                    </div>
                   </div>
                 )}
                 {contact.specialty && (

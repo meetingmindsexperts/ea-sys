@@ -13,11 +13,13 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
+import { RoleSelect } from "@/components/ui/role-select";
 import { RegistrationTypeSelect } from "@/components/ui/registration-type-select";
 import { toast } from "sonner";
 
 const emptyForm = {
   title: "",
+  role: "",
   firstName: "",
   lastName: "",
   email: "",
@@ -89,6 +91,7 @@ export default function NewContactPage() {
     try {
       await createContact.mutateAsync({
         title: form.title || undefined,
+        role: form.role || undefined,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim().toLowerCase(),
@@ -199,6 +202,13 @@ export default function NewContactPage() {
                     value={form.jobTitle}
                     onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
                     className={inputCls}
+                  />
+                </FormField>
+                <FormField label="Role">
+                  <RoleSelect
+                    value={form.role}
+                    onChange={(role) => setForm((f) => ({ ...f, role }))}
+                    placeholder="Select a role (optional)"
                   />
                 </FormField>
                 <FormField label="Specialty">

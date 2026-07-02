@@ -52,10 +52,13 @@ import {
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
 import { formatDate, formatPersonName } from "@/lib/utils";
+import { formatAttendeeRole } from "@/lib/schemas";
 
 interface Contact {
   id: string;
   title?: string | null;
+  /** Profession / category (AttendeeRole enum: PHYSICIAN, ACADEMIA, …). */
+  role?: string | null;
   firstName: string;
   lastName: string;
   email: string;
@@ -503,6 +506,7 @@ export default function ContactsPage() {
                 </th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Contact</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Organization</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell w-32">Role</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell w-40">Specialty</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Tags</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden xl:table-cell">Added</th>
@@ -592,6 +596,11 @@ export default function ContactsPage() {
                             <span className="text-xs text-gray-400 truncate block">{contact.jobTitle}</span>
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3.5 hidden lg:table-cell max-w-[160px]">
+                        <span className="text-sm text-gray-700 truncate block">
+                          {contact.role ? formatAttendeeRole(contact.role) : <span className="text-gray-300">—</span>}
+                        </span>
                       </td>
                       <td className="px-4 py-3.5 hidden md:table-cell max-w-[200px]">
                         <div className="min-w-0">

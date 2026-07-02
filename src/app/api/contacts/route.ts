@@ -6,10 +6,11 @@ import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
-import { titleEnum } from "@/lib/schemas";
+import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 
 const createContactSchema = z.object({
   title: titleEnum.optional(),
+  role: attendeeRoleEnum.optional().nullable(),
   email: z.string().email().max(255),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
         select: {
           id: true,
           title: true,
+          role: true,
           email: true,
           firstName: true,
           lastName: true,
@@ -137,7 +139,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { title, email, firstName, lastName, organization, jobTitle, specialty, registrationType, bio, phone, photo, city, country, tags, notes, associationName, memberId, studentId, studentIdExpiry } = validated.data;
+    const { title, role, email, firstName, lastName, organization, jobTitle, specialty, registrationType, bio, phone, photo, city, country, tags, notes, associationName, memberId, studentId, studentIdExpiry } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
@@ -161,6 +163,7 @@ export async function POST(req: Request) {
       data: {
         organizationId: ctx.organizationId,
         title: title || null,
+        role: role || null,
         email,
         firstName,
         lastName,
