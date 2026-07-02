@@ -455,12 +455,20 @@ export default function AbstractsPage() {
           )}
         {/* Submitter: full page form. Admin: dialog. Reviewer: no button. */}
         {isSubmitter && (
-          <Button asChild>
-            <Link href={`/events/${eventId}/abstracts/new`}>
-              <Plus className="mr-2 h-4 w-4" />
-              Submit Abstract
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/events/${eventId}/abstracts/profile`}>
+                <User className="mr-2 h-4 w-4" />
+                My Details
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/events/${eventId}/abstracts/new`}>
+                <Plus className="mr-2 h-4 w-4" />
+                Submit Abstract
+              </Link>
+            </Button>
+          </>
         )}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           {canManage && (

@@ -24,6 +24,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -147,6 +148,11 @@ export default function NewAbstractPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         {/* Main content */}
         <div className="space-y-6">
+          {/* Submission guidelines (per-event editable; default fallback) */}
+          <AbstractGuidelines
+            html={event?.abstractGuidelinesHtml}
+            contactEmail={event?.emailFromAddress}
+          />
           {/* Title */}
           <Card>
             <CardContent className="pt-6 space-y-4">

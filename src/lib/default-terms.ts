@@ -161,3 +161,33 @@ export const DEFAULT_SPEAKER_AGREEMENT_HTML = `
 </ul>
 <p>By signing below, both parties confirm they have read, understood, and agreed to the terms of this Agreement.</p>
 `.trim();
+
+/**
+ * Default abstract-submission guidelines. Editable per event
+ * (`Event.abstractGuidelinesHtml`); when an event hasn't set its own, this is
+ * the fallback rendered on the submission form + the submitter profile page.
+ *
+ * Supports one merge token: `{{contactEmail}}` — replaced at render with the
+ * event's contact/sender email (`Event.emailFromAddress`, with a fallback).
+ */
+export const DEFAULT_ABSTRACT_GUIDELINES_HTML = `
+<h2>Welcome to the Presentation Portal</h2>
+<p>To begin the submission process, please register first. Once your account is set up, you can upload and submit your abstract.</p>
+
+<h3>Guidelines for Submitting an Abstract</h3>
+<p>A special criterion for accepting abstracts will be their topic as well as structure, content and degree of innovation. The scientific committee will accept abstracts based on their relevance and quality, structure, content and degree of innovation.</p>
+<p>Please note that a maximum of <strong>300 words</strong> is permitted. The titles and the names of the authors are excluded from this number and have to be entered separately. Tables should not be included in the abstract body.</p>
+<p>Methods section should include type of statistical analysis done if applicable to the study.</p>
+<p>Statements like &ldquo;Results will be discussed&rdquo; are not acceptable and may lead to a rejection of the abstract.</p>
+
+<h3>Structure of the Abstract for Oral &amp; Poster Presentations</h3>
+<ul>
+<li>Background and Purpose</li>
+<li>Methods</li>
+<li>Results</li>
+<li>Conclusions</li>
+</ul>
+
+<h3>Abstract Delivery Notification</h3>
+<p>Authors will be notified about the delivery of their abstract by e-mail immediately. In case you do not receive confirmation within 24 hours, please check your spam folder. In case of no confirmation e-mail, please contact: <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
+`.trim();

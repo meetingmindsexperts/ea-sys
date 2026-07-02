@@ -10,6 +10,7 @@ import { PenLine, Save } from "lucide-react";
 import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { DEFAULT_ABSTRACT_GUIDELINES_HTML } from "@/lib/default-terms";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -29,6 +30,7 @@ export default function ContentPage() {
     registrationTermsHtml: "",
     registrationConfirmationHtml: "",
     abstractWelcomeHtml: "",
+    abstractGuidelinesHtml: "",
     abstractTermsHtml: "",
     abstractConfirmationHtml: "",
     speakerAgreementHtml: "",
@@ -45,6 +47,10 @@ export default function ContentPage() {
             registrationTermsHtml: data.registrationTermsHtml || "",
             registrationConfirmationHtml: data.registrationConfirmationHtml || "",
             abstractWelcomeHtml: data.abstractWelcomeHtml || "",
+            // Prefill the editor with the shared default when the event hasn't
+            // set its own, so organizers edit from the standard guidelines
+            // (the submission surfaces fall back to the same default anyway).
+            abstractGuidelinesHtml: data.abstractGuidelinesHtml || DEFAULT_ABSTRACT_GUIDELINES_HTML,
             abstractTermsHtml: data.abstractTermsHtml || "",
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
             speakerAgreementHtml: data.speakerAgreementHtml || "",
@@ -76,6 +82,7 @@ export default function ContentPage() {
           registrationTermsHtml: content.registrationTermsHtml || null,
           registrationConfirmationHtml: content.registrationConfirmationHtml || null,
           abstractWelcomeHtml: content.abstractWelcomeHtml || null,
+          abstractGuidelinesHtml: content.abstractGuidelinesHtml || null,
           abstractTermsHtml: content.abstractTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
           speakerAgreementHtml: content.speakerAgreementHtml || null,
@@ -193,6 +200,24 @@ export default function ContentPage() {
                   content={content.abstractWelcomeHtml}
                   onChange={(html) => setContent({ ...content, abstractWelcomeHtml: html })}
                   placeholder="Welcome to abstract submissions! Please register to submit your research..."
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Submission Guidelines</CardTitle>
+                <CardDescription>
+                  Shown on the abstract submission form and the submitter&apos;s profile page.
+                  Use <code>{"{{contactEmail}}"}</code> — it&apos;s replaced with the event&apos;s
+                  contact email (Settings → Email → From address).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TiptapEditor
+                  content={content.abstractGuidelinesHtml}
+                  onChange={(html) => setContent({ ...content, abstractGuidelinesHtml: html })}
+                  placeholder="Guidelines for submitting an abstract (word limit, structure, notification)..."
                 />
               </CardContent>
             </Card>

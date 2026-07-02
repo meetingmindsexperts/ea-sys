@@ -318,7 +318,9 @@ export default function AbstractRegisterPage() {
         toast.error("Couldn't sign you in automatically — please sign in and try again.");
         return;
       }
-      router.push(`/events/${data.eventId}/abstracts/new`);
+      // Already-registered person signing in → land on their details page
+      // (profile + registration + their abstracts), which has a Submit CTA.
+      router.push(`/events/${data.eventId}/abstracts/profile`);
     } catch (err) {
       console.error("[abstract/register] existing sign-in failed", err);
       toast.error("Something went wrong. Please try again.");

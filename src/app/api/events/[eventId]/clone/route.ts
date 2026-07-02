@@ -106,6 +106,7 @@ export async function POST(
             registrationWelcomeHtml: source.registrationWelcomeHtml,
             registrationConfirmationHtml: source.registrationConfirmationHtml,
             abstractWelcomeHtml: source.abstractWelcomeHtml,
+            abstractGuidelinesHtml: source.abstractGuidelinesHtml,
             abstractTermsHtml: source.abstractTermsHtml,
             abstractConfirmationHtml: source.abstractConfirmationHtml,
             speakerAgreementHtml: source.speakerAgreementHtml,
