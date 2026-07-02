@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Attendee "Role" recorded on every form + shown across the dashboard (July 2)
+
+The `AttendeeRole` profession field (ACADEMIA / ALLIED_HEALTH / MEDICAL_DEVICES /
+PHARMA / PHYSICIAN / RESIDENT / SPEAKER / STUDENT / OTHERS) — stored on
+`Attendee.role`, `Speaker.role`, `Contact.role` — was collected on the public
+forms but rendered nowhere in the dashboard and captured inconsistently. Now
+recorded on every path and shown everywhere. Foundation: `src/lib/schemas.ts`
+owns `ATTENDEE_ROLE_ORDER` + `ATTENDEE_ROLE_LABELS` + `formatAttendeeRole()`
+(server+client safe); `RoleSelect` derives its options from it. Recorded on:
+speaker companion registration (inherits the speaker's role), registration PUT +
+speaker PUT (editable, synced to Contact), abstract-start prefill, CSV import,
+the admin Add Registration form + dialog (which also silently dropped `title` —
+fixed), and contacts POST/PUT. Shown on: registration/speaker/contact detail
+sheets (view + edit) + detail pages + list columns + registrations CSV; abstract
+author role on the abstracts list + detail. Layout: in the shared
+`PersonFormFields` (Add Registration + Add Speaker) Role sits beside Specialty
+and Bio beside Photo (2-col), so the two add forms match. No schema/migration
+(columns already existed); no MCP change. Shipped `5de8375` + `3b2f515`.
+tsc 0, eslint 0, vitest 1774, build 0.
+
+### Added — Identity & Roles operator runbook (July 2)
+
+New `docs/IDENTITY_AND_ROLES.md` (browseable at `/admin/docs`) from a read-only
+audit of the "one person, many hats" overlaps. Documents the two-layer model —
+event-scoped facets (Speaker / Registration+badge / Abstract) stack freely by
+email and never duplicate; the login account (`User`, global-unique email,
+single `User.role`) is the one seam that collides — the make-a-reviewer workflow
+(Settings → Users → Invite promotes in place), role-flip gains/losses, the
+reviewer-vs-submitter single-login limitation, and the staff-are-separate rule
+(an organizer is always an organizer, except they may register as an attendee
+for testing without changing their role).
+
+### Added — Import Contacts → Registrations prompts for a pricing tier (July 2)
+
+The "Import Contacts as Registrations" flow picked a registration type but
+dropped the pricing tier and never stamped `originalPrice` (one of the three
+deferred "unstamped import create-paths"). Now, when the chosen type has active
+tiers, the dialog shows a required Pricing Tier picker (resets on type change);
+the route validates the tier belongs to the type (400 `PRICING_TIER_NOT_FOUND`)
+and stamps `pricingTierId` + `originalPrice` (tier price, else base price) on
+each created registration — closing the import-contacts leg of that finance gap
+(CSV + EventsAir still deferred). Also carries the contact's `role` onto the new
+attendee. Speaker import unchanged (comp Faculty, no tier). `pricingTierId`
+threaded through `useImportContactsToRegistrations`. Shipped `fa36ba7`.
+tsc 0, eslint 0, vitest 1786, build 0.
+
+### Added — Events list default view: PUBLISHED first, then upcoming (July 2)
+
+The dashboard events list defaulted to `createdAt desc`. The default view now
+pins PUBLISHED events to the top, then orders each group upcoming/ongoing-first
+(soonest start; an event counts as upcoming until its end date passes) with past
+events most-recent-first. Client-side over the already-fetched list, keyed on the
+default `sortField === "createdAt"` sentinel so an explicit Name/Date column-sort
+click is respected unchanged; `now` captured once via lazy state for
+`react-hooks/purity`. No API/schema change. Shipped `132420e` + `e55f094`.
+
 ### Refactored — confirmation-email field builder (July 2)
 
 Second step of the registration-routes duplication cleanup. The

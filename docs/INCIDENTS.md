@@ -94,6 +94,57 @@ the specific trigger if you'd rather not carry the heavy build dependency.
 
 ---
 
+## INC-002 — Deploy blocked: box out of disk from an unpruned local image cache (2026-07-02)
+
+| | |
+|---|---|
+| **Date** | 2026-07-02, ~07:56 UTC (~11:56 GST) |
+| **Duration** | No outage. Deploy blocked ~30 min until the disk was freed. |
+| **Severity** | SEV-3 — deploy failure only; production stayed **up** the whole time (health 200). |
+| **Trigger** | A routine deploy. The ECR image pull's layer-extract hit a **full root disk** (`no space left on device`), so `deploy.sh` fell back to an **on-box build**, which *also* ran out of space and failed. |
+| **Root cause** | The box's **local Docker image cache was never pruned**, so ~19 deploys' worth of tagged images accumulated: **39 `ea-sys` images** (web ~1.18 GB + worker ~2.46 GB each ≈ **26 GB**) plus ~6 GB build cache filled the 48 GB root volume. The smart prune (`scripts/docker-prune.sh`) **existed but had never run** — it was wired **only** to a weekly cron (`0 3 * * 5`, Fridays) created the day before (Jul 1), so it hadn't fired once (no `cron-docker-prune.log`). Meanwhile `deploy.sh` only ran `docker image prune -f` (**dangling-only**), which by design never reaps **tagged** `:<sha>` images. Net: images piled up ~2 deploys/day while the only cleanup was a weekly sweep that hadn't happened. |
+| **Why no outage** | Blue-green: the pull/build failed **before** the nginx slot swap, so the **old slot kept serving**. `curl /api/health` returned 200 throughout — no rollback needed. |
+| **Fix** | Ran `scripts/docker-prune.sh` → **reclaimed 15 GB** (36 G → 21 G used, 75% → 44%; images 39 → 10), then re-deployed. |
+| **Status** | **Resolved** (disk freed, deploy unblocked). Durable fix — wire the smart prune into `deploy.sh` before every pull — **pending** (see action items). |
+
+### What the symptoms looked like
+- GitHub Actions deploy step errored with `failed to extract layer … no space left on device` on the ECR pull, then `⚠ ECR login/pull failed — falling back to on-box build`, then the on-box build failed with `write /home/…/.docker/buildx/… no space left on device` and `exited with status 1`.
+- **Production was unaffected** — `/api/health` = 200 the entire time (old slot still serving; the failure was pre-swap).
+
+### How we found the root cause
+Read-only SSM (`AWS-RunShellScript`) on `i-0b51ab1213d084640`:
+- `df -h /` → **48 G total, 36 G used** (and full mid-deploy; the failed build's temp freed on abort).
+- `docker system df` → **Images 26.43 GB (46 total)**, Build Cache **6.01 GB**. `docker images | grep ea-sys` → 39 tagged images, one web + one worker per deploy.
+- **Gotcha:** `du -sh /var/lib/docker/*` looked deceptively small (~4 G) — this Docker uses the **containerd snapshotter**, so image layers live under **`/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/`**, not `/var/lib/docker/overlay2`. (The original error path named `/var/lib/containerd/…` — the tell.)
+- `crontab -l` (ubuntu) → the prune cron **is** installed (`0 3 * * 5`) but `cron-docker-prune.log` **does not exist** → **never run** (script created Jul 1; next Friday hadn't arrived).
+- `grep prune scripts/deploy.sh` → only `docker image prune -f` (dangling-only) at deploy time — **never calls `docker-prune.sh`**, which is exactly why the tagged `:<sha>` images accumulated (the script's own header comment says dangling-prune can't reap them).
+
+### Resolution
+`bash scripts/docker-prune.sh` on the box — trims build cache + dangling layers + old `ea-sys:<sha>` tags beyond the newest 3 per class (keeps `latest`/`worker-latest` + 3 rollback images each; never `system prune -a`, never `--volumes`, so uploads are safe). Reclaimed 15 GB → 27 G free. Then re-deployed (ECR pull path works once there's headroom).
+
+### Relationship to INC-001 (and to ECR)
+INC-001 was a **memory** freeze from an **on-box build**; its headline fix was **build off-box** (CI → ECR → the box pulls, action item #2). That shipped (Jul 1) and is working — **but it introduced a new footgun this incident exposed:** the box now pulls + **caches a tagged image per deploy**, and nothing pruned that local cache. Two second-order notes:
+- ECR is **not** at fault — *any* deploy system caches images locally; ECR actually makes the box's cache **more disposable** (old images live in ECR, re-pullable for rollback), so we can prune aggressively. We just weren't.
+- The `deploy.sh` **fallback to on-box build** briefly **reintroduced the INC-001 risk** (it started a build on the box — the very thing ECR removed) — it only triggered because the disk was already full. Worth guarding (below).
+
+### Preventive measures
+1. **Immediate (applied):** ran `docker-prune.sh` → 15 GB reclaimed; deploy unblocked.
+2. **Durable (pending — the real fix):** move the smart prune **into `deploy.sh`, before the pull/build**, so every deploy self-cleans (keep the weekly cron as a backstop). The script + trigger both exist; they're just wired to the wrong event (weekly cron vs. every deploy).
+
+### Action items (prevention)
+
+| # | Action | Why | Status |
+|---|---|---|---|
+| 1 | **Free the disk** — `bash scripts/docker-prune.sh` | Unblocks the deploy; reclaimed 15 GB. | ✅ **DONE (2026-07-02)** |
+| 2 | **Call `docker-prune.sh` from `deploy.sh` before the pull** (replace the dangling-only `docker image prune -f`); keep the weekly cron as backstop | The core gap — a weekly cron can't keep up with multiple deploys/day, and dangling-prune never reaps the tagged per-deploy images. | **TODO (the real fix)** |
+| 3 | **Guard the on-box-build fallback on free disk** (only build if ≥ ~15 GB free, else fail loudly) | Stops the fallback from silently reintroducing the INC-001 build-on-box freeze risk when disk is already tight. | Consider |
+| 4 | **Ship disk (+ memory) metrics to CloudWatch + alarm on low free space** | We were blind on disk until SSM inspection — same blind spot as INC-001 #3. An alarm would page before a deploy fails. | TODO (shared with INC-001 #3) |
+| 5 | **Bump the root EBS volume** (48 G → e.g. 80–100 G) | Cheap headroom margin; treats the symptom, not the cause — do #2 first. | Consider |
+
+**Quickest risk reduction:** #2 (self-cleaning deploy) — it removes the recurrence entirely. #1 was the immediate unblock.
+
+---
+
 ## Appendix — How to diagnose a frozen box
 
 When the site times out but the instance is "running" (the INC-001 pattern):
