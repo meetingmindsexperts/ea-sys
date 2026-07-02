@@ -973,6 +973,15 @@ model Speaker {
   agreementAcceptedIp   String?
   agreementAcceptedBy   String?
   agreementTextSnapshot String?       @db.Text
+  // Presenter (abstract-author) agreement — DISTINCT from the faculty speaker
+  // agreement above. A person can be both a faculty speaker (agreement*) and an
+  // abstract author (presenterAgreement*); the two are accepted independently.
+  // Per-author, per-event: one acceptance covers all their abstracts. See
+  // src/lib/presenter-agreement.ts.
+  presenterAgreementAcceptedAt   DateTime?
+  presenterAgreementAcceptedIp   String?
+  presenterAgreementAcceptedBy   String?
+  presenterAgreementTextSnapshot String?  @db.Text
   // Optional pointer to the Registration this speaker was imported from.
   // Null for independent / manually-added / sponsor-suggested speakers (the
   // common case — a speaker need not be a registrant). Set only on the

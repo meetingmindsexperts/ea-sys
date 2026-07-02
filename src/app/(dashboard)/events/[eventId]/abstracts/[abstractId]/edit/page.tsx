@@ -38,6 +38,7 @@ import {
   abstractStatusLabel,
 } from "../../abstract-enums";
 import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers-card";
+import { PresenterAgreementCard } from "@/components/abstracts/presenter-agreement-card";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { MAX_ABSTRACT_WORDS, countWords } from "@/lib/abstract-content";
@@ -89,7 +90,12 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   const submitterLocked = isSubmitter && status !== "DRAFT";
   const contentWords = countWords(editData.content);
   const overWords = contentWords > MAX_ABSTRACT_WORDS;
-  const speaker = abstract.speaker as { firstName: string; lastName: string; email: string } | null;
+  const speaker = abstract.speaker as {
+    firstName: string;
+    lastName: string;
+    email: string;
+    presenterAgreementAcceptedAt?: string | null;
+  } | null;
 
   // Fetch aggregated reviewer feedback from the new submissions API so
   // submitters see a consolidated view of all reviewer notes + mean score.
@@ -445,6 +451,16 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           {/* Per-abstract reviewer assignment (admin/organizer only — the
               card self-hides for submitters). */}
           <AbstractReviewersCard eventId={eventId} abstractId={abstractId} />
+
+          {speaker && (
+            <PresenterAgreementCard
+              eventId={eventId}
+              abstractId={abstractId}
+              authorName={`${speaker.firstName} ${speaker.lastName}`.trim()}
+              authorEmail={speaker.email}
+              acceptedAt={speaker.presenterAgreementAcceptedAt ?? null}
+            />
+          )}
         </div>
       </div>
     </div>

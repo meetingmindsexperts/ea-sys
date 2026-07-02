@@ -191,3 +191,36 @@ export const DEFAULT_ABSTRACT_GUIDELINES_HTML = `
 <h3>Abstract Delivery Notification</h3>
 <p>Authors will be notified about the delivery of their abstract by e-mail immediately. In case you do not receive confirmation within 24 hours, please check your spam folder. In case of no confirmation e-mail, please contact: <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 `.trim();
+
+/**
+ * Default Presenter Agreement. This is the agreement an abstract author
+ * (presenter) accepts for {{eventName}}; it covers ALL of their abstracts for
+ * the event (per-author). Editable per event via the "Presenter Agreement"
+ * editor under Content → Abstracts (stored in `Event.abstractTermsHtml`); this
+ * constant is the fallback when the event hasn't set its own.
+ *
+ * Merge tokens (see src/lib/presenter-agreement.ts): {{presenterName}},
+ * {{presenterEmail}}, {{presenterOrganization}}, {{eventName}},
+ * {{eventDateRange}}, {{eventVenue}}, {{organizationName}}, {{abstractTitles}},
+ * {{abstractCount}}, {{signedDate}}.
+ */
+export const DEFAULT_PRESENTER_AGREEMENT_HTML = `
+<h1 style="text-align:center; margin-bottom:4px;">PRESENTER AGREEMENT</h1>
+<p style="text-align:center; color:#555; margin-top:0;">{{eventName}}{{eventDateRange}}</p>
+
+<p>This agreement is entered into between <strong>{{organizationName}}</strong> (the "Organizer") and <strong>{{presenterName}}</strong> (the "Presenter") in connection with the presentation of the following accepted abstract(s) at {{eventName}}:</p>
+
+<blockquote>{{abstractTitles}}</blockquote>
+
+<p>By accepting this agreement, the Presenter confirms and agrees to the following:</p>
+
+<ol>
+<li><strong>Originality &amp; authorship.</strong> The submitted work is original, is the Presenter's own (or properly attributed), and does not infringe any third-party rights. All co-authors, where applicable, are aware of and consent to the submission and presentation.</li>
+<li><strong>Commitment to present.</strong> The Presenter agrees to attend {{eventName}} and to present the accepted abstract(s) at the scheduled date and time, or to notify the Organizer promptly if unable to do so.</li>
+<li><strong>Disclosure.</strong> The Presenter has disclosed any relevant conflicts of interest and any commercial or financial relationships pertaining to the content presented.</li>
+<li><strong>Recording &amp; publication consent.</strong> The Presenter grants the Organizer permission to record, reproduce, and distribute the presentation and abstract (in the programme, proceedings, and related channels) for educational and promotional purposes.</li>
+<li><strong>Compliance.</strong> The Presenter agrees to comply with the Organizer's guidelines, applicable accreditation/CME requirements, and any applicable codes of conduct.</li>
+</ol>
+
+<p style="margin-top:24px;">Accepted by {{presenterName}} ({{presenterEmail}}) on {{signedDate}}.</p>
+`.trim();

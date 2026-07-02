@@ -224,16 +224,21 @@ export default function ContentPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Terms & Conditions</CardTitle>
+                <CardTitle>Presenter Agreement</CardTitle>
                 <CardDescription>
-                  Submitters must agree to these terms before submitting an abstract.
+                  The agreement a presenter (abstract author) accepts for this event. Sent as an emailed
+                  PDF + acceptance link from each abstract&apos;s edit page; one acceptance covers all of an
+                  author&apos;s abstracts. Leave blank to use the built-in default. Merge tokens:{" "}
+                  <code>{"{{presenterName}}"}</code>, <code>{"{{abstractTitles}}"}</code>,{" "}
+                  <code>{"{{eventName}}"}</code>, <code>{"{{eventDateRange}}"}</code>,{" "}
+                  <code>{"{{organizationName}}"}</code>, <code>{"{{signedDate}}"}</code>.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <TiptapEditor
                   content={content.abstractTermsHtml}
                   onChange={(html) => setContent({ ...content, abstractTermsHtml: html })}
-                  placeholder="By submitting an abstract, you agree to the following..."
+                  placeholder="Leave blank to use the built-in default Presenter Agreement..."
                 />
               </CardContent>
             </Card>

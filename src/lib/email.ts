@@ -1023,6 +1023,22 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "organizerEmail", description: "Organizer email" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
   ],
+  "presenter-agreement": [
+    { key: "title", description: "Presenter title prefix (e.g. Dr.)" },
+    { key: "firstName", description: "Presenter first name" },
+    { key: "lastName", description: "Presenter last name" },
+    { key: "presenterName", description: "Full prefixed presenter (author) name" },
+    { key: "presenterEmail", description: "Presenter email" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDateRange", description: "Event date range (formatted, with leading separator)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "abstractTitles", description: "The presenter's submitted abstract titles (joined)" },
+    { key: "abstractCount", description: "Number of abstracts the presenter submitted" },
+    { key: "agreementLink", description: "Agreement acceptance link URL" },
+    { key: "organizerName", description: "Organizer name" },
+    { key: "organizerEmail", description: "Organizer email" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
+  ],
   "event-reminder": [
     { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Recipient first name" },
@@ -1290,6 +1306,52 @@ Event details:
 - Venue: {{eventVenue}}
 
 Your personalized Agreement is attached to this email as a PDF. Please review it and confirm your participation here — no printing or signing required:
+{{agreementLink}}
+
+This link is unique to you and will expire in 30 days.
+
+{{personalMessage}}
+
+If you have any questions about the Agreement, please reach out before confirming.
+
+Best regards,
+{{organizerName}}
+{{organizerEmail}}`,
+  },
+  {
+    slug: "presenter-agreement",
+    name: "Presenter Agreement",
+    subject: "Presenter Agreement — {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Presenter Agreement</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{presenterName}}</strong>,</p>
+    <p>Thank you for submitting your work to <strong>{{eventName}}</strong>. On behalf of {{organizerName}}, please find attached the <strong>Presenter Agreement</strong> covering the presentation of your accepted abstract(s) at the event.</p>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151; font-size: 15px;">Your submission(s)</h3>
+      <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">{{abstractTitles}}</p>
+    </div>
+    <p><strong>Your personalized Agreement is attached to this email as a PDF.</strong> Please review it and confirm your acceptance by clicking the button below — no printing or signing is required.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{agreementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Accept Agreement</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; text-align: center;">This link is unique to you and will expire in 30 days.</p>
+    <p>{{personalMessage}}</p>
+    <p>If you have any questions about the Agreement, please reach out before confirming.</p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Presenter Agreement — {{eventName}}
+
+Dear {{presenterName}},
+
+Thank you for submitting your work to {{eventName}}. On behalf of {{organizerName}}, please find attached the Presenter Agreement covering the presentation of your accepted abstract(s) at the event.
+
+Your submission(s):
+{{abstractTitles}}
+
+Your personalized Agreement is attached to this email as a PDF. Please review it and confirm your acceptance here — no printing or signing required:
 {{agreementLink}}
 
 This link is unique to you and will expire in 30 days.

@@ -1309,33 +1309,42 @@ function renderRunsLine(
  * <em>/<i>, <u>, <a>, <br>, <hr>, <blockquote>, <div>, <span>. Other tags
  * (<img>, <table>…) are flattened to their text content.
  */
-export async function generateSpeakerAgreementPdf(opts: {
-  eventId: string;
-  speakerId: string;
-}): Promise<{ buffer: Buffer; filename: string } | null> {
-  const { eventId, speakerId } = opts;
+/**
+ * Generic agreement HTML → PDF renderer shared by the speaker + presenter
+ * agreements. Takes ALREADY-MERGED HTML and paints an A4 document with a
+ * centered heading, the parsed HTML body, and a two-column signature block.
+ * Callers own token-merging + filename derivation. (Lives here because the
+ * private `renderBlocksToDoc` HTML painter + its helpers are module-scoped in
+ * this file; presenter-agreement.ts imports this rather than duplicating ~250
+ * lines of pdfkit block rendering.)
+ */
+export interface AgreementPdfOptions {
+  /** Already token-merged agreement HTML. */
+  html: string;
+  /** PDF metadata Title. */
+  docTitle: string;
+  /** PDF metadata Author. */
+  docAuthor: string;
+  /** Large centered heading at the top of page 1. */
+  headingTitle: string;
+  /** Muted subtitle under the heading (usually the event name). */
+  headingSubtitle: string;
+  signatureLeftLabel: string;
+  signatureLeftName: string;
+  signatureRightLabel: string;
+  signatureRightName: string;
+}
 
-  const resolved = await resolveAgreementHtmlForSpeaker(eventId, speakerId);
-  if (!resolved) return null;
-
-  const event = await db.event.findFirst({
-    where: { id: eventId },
-    select: { slug: true, name: true },
-  });
-  if (!event) return null;
-
+export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promise<Buffer> {
   // Lazy import — pdfkit is ~2MB. Only load when actually rendering.
   const PDFDocument = (await import("pdfkit")).default;
 
-  const blocks = parseHtmlToBlocks(resolved.html);
+  const blocks = parseHtmlToBlocks(opts.html);
 
   const doc = new PDFDocument({
     size: "A4",
     margins: { top: 60, bottom: 60, left: 60, right: 60 },
-    info: {
-      Title: `Speaker Agreement — ${event.name}`,
-      Author: resolved.context.organizationName,
-    },
+    info: { Title: opts.docTitle, Author: opts.docAuthor },
   });
 
   const chunks: Buffer[] = [];
@@ -1349,17 +1358,17 @@ export async function generateSpeakerAgreementPdf(opts: {
 
   // Document title.
   doc.font("Helvetica-Bold").fontSize(22).fillColor("black");
-  doc.text("Speaker Agreement", { align: "center" });
+  doc.text(opts.headingTitle, { align: "center" });
   doc.font("Helvetica").fontSize(12).fillColor("#555");
-  doc.text(event.name, { align: "center" });
+  doc.text(opts.headingSubtitle, { align: "center" });
   doc.fillColor("black").moveDown(1.2);
 
   try {
     renderBlocksToDoc(doc, blocks, contentWidth);
   } catch (err) {
-    apiLogger.error({ err, msg: "speaker-agreement:pdf-render-failed", eventId, speakerId });
+    apiLogger.error({ err, msg: "agreement:pdf-render-failed" });
     doc.end();
-    throw new Error("Failed to render speaker agreement PDF");
+    throw new Error("Failed to render agreement PDF");
   }
 
   // Signature block.
@@ -1370,13 +1379,13 @@ export async function generateSpeakerAgreementPdf(opts: {
   const rightX = doc.page.margins.left + contentWidth / 2 + 10;
 
   doc.font("Helvetica-Bold").fontSize(11);
-  doc.text("Speaker", leftX, sigY, { width: halfWidth });
-  doc.text("Organizer", rightX, sigY, { width: halfWidth });
+  doc.text(opts.signatureLeftLabel, leftX, sigY, { width: halfWidth });
+  doc.text(opts.signatureRightLabel, rightX, sigY, { width: halfWidth });
 
   doc.font("Helvetica").fontSize(11);
-  doc.text(resolved.context.speakerName, leftX, doc.y, { width: halfWidth });
+  doc.text(opts.signatureLeftName, leftX, doc.y, { width: halfWidth });
   const afterNameY = doc.y;
-  doc.text(resolved.context.organizationName, rightX, sigY + 16, { width: halfWidth });
+  doc.text(opts.signatureRightName, rightX, sigY + 16, { width: halfWidth });
 
   doc.moveDown(1.5);
   const lineY = Math.max(doc.y, afterNameY + 30);
@@ -1396,7 +1405,36 @@ export async function generateSpeakerAgreementPdf(opts: {
   doc.end();
   await done;
 
-  const buffer = Buffer.concat(chunks);
+  return Buffer.concat(chunks);
+}
+
+export async function generateSpeakerAgreementPdf(opts: {
+  eventId: string;
+  speakerId: string;
+}): Promise<{ buffer: Buffer; filename: string } | null> {
+  const { eventId, speakerId } = opts;
+
+  const resolved = await resolveAgreementHtmlForSpeaker(eventId, speakerId);
+  if (!resolved) return null;
+
+  const event = await db.event.findFirst({
+    where: { id: eventId },
+    select: { slug: true, name: true },
+  });
+  if (!event) return null;
+
+  const buffer = await renderAgreementHtmlToPdf({
+    html: resolved.html,
+    docTitle: `Speaker Agreement — ${event.name}`,
+    docAuthor: resolved.context.organizationName,
+    headingTitle: "Speaker Agreement",
+    headingSubtitle: event.name,
+    signatureLeftLabel: "Speaker",
+    signatureLeftName: resolved.context.speakerName,
+    signatureRightLabel: "Organizer",
+    signatureRightName: resolved.context.organizationName,
+  });
+
   const filename = `agreement-${slugify(event.slug)}-${slugify(resolved.context.lastName || "speaker")}.pdf`;
   return { buffer, filename };
 }
