@@ -351,19 +351,6 @@ export default function AbstractsPage() {
     reviewAbstractMutation.mutate({ abstractId: selectedAbstract.id, data: reviewData });
   };
 
-  const openEditDialog = (abstract: Abstract) => {
-    setSelectedAbstract(abstract);
-    setEditData({
-      title: abstract.title,
-      content: abstract.content,
-      specialty: abstract.specialty || "",
-      presentationType: abstract.presentationType || "",
-      trackId: abstract.track?.id || "",
-      themeId: abstract.theme?.id || "",
-    });
-    setIsEditDialogOpen(true);
-  };
-
   const openReviewDialog = (abstract: Abstract) => {
     setSelectedAbstract(abstract);
     setReviewData({
@@ -1168,13 +1155,11 @@ export default function AbstractsPage() {
                         <>
                           {isAdmin && (
                             <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditDialog(abstract)}
-                              >
-                                <Pencil className="mr-1 h-4 w-4" />
-                                Edit
+                              <Button variant="outline" size="sm" asChild>
+                                <Link href={`/events/${eventId}/abstracts/${abstract.id}/edit`}>
+                                  <Pencil className="mr-1 h-4 w-4" />
+                                  Edit
+                                </Link>
                               </Button>
                               <Button
                                 variant="outline"
