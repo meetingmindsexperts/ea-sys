@@ -840,11 +840,11 @@ export function useImportRegistrationsToSpeakers(eventId: string) {
 export function useImportContactsToRegistrations(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ contactIds, ticketTypeId }: { contactIds: string[]; ticketTypeId: string }) =>
+    mutationFn: ({ contactIds, ticketTypeId, pricingTierId }: { contactIds: string[]; ticketTypeId: string; pricingTierId?: string }) =>
       fetchApi(`/api/events/${eventId}/registrations/import-contacts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactIds, ticketTypeId }),
+        body: JSON.stringify({ contactIds, ticketTypeId, pricingTierId }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });

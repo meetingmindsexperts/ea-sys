@@ -55,6 +55,7 @@ export function ImportContactsDialog({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [ticketTypeId, setTicketTypeId] = useState("");
+  const [pricingTierId, setPricingTierId] = useState("");
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filters: Record<string, string> = { limit: "50" };
@@ -66,10 +67,17 @@ export function ImportContactsDialog({
   const importToRegistrations = useImportContactsToRegistrations(eventId);
 
   interface Contact { id: string; firstName: string; lastName: string; email: string; organization?: string; tags?: string[]; }
-  interface Ticket { id: string; name: string; }
+  interface TicketTier { id: string; name: string; price: number; currency: string; isActive: boolean; }
+  interface Ticket { id: string; name: string; pricingTiers?: TicketTier[]; }
   const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
   const tickets: Ticket[] = (ticketsData ?? []) as Ticket[];
   const total: number = data?.total ?? 0;
+
+  // Active tiers on the chosen registration type. When present the operator
+  // must pick one so the imported registrations are priced (and originalPrice
+  // stamped) correctly — matches the Add Registration form.
+  const selectedTicket = tickets.find((t) => t.id === ticketTypeId);
+  const availableTiers = (selectedTicket?.pricingTiers ?? []).filter((t) => t.isActive);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
@@ -104,6 +112,11 @@ export function ImportContactsDialog({
       return;
     }
 
+    if (mode === "registration" && availableTiers.length > 0 && !pricingTierId) {
+      toast.error("Select a pricing tier");
+      return;
+    }
+
     try {
       let result: { created: number; skipped: number };
 
@@ -113,6 +126,7 @@ export function ImportContactsDialog({
         result = await importToRegistrations.mutateAsync({
           contactIds: Array.from(selectedIds),
           ticketTypeId,
+          pricingTierId: pricingTierId || undefined,
         }) as { created: number; skipped: number };
       }
 
@@ -142,22 +156,47 @@ export function ImportContactsDialog({
         </DialogHeader>
 
         <div className="space-y-3 flex-1 overflow-hidden flex flex-col min-h-0">
-          {/* Ticket type selector for registrations */}
+          {/* Ticket type + pricing tier selectors for registrations */}
           {mode === "registration" && (
-            <div className="space-y-1.5">
-              <Label>Registration Type *</Label>
-              <Select value={ticketTypeId} onValueChange={setTicketTypeId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a registration type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tickets.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Registration Type *</Label>
+                <Select
+                  value={ticketTypeId}
+                  onValueChange={(v) => {
+                    setTicketTypeId(v);
+                    setPricingTierId(""); // tiers belong to a type; reset on switch
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a registration type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tickets.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {availableTiers.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Pricing Tier *</Label>
+                  <Select value={pricingTierId} onValueChange={setPricingTierId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a pricing tier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableTiers.map((tier) => (
+                        <SelectItem key={tier.id} value={tier.id}>
+                          {tier.name} — {tier.currency} {tier.price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
 

@@ -11,6 +11,10 @@ type RouteParams = { params: Promise<{ eventId: string }> };
 const importSchema = z.object({
   contactIds: z.array(z.string()).min(1),
   ticketTypeId: z.string().min(1),
+  // Optional pricing tier (only meaningful when the chosen ticket type has
+  // tiers). Validated below to belong to the ticket type; drives the stamped
+  // originalPrice + pricingTierId so finance surfaces price these correctly.
+  pricingTierId: z.string().min(1).optional(),
 });
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -32,7 +36,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const { contactIds, ticketTypeId } = validated.data;
+    const { contactIds, ticketTypeId, pricingTierId } = validated.data;
 
     // Verify event, ticket type, and fetch contacts
     const [event, ticketType, contacts] = await Promise.all([
@@ -42,11 +46,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.ticketType.findFirst({
         where: { id: ticketTypeId, eventId },
-        select: { id: true, soldCount: true, quantity: true },
+        select: { id: true, soldCount: true, quantity: true, price: true },
       }),
       db.contact.findMany({
         where: { id: { in: contactIds }, organizationId: session.user.organizationId! },
-        select: { email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true },
+        select: { email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true, role: true },
       }),
     ]);
 
@@ -57,6 +61,27 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!ticketType) {
       return NextResponse.json({ error: "Ticket type not found" }, { status: 404 });
     }
+
+    // Resolve the optional pricing tier — must belong to the chosen ticket
+    // type. Like the manual Add-Registration form, an inactive tier is
+    // allowed (courtesy pricing); we only enforce membership. The tier's
+    // price becomes the stamped originalPrice; without a tier we fall back
+    // to the ticket type's base price.
+    let tier: { id: string; price: unknown } | null = null;
+    if (pricingTierId) {
+      tier = await db.pricingTier.findFirst({
+        where: { id: pricingTierId, ticketTypeId },
+        select: { id: true, price: true },
+      });
+      if (!tier) {
+        apiLogger.warn({ msg: "import-contacts:pricing-tier-not-found", eventId, ticketTypeId, pricingTierId });
+        return NextResponse.json(
+          { error: "The selected pricing tier doesn't belong to that registration type.", code: "PRICING_TIER_NOT_FOUND" },
+          { status: 400 }
+        );
+      }
+    }
+    const originalPrice = Number(tier ? tier.price : ticketType.price);
 
     // Find existing registrations for this event by attendee email
     const existingAttendees = await db.attendee.findMany({
@@ -83,6 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               organization: contact.organization ?? undefined,
               jobTitle: contact.jobTitle ?? undefined,
               phone: contact.phone ?? undefined,
+              role: contact.role ?? undefined,
             },
           });
 
@@ -91,8 +117,12 @@ export async function POST(req: Request, { params }: RouteParams) {
             data: {
               eventId,
               ticketTypeId,
+              pricingTierId: tier?.id ?? null,
               attendeeId: attendee.id,
               serialId,
+              // Stamp the price at create so finance surfaces resolve it
+              // tier-aware (closes the deferred "unstamped import path").
+              originalPrice,
               // "Import from Contacts" is admin-driven — operator
               // picks a checked subset and imports as registrations.
               // Not a CSV upload, so ADMIN_DASHBOARD is the right
