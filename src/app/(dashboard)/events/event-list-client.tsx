@@ -144,10 +144,10 @@ export function EventListClient({
     return Array.from(years).sort((a, b) => b - a); // newest first
   }, [events]);
 
-  // Default view ("createdAt", the non-clickable default sort) always shows
-  // upcoming/ongoing events first — soonest start on top — then past events
-  // most-recent-first. When the user explicitly clicks a column (Name / Date)
-  // the server-provided order is respected as-is.
+  // Default view ("createdAt", the non-clickable default sort) prioritises
+  // PUBLISHED events at the top, then orders each group upcoming/ongoing first
+  // (soonest start on top) with past events most-recent-first. When the user
+  // explicitly clicks a column (Name / Date) the server order is respected.
   // Computed once at mount (lazy state) — keeps the useMemo pure (no Date.now()
   // during render, which react-hooks/purity forbids).
   const [now] = useState(() => Date.now());
@@ -155,10 +155,15 @@ export function EventListClient({
     if (sortField !== "createdAt") return events;
     const isUpcoming = (e: EventListItem) =>
       new Date(e.endDate).getTime() >= now; // ongoing counts as upcoming
+    // Published gets top priority; everything else follows.
+    const statusRank = (e: EventListItem) => (e.status === "PUBLISHED" ? 0 : 1);
     return [...events].sort((a, b) => {
+      const aRank = statusRank(a);
+      const bRank = statusRank(b);
+      if (aRank !== bRank) return aRank - bRank; // PUBLISHED block first
       const aUp = isUpcoming(a);
       const bUp = isUpcoming(b);
-      if (aUp !== bUp) return aUp ? -1 : 1; // upcoming block first
+      if (aUp !== bUp) return aUp ? -1 : 1; // then upcoming before past
       const aStart = new Date(a.startDate).getTime();
       const bStart = new Date(b.startDate).getTime();
       // upcoming: soonest first (asc); past: most-recent first (desc)
