@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Refactored — confirmation-email field builder (July 2)
+
+Second step of the registration-routes duplication cleanup. The
+`sendRegistrationConfirmation` param object (~40 fields) was fed from 4 divergent
+callers (public register, token-gated complete-registration,
+registration-service, registrant resend), and drift there had already caused a
+real tax/discount bug. Extracted the 19-field event + org/company + tax/bank/
+support block (byte-identical across all 4) into
+`src/lib/registration-confirmation.ts` `buildEventConfirmationFields(event)`; the
+param object is now the exported `RegistrationConfirmationParams` type in
+`src/lib/email.ts`. Same transforms preserved (`venue || ""`,
+`taxRate ? Number : null`, `logo → logoPath`). Deliberately left per-caller:
+`eventSlug` (register passes the route param, which may be an event id, not
+`event.slug`) and the price/discount/qrCode/attendanceMode/billing fields (they
+diverge per caller and feed the finance-sensitive quote PDF — untouched, so the
+quote path is unchanged). Pure internal refactor — no behavior change, no schema,
+no migration. +5 unit tests. tsc 0, eslint 0, vitest 1786, build 0. (#2 attendee
+field-shaping was investigated and found low-value; #1 seat-claim helper is
+queued for its own careful pass — it touches the revenue-critical public-register
+path.)
+
+### Refactored — shared `ensureRegistrantAccount` helper (July 2)
+
+First step of a registration-routes duplication cleanup. The public `register`
+and token-gated `complete-registration` routes carried byte-identical ~60-line
+copies of the create-or-link REGISTRANT account block (existing user → link this
+reg + sweep sibling unlinked registrations on the same email + first-time-only
+terms stamp; else create a REGISTRANT with internal-domain org-attach +
+verify-email link + admin SIGNUP notification). Extracted to
+`src/lib/registrant-account.ts` `ensureRegistrantAccount()` — failure-isolated
+(never blocks the registration; logs `registrant-account:create-or-link-failed`
+at error level) and a no-op when no password is supplied (guest registration).
+Each caller keeps its own signup-message wording; log level/presence preserved,
+with `registrationId`+`eventId` added to both. Pure internal refactor — no
+behavior change, no schema, no migration. +7 unit tests. tsc 0, eslint 0, vitest
+1781, build 0. Commit `98aab9a`. Queued next (same cleanup): route the 5 create
+paths through the existing `claimSeat`/`releaseSeat` seat helper, then dedup the
+`sendRegistrationConfirmation` payload assembly + attendee field-shaping.
+
 ### Added — Team invite "set password now" mode (June 17)
 
 The Settings → Users invite was email-only (account gets a throwaway password +
