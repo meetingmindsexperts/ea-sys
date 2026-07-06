@@ -1668,6 +1668,10 @@ export function RegistrationDetailSheet({
                         (this whole section) + unpaid-only, like the promo. */}
                     {(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) &&
                       !isReviewer &&
+                      // Hidden while a promo is applied — re-tiering with a stored
+                      // discount can over-discount, so the server blocks it. Remove
+                      // the promo (control below) first, re-tier, then re-apply.
+                      !selectedRegistration.promoCode &&
                       (() => {
                         const tt = regTypes.find((t) => t.id === selectedRegistration.ticketType?.id);
                         const tiers = (tt?.pricingTiers ?? []) as Array<{

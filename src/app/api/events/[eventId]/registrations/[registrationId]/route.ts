@@ -497,10 +497,37 @@ export async function PUT(req: Request, { params }: RouteParams) {
         existingRegistration.paymentStatus === PaymentStatus.UNPAID ||
         existingRegistration.paymentStatus === PaymentStatus.PENDING;
       if (!unpaid) {
+        // Message depends on WHY: a paid reg needs a refund; a comp/sponsor reg
+        // has no balance, so its payment status must change first.
+        const noBalance =
+          existingRegistration.paymentStatus === PaymentStatus.COMPLIMENTARY ||
+          existingRegistration.paymentStatus === PaymentStatus.INCLUSIVE;
+        apiLogger.warn({
+          msg: "registration-update:retier-blocked-not-unpaid",
+          registrationId,
+          paymentStatus: existingRegistration.paymentStatus,
+        });
         return NextResponse.json(
           {
-            error: "The pricing tier can only be changed while the registration is unpaid. For a paid registration, refund it first.",
+            error: noBalance
+              ? "This registration has no balance due (complimentary / sponsor-paid). Change its payment status before changing the tier."
+              : "The pricing tier can only be changed while the registration is unpaid. Refund the payment first.",
             code: "TIER_CHANGE_REQUIRES_UNPAID",
+          },
+          { status: 400 },
+        );
+      }
+      // A stored promo/discount was validated against the OLD price. Re-stamping
+      // the base price without recomputing the discount can OVER-discount (a fixed
+      // −$100 on a $50 tier clamps to $0, silently voiding the charge). Require the
+      // organizer to remove the promo first, then re-tier + re-apply (which
+      // re-validates against the new subtotal).
+      if (existingRegistration.promoCodeId || Number(existingRegistration.discountAmount ?? 0) > 0) {
+        apiLogger.warn({ msg: "registration-update:retier-blocked-has-discount", registrationId });
+        return NextResponse.json(
+          {
+            error: "Remove the applied promo code / discount before changing the pricing tier, then re-apply it if needed.",
+            code: "TIER_CHANGE_HAS_DISCOUNT",
           },
           { status: 400 },
         );
@@ -514,10 +541,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
             where: { id: currentTicketTypeId, eventId },
             select: { price: true },
           });
+          if (!baseTt) {
+            apiLogger.warn({ msg: "registration-update:retier-clear-no-ticket-type", registrationId, currentTicketTypeId });
+          }
           retierOriginalPrice = baseTt ? Number(baseTt.price) : undefined;
         }
       } else {
         if (!currentTicketTypeId) {
+          apiLogger.warn({ msg: "registration-update:retier-no-ticket-type", registrationId });
           return NextResponse.json(
             { error: "This registration has no ticket type, so it can't be assigned a pricing tier.", code: "NO_TICKET_TYPE" },
             { status: 400 },
