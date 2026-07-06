@@ -241,6 +241,88 @@ instead of waiting for a human.
   (`infra/dr/README.md`), never rehearsed under real conditions. See the
   production-readiness backlog in [`docs/PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 
+#### 1.7.1 Provisioning reference — the exact commands
+
+How the alerting above was built (2026-07-06). Reproducible: to rebuild on a new
+box, swap `INST` for the new instance id and (for the health check) recreate it +
+point the alarm at the new `HC_ID`. All read-safe to re-run (`put-metric-alarm` /
+`create-topic` are idempotent by name; `subscribe` just re-sends a confirmation).
+
+```bash
+INST="i-0b51ab1213d084640"
+EMAILS="krishna@meetingmindsdubai.com vivek@meetingmindsdubai.com"
+HC_ID="20c6ff28-1c3d-456c-8bc2-84f88b39e325"   # Route53 health check on /health
+
+# ── SNS: one topic per region (SNS is regional). Subscribe every recipient;
+#    each must click the confirmation email once per topic. ──
+for R in us-east-1 ap-south-1; do
+  ARN=$(aws sns create-topic --name ea-sys-alerts --region "$R" --query TopicArn --output text)
+  for E in $EMAILS; do aws sns subscribe --region "$R" --topic-arn "$ARN" --protocol email --notification-endpoint "$E"; done
+done
+SNS_USE1="arn:aws:sns:us-east-1:803726282629:ea-sys-alerts"
+SNS_APS1="arn:aws:sns:ap-south-1:803726282629:ea-sys-alerts"
+
+# ── Route 53 health check (HTTPS /health) — created via wizard; equivalent CLI: ──
+# aws route53 create-health-check --caller-reference ea-sys-$(date +%s) \
+#   --health-check-config '{"Type":"HTTPS","FullyQualifiedDomainName":"events.meetingmindsgroup.com","Port":443,"ResourcePath":"/health","RequestInterval":30,"FailureThreshold":3,"EnableSNI":true}'
+aws route53 update-health-check --health-check-id "$HC_ID" --resource-path /health
+
+# ── Alarm on the health check (Route53 metrics live ONLY in us-east-1) ──
+aws cloudwatch put-metric-alarm --region us-east-1 --alarm-name ea-sys-health-down \
+  --namespace AWS/Route53 --metric-name HealthCheckStatus \
+  --dimensions Name=HealthCheckId,Value="$HC_ID" \
+  --statistic Minimum --period 60 --evaluation-periods 1 --threshold 1 \
+  --comparison-operator LessThanThreshold --treat-missing-data breaching \
+  --alarm-actions "$SNS_USE1" --ok-actions "$SNS_USE1"
+
+# ── EC2 alarms (ap-south-1). notBreaching so a metric gap doesn't false-alarm. ──
+# hard-down notify (combined instance+system status check)
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-status-check-failed \
+  --namespace AWS/EC2 --metric-name StatusCheckFailed --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Maximum --period 60 --evaluation-periods 2 --threshold 1 \
+  --comparison-operator GreaterThanOrEqualToThreshold --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_APS1" --ok-actions "$SNS_APS1"
+
+# AUTO-RECOVERY: on a SYSTEM (hardware) status-check failure, recover onto healthy
+# hardware (same id/EIP/EBS) AND notify. Needs EBS-only storage (t3.large = ok).
+# Service is restored because docker is enabled on boot + all containers are
+# restart: unless-stopped (verify with `systemctl is-enabled docker`).
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-auto-recover \
+  --namespace AWS/EC2 --metric-name StatusCheckFailed_System --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Maximum --period 60 --evaluation-periods 2 --threshold 1 \
+  --comparison-operator GreaterThanOrEqualToThreshold --treat-missing-data notBreaching \
+  --alarm-actions "arn:aws:automate:ap-south-1:ec2:recover" "$SNS_APS1" --ok-actions "$SNS_APS1"
+
+# CPU sustained-high + t3 burst-credit exhaustion
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-cpu-high \
+  --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Average --period 60 --evaluation-periods 5 --threshold 90 \
+  --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_APS1" --ok-actions "$SNS_APS1"
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-cpu-credits-low \
+  --namespace AWS/EC2 --metric-name CPUCreditBalance --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Minimum --period 300 --evaluation-periods 1 --threshold 100 \
+  --comparison-operator LessThanThreshold --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_APS1" --ok-actions "$SNS_APS1"
+
+# ── Disk + mem need the CloudWatch AGENT to collect them (it's logs-only by default).
+#    The `metrics` block is in infra/cloudwatch/amazon-cloudwatch-agent.json; reload it: ──
+# (on the box, via SSM)
+#   sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+#     -a fetch-config -m ec2 -s -c file:/home/ubuntu/ea-sys/infra/cloudwatch/amazon-cloudwatch-agent.json
+# then the alarms (metric published aggregated by InstanceId):
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-disk-high \
+  --namespace CWAgent --metric-name disk_used_percent --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Maximum --period 300 --evaluation-periods 1 --threshold 85 \
+  --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_APS1" --ok-actions "$SNS_APS1"
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name ea-sys-ec2-mem-high \
+  --namespace CWAgent --metric-name mem_used_percent --dimensions Name=InstanceId,Value="$INST" \
+  --statistic Average --period 300 --evaluation-periods 2 --threshold 90 \
+  --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
+  --alarm-actions "$SNS_APS1" --ok-actions "$SNS_APS1"
+```
+
 ---
 
 ## 2. Disaster recovery
