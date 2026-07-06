@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
@@ -74,6 +75,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       ? { speaker: { userId: session.user.id } }
       : {};
 
+    // A DRAFT is the submitter's private work-in-progress. Never surface drafts
+    // to organizers / admins / reviewers — only the owning SUBMITTER (via
+    // submitterFilter above) sees their own drafts.
+    const statusFilter = abstractListStatusFilter({
+      canSeeDrafts: session.user.role === "SUBMITTER",
+      requestedStatus: status,
+    });
+
     // Parallelize event validation and abstracts fetch
     const [event, abstracts] = await Promise.all([
       db.event.findFirst({
@@ -83,7 +92,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.abstract.findMany({
         where: {
           eventId,
-          ...(status && { status }),
+          ...(statusFilter !== undefined && { status: statusFilter }),
           ...(trackId && { trackId }),
           ...(speakerId && { speakerId }),
           ...submitterFilter,

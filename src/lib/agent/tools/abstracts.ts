@@ -1,7 +1,9 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import { AbstractStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
+import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import {
   computeSubmissionAggregates,
   computeWeightedOverallScore,
@@ -162,10 +164,17 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
     if (statusValue && !ABSTRACT_STATUSES.has(statusValue)) {
       return { error: `Invalid status. Must be one of: ${[...ABSTRACT_STATUSES].join(", ")}` };
     }
+    // DRAFT is the submitter's private work-in-progress. The MCP surface is
+    // org-facing (API key / agent) — never a submitter — so drafts are never
+    // exposed here (an explicit status=DRAFT yields an empty set, not a leak).
+    const statusFilter = abstractListStatusFilter({
+      canSeeDrafts: false,
+      requestedStatus: (statusValue as AbstractStatus | undefined) ?? null,
+    });
     const abstracts = await db.abstract.findMany({
       where: {
         eventId: ctx.eventId,
-        ...(statusValue ? { status: statusValue as never } : {}),
+        status: statusFilter as never,
         ...(input.themeId ? { themeId: String(input.themeId) } : {}),
       },
       select: {
