@@ -478,6 +478,7 @@ function CategoryRegistrationContent() {
   const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
   const isMember = selectedRegTypeName.includes("member");
   const isStudent = selectedRegTypeName.includes("student");
+  const isResident = form.watch("role") === "RESIDENT";
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
@@ -1202,6 +1203,21 @@ function CategoryRegistrationContent() {
                               <FormMessage />
                             </FormItem>
                           )} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Section: Official Letter (conditional — Role = Resident) */}
+                  {isResident && (
+                    <div className="space-y-5">
+                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Official Letter</h3>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-sm text-amber-800">
+                          Please upload an official letter from your current institution confirming your status as a Resident or Trainee.
+                        </p>
+                        <p className="mt-2 text-sm text-amber-800">
+                          The letter must be in English, printed on official letterhead, and signed and stamped by the relevant authority.
+                        </p>
                       </div>
                     </div>
                   )}
