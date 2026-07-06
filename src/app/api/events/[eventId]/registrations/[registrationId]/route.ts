@@ -231,7 +231,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const [event, existingRegistration] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true, settings: true },
+        // taxRate/taxLabel feed the recomputed `financials` attached to the
+        // PUT response so the detail sheet's Payment Summary refreshes after an
+        // inline edit (e.g. a pricing-tier re-classification) without a
+        // separate GET round-trip.
+        select: { id: true, settings: true, taxRate: true, taxLabel: true },
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
@@ -747,7 +751,33 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     });
 
-    return NextResponse.json(registration);
+    // Recompute the money breakdown on the fresh row — same single-source
+    // block the GET uses — so the detail sheet's Payment Summary reflects the
+    // edit immediately (a tier re-classification changes subtotal/total/VAT).
+    // Without this the client shows `pricingTier` but a `financials`-less row,
+    // which falls into the "no price set yet" branch even though a tier is set.
+    const subtotal = readRegistrationBasePrice(registration);
+    const totalPaid = (registration.payments ?? [])
+      .filter((p) => p.status?.toLowerCase() === "succeeded" || p.status === "PAID")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const financials = computeRegistrationFinancials({
+      subtotal,
+      discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      taxRate: event.taxRate ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel,
+      currency: registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD",
+      totalPaid,
+    });
+    const withFinancials = { ...registration, financials };
+
+    // ONSITE (registration-desk) can PUT but must never see amounts —
+    // strip financials/payments/billing exactly like the GET does. MEMBER
+    // can't reach this route (denyReviewer blocks it), but redact defensively.
+    const payload = canViewFinance(session.user.role)
+      ? withFinancials
+      : redactFinancialFields(withFinancials);
+
+    return NextResponse.json(payload);
   } catch (error) {
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
       return NextResponse.json(
