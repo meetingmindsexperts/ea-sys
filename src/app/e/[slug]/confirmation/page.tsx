@@ -264,29 +264,18 @@ function ConfirmationContent() {
               </p>
             </div>
 
-            {/* Registration ID (short serial) + Confirmation number (long code) */}
-            {(serial || registrationId) && (
-              <div className="mx-6 mb-5 bg-slate-50 rounded-xl border border-slate-100 p-4 text-center space-y-3">
-                {serial && (
-                  <div>
-                    <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
-                      Registration ID
-                    </p>
-                    <p className="font-mono font-bold text-slate-900 text-lg tracking-wider">
-                      {serial}
-                    </p>
-                  </div>
-                )}
-                {registrationId && (
-                  <div>
-                    <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
-                      Confirmation Number
-                    </p>
-                    <p className="font-mono text-slate-600 text-xs tracking-wider break-all">
-                      {registrationId.toUpperCase()}
-                    </p>
-                  </div>
-                )}
+            {/* Registration ID (short per-event serial). The long internal
+                registration code (cuid) is intentionally NOT shown to the
+                registrant — it's a back-office identifier surfaced only in the
+                dashboard (registration detail + audit log). */}
+            {serial && (
+              <div className="mx-6 mb-5 bg-slate-50 rounded-xl border border-slate-100 p-4 text-center">
+                <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-1">
+                  Registration ID
+                </p>
+                <p className="font-mono font-bold text-slate-900 text-lg tracking-wider">
+                  {serial}
+                </p>
               </div>
             )}
 
