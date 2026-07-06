@@ -26,8 +26,10 @@ import type { AttendeeRole } from "@prisma/client";
 const isEnabled = () => process.env.CONTACTS_CENTRAL_ENABLED === "true";
 const baseUrl = () => (process.env.CONTACTS_CENTRAL_URL || "").replace(/\/+$/, "");
 const serviceKey = () => process.env.CONTACTS_CENTRAL_SERVICE_KEY || "";
-const RPC = "ea_upsert_contacts";
-const BATCH_SIZE = 500;
+const tableName = () => process.env.CONTACTS_CENTRAL_TABLE || "contacts_centralv1";
+// Read-modify-write chunk size — smaller than a bulk upsert because each chunk
+// GETs the existing rows (emails go in the URL) then POSTs the merged batch.
+const CHUNK_SIZE = 100;
 
 export function isCentralSyncConfigured(): boolean {
   return isEnabled() && !!baseUrl() && !!serviceKey();
@@ -170,45 +172,136 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
   return [...byEmail.values()];
 }
 
-/** Call the target's `ea_upsert_contacts` RPC in batches (atomic union+enrich). */
+/** The merged payload we actually send — enriched scalars + unioned arrays. */
+export interface CentralPayload {
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  organization_name: string | null;
+  job_title: string | null;
+  mobile: string | null;
+  city: string | null;
+  country: string | null;
+  speciality: string | null;
+  role: string | null;
+  source: string;
+  last_updated: string;
+  tags: string[];
+  events_attended: string[];
+  registration_type: string[];
+  event_speciality: string[];
+  event_type: string[];
+  event_group: string[];
+}
+
+function nz(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v : null;
+}
+function unionArr(existing: unknown, ours: string[]): string[] {
+  const prev = Array.isArray(existing) ? existing.map((x) => String(x)) : [];
+  return [...new Set([...prev, ...ours].map((s) => s.trim()).filter((s) => s !== ""))];
+}
+
+/**
+ * Merge our computed view with the row already in the central table: scalars
+ * ENRICH (keep an existing non-empty value; else fill from us), arrays UNION
+ * (add ours, never drop theirs). Pure — exported for tests. `existing` is the
+ * (partial) PostgREST row, or undefined for a brand-new email.
+ */
+export function mergeWithExisting(ours: CentralContactRow, existing?: Record<string, unknown>): CentralPayload {
+  const e = existing ?? {};
+  return {
+    email: ours.email,
+    first_name: nz(e.first_name) ?? ours.first_name,
+    last_name: nz(e.last_name) ?? ours.last_name,
+    organization_name: nz(e.organization_name) ?? ours.organization_name,
+    job_title: nz(e.job_title) ?? ours.job_title,
+    mobile: nz(e.mobile) ?? ours.mobile,
+    city: nz(e.city) ?? ours.city,
+    country: nz(e.country) ?? ours.country,
+    speciality: nz(e.speciality) ?? ours.speciality,
+    role: nz(e.role) ?? ours.role,
+    source: nz(e.source) ?? "ea-sys",
+    last_updated: ours.last_updated,
+    tags: unionArr(e.tags, ours.tags),
+    events_attended: unionArr(e.events_attended, ours.events_attended),
+    registration_type: unionArr(e.registration_type, ours.registration_type),
+    event_speciality: unionArr(e.event_speciality, ours.event_speciality),
+    event_type: unionArr(e.event_type, ours.event_type),
+    event_group: unionArr(e.event_group, ours.event_group),
+  };
+}
+
+const SELECT_COLS =
+  "email,first_name,last_name,organization_name,job_title,mobile,city,country," +
+  "speciality,role,source,tags,events_attended,registration_type,event_speciality,event_type,event_group";
+
+/**
+ * Upsert entirely from OUR side — no functions in the target project. Per chunk:
+ * GET the existing rows → merge (union arrays, enrich scalars) in our code →
+ * POST an upsert (merge-duplicates) of only our columns, so
+ * evenstair_customerid / created_at / fetched_at / mailchimp_* are left
+ * untouched (preserved by omission).
+ *
+ * Trade-off vs a server-side RPC: read-then-write is NOT atomic — if ANOTHER
+ * source writes the same columns in the tiny window between our GET and POST,
+ * that write can be lost. Our own sync is single-writer (advisory lock), so the
+ * only race is cross-source; acceptable for a periodic mirror.
+ */
 export async function upsertCentralRows(rows: CentralContactRow[]): Promise<{ sent: number; failed: number }> {
   if (!isCentralSyncConfigured()) {
     apiLogger.warn({ msg: "contacts-central:not-configured" });
     return { sent: 0, failed: 0 };
   }
-  const endpoint = `${baseUrl()}/rest/v1/rpc/${RPC}`;
+  const base = baseUrl();
   const key = serviceKey();
+  const table = tableName();
+  const readHeaders = { apikey: key, Authorization: `Bearer ${key}` };
+  const writeHeaders = {
+    ...readHeaders,
+    "Content-Type": "application/json",
+    Prefer: "resolution=merge-duplicates,return=minimal",
+  };
   let sent = 0;
   let failed = 0;
 
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
     try {
-      const res = await fetch(endpoint, {
+      // 1. Fetch existing rows for this chunk's emails.
+      const inList = chunk.map((r) => `"${r.email.replace(/["\\]/g, "")}"`).join(",");
+      const getUrl = `${base}/rest/v1/${table}?select=${SELECT_COLS}&email=in.(${encodeURIComponent(inList)})`;
+      const getRes = await fetch(getUrl, { headers: readHeaders });
+      if (!getRes.ok) {
+        const body = await getRes.text().catch(() => "");
+        apiLogger.error({ msg: "contacts-central:read-failed", status: getRes.status, body: body.slice(0, 400), chunk: chunk.length });
+        failed += chunk.length;
+        continue;
+      }
+      const existingRows = (await getRes.json()) as Record<string, unknown>[];
+      const existingByEmail = new Map<string, Record<string, unknown>>(
+        existingRows.map((row) => [String(row.email ?? "").toLowerCase(), row]),
+      );
+
+      // 2. Merge (union arrays, enrich scalars).
+      const payload = chunk.map((r) => mergeWithExisting(r, existingByEmail.get(r.email)));
+
+      // 3. Upsert only our columns; foreign-managed columns preserved by omission.
+      const postRes = await fetch(`${base}/rest/v1/${table}?on_conflict=email`, {
         method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify({ p_rows: batch }),
+        headers: writeHeaders,
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        apiLogger.error({
-          msg: "contacts-central:rpc-failed",
-          status: res.status,
-          body: body.slice(0, 500),
-          batch: batch.length,
-        });
-        failed += batch.length;
+      if (!postRes.ok) {
+        const body = await postRes.text().catch(() => "");
+        apiLogger.error({ msg: "contacts-central:upsert-failed", status: postRes.status, body: body.slice(0, 400), chunk: chunk.length });
+        failed += chunk.length;
       } else {
-        sent += batch.length;
+        sent += chunk.length;
       }
     } catch (err) {
-      apiLogger.error({ err, msg: "contacts-central:rpc-error", batch: batch.length });
-      failed += batch.length;
+      apiLogger.error({ err, msg: "contacts-central:upsert-error", chunk: chunk.length });
+      failed += chunk.length;
     }
   }
   return { sent, failed };

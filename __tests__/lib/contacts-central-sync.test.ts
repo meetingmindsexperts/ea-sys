@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import { AttendeeRole } from "@prisma/client";
 import {
   buildCentralRow,
+  mergeWithExisting,
   type ContactForSync,
   type EventMeta,
+  type CentralContactRow,
 } from "@/lib/contacts-central-sync";
 import { formatAttendeeRole } from "@/lib/schemas";
 
@@ -101,5 +103,66 @@ describe("buildCentralRow", () => {
       NOW,
     );
     expect(r.registration_type).toEqual(["Student"]);
+  });
+});
+
+describe("mergeWithExisting", () => {
+  const ours: CentralContactRow = {
+    email: "ada@example.com",
+    first_name: "Ada",
+    last_name: "Lovelace",
+    organization_name: "Analytical Engines",
+    job_title: "Mathematician",
+    mobile: "+441234",
+    city: "London",
+    country: "United Kingdom",
+    speciality: "Cardiology",
+    role: "Physician",
+    tags: ["gold"],
+    events_attended: ["MedCon 2026"],
+    registration_type: ["Delegate"],
+    event_speciality: ["Cardiology"],
+    event_type: ["CONFERENCE"],
+    event_group: ["flagship"],
+    last_updated: NOW,
+  };
+
+  it("new email (no existing) → uses our values + source ea-sys", () => {
+    const p = mergeWithExisting(ours, undefined);
+    expect(p.first_name).toBe("Ada");
+    expect(p.source).toBe("ea-sys");
+    expect(p.tags).toEqual(["gold"]);
+    expect(p.last_updated).toBe(NOW);
+  });
+
+  it("scalars ENRICH — keep existing non-empty, fill blanks from us", () => {
+    const p = mergeWithExisting(ours, {
+      email: "ada@example.com",
+      organization_name: "Babbage & Co", // existing set → kept
+      job_title: "", // empty → filled from us
+      mobile: null, // null → filled from us
+      source: "eventsair", // existing source kept
+    });
+    expect(p.organization_name).toBe("Babbage & Co"); // not overwritten
+    expect(p.job_title).toBe("Mathematician"); // filled
+    expect(p.mobile).toBe("+441234"); // filled
+    expect(p.source).toBe("eventsair"); // preserved
+  });
+
+  it("arrays UNION with existing (add ours, dedup, never drop theirs)", () => {
+    const p = mergeWithExisting(ours, {
+      email: "ada@example.com",
+      tags: ["silver", "gold"], // "gold" dup, "silver" from another source
+      events_attended: ["Old Summit"], // from another source — must survive
+    });
+    expect(new Set(p.tags)).toEqual(new Set(["silver", "gold"]));
+    expect(new Set(p.events_attended)).toEqual(new Set(["Old Summit", "MedCon 2026"]));
+    // an array we don't have existing for stays as ours
+    expect(p.registration_type).toEqual(["Delegate"]);
+  });
+
+  it("last_updated is always ours (freshness marker)", () => {
+    const p = mergeWithExisting(ours, { email: "ada@example.com", last_updated: "2000-01-01T00:00:00.000Z" });
+    expect(p.last_updated).toBe(NOW);
   });
 });

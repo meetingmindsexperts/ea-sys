@@ -10,12 +10,14 @@ backfill/reconcile.
   region **eu-north-1**, table `contacts_centralv1`, keyed on `email`.
 - **Mechanism:** the `ea-sys-worker` tier runs a job every ~10 min that upserts
   contacts touched in the last 30 min; the backfill script does the full reconcile.
-  Both call the target's `ea_upsert_contacts` RPC.
+  All logic runs on the **EA-SYS side** (read-modify-write via PostgREST — GET the
+  existing rows → merge → upsert). **No functions/objects live in the target
+  project** beyond the table you already have.
 
 > **Data residency:** the target is **EU**, so attendee **PII leaves the Mumbai
 > boundary**. This is an explicit, signed-off data-sharing decision.
 
-## Merge semantics (enforced atomically by the target RPC)
+## Merge semantics (done on the EA-SYS side)
 - **Arrays** (`tags`, `events_attended`, `registration_type`, `event_speciality`,
   `event_type`, `event_group`) → **UNION** with what's already there (add EA-SYS's
   values, dedup, **never remove** another source's entries).
@@ -23,8 +25,13 @@ backfill/reconcile.
 - **Never written by us** (fully preserved): `evenstair_customerid`, `created_at`,
   `fetched_at`, and every `mailchimp_*` column.
 
-A plain PostgREST upsert can't do union+enrich (it replaces), so the merge is a
-Postgres function on the target; EA-SYS just calls it with a batch of rows.
+A plain PostgREST upsert can only *replace*, so EA-SYS reads the existing row
+first, merges (union arrays, enrich scalars) in code, then upserts only its
+columns. **Trade-off:** this read-modify-write is **not atomic** — if another
+source writes the same columns in the small window between our GET and POST,
+that write can be lost. Our own sync is single-writer (worker advisory lock), so
+the only race is *cross-source*; acceptable for a periodic mirror, and it keeps
+all control on the EA-SYS side (nothing to install in the target project).
 
 ## Field mapping
 | `contacts_centralv1` | EA-SYS `Contact` |
@@ -48,59 +55,12 @@ Postgres function on the target; EA-SYS just calls it with a batch of rows.
 
 ## Setup
 
-### 1. Install the RPC in the TARGET project (one time)
-Run in the target Supabase SQL editor:
-
-```sql
-create or replace function public.ea_array_union(a text[], b text[])
-returns text[] language sql immutable as $$
-  select array(select distinct x from unnest(coalesce(a,'{}') || coalesce(b,'{}')) x
-               where x is not null and x <> '');
-$$;
-
-create or replace function public.ea_upsert_contacts(p_rows jsonb)
-returns integer language plpgsql security definer set search_path = public as $$
-declare r jsonb; n int := 0;
-begin
-  for r in select value from jsonb_array_elements(p_rows) loop
-    insert into public.contacts_centralv1 as c
-      (email, first_name, last_name, organization_name, job_title, mobile, city, country,
-       speciality, role, source, last_updated,
-       tags, events_attended, registration_type, event_speciality, event_type, event_group)
-    values
-      (lower(trim(r->>'email')), nullif(r->>'first_name',''), nullif(r->>'last_name',''),
-       nullif(r->>'organization_name',''), nullif(r->>'job_title',''), nullif(r->>'mobile',''),
-       nullif(r->>'city',''), nullif(r->>'country',''), nullif(r->>'speciality',''),
-       nullif(r->>'role',''), 'ea-sys', (r->>'last_updated')::timestamptz,
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'tags') v),'{}'),
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'events_attended') v),'{}'),
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'registration_type') v),'{}'),
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'event_speciality') v),'{}'),
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'event_type') v),'{}'),
-       coalesce((select array_agg(v) from jsonb_array_elements_text(r->'event_group') v),'{}'))
-    on conflict (email) do update set
-      first_name        = coalesce(c.first_name, excluded.first_name),
-      last_name         = coalesce(c.last_name, excluded.last_name),
-      organization_name = coalesce(c.organization_name, excluded.organization_name),
-      job_title         = coalesce(c.job_title, excluded.job_title),
-      mobile            = coalesce(c.mobile, excluded.mobile),
-      city              = coalesce(c.city, excluded.city),
-      country           = coalesce(c.country, excluded.country),
-      speciality        = coalesce(c.speciality, excluded.speciality),
-      role              = coalesce(c.role, excluded.role),
-      source            = coalesce(c.source, excluded.source),
-      last_updated      = excluded.last_updated,
-      tags              = ea_array_union(c.tags, excluded.tags),
-      events_attended   = ea_array_union(c.events_attended, excluded.events_attended),
-      registration_type = ea_array_union(c.registration_type, excluded.registration_type),
-      event_speciality  = ea_array_union(c.event_speciality, excluded.event_speciality),
-      event_type        = ea_array_union(c.event_type, excluded.event_type),
-      event_group       = ea_array_union(c.event_group, excluded.event_group);
-    n := n + 1;
-  end loop;
-  return n;
-end $$;
-```
+### 1. Target project — nothing to install
+No functions, triggers, or objects are needed in the target project beyond the
+`contacts_centralv1` table you already have. All merge logic runs on the EA-SYS
+side. The only requirement: the **service-role key** must be able to `select` +
+`insert`/`update` on `contacts_centralv1` (a service_role key bypasses RLS, so
+this works out of the box).
 
 ### 2. Set env (EA-SYS `.env`)
 ```
@@ -127,9 +87,14 @@ on a bad batch.
 
 ## Notes / limitations
 - **Enrich-only scalars** mean once a field is set on the central row (by any
-  source), EA-SYS won't overwrite it — only fill blanks. Flip to "EA-SYS wins on
-  non-empty" by changing the `coalesce(c.col, excluded.col)` lines to
-  `coalesce(nullif(excluded.col,''), c.col)`.
+  source), EA-SYS won't overwrite it — only fill blanks. To make "EA-SYS wins on
+  non-empty" instead, flip the scalar lines in `mergeWithExisting`
+  (`src/lib/contacts-central-sync.ts`) from `nz(e.col) ?? ours.col` to
+  `ours.col ?? nz(e.col)`.
+- **Not atomic** — read-modify-write can lose a *concurrent cross-source* write
+  to the same column in the GET→POST window (see "Merge semantics"). If that ever
+  matters, move the merge into a target-side `on conflict` function (git history
+  has the SQL) and have the sync call it instead.
 - **Reviewers** carry the least data (often just name + email).
 - **Multi-org caveat:** EA-SYS is single-org today; if it ever goes multi-tenant,
   two orgs could share an email and collide on the email-keyed central table —
