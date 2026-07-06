@@ -30,7 +30,7 @@ one-page index plus the commands you reach for most.
 | Health endpoints | `https://events.meetingmindsgroup.com/health` (alias of `/api/health`), `/worker/health` | — |
 | **Uptime monitor (external)** | Uptime Robot → `https://events.meetingmindsgroup.com/health` | external |
 | **Route 53 health check** | `ea-sys-health` (`20c6ff28-1c3d-456c-8bc2-84f88b39e325`) → HTTPS `/health`, 30s, fail×3 | global (metrics in `us-east-1`) |
-| **CloudWatch alarms** | `ea-sys-health-down` (Route53 /health) · `ea-sys-ec2-status-check-failed` (hypervisor hard-down) — both → SNS `ea-sys-alerts` | `us-east-1` · `ap-south-1` |
+| **CloudWatch alarms** | `ea-sys-health-down` (us-east-1, Route53 /health); ap-south-1: `ec2-status-check-failed`, `ec2-auto-recover` (EC2 auto-recovery), `ec2-cpu-high`, `ec2-cpu-credits-low`, `ec2-disk-high`, `ec2-mem-high` — all → SNS `ea-sys-alerts` | `us-east-1` + `ap-south-1` |
 | **SNS alert topics** | `ea-sys-alerts` (one per region — SNS is regional) → `krishna@` + `vivek@meetingmindsdubai.com` | `us-east-1` + `ap-south-1` |
 
 **Prereqs:** `aws --version` (v2), the Session Manager plugin for `aws ssm
@@ -219,6 +219,16 @@ aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b
 aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b39e325 --resource-path /health
 ```
 
+**Resource + self-healing alarms (LIVE, `ap-south-1` → SNS `ea-sys-alerts`):**
+`ea-sys-ec2-cpu-high` (>90%/5m), `ea-sys-ec2-cpu-credits-low` (t3 burst
+exhaustion), `ea-sys-ec2-disk-high` (>85% — the INC-002 catch), `ea-sys-ec2-mem-high`
+(>90%/10m). Disk + mem come from the agent's `metrics` block in
+`infra/cloudwatch/amazon-cloudwatch-agent.json` (reload with `amazon-cloudwatch-agent-ctl
+-a fetch-config -m ec2 -s -c file:…`). **`ea-sys-ec2-auto-recover`** goes further —
+on a SYSTEM (hardware) status-check failure it triggers EC2 **auto-recovery** (same
+instance id / EIP / EBS) *and* notifies, so the commonest box-death self-heals
+instead of waiting for a human.
+
 **Not yet wired (the remaining silent-failure modes):**
 - **DB-backup freshness** — no alarm if `dr-pg-dump.sh` silently stops (the
   script SES-alerts on *failure*, but a down box means the cron never runs).
@@ -227,8 +237,9 @@ aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b
   `dr-pg-dump.sh`, plus an `ap-south-1` alarm (`--period 10800 --threshold 1
   --comparison-operator LessThanThreshold --treat-missing-data breaching`) — no
   heartbeat in 3h → page (dumps run every 2h).
-- There are **no CloudWatch metric alarms on CPU / memory / disk** — triage those
-  reactively via §3.
+- **DR failover not yet drilled** — RTO is still a ~30min–2h *manual* runbook
+  (`infra/dr/README.md`), never rehearsed under real conditions. See the
+  production-readiness backlog in [`docs/PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 
 ---
 
