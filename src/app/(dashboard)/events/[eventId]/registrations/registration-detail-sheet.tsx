@@ -1602,14 +1602,20 @@ export function RegistrationDetailSheet({
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        {selectedRegistration.paymentStatus === "COMPLIMENTARY"
-                          ? "Complimentary registration — no payment due."
-                          : selectedRegistration.paymentStatus === "INCLUSIVE"
-                          ? "Sponsor-paid registration — no payment due from attendee."
-                          : "Free registration — no payment required."}
+                    ) : selectedRegistration.paymentStatus === "COMPLIMENTARY" ? (
+                      <p className="text-sm text-muted-foreground">Complimentary registration — no payment due.</p>
+                    ) : selectedRegistration.paymentStatus === "INCLUSIVE" ? (
+                      <p className="text-sm text-muted-foreground">Sponsor-paid registration — no payment due from attendee.</p>
+                    ) : (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) ? (
+                      // NEVER say "free" for a registration that owes money. If we
+                      // land here the price hasn't resolved (no stamped price /
+                      // pricing tier) — surface it as outstanding and point the
+                      // organizer at the tier picker above to set the amount.
+                      <p className="text-sm font-medium text-amber-800">
+                        Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed.
                       </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No payment due.</p>
                     )}
                     {/* Show sponsor attribution whenever sponsorId is set (even if
                         status is no longer INCLUSIVE — we don't auto-clear, so
@@ -1655,6 +1661,57 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     )}
+                    {/* Pricing tier — re-classify to give a late / onsite
+                        registrant the Early Bird price (or any tier) while the
+                        registration is still unpaid. Re-stamps the price; the
+                        Payment Summary + quote update on save. Finance-gated
+                        (this whole section) + unpaid-only, like the promo. */}
+                    {(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) &&
+                      !isReviewer &&
+                      (() => {
+                        const tt = regTypes.find((t) => t.id === selectedRegistration.ticketType?.id);
+                        const tiers = (tt?.pricingTiers ?? []) as Array<{
+                          id: string;
+                          name: string;
+                          isActive: boolean;
+                          currency: string;
+                          price: number | string;
+                        }>;
+                        if (tiers.length === 0) return null;
+                        return (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing tier</p>
+                            <Select
+                              value={selectedRegistration.pricingTier?.id ?? "__base__"}
+                              onValueChange={(v) => {
+                                const next = v === "__base__" ? null : v;
+                                if ((next ?? null) === (selectedRegistration.pricingTier?.id ?? null)) return;
+                                updateRegistration.mutate({
+                                  id: selectedRegistration.id,
+                                  data: { pricingTierId: next, expectedUpdatedAt: selectedRegistration.updatedAt },
+                                });
+                              }}
+                              disabled={updateRegistration.isPending}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__base__">Base price (no tier)</SelectItem>
+                                {tiers.map((tier) => (
+                                  <SelectItem key={tier.id} value={tier.id}>
+                                    {tier.name}
+                                    {tier.isActive ? "" : " (closed)"} — {tier.currency} {tier.price}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="text-[11px] text-muted-foreground">
+                              Give a courtesy rate (e.g. Early Bird) — updates the price. Unpaid only.
+                            </p>
+                          </div>
+                        );
+                      })()}
                     {/* Promo code — apply/remove while payment is still
                         outstanding. Same rules as the registrant self-apply
                         (organizers don't bypass a promo's own limits). */}

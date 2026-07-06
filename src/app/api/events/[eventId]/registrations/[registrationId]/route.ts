@@ -45,6 +45,11 @@ const updateRegistrationSchema = z.object({
   badgeType: z.string().max(50).optional().nullable(),
   dtcmBarcode: z.string().trim().max(255).optional().nullable(),
   ticketTypeId: z.string().cuid().optional(),
+  // Re-classify the pricing tier post-create (e.g. give a late/onsite registrant
+  // the Early Bird price). Unpaid-only; INACTIVE/closed tiers are allowed on
+  // purpose; re-stamps originalPrice so every finance surface reflects it. null
+  // clears the tier (→ base ticket-type price). See the validation block below.
+  pricingTierId: z.string().cuid().optional().nullable(),
   // Hybrid attendance: move an existing registration between in-person and
   // virtual. virtual→in-person lazily mints an entry barcode + claims a venue
   // seat; in-person→virtual releases the seat (keeps the barcode for audit).
@@ -283,6 +288,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       badgeType,
       dtcmBarcode,
       ticketTypeId,
+      pricingTierId,
       attendanceMode,
       notes,
       attendee,
@@ -471,6 +477,67 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Pricing-tier re-classification — give a late / onsite registrant the Early
+    // Bird price (or any other tier). UNPAID-ONLY: re-tiering after payment would
+    // require a refund of the difference (out of scope). The tier must belong to
+    // the registration's ticket type; INACTIVE/closed tiers are allowed on
+    // purpose (that's the whole point of a courtesy re-tier). We re-stamp
+    // originalPrice from the tier so every finance surface (detail, quote,
+    // invoice, pay-later checkout) reflects the new price. Skipped when the
+    // ticket type is also changing (a type change nulls the tier — tiers belong
+    // to a type — handled by isChangingType below).
+    const isRetier =
+      pricingTierId !== undefined &&
+      pricingTierId !== existingRegistration.pricingTierId &&
+      !(ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId);
+    let retierOriginalPrice: number | undefined;
+    if (isRetier) {
+      const unpaid =
+        existingRegistration.paymentStatus === PaymentStatus.UNASSIGNED ||
+        existingRegistration.paymentStatus === PaymentStatus.UNPAID ||
+        existingRegistration.paymentStatus === PaymentStatus.PENDING;
+      if (!unpaid) {
+        return NextResponse.json(
+          {
+            error: "The pricing tier can only be changed while the registration is unpaid. For a paid registration, refund it first.",
+            code: "TIER_CHANGE_REQUIRES_UNPAID",
+          },
+          { status: 400 },
+        );
+      }
+      const currentTicketTypeId = existingRegistration.ticketTypeId;
+      if (pricingTierId === null) {
+        // Clearing the tier → fall back to the ticket type's base price (skip if
+        // the reg somehow has no ticket type).
+        if (currentTicketTypeId) {
+          const baseTt = await db.ticketType.findFirst({
+            where: { id: currentTicketTypeId, eventId },
+            select: { price: true },
+          });
+          retierOriginalPrice = baseTt ? Number(baseTt.price) : undefined;
+        }
+      } else {
+        if (!currentTicketTypeId) {
+          return NextResponse.json(
+            { error: "This registration has no ticket type, so it can't be assigned a pricing tier.", code: "NO_TICKET_TYPE" },
+            { status: 400 },
+          );
+        }
+        const tier = await db.pricingTier.findFirst({
+          where: { id: pricingTierId, ticketTypeId: currentTicketTypeId },
+          select: { id: true, price: true },
+        });
+        if (!tier) {
+          apiLogger.warn({ msg: "registration-update:pricing-tier-not-found", registrationId, pricingTierId });
+          return NextResponse.json(
+            { error: "Pricing tier not found for this registration's ticket type.", code: "PRICING_TIER_NOT_FOUND" },
+            { status: 404 },
+          );
+        }
+        retierOriginalPrice = Number(tier.price);
+      }
+    }
+
     // Wrap soldCount + registration update in a transaction to prevent race
     // conditions on the soldCount counter, AND to make the optimistic lock
     // atomic with the soldCount adjustments — so a stale-write rejection
@@ -507,7 +574,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
           status: effectiveStatus,
           attendanceMode: effectiveMode,
           ticketTypeId: effectiveTypeId,
-          pricingTierId: isChangingType ? null : existingRegistration.pricingTierId,
+          // A type change nulls the tier; a re-tier moves to the new tier; else
+          // unchanged. planSeatTransition/seatCounter route the seat move (e.g.
+          // a public+tier reg switching tiers moves between tier counters).
+          pricingTierId: isChangingType ? null : isRetier ? pricingTierId : existingRegistration.pricingTierId,
           createdSource: existingRegistration.createdSource,
         },
       );
@@ -564,6 +634,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // now lives (the new ticket-type counter) — else a later cancel would
         // release the wrong counter.
         ...(isChangingType && { pricingTierId: null }),
+        // Post-create re-tier (unpaid-only, validated above): set the new tier +
+        // re-stamp originalPrice so quote/invoice/checkout reflect the new price.
+        ...(isRetier && { pricingTierId }),
+        ...(retierOriginalPrice !== undefined && { originalPrice: retierOriginalPrice }),
         ...(attendanceMode !== undefined && { attendanceMode }),
         // Lazy entry-barcode mint: a registration becoming (or already)
         // in-person with no barcode gets one — the virtual→in-person fix so
