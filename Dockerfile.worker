@@ -93,6 +93,9 @@ COPY tsconfig.json ./
 COPY sentry.server.config.ts ./
 COPY src ./src
 COPY worker ./worker
+# One-off/ops scripts (backfills, reconciles) so they can be run with a plain
+# `docker exec ea-sys-worker npx tsx scripts/<name>.ts` — no docker cp needed.
+COPY scripts ./scripts
 
 # Writable directory for any file-based logging Pino might do — same
 # semantics as the web container (logs flow primarily through
