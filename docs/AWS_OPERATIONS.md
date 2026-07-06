@@ -27,7 +27,11 @@ one-page index plus the commands you reach for most.
 | **SES** | sender `meetingmindsexperts.com`; alerts → `krishna@meetingmindsdubai.com` | ap-south-1 |
 | App checkout on box | `/home/ubuntu/ea-sys` (user `ubuntu`) | — |
 | Containers | `ea-sys-blue` / `ea-sys-green` (web, blue-green), `ea-sys-worker`, `ea-sys-mediamtx` | — |
-| Health endpoints | `https://events.meetingmindsgroup.com/api/health`, `/worker/health` | — |
+| Health endpoints | `https://events.meetingmindsgroup.com/health` (alias of `/api/health`), `/worker/health` | — |
+| **Uptime monitor (external)** | Uptime Robot → `https://events.meetingmindsgroup.com/health` | external |
+| **Route 53 health check** | `ea-sys-health` (`20c6ff28-1c3d-456c-8bc2-84f88b39e325`) → HTTPS `/health`, 30s, fail×3 | global (metrics in `us-east-1`) |
+| **CloudWatch alarm** | `ea-sys-health-down` → SNS `ea-sys-alerts` (alerts + recovery email) | **`us-east-1`** |
+| **SNS alert topic** | `ea-sys-alerts` → `krishna@meetingmindsdubai.com` | `us-east-1` |
 
 **Prereqs:** `aws --version` (v2), the Session Manager plugin for `aws ssm
 start-session`, and `aws sts get-caller-identity` returning your identity. The
@@ -171,6 +175,60 @@ Two things to know:
   then **re-run `scripts/deploy.sh`** — `docker compose` only re-reads `env_file`
   on container create, NOT on restart. After adding a secret, snapshot it to DR
   immediately (see §2.2).
+
+### 1.7 Monitoring & alerting — how you find out something broke
+
+Two layers, because they cover different failure modes:
+
+**A. App-driven (fast, for anything the app can emit)** — errors surface in
+**seconds to ~1 min** via four parallel paths: **Sentry**, an **SES email on
+every `error`-level log**, **CloudWatch Logs** (`ea-sys/error`), and the
+in-dashboard **`/logs`** viewer (Postgres `SystemLog`, batched ~2s). See §1.3
+for the Insights queries. *Limitation:* if the box is fully **down**, the app
+can't email you — hence layer B.
+
+**B. Outage detection (external / infra — catches a hard down)** — LIVE:
+
+| Signal | What it watches | Fires within |
+|---|---|---|
+| **Uptime Robot** (external) | HTTPS `GET /health` from outside AWS | ~1–2 min |
+| **Route 53 health check** `ea-sys-health` → CloudWatch alarm **`ea-sys-health-down`** → SNS **`ea-sys-alerts`** (email) | HTTPS `/health` from ~15 global checkers, 30s, fail×3 | ~1.5 min |
+
+> **Region gotcha:** Route 53 health-check metrics exist **only in `us-east-1`**,
+> so the alarm **and** its SNS topic must live there. Look for `ea-sys-health-down`
+> under CloudWatch **N. Virginia**, not Mumbai. The SNS email subscription must be
+> **Confirmed** (click the link) or nothing is delivered.
+
+Verify / test:
+```bash
+# Health check status (all checkers should be Success)
+aws route53 get-health-check-status --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b39e325 \
+  --query 'HealthCheckObservations[].StatusReport.Status' --output text
+# Alarm state (us-east-1!) + subscription confirmed?
+aws cloudwatch describe-alarms --region us-east-1 --alarm-names ea-sys-health-down \
+  --query 'MetricAlarms[].StateValue' --output text
+aws sns list-subscriptions --region us-east-1 \
+  --query "Subscriptions[?contains(TopicArn,'ea-sys')].{Endpoint:Endpoint,Sub:SubscriptionArn}" --output json
+# Fire drill: point the check at a bad path, watch it alarm, then set it back
+aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b39e325 --resource-path /nope
+# …wait ~2 min for the email, then:
+aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b39e325 --resource-path /health
+```
+
+**Not yet wired (the remaining silent-failure modes):**
+- **EC2 `StatusCheckFailed` alarm** (Mumbai / `ap-south-1`) — catches a
+  hypervisor-level dead box (reboot loop, kernel panic) where even `/health`
+  requests hang. Needs its own SNS topic **in `ap-south-1`** (SNS is regional).
+  `AWS/EC2` → `StatusCheckFailed`, `--period 60 --evaluation-periods 2 --threshold 1`.
+- **DB-backup freshness** — no alarm if `dr-pg-dump.sh` silently stops (the
+  script SES-alerts on *failure*, but a down box means the cron never runs).
+  Fix = emit a heartbeat metric on success (`aws cloudwatch put-metric-data
+  --namespace EA-SYS/DR --metric-name DbBackupSuccess --value 1`) at the end of
+  `dr-pg-dump.sh`, plus an `ap-south-1` alarm (`--period 10800 --threshold 1
+  --comparison-operator LessThanThreshold --treat-missing-data breaching`) — no
+  heartbeat in 3h → page (dumps run every 2h).
+- There are **no CloudWatch metric alarms on CPU / memory / disk** — triage those
+  reactively via §3.
 
 ---
 

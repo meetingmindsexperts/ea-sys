@@ -123,6 +123,15 @@ Within 1-2 minutes you should see Pino-formatted JSON lines streaming in.
 
 ## 3. Optional — alarm on error-log spikes (deferred, but documented)
 
+> **Status (2026-07-06):** Outage/uptime alerting is now **LIVE** — a Route 53
+> health check → CloudWatch alarm `ea-sys-health-down` → SNS `ea-sys-alerts`
+> (in `us-east-1`), plus an external Uptime Robot monitor. See
+> [`docs/AWS_OPERATIONS.md` §1.7](../../docs/AWS_OPERATIONS.md) for the live
+> setup + verify/test commands. The **error-log-spike** alarm below is still the
+> deferred piece — note it would live in **`ap-south-1`** (where `ea-sys/error`
+> is) and so needs its own SNS topic there; SNS is regional and `ea-sys-alerts`
+> is in `us-east-1`.
+
 The runbook above gets logs INTO CloudWatch. To get **alarms OUT** of CloudWatch (so you're notified of error spikes without needing to check the dashboard), three more steps:
 
 ### Step 3.1 — Create an SNS topic + subscribe your email
