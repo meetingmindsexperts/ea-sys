@@ -21,12 +21,20 @@ Six jobs, one process:
 | `webinar-attendance` | `*/10 * * * *` (every 10 min) | 1004 | `src/lib/webinar-attendance-worker.ts` → `runWebinarAttendanceTick` |
 | `oauth-cleanup` | `0 * * * *` (hourly at :00) | 1005 | `src/lib/mcp-oauth-cleanup-worker.ts` → `runMcpOAuthCleanupTick` |
 | `invoice-reconciliation` | `*/10 * * * *` (every 10 min) | 1006 | `src/lib/invoice-reconciliation-worker.ts` → `runInvoiceReconciliationTick` |
+| `contacts-central-sync` | `16,53 * * * *` (~every 37 min) | 1007 | `src/lib/contacts-central-sync.ts` → `runContactsCentralTick` |
+| `contacts-central-reconcile` | `24 2 * * *` (daily 02:24 UTC) | 1008 | `src/lib/contacts-central-sync.ts` → `runContactsCentralReconcile` |
 
 > `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
 > invoices the Stripe webhook failed to create — it sweeps for PAID
 > registrations that have a PAID `Payment` but no `INVOICE` row and re-runs the
 > webhook's `createPaidInvoice` + `sendInvoiceEmail` path. Idempotent, bounded
 > (25/tick, 14-day look-back), per-row failure isolated.
+
+> `contacts-central-sync` / `contacts-central-reconcile` mirror EA-SYS contacts
+> into an external Supabase table. **Both no-op unless `CONTACTS_CENTRAL_ENABLED=true`**
+> + URL/key are set. The incremental job pushes contacts changed in the last
+> 45 min (~37-min cadence); the reconcile does a nightly full push (self-healing).
+> See [docs/CONTACTS_CENTRAL_SYNC.md](../docs/CONTACTS_CENTRAL_SYNC.md).
 
 Each job is wrapped in a Postgres advisory lock
 (`worker/lib/advisory-lock.ts`) — multiple worker processes can run
@@ -51,7 +59,9 @@ worker/
 │   ├── webinar-recordings.ts  # → runWebinarRecordingsTick
 │   ├── webinar-attendance.ts  # → runWebinarAttendanceTick
 │   ├── oauth-cleanup.ts       # → runMcpOAuthCleanupTick
-│   └── invoice-reconciliation.ts # → runInvoiceReconciliationTick
+│   ├── invoice-reconciliation.ts # → runInvoiceReconciliationTick
+│   ├── contacts-central-sync.ts  # → runContactsCentralTick (incremental)
+│   └── contacts-central-reconcile.ts # → runContactsCentralReconcile (nightly)
 ├── lib/
 │   ├── job-ids.ts             # Numeric advisory-lock IDs
 │   ├── advisory-lock.ts       # withJobLock(id, name, fn) helper

@@ -668,8 +668,25 @@ deploy's image build can fail or freeze the box (the disk cousin of INC-001).
 docker builder prune -af   # build cache — usually the biggest win
 docker image prune -f      # dangling/untagged layers ONLY (no -a → tagged rollback images stay)
 ```
-**Do NOT** use `docker system prune -a` (deletes the last-3 **rollback image
-tags**) or `--volumes` (the local volume / uploads bind-mount).
+**Do NOT** use `docker system prune -a` — it deletes the last-3 **rollback image
+tags** (the `image prune -f` above only removes *untagged/dangling* layers, so the
+tagged rollback images are safe — on 2026-07-06 an `image prune -f` reclaimed 0 B
+precisely because the 2.4 GB "reclaimable" was tagged rollback images, not
+dangling). The uploads/logs are **host bind mounts** (`./public/uploads`,
+`./logs`), **not** Docker volumes, so no `docker` prune can ever touch them.
+
+**Orphaned volumes** — an occasional, separate cleanup. The weekly prune
+deliberately skips volumes (safety), so **anonymous volumes** left behind by
+removed containers (64-hex names — e.g. a stale `node_modules` an old build
+mounted over) accumulate. Identify + clear safely:
+```bash
+docker system df    # "Local Volumes … RECLAIMABLE" > 0 ?
+# which volumes are orphaned (used-by NONE)?
+for v in $(docker volume ls -q); do echo "$v  used-by=$(docker ps -a --filter volume=$v --format '{{.Names}}' | paste -sd, -)"; done
+sudo ls /var/lib/docker/volumes/<hash>/_data   # peek to confirm it's junk before deleting
+docker volume rm <hash>                        # remove a confirmed-orphaned one (or: docker volume prune -f)
+```
+(2026-07-06: cleared a 1.3 GB orphaned `node_modules` volume this way — disk 45% → 42%.)
 
 **Weekly auto-prune (the standing fix).** [scripts/docker-prune.sh](../scripts/docker-prune.sh)
 runs exactly those two safe prunes and logs how much it reclaimed. Install it on
