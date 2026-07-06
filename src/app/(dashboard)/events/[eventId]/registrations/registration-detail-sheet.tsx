@@ -2635,15 +2635,34 @@ export function RegistrationDetailSheet({
           onOpenChange={setRecordPaymentOpen}
           eventId={eventId}
           registrationId={selectedRegistration.id}
-          defaultAmount={Number(
-            selectedRegistration.pricingTier?.price ??
-              selectedRegistration.ticketType?.price ??
-              0,
-          )}
+          // Prefill the FULL amount owed — tax-inclusive, discount-applied — i.e.
+          // the total the attendee pays onsite, so the recorded payment tallies
+          // with the invoice. Falls back to the base price only if financials
+          // are unavailable.
+          defaultAmount={
+            selectedRegistration.financials?.balanceDue ??
+            selectedRegistration.financials?.total ??
+            Number(selectedRegistration.pricingTier?.price ?? selectedRegistration.ticketType?.price ?? 0)
+          }
           defaultCurrency={
+            selectedRegistration.financials?.currency ??
             selectedRegistration.pricingTier?.currency ??
             selectedRegistration.ticketType?.currency ??
             "USD"
+          }
+          breakdown={
+            selectedRegistration.financials
+              ? {
+                  subtotal: selectedRegistration.financials.subtotal,
+                  discount: selectedRegistration.financials.discount,
+                  taxLabel: selectedRegistration.financials.taxLabel,
+                  taxRate: selectedRegistration.financials.taxRate,
+                  taxAmount: selectedRegistration.financials.taxAmount,
+                  total: selectedRegistration.financials.total,
+                  totalPaid: selectedRegistration.financials.totalPaid,
+                  balanceDue: selectedRegistration.financials.balanceDue,
+                }
+              : undefined
           }
           onRecorded={() => {
             // Refresh the list so the row reflects PAID and Payment

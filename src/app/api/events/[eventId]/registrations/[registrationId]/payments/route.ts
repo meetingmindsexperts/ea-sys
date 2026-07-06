@@ -7,6 +7,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { createPaidInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 
@@ -127,7 +128,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
-      select: { id: true, organizationId: true, name: true },
+      select: { id: true, organizationId: true, name: true, taxRate: true, taxLabel: true },
     });
     if (!event) {
       apiLogger.warn({
@@ -144,6 +145,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         paymentStatus: true,
+        originalPrice: true,
+        discountAmount: true,
         ticketType: { select: { price: true, currency: true } },
         pricingTier: { select: { price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
@@ -185,9 +188,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // organizer doesn't specify one — the typical case for a paid-in-full
     // capture. Pricing-tier price wins over ticket-type price when both
     // are present, matching the rest of the codebase.
-    const fallbackAmount = registration.pricingTier
-      ? Number(registration.pricingTier.price)
-      : Number(registration.ticketType?.price ?? 0);
+    // Default to the FULL amount owed — tax-inclusive, discount-applied — i.e.
+    // the total the attendee actually pays onsite, NOT the bare pre-tax ticket
+    // price. Mirrors the detail-sheet Payment Summary + the generated invoice so
+    // a no-amount capture tallies the tax instead of under-recording it.
+    const fin = computeRegistrationFinancials({
+      subtotal: readRegistrationBasePrice(registration),
+      discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      taxRate: event.taxRate ? Number(event.taxRate) : null,
+      taxLabel: event.taxLabel,
+      currency: registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD",
+      totalPaid: 0,
+    });
+    const fallbackAmount = fin.total;
     const fallbackCurrency = (
       registration.pricingTier?.currency ??
       registration.ticketType?.currency ??

@@ -41,6 +41,18 @@ interface Props {
   // currency than the ticket default.
   defaultAmount?: number;
   defaultCurrency?: string;
+  // Tax-inclusive breakdown so the organizer can see the prefilled amount
+  // includes VAT and knows what to record (the full total the attendee pays).
+  breakdown?: {
+    subtotal: number;
+    discount: number;
+    taxLabel: string;
+    taxRate: number;
+    taxAmount: number;
+    total: number;
+    totalPaid: number;
+    balanceDue: number;
+  };
   onRecorded?: () => void;
 }
 
@@ -61,6 +73,7 @@ export function RecordPaymentDialog({
   registrationId,
   defaultAmount,
   defaultCurrency,
+  breakdown,
   onRecorded,
 }: Props) {
   const [method, setMethod] = useState<PaymentMethod>("bank_transfer");
@@ -253,6 +266,45 @@ export function RecordPaymentDialog({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
+              {breakdown && (
+                <div className="rounded-md bg-muted/50 px-2.5 py-2 text-xs space-y-0.5">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Subtotal</span>
+                    <span>{currency} {breakdown.subtotal.toFixed(2)}</span>
+                  </div>
+                  {breakdown.discount > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Discount</span>
+                      <span>−{currency} {breakdown.discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {breakdown.taxAmount > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>{breakdown.taxLabel} ({breakdown.taxRate}%)</span>
+                      <span>{currency} {breakdown.taxAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-0.5 font-semibold">
+                    <span>Total due</span>
+                    <span>{currency} {breakdown.total.toFixed(2)}</span>
+                  </div>
+                  {breakdown.totalPaid > 0 && (
+                    <>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Already paid</span>
+                        <span>{currency} {breakdown.totalPaid.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-amber-700">
+                        <span>Outstanding</span>
+                        <span>{currency} {breakdown.balanceDue.toFixed(2)}</span>
+                      </div>
+                    </>
+                  )}
+                  <p className="pt-1 text-[11px] text-muted-foreground">
+                    Enter the full amount the attendee pays — tax included.
+                  </p>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="currency">Currency</Label>
