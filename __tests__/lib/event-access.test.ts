@@ -114,6 +114,52 @@ describe("buildEventAccessWhere", () => {
     });
   });
 
+  // ── ONSITE (org-bound + per-event assignment) ───────────────────────
+
+  describe("ONSITE role", () => {
+    it("scopes by org AND onsiteUserIds assignment (no eventId)", () => {
+      const result = buildEventAccessWhere({
+        id: "onsite-1",
+        role: "ONSITE",
+        organizationId: "org-1",
+      });
+      expect(result).toEqual({
+        organizationId: "org-1",
+        settings: { path: ["onsiteUserIds"], array_contains: "onsite-1" },
+      });
+    });
+
+    it("scopes by org + event + assignment (with eventId)", () => {
+      const result = buildEventAccessWhere(
+        { id: "onsite-1", role: "ONSITE", organizationId: "org-1" },
+        "evt-9"
+      );
+      expect(result).toEqual({
+        id: "evt-9",
+        organizationId: "org-1",
+        settings: { path: ["onsiteUserIds"], array_contains: "onsite-1" },
+      });
+    });
+
+    it("keeps the org filter (does NOT match another org's events by id alone)", () => {
+      const result = buildEventAccessWhere({
+        id: "onsite-1",
+        role: "ONSITE",
+        organizationId: "org-1",
+      });
+      expect(result).toHaveProperty("organizationId", "org-1");
+    });
+
+    it("is NOT the org-wide default (must carry the onsiteUserIds assignment gate)", () => {
+      const result = buildEventAccessWhere({
+        id: "onsite-1",
+        role: "ONSITE",
+        organizationId: "org-1",
+      });
+      expect(result).toHaveProperty("settings");
+    });
+  });
+
   // ── SUPER_ADMIN (falls through to org-bound default) ─────────────────
 
   describe("SUPER_ADMIN role", () => {

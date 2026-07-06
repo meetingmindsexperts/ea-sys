@@ -53,6 +53,7 @@ import {
   Upload,
   Palette,
   Receipt,
+  CalendarClock,
   X as XIcon,
 } from "lucide-react";
 import {
@@ -69,6 +70,7 @@ import {
 } from "@/hooks/use-api";
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
+import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -462,6 +464,12 @@ export default function SettingsPage() {
             <Users className="h-4 w-4" />
             Team
           </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="onsite" className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4" />
+              Onsite Staff
+            </TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="billing" className="flex items-center gap-2">
               <Receipt className="h-4 w-4" />
@@ -1012,6 +1020,13 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Onsite / Temp Staff (per-event registration-desk staff) */}
+        {isAdmin && (
+          <TabsContent value="onsite">
+            <OnsiteStaffCard />
+          </TabsContent>
+        )}
 
         {/* Billing & Invoicing */}
         {isAdmin && (

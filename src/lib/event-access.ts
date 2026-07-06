@@ -45,15 +45,28 @@ export function buildEventAccessWhere(
     };
   }
 
+  // ONSITE: registration-desk staff, org-bound BUT scoped per-event via
+  // Event.settings.onsiteUserIds (mirrors the REVIEWER per-event model). Sees
+  // ONLY events it's been assigned to — a temp desk worker for one conference
+  // no longer sees every org event. This narrows *event visibility* only; the
+  // write guard (denyReviewer), finance hiding (canViewFinance), and nav
+  // (proxy.ts) are unchanged. The org filter stops a leaked id from another org
+  // from matching; the settings check is the per-event assignment.
+  if (user.role === "ONSITE") {
+    return {
+      ...(eventId && { id: eventId }),
+      organizationId: user.organizationId!,
+      settings: { path: ["onsiteUserIds"], array_contains: user.id },
+    };
+  }
+
   // SUPER_ADMIN: if no org is set (or explicitly cleared), see all events
   if (user.role === "SUPER_ADMIN" && !user.organizationId) {
     return { ...(eventId && { id: eventId }) };
   }
 
-  // Default (ADMIN / ORGANIZER / ONSITE): org-bound, all events in the org.
-  // ONSITE (registration-desk staff) reads every org event the same as
-  // ORGANIZER — its restriction is on *writes* (denyReviewer) + finance
-  // (canViewFinance) + navigation (middleware/sidebar), not event visibility.
+  // Default (ADMIN / ORGANIZER): org-bound, all events in the org. (ONSITE was
+  // here historically but is now scoped per-event above.)
   return {
     ...(eventId && { id: eventId }),
     organizationId: user.organizationId!,
