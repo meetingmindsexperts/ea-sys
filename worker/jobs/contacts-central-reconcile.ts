@@ -8,7 +8,7 @@
  * Own lock id (not shared with the incremental) so it can never be skipped by an
  * in-flight incremental tick.
  *
- * Cadence: daily at 02:00 UTC (06:00 Asia/Dubai).
+ * Cadence: daily at 02:24 UTC (06:24 Asia/Dubai) — offset off the top of the hour.
  */
 
 import { runContactsCentralReconcile } from "@/lib/contacts-central-sync";
@@ -18,7 +18,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "contacts-central-reconcile";
 export const JOB_ID = JOB_IDS.CONTACTS_CENTRAL_RECONCILE;
-export const SCHEDULE = "0 2 * * *"; // daily 02:00 UTC
+export const SCHEDULE = "24 2 * * *"; // daily 02:24 UTC
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

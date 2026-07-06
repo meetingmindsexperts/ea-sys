@@ -8,9 +8,11 @@ backfill/reconcile.
   registrants, speakers, submitters, and reviewers), enriched with per-event arrays.
 - **Target:** project `vpdfzubrfcmekwhyxmsg` (`https://vpdfzubrfcmekwhyxmsg.supabase.co`),
   region **eu-north-1**, table `contacts_centralv1`, keyed on `email`.
-- **Mechanism:** the `ea-sys-worker` tier runs an **incremental** job ~every 37 min
-  (upserts contacts touched in the last 45 min) **plus a nightly full reconcile**
-  (02:00 UTC) that re-pushes everything, so the mirror self-heals. The backfill
+- **Mechanism:** the `ea-sys-worker` tier runs an **incremental** job at :16 and
+  :53 each hour (~37-min cadence; upserts contacts touched in the last 45 min)
+  **plus a nightly full reconcile** (02:24 UTC) that re-pushes everything, so the
+  mirror self-heals. Both run at offset minutes (never :00) to avoid piling onto
+  the DB pool at a shared minute. The backfill
   script is the same full reconcile, on demand. All logic runs on the **EA-SYS
   side** (read-modify-write via PostgREST — GET existing → merge → upsert); **no
   functions/objects live in the target project** beyond the table + the `ea_synced`
@@ -90,10 +92,13 @@ Idempotent — safe to re-run any time to force a full reconcile.
 ### 4. Ongoing (automatic)
 Two worker jobs, both no-op unless configured, both failure-isolated (a tick error
 never crashes the scheduler):
-- **`contacts-central-sync`** — incremental, `*/37 * * * *` (~every 37 min, lock
-  1007), syncs contacts whose `updatedAt` changed in the last 45 min.
-- **`contacts-central-reconcile`** — full push of every contact, `0 2 * * *`
-  (daily 02:00 UTC, lock 1008) — the self-healing safety net.
+- **`contacts-central-sync`** — incremental, `16,53 * * * *` (:16 and :53, ~37-min
+  cadence, lock 1007), syncs contacts whose `updatedAt` changed in the last 45 min.
+- **`contacts-central-reconcile`** — full push of every contact, `24 2 * * *`
+  (daily 02:24 UTC, lock 1008) — the self-healing safety net.
+
+All schedules use **offset minutes (never :00)** to avoid clustering with the
+every-minute / every-3-5-10-minute jobs on the DB pool.
 
 Watch both in `/logs` (search `contacts-central:`): `contacts-central:tick` +
 `contacts-central:reconcile` (info, with `candidates`/`sent`/`failed`), and
