@@ -22,6 +22,7 @@ export const JOB_IDS = {
   OAUTH_CLEANUP: 1005,
   INVOICE_RECONCILIATION: 1006,
   CONTACTS_CENTRAL_SYNC: 1007,
+  CONTACTS_CENTRAL_RECONCILE: 1008,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

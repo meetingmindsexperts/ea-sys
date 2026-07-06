@@ -317,11 +317,26 @@ export async function upsertCentralRows(rows: CentralContactRow[]): Promise<{ se
  */
 export async function runContactsCentralTick(opts: { lookbackMinutes?: number } = {}): Promise<{ synced: number; failed: number }> {
   if (!isCentralSyncConfigured()) return { synced: 0, failed: 0 };
-  const lookback = opts.lookbackMinutes ?? 30;
+  const lookback = opts.lookbackMinutes ?? 45;
   const since = new Date(Date.now() - lookback * 60 * 1000);
   const rows = await buildCentralRows({ since });
   if (rows.length === 0) return { synced: 0, failed: 0 };
   const { sent, failed } = await upsertCentralRows(rows);
   apiLogger.info({ msg: "contacts-central:tick", candidates: rows.length, sent, failed, lookbackMinutes: lookback });
+  return { synced: sent, failed };
+}
+
+/**
+ * Full reconcile — push EVERY EA-SYS contact (no `since`). Makes the mirror
+ * self-healing: anything the incremental ticks missed (a transient failure
+ * outside the lookback window, a worker restart) is corrected. Cheap at a few
+ * thousand contacts; runs nightly. Same as the backfill script, on a schedule.
+ */
+export async function runContactsCentralReconcile(): Promise<{ synced: number; failed: number }> {
+  if (!isCentralSyncConfigured()) return { synced: 0, failed: 0 };
+  const rows = await buildCentralRows({});
+  if (rows.length === 0) return { synced: 0, failed: 0 };
+  const { sent, failed } = await upsertCentralRows(rows);
+  apiLogger.info({ msg: "contacts-central:reconcile", candidates: rows.length, sent, failed });
   return { synced: sent, failed };
 }

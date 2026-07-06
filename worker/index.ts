@@ -52,6 +52,7 @@ import * as webinarAttendance from "./jobs/webinar-attendance";
 import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
 import * as contactsCentralSync from "./jobs/contacts-central-sync";
+import * as contactsCentralReconcile from "./jobs/contacts-central-reconcile";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -140,6 +141,7 @@ const tasks = [
   cron.schedule(oauthCleanup.SCHEDULE, wrapTick(oauthCleanup)),
   cron.schedule(invoiceReconciliation.SCHEDULE, wrapTick(invoiceReconciliation)),
   cron.schedule(contactsCentralSync.SCHEDULE, wrapTick(contactsCentralSync)),
+  cron.schedule(contactsCentralReconcile.SCHEDULE, wrapTick(contactsCentralReconcile)),
 ];
 
 const healthServer = startHealthServer(HEALTH_PORT, state);
