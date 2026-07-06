@@ -127,12 +127,18 @@ describe("mergeWithExisting", () => {
     last_updated: NOW,
   };
 
-  it("new email (no existing) → uses our values + source ea-sys", () => {
+  it("new email (no existing) → uses our values + source ea-sys + ea_synced true", () => {
     const p = mergeWithExisting(ours, undefined);
     expect(p.first_name).toBe("Ada");
     expect(p.source).toBe("ea-sys");
+    expect(p.ea_synced).toBe(true);
     expect(p.tags).toEqual(["gold"]);
     expect(p.last_updated).toBe(NOW);
+  });
+
+  it("ea_synced is always true (provenance marker), even on an existing row", () => {
+    const p = mergeWithExisting(ours, { email: "ada@example.com", source: "eventsair" });
+    expect(p.ea_synced).toBe(true);
   });
 
   it("scalars ENRICH — keep existing non-empty, fill blanks from us", () => {

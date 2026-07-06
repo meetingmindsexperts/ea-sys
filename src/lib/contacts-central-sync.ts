@@ -185,6 +185,8 @@ export interface CentralPayload {
   speciality: string | null;
   role: string | null;
   source: string;
+  /** Provenance marker — set true on every row EA-SYS touches. */
+  ea_synced: boolean;
   last_updated: string;
   tags: string[];
   events_attended: string[];
@@ -222,6 +224,7 @@ export function mergeWithExisting(ours: CentralContactRow, existing?: Record<str
     speciality: nz(e.speciality) ?? ours.speciality,
     role: nz(e.role) ?? ours.role,
     source: nz(e.source) ?? "ea-sys",
+    ea_synced: true,
     last_updated: ours.last_updated,
     tags: unionArr(e.tags, ours.tags),
     events_attended: unionArr(e.events_attended, ours.events_attended),

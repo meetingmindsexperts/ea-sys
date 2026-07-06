@@ -51,16 +51,22 @@ all control on the EA-SYS side (nothing to install in the target project).
 | `event_type` (union) | `Event.eventType` across their events |
 | `event_group` (union) | `Event.tag` across their events |
 | `source` | `'ea-sys'` (enrich — set on insert, kept if already set) |
+| `ea_synced` | `true` — provenance marker, set on every row we touch |
 | `last_updated` | sync time |
 
 ## Setup
 
-### 1. Target project — nothing to install
-No functions, triggers, or objects are needed in the target project beyond the
-`contacts_centralv1` table you already have. All merge logic runs on the EA-SYS
-side. The only requirement: the **service-role key** must be able to `select` +
-`insert`/`update` on `contacts_centralv1` (a service_role key bypasses RLS, so
-this works out of the box).
+### 1. Target project — one column to add
+No functions or triggers — all merge logic runs on the EA-SYS side. The only
+change in the target project is a provenance column (set `true` on every row
+EA-SYS touches, so you can tell our data apart from other sources):
+
+```sql
+alter table public.contacts_centralv1 add column if not exists ea_synced boolean;
+```
+
+The **service-role key** must be able to `select` + `insert`/`update` on the
+table (a service_role key bypasses RLS, so this works out of the box).
 
 ### 2. Set env (EA-SYS `.env`)
 ```
