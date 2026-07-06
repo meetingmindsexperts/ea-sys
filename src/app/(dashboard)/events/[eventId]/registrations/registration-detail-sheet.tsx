@@ -715,12 +715,21 @@ export function RegistrationDetailSheet({
                         />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-role">Role</Label>
-                      <RoleSelect
-                        value={editData.role}
-                        onChange={(role) => setEditData({ ...editData, role })}
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-role">Role</Label>
+                        <RoleSelect
+                          value={editData.role}
+                          onChange={(role) => setEditData({ ...editData, role })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-specialty">Specialty</Label>
+                        <SpecialtySelect
+                          value={editData.specialty}
+                          onChange={(specialty) => setEditData({ ...editData, specialty })}
+                        />
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label>Email</Label>
@@ -806,22 +815,13 @@ export function RegistrationDetailSheet({
                         onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-specialty">Specialty</Label>
-                        <SpecialtySelect
-                          value={editData.specialty}
-                          onChange={(specialty) => setEditData({ ...editData, specialty })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
-                        <Input
-                          id="edit-dietaryReqs"
-                          value={editData.dietaryReqs}
-                          onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-dietaryReqs">Dietary Requirements</Label>
+                      <Input
+                        id="edit-dietaryReqs"
+                        value={editData.dietaryReqs}
+                        onChange={(e) => setEditData({ ...editData, dietaryReqs: e.target.value })}
+                      />
                     </div>
                     {!isReviewer && (
                       <div className="space-y-2">
