@@ -30,8 +30,8 @@ one-page index plus the commands you reach for most.
 | Health endpoints | `https://events.meetingmindsgroup.com/health` (alias of `/api/health`), `/worker/health` | — |
 | **Uptime monitor (external)** | Uptime Robot → `https://events.meetingmindsgroup.com/health` | external |
 | **Route 53 health check** | `ea-sys-health` (`20c6ff28-1c3d-456c-8bc2-84f88b39e325`) → HTTPS `/health`, 30s, fail×3 | global (metrics in `us-east-1`) |
-| **CloudWatch alarm** | `ea-sys-health-down` → SNS `ea-sys-alerts` (alerts + recovery email) | **`us-east-1`** |
-| **SNS alert topic** | `ea-sys-alerts` → `krishna@meetingmindsdubai.com` | `us-east-1` |
+| **CloudWatch alarms** | `ea-sys-health-down` (Route53 /health) · `ea-sys-ec2-status-check-failed` (hypervisor hard-down) — both → SNS `ea-sys-alerts` | `us-east-1` · `ap-south-1` |
+| **SNS alert topics** | `ea-sys-alerts` (one per region — SNS is regional) → `krishna@` + `vivek@meetingmindsdubai.com` | `us-east-1` + `ap-south-1` |
 
 **Prereqs:** `aws --version` (v2), the Session Manager plugin for `aws ssm
 start-session`, and `aws sts get-caller-identity` returning your identity. The
@@ -192,12 +192,16 @@ can't email you — hence layer B.
 | Signal | What it watches | Fires within |
 |---|---|---|
 | **Uptime Robot** (external) | HTTPS `GET /health` from outside AWS | ~1–2 min |
-| **Route 53 health check** `ea-sys-health` → CloudWatch alarm **`ea-sys-health-down`** → SNS **`ea-sys-alerts`** (email) | HTTPS `/health` from ~15 global checkers, 30s, fail×3 | ~1.5 min |
+| **Route 53 health check** `ea-sys-health` → alarm **`ea-sys-health-down`** (`us-east-1`) → SNS **`ea-sys-alerts`** | HTTPS `/health` from ~15 global checkers, 30s, fail×3 | ~1.5 min |
+| **EC2 alarm `ea-sys-ec2-status-check-failed`** (`ap-south-1`) → SNS **`ea-sys-alerts`** (`ap-south-1`) | `StatusCheckFailed` — hypervisor hard-down (reboot loop, kernel panic, net-dead) where `/health` may hang | ~2 min |
 
-> **Region gotcha:** Route 53 health-check metrics exist **only in `us-east-1`**,
-> so the alarm **and** its SNS topic must live there. Look for `ea-sys-health-down`
-> under CloudWatch **N. Virginia**, not Mumbai. The SNS email subscription must be
-> **Confirmed** (click the link) or nothing is delivered.
+> **Region gotchas:** (1) Route 53 health-check metrics exist **only in
+> `us-east-1`**, so `ea-sys-health-down` **and** its SNS topic live there — look
+> under CloudWatch **N. Virginia**, not Mumbai. (2) **SNS is regional**, so there
+> are **two** same-named `ea-sys-alerts` topics (us-east-1 for the health alarm,
+> ap-south-1 for the EC2 alarm); a recipient must confirm **once per topic**.
+> Recipients: `krishna@` + `vivek@meetingmindsdubai.com`. A dormant
+> `ea-sys-alerts-prod` topic also exists in ap-south-1 (no alarms use it — leftover).
 
 Verify / test:
 ```bash
@@ -216,10 +220,6 @@ aws route53 update-health-check --health-check-id 20c6ff28-1c3d-456c-8bc2-84f88b
 ```
 
 **Not yet wired (the remaining silent-failure modes):**
-- **EC2 `StatusCheckFailed` alarm** (Mumbai / `ap-south-1`) — catches a
-  hypervisor-level dead box (reboot loop, kernel panic) where even `/health`
-  requests hang. Needs its own SNS topic **in `ap-south-1`** (SNS is regional).
-  `AWS/EC2` → `StatusCheckFailed`, `--period 60 --evaluation-periods 2 --threshold 1`.
 - **DB-backup freshness** — no alarm if `dr-pg-dump.sh` silently stops (the
   script SES-alerts on *failure*, but a down box means the cron never runs).
   Fix = emit a heartbeat metric on success (`aws cloudwatch put-metric-data
