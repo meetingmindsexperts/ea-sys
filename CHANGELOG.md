@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Responsive mobile banner (art-directed `<picture>`) (July 7)
+
+Public event banners were a single wide image scaled to fit, so on phones a wide
+banner shrank to ~60–160px tall and the heading became illegible. Added an
+optional per-event mobile banner.
+
+- **Schema:** `Event.bannerImageMobile` (additive migration
+  `20260707000000_add_event_banner_image_mobile`, `ADD COLUMN IF NOT EXISTS` —
+  blue-green safe). Event PUT accepts/persists it; clone copies it; both public
+  routes expose it.
+- **Component:** new `EventBanner` renders `<picture>` with
+  `<source media="(max-width: 575.98px)">` — the mobile banner shows below 576px,
+  the main banner at 576px and above; only the matching image downloads. Falls
+  back to the main banner everywhere when no mobile banner is set.
+- **Settings → Branding:** "Mobile Banner (optional)" upload beside the desktop
+  banner, with ~700×400 / 576px guidance (keeps the heading ~200px tall on
+  phones).
+- 8 public pages converted (register, category register, complete-registration,
+  abstract register, login, forgot/reset-password, my-registration). Deferred:
+  confirmation, survey, session, presenter/speaker-agreement.
+
+tsc 0, eslint 0, vitest 1870, build 0.
+
+### Removed — Event time-of-day from public event-info cards (July 7)
+
+The public event-info header showed a Clock + time line derived from
+`event.startDate` (e.g. "12:00 AM") — an arbitrary date-picker time for a
+multi-day event. Removed the time line (and the unused `Clock` import) on all 8
+pages; the date line is kept. Per-session schedule times on the agenda/session
+pages are unchanged.
+
 ### Fixed — Payment-reminder email showed the wrong amount for tier-priced/virtual registrations (July 7)
 
 The admin single-send "payment-reminder" ("Pay Now") email built `{{amount}}`
