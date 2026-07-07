@@ -235,38 +235,84 @@ export async function POST(req: Request) {
     try {
       const payment = await db.payment.findUnique({
         where: { stripePaymentId: paymentIntentId },
-        select: { id: true, registrationId: true, registration: { select: { eventId: true, event: { select: { organizationId: true } } } } },
+        select: {
+          id: true,
+          amount: true,
+          registrationId: true,
+          registration: {
+            select: {
+              eventId: true,
+              refundedAmount: true,
+              event: { select: { organizationId: true } },
+            },
+          },
+        },
       });
       if (!payment) {
         apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
         return NextResponse.json({ received: true });
       }
 
-      await db.$transaction([
-        db.registration.update({
-          where: { id: payment.registrationId },
-          data: { paymentStatus: "REFUNDED" },
-        }),
-        db.payment.update({
-          where: { id: payment.id },
-          data: { status: "REFUNDED" },
-        }),
-      ]);
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      // Stripe's `amount_refunded` is the CUMULATIVE refunded total (minor units)
+      // — supports partial + repeated Dashboard refunds. Reconcile our running
+      // `Registration.refundedAmount` up to it.
+      const cumulativeRefunded = round2(fromStripeAmount(charge.amount_refunded, charge.currency));
+      const paidTotal = round2(Number(payment.amount));
+      const already = round2(Number(payment.registration.refundedAmount));
+      const delta = round2(cumulativeRefunded - already);
+      const isFull = cumulativeRefunded >= paidTotal - 0.005;
 
-      apiLogger.info({ msg: "Refund processed via Stripe webhook", registrationId: payment.registrationId, paymentIntentId });
+      // A route-initiated refund already bumped `refundedAmount` to this value,
+      // so a delta of 0 means "already accounted for" → skip (idempotent on
+      // retries too). Only a Stripe-Dashboard (out-of-band) refund advances it.
+      if (delta <= 0) {
+        apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", registrationId: payment.registrationId, paymentIntentId, cumulativeRefunded });
+        return NextResponse.json({ received: true });
+      }
 
-      // Auto-create credit note (non-blocking)
+      // Claim the delta atomically — guarded by `refundedAmount < cumulative` so
+      // two concurrent webhook deliveries can't both advance it / both mint a CN.
+      const claimed = await db.registration.updateMany({
+        where: { id: payment.registrationId, refundedAmount: { lt: cumulativeRefunded } },
+        data: {
+          refundedAmount: cumulativeRefunded,
+          ...(isFull ? { paymentStatus: "REFUNDED" as const } : {}),
+        },
+      });
+      if (claimed.count === 0) {
+        apiLogger.info({ msg: "charge.refunded: delta claimed by a concurrent delivery, skipping", registrationId: payment.registrationId, paymentIntentId });
+        return NextResponse.json({ received: true });
+      }
+
+      // Flip the Payment row to REFUNDED only on a FULL refund.
+      if (isFull) {
+        await db.payment.update({ where: { id: payment.id }, data: { status: "REFUNDED" } });
+      }
+
+      apiLogger.info({
+        msg: "Refund reconciled via Stripe webhook",
+        registrationId: payment.registrationId,
+        paymentIntentId,
+        delta,
+        cumulativeRefunded,
+        paidTotal,
+        partial: !isFull,
+      });
+
+      // Auto-create a credit note for this refund delta (out-of-band Dashboard
+      // refund has no route-issued CN). Non-blocking; keyed off the claimed delta
+      // so retries — which no-op above — never duplicate it.
       (async () => {
         try {
-          const { invoice: cn, created } = await createCreditNote({
+          const { invoice: cn } = await createCreditNote({
             registrationId: payment.registrationId,
             eventId: payment.registration.eventId,
             organizationId: payment.registration.event.organizationId,
-            reason: "Refund via Stripe",
+            amount: delta,
+            reason: isFull ? "Refund via Stripe" : `Partial refund via Stripe (${charge.currency.toUpperCase()} ${delta.toFixed(2)})`,
           });
-          // Skip re-emailing when the route (or a webhook retry) already created
-          // the credit note — `createCreditNote` is idempotent per registration.
-          if (created) await sendInvoiceEmail(cn.id);
+          await sendInvoiceEmail(cn.id);
         } catch (err) {
           apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
         }

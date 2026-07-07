@@ -11,6 +11,7 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeInst
       event: { findFirst: vi.fn() },
       registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
       payment: { update: vi.fn() },
+      invoice: { findFirst: vi.fn() },
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     mockStripeRefundsCreate,
@@ -42,6 +43,7 @@ vi.mock("@/lib/event-access", () => ({
 }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(() => mockStripeInstance),
+  toStripeAmount: (amount: number) => Math.round(amount * 100),
 }));
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn(),
@@ -53,7 +55,6 @@ vi.mock("@/lib/email", () => ({
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: vi.fn().mockResolvedValue(undefined),
 }));
-
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/refund/route";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,10 +74,13 @@ const sampleRegistration = {
   id: "reg-1",
   eventId: "evt-1",
   paymentStatus: "PAID",
-  attendee: { firstName: "Alice", lastName: "Smith", email: "alice@example.com" },
-  ticketType: { name: "Standard", currency: "USD" },
+  refundedAmount: 0,
+  originalPrice: 150,
+  discountAmount: null,
+  attendee: { firstName: "Alice", lastName: "Smith", email: "alice@example.com", additionalEmail: null, title: null },
+  ticketType: { name: "Standard", price: 150, currency: "USD" },
   pricingTier: null,
-  event: { id: "evt-1", name: "Test Conference", startDate: new Date("2026-06-01") },
+  event: { id: "evt-1", name: "Test Conference", startDate: new Date("2026-06-01"), taxRate: null, taxLabel: null },
   payments: [{ id: "pay-1", stripePaymentId: "pi_test123", amount: 150, currency: "USD" }],
 };
 
@@ -115,6 +119,7 @@ describe("Refund: not found cases", () => {
 
   it("returns 404 when registration not found", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue(null);
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(404);
@@ -123,6 +128,7 @@ describe("Refund: not found cases", () => {
 
   it("returns 404 when registration belongs to different event", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue({ ...sampleRegistration, eventId: "evt-other" });
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(404);
@@ -134,6 +140,7 @@ describe("Refund: business rule validations", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
   });
 
   it("returns 400 when registration is not PAID", async () => {
@@ -182,6 +189,7 @@ describe("Refund: optimistic lock", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
   });
 
@@ -190,7 +198,7 @@ describe("Refund: optimistic lock", () => {
     mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: "Registration is no longer in a paid state" });
+    expect(await res.json()).toMatchObject({ error: "A refund for this registration is already in progress." });
   });
 
   it("proceeds when lock is acquired (count=1)", async () => {
@@ -210,6 +218,7 @@ describe("Refund: Stripe error rollback", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb.registration.update.mockResolvedValue({});
@@ -219,9 +228,9 @@ describe("Refund: Stripe error rollback", () => {
     mockStripeRefundsCreate.mockRejectedValue(new Error("Stripe error: card_declined"));
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(502);
-    // Rollback: registration.update called to restore PAID status
+    // Rollback: registration.update restores PAID + the prior refunded total
     expect(mockDb.registration.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { paymentStatus: "PAID" } })
+      expect.objectContaining({ data: expect.objectContaining({ paymentStatus: "PAID" }) })
     );
   });
 
@@ -247,6 +256,7 @@ describe("Refund: idempotency key", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockStripeRefundsCreate.mockResolvedValue({ id: "re_test123", status: "succeeded" });
@@ -257,7 +267,7 @@ describe("Refund: idempotency key", () => {
     await POST(makeRequest(), makeParams());
     expect(mockStripeRefundsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ payment_intent: "pi_test123" }),
-      expect.objectContaining({ idempotencyKey: "refund-pay-1" })
+      expect.objectContaining({ idempotencyKey: "refund-pay-1-150.00" })
     );
   });
 });
@@ -267,6 +277,7 @@ describe("Refund: success path", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockStripeRefundsCreate.mockResolvedValue({ id: "re_abc", status: "succeeded" });

@@ -62,6 +62,13 @@ vi.mock("@/lib/email", () => ({
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: vi.fn().mockResolvedValue(undefined),
 }));
+const createCreditNoteMock = vi.fn().mockResolvedValue({ invoice: { id: "cn1" }, created: true });
+const sendInvoiceEmailMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/invoice-service", () => ({
+  createCreditNote: (...args: unknown[]) => createCreditNoteMock(...args),
+  sendInvoiceEmail: (...args: unknown[]) => sendInvoiceEmailMock(...args),
+  issuePaidRegistrationDocuments: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { POST } from "@/app/api/webhooks/stripe/route";
 
@@ -179,38 +186,100 @@ describe("Webhook: checkout.session.expired", () => {
 
 // ── Tests: charge.refunded ────────────────────────────────────────────────────
 
-describe("Webhook: charge.refunded", () => {
+describe("Webhook: charge.refunded (reconciliation)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.payment.update.mockResolvedValue({});
+    createCreditNoteMock.mockResolvedValue({ invoice: { id: "cn1" }, created: true });
   });
 
-  const makeChargeEvent = (paymentIntentId: string | null) =>
+  // amount_refunded is CUMULATIVE (minor units); currency lowercase.
+  const makeChargeEvent = (
+    paymentIntentId: string | null,
+    { amountRefunded = 10000, currency = "usd" }: { amountRefunded?: number; currency?: string } = {},
+  ) =>
     makeStripeEvent("charge.refunded", {
       id: "ch_1",
       payment_intent: paymentIntentId,
       refunded: true,
+      amount_refunded: amountRefunded,
+      currency,
     });
 
-  it("updates registration and payment to REFUNDED", async () => {
-    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_refund_test"));
-    mockDb.payment.findUnique.mockResolvedValue({ id: "pay-1", registrationId: "reg-1" });
-    mockDb.$transaction.mockResolvedValue(undefined);
+  const paymentRow = (refundedAmount: number, amount = 100) => ({
+    id: "pay-1",
+    amount,
+    registrationId: "reg-1",
+    registration: { eventId: "evt-1", refundedAmount, event: { organizationId: "org-1" } },
+  });
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("reconciles a FULL Dashboard refund → refundedAmount + REFUNDED + credit note", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 })); // $100 of $100
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.$transaction).toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", refundedAmount: { lt: 100 } },
+      data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
+    });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { status: "REFUNDED" } });
+    await flush();
+    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
   });
 
-  it("logs info on successful refund via webhook", async () => {
-    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_refund_test"));
-    mockDb.payment.findUnique.mockResolvedValue({ id: "pay-1", registrationId: "reg-1" });
-    mockDb.$transaction.mockResolvedValue(undefined);
+  it("reconciles a PARTIAL Dashboard refund → keeps PAID, credit note for the delta", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 3000 })); // $30 of $100
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", refundedAmount: { lt: 30 } },
+      data: { refundedAmount: 30 }, // no REFUNDED flip on partial
+    });
+    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    await flush();
+    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 30 }));
+  });
+
+  it("only credits the incremental delta on a second (larger) refund", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 5000 })); // now $50 total
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(30, 100)); // $30 already reconciled
 
     await POST(makeWebhookRequest());
-    expect(mockApiLogger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "Refund processed via Stripe webhook" })
-    );
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", refundedAmount: { lt: 50 } },
+      data: { refundedAmount: 50 },
+    });
+    await flush();
+    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 20 })); // delta only
+  });
+
+  it("is idempotent — a retry with an already-reconciled total skips (no CN, no writes)", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 }));
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(100, 100)); // already fully reconciled
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    await flush();
+    expect(createCreditNoteMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the credit note when a concurrent delivery already claimed the delta", async () => {
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 }));
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
+    mockDb.registration.updateMany.mockResolvedValue({ count: 0 }); // lost the race
+
+    await POST(makeWebhookRequest());
+    await flush();
+    expect(createCreditNoteMock).not.toHaveBeenCalled();
+    expect(mockDb.payment.update).not.toHaveBeenCalled();
   });
 
   it("warns and skips when no Payment record found for paymentIntentId", async () => {
@@ -219,7 +288,7 @@ describe("Webhook: charge.refunded", () => {
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "charge.refunded: no Payment record found" })
     );

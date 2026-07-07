@@ -403,40 +403,92 @@ export async function createPaidReceipt(params: {
 
 // ── Create Credit Note ──────────────────────────────────────────────────────
 
+/**
+ * Discriminable error thrown by `createCreditNote` when the requested amount is
+ * invalid. Callers (the Issue-Credit-Note route) map `code` to a 400 with the
+ * `meta` figures so the organizer sees what's left to credit.
+ */
+export class CreditNoteAmountError extends Error {
+  code: "INVALID_AMOUNT" | "CREDIT_LIMIT_EXCEEDED";
+  meta: { paidTotal: number; creditedBefore: number; outstanding: number; currency: string };
+  constructor(
+    code: "INVALID_AMOUNT" | "CREDIT_LIMIT_EXCEEDED",
+    message: string,
+    meta: { paidTotal: number; creditedBefore: number; outstanding: number; currency: string },
+  ) {
+    super(message);
+    this.name = "CreditNoteAmountError";
+    this.code = code;
+    this.meta = meta;
+  }
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Issue a credit note for a registration — full OR partial. Multiple credit
+ * notes per registration are allowed (each partial refund can carry its own),
+ * capped so the sum of non-cancelled credit notes never exceeds the paid total.
+ *
+ * `amount` defaults to the full outstanding (paid total − already credited). A
+ * partial amount scales the frozen subtotal/discount/tax proportionally so the
+ * credit-note PDF stays internally consistent (subtotal + tax = total).
+ *
+ * NOT idempotent (multiple are legal). Duplicate protection for the automatic
+ * `charge.refunded` path lives in the webhook, which claims the refund delta
+ * before calling this. Returns the running credited figures so callers can
+ * reflect "credited X of Y".
+ */
 export async function createCreditNote(params: {
   registrationId: string;
   eventId: string;
   organizationId: string;
   originalInvoiceId?: string;
   reason?: string;
-}): Promise<{ invoice: Invoice; created: boolean }> {
-  const { registrationId, eventId, organizationId, originalInvoiceId, reason } = params;
-
-  // Idempotency: a registration gets exactly ONE credit note. A route-initiated
-  // Stripe refund creates the CN AND triggers a `charge.refunded` webhook that
-  // would create a second one; Stripe also retries webhook deliveries, and a
-  // Dashboard refund fires the same webhook. Without this guard each of those
-  // mints a fresh CREDIT_NOTE (new number) + a duplicate credit-note email.
-  // Return the existing one with `created: false` so the caller skips re-emailing.
-  const existingCreditNote = await db.invoice.findFirst({
-    where: { registrationId, type: "CREDIT_NOTE" },
-    orderBy: { createdAt: "desc" },
-  });
-  if (existingCreditNote) {
-    apiLogger.info({
-      msg: "Credit note already exists for registration; returning existing (idempotent)",
-      invoiceNumber: existingCreditNote.invoiceNumber,
-      registrationId,
-    });
-    return { invoice: existingCreditNote, created: false };
-  }
+  /** Partial credit-note amount (tax-inclusive). Omit for the full outstanding. */
+  amount?: number;
+}): Promise<{ invoice: Invoice; created: boolean; creditedBefore: number; creditedAfter: number; paidTotal: number }> {
+  const { registrationId, eventId, organizationId, originalInvoiceId, reason, amount } = params;
 
   const registration = await db.registration.findUniqueOrThrow({
     where: { id: registrationId },
     include: registrationInclude,
   });
 
-  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
+  const { price, currency, discount, discountCode, taxRate, taxAmount, total: fullTotal } =
+    calcInvoicePricing(registration);
+
+  // Sum what's already credited (non-cancelled credit notes) to cap the total.
+  const existingCns = await db.invoice.findMany({
+    where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
+    select: { total: true },
+  });
+  const creditedBefore = round2(existingCns.reduce((s, c) => s + Number(c.total), 0));
+  const outstanding = round2(fullTotal - creditedBefore);
+
+  const amt = amount != null ? round2(amount) : outstanding;
+  if (amt <= 0) {
+    throw new CreditNoteAmountError(
+      "INVALID_AMOUNT",
+      "Credit note amount must be greater than zero.",
+      { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+    );
+  }
+  if (amt > outstanding + 0.005) {
+    throw new CreditNoteAmountError(
+      "CREDIT_LIMIT_EXCEEDED",
+      `Credit note amount ${currency} ${amt.toFixed(2)} exceeds the outstanding ${currency} ${outstanding.toFixed(2)}.`,
+      { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+    );
+  }
+
+  // Scale the frozen pricing components proportionally for a partial credit.
+  const ratio = fullTotal > 0 ? amt / fullTotal : 0;
+  const cnSubtotal = round2(price * ratio);
+  const cnDiscount = round2(discount * ratio);
+  const cnTax = round2(taxAmount * ratio);
+  const coversFull = amt >= fullTotal - 0.005;
+
   const eventCode = await resolveEventCode(
     { id: eventId, code: registration.event.code, name: registration.event.name },
     { registrationId, flow: "CREDIT_NOTE" },
@@ -458,8 +510,9 @@ export async function createCreditNote(params: {
       tx, eventId, "CREDIT_NOTE", eventCode
     );
 
-    // Mark the original invoice as REFUNDED
-    if (parentId) {
+    // Mark the original invoice REFUNDED only when this credit note covers the
+    // full amount — a partial credit note leaves the invoice intact.
+    if (parentId && coversFull) {
       await tx.invoice.update({
         where: { id: parentId },
         data: { status: "REFUNDED" },
@@ -476,22 +529,31 @@ export async function createCreditNote(params: {
         sequenceNumber,
         status: "REFUNDED",
         issueDate: new Date(),
-        subtotal: price,
+        subtotal: cnSubtotal,
         discountCode,
-        discountAmount: discount,
+        discountAmount: cnDiscount,
         taxRate,
         taxLabel: registration.event.taxLabel || "VAT",
-        taxAmount,
-        total,
+        taxAmount: cnTax,
+        total: amt,
         currency,
         parentInvoiceId: parentId,
-        notes: reason || "Full refund",
+        notes: reason || (coversFull ? "Full refund" : `Partial credit ${currency} ${amt.toFixed(2)}`),
       },
     });
   });
 
-  apiLogger.info({ msg: "Credit note created", invoiceNumber: creditNote.invoiceNumber, registrationId, total: Number(creditNote.total), currency });
-  return { invoice: creditNote, created: true };
+  const creditedAfter = round2(creditedBefore + amt);
+  apiLogger.info({
+    msg: "Credit note created",
+    invoiceNumber: creditNote.invoiceNumber,
+    registrationId,
+    amount: amt,
+    creditedAfter,
+    paidTotal: fullTotal,
+    currency,
+  });
+  return { invoice: creditNote, created: true, creditedBefore, creditedAfter, paidTotal: fullTotal };
 }
 
 // ── Generate PDF ────────────────────────────────────────────────────────────

@@ -795,6 +795,12 @@ model Registration {
   promoCodeId         String?
   discountAmount      Decimal?           @db.Decimal(10, 2)
   originalPrice       Decimal?           @db.Decimal(10, 2)
+  /// Running total refunded so far (partial refunds accumulate here). The
+  /// registration stays PAID while 0 < refundedAmount < paidTotal and flips
+  /// to REFUNDED only when the full paid amount is returned. The Billing UI
+  /// shows "Refunded X of Y". Written by the refund route + charge.refunded
+  /// webhook reconciliation.
+  refundedAmount      Decimal            @default(0) @db.Decimal(10, 2)
   // Sponsor attribution — set when paymentStatus = INCLUSIVE so reports
   // can group "all Abbott-sponsored attendees." References the entry's
   // id inside Event.settings.sponsors[] JSON (no FK because sponsors

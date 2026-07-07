@@ -1,10 +1,11 @@
 /**
- * Refund route — manual/offline refunds (option A) alongside the existing Stripe
- * path. A registration paid MANUALLY (Payment.stripePaymentId null) or a PAID reg
- * with no Payment row must be refundable WITHOUT calling Stripe: flip
- * registration + Payment → REFUNDED and issue a credit note. A Stripe-paid reg
- * still calls stripe.refunds.create. Before this, the route 400'd every non-Stripe
- * payment ("No Stripe payment found").
+ * Refund route — gated partial refunds.
+ *
+ * A refund requires a non-cancelled CREDIT_NOTE to already exist (the organizer
+ * issues it first). The refund amount is entered here independently and may be
+ * partial: partial refunds accumulate into `Registration.refundedAmount` and the
+ * registration stays PAID until fully refunded, then flips to REFUNDED. Stripe
+ * partial via `amount`; manual/offline records only.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -12,19 +13,16 @@ const {
   mockDb,
   mockAuth,
   stripeRefundsCreate,
-  createCreditNoteSpy,
-  sendInvoiceEmailSpy,
   sendEmailSpy,
 } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     payment: { update: vi.fn() },
+    invoice: { findFirst: vi.fn() },
   },
   mockAuth: vi.fn(),
   stripeRefundsCreate: vi.fn(),
-  createCreditNoteSpy: vi.fn().mockResolvedValue({ invoice: { id: "cn1" }, created: true }),
-  sendInvoiceEmailSpy: vi.fn().mockResolvedValue(undefined),
   sendEmailSpy: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -36,7 +34,11 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ refunds: { create: stripeRefundsCreate } }) }));
+vi.mock("@/lib/stripe", () => ({
+  getStripe: () => ({ refunds: { create: stripeRefundsCreate } }),
+  // Real behaviour for USD (non-zero-decimal): major → minor units.
+  toStripeAmount: (amount: number) => Math.round(amount * 100),
+}));
 vi.mock("@/lib/email", () => ({
   sendEmail: sendEmailSpy,
   getEventTemplate: vi.fn().mockResolvedValue(null),
@@ -46,14 +48,17 @@ vi.mock("@/lib/email", () => ({
   brandingCc: vi.fn().mockReturnValue([]),
 }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn().mockReturnValue({ catch: () => {} }) }));
-vi.mock("@/lib/invoice-service", () => ({ createCreditNote: createCreditNoteSpy, sendInvoiceEmail: sendInvoiceEmailSpy }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 // denyReviewer, buildEventAccessWhere, registration-financials, utils are REAL (pure).
 
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/refund/route";
 
 const params = Promise.resolve({ eventId: "ev1", registrationId: "reg1" });
-const req = () => new Request("http://localhost/x", { method: "POST" });
+const req = (body?: unknown) =>
+  new Request("http://localhost/x", {
+    method: "POST",
+    ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json" } } : {}),
+  });
 
 function registration(paymentOverrides: Record<string, unknown> | null, extra: Record<string, unknown> = {}) {
   return {
@@ -61,6 +66,7 @@ function registration(paymentOverrides: Record<string, unknown> | null, extra: R
     serialId: 7,
     eventId: "ev1",
     paymentStatus: "PAID",
+    refundedAmount: 0,
     originalPrice: 100,
     discountAmount: null,
     attendee: { firstName: "A", lastName: "B", email: "a@b.com", additionalEmail: null, title: null },
@@ -78,69 +84,104 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "admin1", role: "ADMIN", organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+  mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.payment.update.mockResolvedValue({});
   stripeRefundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
 });
 
-describe("refund — manual/offline payment (option A)", () => {
-  it("refunds a manual payment WITHOUT calling Stripe; flips reg + payment, issues credit note", async () => {
+describe("refund — credit-note gate", () => {
+  it("409 CREDIT_NOTE_REQUIRED when no credit note exists; Stripe + lock untouched", async () => {
+    mockDb.invoice.findFirst.mockResolvedValue(null);
     mockDb.registration.findUnique.mockResolvedValue(
-      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
+      registration({ id: "pay1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }),
     );
     const res = await POST(req(), { params });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ refundId: null, manual: true, status: "recorded" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("CREDIT_NOTE_REQUIRED");
     expect(stripeRefundsCreate).not.toHaveBeenCalled();
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", paymentStatus: "PAID" },
-      data: { paymentStatus: "REFUNDED" },
-    });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
-    await flush();
-    expect(createCreditNoteSpy).toHaveBeenCalledTimes(1);
-    expect(sendInvoiceEmailSpy).toHaveBeenCalledWith("cn1"); // created:true → email sent
-  });
-
-  it("does NOT re-email when the credit note already exists (idempotent createCreditNote)", async () => {
-    mockDb.registration.findUnique.mockResolvedValue(
-      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
-    );
-    createCreditNoteSpy.mockResolvedValueOnce({ invoice: { id: "cn1" }, created: false });
-    const res = await POST(req(), { params });
-    expect(res.status).toBe(200);
-    await flush();
-    expect(createCreditNoteSpy).toHaveBeenCalledTimes(1);
-    expect(sendInvoiceEmailSpy).not.toHaveBeenCalled(); // created:false → no duplicate email
-  });
-
-  it("refunds a PAID reg with NO payment row (hand-flipped) without Stripe; no payment.update", async () => {
-    mockDb.registration.findUnique.mockResolvedValue(registration(null));
-    const res = await POST(req(), { params });
-    expect(res.status).toBe(200);
-    expect((await res.json()).manual).toBe(true);
-    expect(stripeRefundsCreate).not.toHaveBeenCalled();
-    expect(mockDb.payment.update).not.toHaveBeenCalled(); // nothing to flip
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 });
 
-describe("refund — Stripe payment (unchanged path)", () => {
-  it("calls stripe.refunds.create and returns the refund id", async () => {
+describe("refund — manual/offline payment", () => {
+  it("full manual refund flips reg + payment → REFUNDED, no Stripe", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
+    );
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      refundId: null, manual: true, status: "recorded",
+      amount: 100, currency: "USD", refundedAmount: 100, paidTotal: 100, fullyRefunded: true,
+    });
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 0 },
+      data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
+    });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
+  });
+
+  it("PARTIAL manual refund keeps reg PAID + payment PAID, tracks refundedAmount", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
+    );
+    const res = await POST(req({ amount: 40 }), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ amount: 40, refundedAmount: 40, paidTotal: 100, fullyRefunded: false });
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 0 },
+      data: { refundedAmount: 40 }, // no paymentStatus flip on partial
+    });
+    expect(mockDb.payment.update).not.toHaveBeenCalled(); // payment stays PAID on partial
+  });
+
+  it("a partial that completes the balance flips to REFUNDED", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }, { refundedAmount: 60 }),
+    );
+    const res = await POST(req({ amount: 40 }), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ refundedAmount: 100, fullyRefunded: true });
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 60 },
+      data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
+    });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
+  });
+});
+
+describe("refund — Stripe payment", () => {
+  it("full Stripe refund passes amount + cumulative idempotency key", async () => {
     mockDb.registration.findUnique.mockResolvedValue(
       registration({ id: "pay1", stripePaymentId: "pi_123", amount: 100, currency: "USD" }),
     );
     const res = await POST(req(), { params });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ refundId: "re_1", manual: false, status: "succeeded" });
+    expect(await res.json()).toMatchObject({ refundId: "re_1", manual: false, status: "succeeded", amount: 100, fullyRefunded: true });
     expect(stripeRefundsCreate).toHaveBeenCalledWith(
-      { payment_intent: "pi_123" },
-      { idempotencyKey: "refund-pay1" },
+      { payment_intent: "pi_123", amount: 10000 },
+      { idempotencyKey: "refund-pay1-100.00" },
     );
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
   });
 
-  it("rolls back to PAID and 502s when Stripe fails", async () => {
+  it("PARTIAL Stripe refund reverses only the entered amount, keeps PAID", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: "pi_123", amount: 100, currency: "USD" }),
+    );
+    const res = await POST(req({ amount: 30 }), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ amount: 30, refundedAmount: 30, fullyRefunded: false });
+    expect(stripeRefundsCreate).toHaveBeenCalledWith(
+      { payment_intent: "pi_123", amount: 3000 },
+      { idempotencyKey: "refund-pay1-30.00" },
+    );
+    expect(mockDb.payment.update).not.toHaveBeenCalled();
+  });
+
+  it("rolls the refunded total back and 502s when Stripe fails", async () => {
     mockDb.registration.findUnique.mockResolvedValue(
       registration({ id: "pay1", stripePaymentId: "pi_123", amount: 100, currency: "USD" }),
     );
@@ -149,7 +190,7 @@ describe("refund — Stripe payment (unchanged path)", () => {
     expect(res.status).toBe(502);
     expect(mockDb.registration.update).toHaveBeenCalledWith({
       where: { id: "reg1" },
-      data: { paymentStatus: "PAID" },
+      data: { refundedAmount: 0, paymentStatus: "PAID" },
     });
   });
 });
@@ -159,6 +200,16 @@ describe("refund — guards", () => {
     mockDb.registration.findUnique.mockResolvedValue(registration(null, { paymentStatus: "UNPAID" }));
     const res = await POST(req(), { params });
     expect(res.status).toBe(400);
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("400 INVALID_AMOUNT when the amount exceeds the remaining balance", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }, { refundedAmount: 80 }),
+    );
+    const res = await POST(req({ amount: 40 }), { params }); // only 20 remains
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_AMOUNT");
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
@@ -182,5 +233,17 @@ describe("refund — guards", () => {
     mockAuth.mockResolvedValue({ user: { id: "m1", role: "MEMBER", organizationId: "org1" } });
     const res = await POST(req(), { params });
     expect(res.status).toBe(403);
+  });
+
+  it("does not email the credit note (organizer sends it manually)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
+    );
+    await POST(req(), { params });
+    await flush();
+    // refund confirmation email goes to the attendee, but no invoice/CN email
+    // is triggered from this route.
+    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
+    expect(sendEmailSpy.mock.calls[0][0].emailType).toBe("refund_confirmation");
   });
 });

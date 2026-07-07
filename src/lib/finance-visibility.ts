@@ -62,6 +62,7 @@ const FINANCIAL_KEYS = new Set<string>([
   "discountAmount",
   "discountValue",
   "originalPrice",
+  "refundedAmount",
   "taxRate",
   "taxLabel",
   "taxAmount",

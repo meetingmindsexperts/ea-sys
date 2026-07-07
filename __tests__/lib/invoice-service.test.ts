@@ -3,12 +3,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ── Hoisted mocks (required for vi.mock factory) ─────────────────────────────
 
 const {
-  mockTransaction, mockFindUniqueOrThrow, mockFindFirst,
+  mockTransaction, mockFindUniqueOrThrow, mockFindFirst, mockFindMany,
   mockCreate, mockUpdate, mockUpdateMany,
 } = vi.hoisted(() => ({
   mockTransaction: vi.fn(),
   mockFindUniqueOrThrow: vi.fn(),
   mockFindFirst: vi.fn(),
+  mockFindMany: vi.fn(),
   mockCreate: vi.fn(),
   mockUpdate: vi.fn(),
   mockUpdateMany: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/db", () => ({
     invoice: {
       findUniqueOrThrow: vi.fn(),
       findFirst: mockFindFirst,
+      findMany: mockFindMany,
       create: mockCreate,
       update: mockUpdate,
       updateMany: mockUpdateMany,
@@ -475,18 +477,15 @@ describe("createCreditNote", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
+    // Default: no prior credit notes (findMany), no parent invoice (findFirst).
+    mockFindMany.mockResolvedValue([]);
+    mockFindFirst.mockResolvedValue(null);
   });
 
-  // createCreditNote now queries invoice.findFirst twice: (1) the CREDIT_NOTE
-  // idempotency check, (2) the parent INVOICE lookup. Route by `where.type`.
-  function stubFindFirst({ existingCreditNote = null as unknown, parentInvoice = null as unknown } = {}) {
-    mockFindFirst.mockImplementation((args: { where: { type: string } }) =>
-      Promise.resolve(args.where.type === "CREDIT_NOTE" ? existingCreditNote : parentInvoice),
-    );
-  }
+  // fakeRegistration: price 100, VAT 5% → full total = 105.
 
-  it("creates a credit note linked to original invoice", async () => {
-    stubFindFirst({ parentInvoice: { id: "inv-original" } });
+  it("creates a full credit note linked to original invoice", async () => {
+    mockFindFirst.mockResolvedValue({ id: "inv-original" }); // parent INVOICE lookup
 
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });
@@ -498,14 +497,15 @@ describe("createCreditNote", () => {
 
     expect(result.created).toBe(true);
     expect(result.invoice.type).toBe("CREDIT_NOTE");
-    expect(result.invoice.status).toBe("REFUNDED");
+    expect(result.creditedBefore).toBe(0);
+    expect(result.creditedAfter).toBe(105);
+    expect(result.paidTotal).toBe(105);
     expect(captured.parentInvoiceId).toBe("inv-original");
+    expect(captured.total).toBe(105);
     expect(captured.notes).toBe("Customer requested refund");
   });
 
   it("creates credit note without parent when no invoice exists", async () => {
-    stubFindFirst();
-
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });
 
@@ -518,20 +518,67 @@ describe("createCreditNote", () => {
     expect(captured.notes).toBe("Full refund");
   });
 
-  it("is idempotent — returns the existing credit note without creating a duplicate", async () => {
-    stubFindFirst({ existingCreditNote: { id: "cn-existing", invoiceNumber: "CN-1", type: "CREDIT_NOTE" } });
+  it("creates a PARTIAL credit note — scales subtotal/tax proportionally, leaves the invoice intact", async () => {
+    mockFindFirst.mockResolvedValue({ id: "inv-original" });
 
-    let created = false;
-    setupTxMock(() => { created = true; });
-
-    const result = await createCreditNote({
-      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+    let captured: Record<string, unknown> = {};
+    let parentMarkedRefunded = false;
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+      const txMock = {
+        invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+        invoice: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          update: vi.fn().mockImplementation(() => { parentMarkedRefunded = true; return {}; }),
+          create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+            captured = args.data;
+            return { id: "inv-1", ...args.data };
+          }),
+        },
+      };
+      return cb(txMock);
     });
 
-    expect(result.created).toBe(false);
-    expect(result.invoice.id).toBe("cn-existing");
-    expect(created).toBe(false); // no transaction → no second CREDIT_NOTE row
-    expect(mockFindUniqueOrThrow).not.toHaveBeenCalled(); // short-circuits before loading the registration
+    // 42 of 105 → ratio 0.4 → subtotal 40, tax 2.
+    const result = await createCreditNote({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 42,
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.creditedAfter).toBe(42);
+    expect(captured.total).toBe(42);
+    expect(captured.subtotal).toBe(40);
+    expect(captured.taxAmount).toBe(2);
+    expect(captured.notes).toBe("Partial credit USD 42.00");
+    expect(parentMarkedRefunded).toBe(false); // partial → parent NOT refunded
+  });
+
+  it("allows a second credit note up to the remaining outstanding", async () => {
+    mockFindMany.mockResolvedValue([{ total: "100.00" }]); // already credited 100 of 105
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; });
+
+    const result = await createCreditNote({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", // amount omitted → outstanding 5
+    });
+
+    expect(result.creditedBefore).toBe(100);
+    expect(result.creditedAfter).toBe(105);
+    expect(captured.total).toBe(5);
+  });
+
+  it("throws CREDIT_LIMIT_EXCEEDED when the amount exceeds the outstanding", async () => {
+    mockFindMany.mockResolvedValue([{ total: "100.00" }]); // outstanding is 5
+
+    await expect(
+      createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 50 }),
+    ).rejects.toMatchObject({ code: "CREDIT_LIMIT_EXCEEDED" });
+  });
+
+  it("throws INVALID_AMOUNT for a non-positive amount", async () => {
+    await expect(
+      createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 0 }),
+    ).rejects.toMatchObject({ code: "INVALID_AMOUNT" });
   });
 });
 
