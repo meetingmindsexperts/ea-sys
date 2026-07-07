@@ -87,4 +87,21 @@ describe("buildInvoiceCsv / buildInvoiceQuickBooksCsv — injection neutralized 
   it("QuickBooks LineDesc combines ticket type + pricing tier", () => {
     expect(buildInvoiceQuickBooksCsv([row()])).toContain("Physician - Early Bird");
   });
+
+  it("QuickBooks LineUnitPrice is net of discount so unitPrice + tax = LineAmount (review L4)", () => {
+    // subtotal 100, discount 10, VAT 5% → net 90, total 94.50.
+    const csv = buildInvoiceQuickBooksCsv([
+      row({ subtotal: 100, discountAmount: 10, taxRate: 5, taxAmount: 4.5, total: 94.5 }),
+    ]);
+    const cols = csv.split("\r\n")[1].split(",");
+    expect(cols[7]).toBe("90.00");  // LineUnitPrice = subtotal − discount
+    expect(cols[12]).toBe("94.50"); // LineAmount = total (gross)
+    // Reconciles: 90.00 × 1.05 = 94.50
+  });
+
+  it("undiscounted invoice still maps LineUnitPrice = subtotal (unchanged)", () => {
+    const cols = buildInvoiceQuickBooksCsv([row()]).split("\r\n")[1].split(",");
+    expect(cols[7]).toBe("100.00");
+    expect(cols[12]).toBe("105.00");
+  });
 });

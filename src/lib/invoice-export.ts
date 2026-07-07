@@ -109,8 +109,9 @@ export function buildInvoiceCsv(invoices: InvoiceExportRow[]): string {
 //   • LineClass   — the event name (no prefix)
 //   • LineTaxCode — "Standard" when VAT applies, else "Zero Rated"
 //   • Customer    — the attendee's Title First Last (may need to match your QB list)
-// LineUnitPrice is the net (pre-tax) subtotal; LineAmount is the gross total, with
-// AmountsIncl=TaxExcluded — matching the reference template (100 → 105 at 5%).
+// LineUnitPrice is the net-of-discount (post-discount, pre-tax) price; LineAmount
+// is the gross total; AmountsIncl=TaxExcluded — so unitPrice×qty + tax = LineAmount
+// reconciles even with a discount, matching the reference template (100 → 105 at 5%).
 export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string {
   const header = [
     "RefNumber", "TxnDate", "Customer", "BillAddrLine1", "SalesTerm", "Location",
@@ -129,7 +130,11 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
       "Due on receipt",                                    // SalesTerm
       inv.event.city ?? "",                                // Location
       inv.event.name,                                      // LineClass (no prefix)
-      Number(inv.subtotal).toFixed(2),                     // LineUnitPrice (net)
+      // LineUnitPrice = NET (post-discount, pre-tax) price so QB reconciles:
+      // unitPrice × qty + tax = LineAmount (= total). The discount is baked in
+      // here (the flat qty-1 template has no separate discount line); it's still
+      // a distinct column in the plain reconciliation CSV.
+      Math.max(0, Number(inv.subtotal) - Number(inv.discountAmount)).toFixed(2), // LineUnitPrice (net of discount)
       "TaxExcluded",                                       // AmountsIncl
       [inv.registration.ticketType?.name, inv.registration.pricingTier?.name]
         .filter(Boolean).join(" - ") || inv.type,          // LineDesc (ticket type + pricing tier)
