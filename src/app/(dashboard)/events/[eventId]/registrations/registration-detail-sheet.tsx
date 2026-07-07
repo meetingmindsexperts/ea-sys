@@ -75,7 +75,7 @@ import {
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { canViewFinance } from "@/lib/finance-visibility";
-import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent } from "@/hooks/use-api";
+import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
 /** Prefix marking a dropdown value as a saved custom template (value = `template:<slug>`). */
@@ -543,6 +543,17 @@ export function RegistrationDetailSheet({
       toast.error(error.message);
     },
   });
+
+  const resendDocuments = useResendRegistrationDocuments(eventId);
+  const handleResendDocuments = async () => {
+    if (!selectedRegistration) return;
+    try {
+      const res = await resendDocuments.mutateAsync(selectedRegistration.id);
+      toast.success(res?.message || "Invoice + receipt emailed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to resend documents");
+    }
+  };
 
   const startEditing = () => {
     if (selectedRegistration) {
@@ -2399,6 +2410,25 @@ export function RegistrationDetailSheet({
                             Download
                           </div>
                           <InvoiceDownloadButtons registrationId={selectedRegistration.id} />
+                          {!isReviewer && (
+                            <div className="mt-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={resendDocuments.isPending}
+                                onClick={handleResendDocuments}
+                              >
+                                {resendDocuments.isPending ? (
+                                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Sending…</>
+                                ) : (
+                                  <><Send className="mr-2 h-3.5 w-3.5" /> Resend invoice + receipt</>
+                                )}
+                              </Button>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Emails the attendee one message with both the invoice and receipt PDFs.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                       {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (

@@ -1536,6 +1536,20 @@ export function useResendInvoice(eventId: string) {
   });
 }
 
+/** Re-send the combined invoice + receipt packet (one email) for a registration. */
+export function useResendRegistrationDocuments(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registrationId: string) =>
+      fetchApi(`/api/events/${eventId}/registrations/${registrationId}/documents/resend`, { method: "POST" }) as Promise<{
+        success: boolean; message: string; invoiceNumber: string; receiptNumber: string;
+      }>,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices(eventId) });
+    },
+  });
+}
+
 // ============ ZOOM ============
 
 export function useZoomCredentials() {
