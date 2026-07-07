@@ -86,6 +86,7 @@ export async function POST(
             status: "DRAFT",
             settings,
             bannerImage: source.bannerImage,
+            bannerImageMobile: source.bannerImageMobile,
             footerHtml: source.footerHtml,
             // Newer per-event config that lives in dedicated columns (NOT in
             // the settings JSON). Copied so a clone carries the organizer's

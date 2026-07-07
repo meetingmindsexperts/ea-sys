@@ -47,6 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         city: true,
         country: true,
         bannerImage: true,
+        bannerImageMobile: true,
         footerHtml: true,
         supportEmail: true,
         taxRate: true,

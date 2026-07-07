@@ -3,7 +3,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import Image from "next/image";
+import { EventBanner } from "@/components/public/event-banner";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -49,6 +49,7 @@ interface Event {
   city: string | null;
   country: string | null;
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
   footerHtml: string | null;
   abstractWelcomeHtml: string | null;
   organization: { name: string; logo: string | null };
@@ -101,8 +102,7 @@ function BrandedShell({ event, children }: { event: Event; children: ReactNode }
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="w-full h-auto max-h-[240px] object-contain" priority />
           </div>
         </div>
       ) : (

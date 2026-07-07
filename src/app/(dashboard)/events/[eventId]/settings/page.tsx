@@ -91,6 +91,7 @@ interface Event {
   country: string | null;
   status: string;
   bannerImage: string | null;
+  bannerImageMobile: string | null;
   footerHtml: string | null;
   emailHeaderImage: string | null;
   emailFooterImage: string | null;
@@ -229,6 +230,7 @@ export default function EventSettingsPage() {
 
   const [brandingSettings, setBrandingSettings] = useState({
     bannerImage: "",
+    bannerImageMobile: "",
     footerHtml: "",
     emailHeaderImage: "",
     emailFooterImage: "",
@@ -296,6 +298,7 @@ export default function EventSettingsPage() {
 
         setBrandingSettings({
           bannerImage: data.bannerImage || "",
+          bannerImageMobile: data.bannerImageMobile || "",
           footerHtml: data.footerHtml || "",
           emailHeaderImage: data.emailHeaderImage || "",
           emailFooterImage: data.emailFooterImage || "",
@@ -411,6 +414,7 @@ export default function EventSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bannerImage: brandingSettings.bannerImage || null,
+          bannerImageMobile: brandingSettings.bannerImageMobile || null,
           footerHtml: brandingSettings.footerHtml || null,
           emailHeaderImage: brandingSettings.emailHeaderImage || null,
           emailFooterImage: brandingSettings.emailFooterImage || null,
@@ -1206,12 +1210,23 @@ export default function EventSettingsPage() {
             <CardContent className="space-y-6">
               <BrandingImageField
                 eventId={eventId}
-                label="Banner Image"
+                label="Banner Image (desktop)"
                 value={brandingSettings.bannerImage}
                 onChange={(url) =>
                   setBrandingSettings({ ...brandingSettings, bannerImage: url })
                 }
-                hint="Shown atop your public event pages. Recommended size: 1200×400px. Uploads also appear in this event's Media library."
+                hint="Shown atop your public event pages at 576px and above. Recommended ~1400×300px. Uploads also appear in this event's Media library."
+                previewClassName="w-full h-48 object-contain"
+              />
+
+              <BrandingImageField
+                eventId={eventId}
+                label="Mobile Banner (optional)"
+                value={brandingSettings.bannerImageMobile}
+                onChange={(url) =>
+                  setBrandingSettings({ ...brandingSettings, bannerImageMobile: url })
+                }
+                hint="Shown on phones (screens under 576px); the desktop banner shows at 576px and above. Recommended ~700×400px — a taller ratio keeps the heading ~200px tall and legible on mobile. Leave empty to use the desktop banner everywhere."
                 previewClassName="w-full h-48 object-contain"
               />
 

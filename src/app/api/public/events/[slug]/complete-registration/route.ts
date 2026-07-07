@@ -102,6 +102,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             city: true,
             country: true,
             bannerImage: true,
+            bannerImageMobile: true,
             registrationTermsHtml: true,
             supportEmail: true,
             taxRate: true,

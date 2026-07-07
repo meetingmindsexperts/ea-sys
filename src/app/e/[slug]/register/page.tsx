@@ -1,5 +1,6 @@
 "use client";
 
+import { EventBanner } from "@/components/public/event-banner";
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -61,6 +62,7 @@ interface Event {
   city: string | null;
   country: string | null;
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
   organization: { name: string; logo: string | null };
@@ -176,8 +178,7 @@ export default function RegisterOverviewPage() {
         {event.bannerImage ? (
           <div className="relative w-full bg-white">
             <div className="max-w-[1120px] mx-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={event.bannerImage} alt={event.name} className="block w-full h-auto" fetchPriority="high" />
+              <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
             </div>
           </div>
         ) : (
@@ -260,8 +261,7 @@ export default function RegisterOverviewPage() {
               hardcoded height came from.) Adapts to any banner shape — upload a
               ~1200x200 image and it auto-renders a ~190px band, no code change. */}
           <div className="max-w-[1120px] mx-auto">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={event.bannerImage} alt={event.name} className="block w-full h-auto" fetchPriority="high" />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
           </div>
         </div>
       ) : (

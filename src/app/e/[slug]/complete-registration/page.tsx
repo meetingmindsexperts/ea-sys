@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Image from "next/image";
+import { EventBanner } from "@/components/public/event-banner";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -70,6 +70,7 @@ interface PrefilledData {
     city: string | null;
     country: string | null;
     bannerImage: string | null;
+    bannerImageMobile?: string | null;
     registrationTermsHtml: string | null;
     supportEmail: string | null;
     organization: { name: string; logo: string | null };
@@ -277,8 +278,7 @@ function CompleteRegistrationContent() {
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="w-full h-auto max-h-[240px] object-contain" priority />
           </div>
         </div>
       ) : (

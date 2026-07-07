@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
+import { EventBanner } from "@/components/public/event-banner";
 import { format } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { signOut, useSession } from "next-auth/react";
@@ -48,6 +49,7 @@ interface Event {
   city: string | null;
   country: string | null;
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
   footerHtml: string | null;
   organization: { name: string };
 }
@@ -341,8 +343,7 @@ export default function EventMyRegistrationPage() {
       {event?.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <Image src={event.bannerImage} alt={event.name} width={1400} height={400}
-              className="w-full h-auto max-h-[240px] object-contain" priority unoptimized />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="w-full h-auto max-h-[240px] object-contain" priority />
           </div>
         </div>
       ) : (

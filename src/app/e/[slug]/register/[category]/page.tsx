@@ -1,5 +1,6 @@
 "use client";
 
+import { EventBanner } from "@/components/public/event-banner";
 import { Suspense, useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -91,6 +92,7 @@ interface Event {
   city: string | null;
   country: string | null;
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
   supportEmail: string | null;
@@ -500,8 +502,7 @@ function CategoryRegistrationContent() {
               hardcoded height came from.) Adapts to any banner shape — upload a
               ~1200x200 image and it auto-renders a ~190px band, no code change. */}
           <div className="max-w-[1120px] mx-auto">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={event.bannerImage} alt={event.name} className="block w-full h-auto" fetchPriority="high" />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
           </div>
         </div>
       ) : (
