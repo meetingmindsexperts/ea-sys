@@ -814,13 +814,14 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <table class="st">
           <thead><tr><th>Status</th><th>Meaning</th><th>Typical next action</th></tr></thead>
           <tbody>
-            <tr><td><span class="sb s-pend">PENDING</span></td><td>Awaiting confirmation or payment</td><td>Send payment reminder; confirm once paid</td></tr>
+            <tr><td><span class="sb s-pend">PENDING</span></td><td>Awaiting organizer approval &mdash; set automatically when someone registers on an <strong>approval-gated pricing tier</strong> (see note below). Not the same as a payment being due.</td><td>Review the registrant, then change status to <strong>CONFIRMED</strong> to approve (or <strong>CANCELLED</strong> to reject)</td></tr>
             <tr><td><span class="sb s-conf">CONFIRMED</span></td><td>Confirmed and active</td><td>Ready for check-in on event day</td></tr>
             <tr><td><span class="sb s-ci">CHECKED_IN</span></td><td>Attendee has arrived and been scanned in</td><td>No further action required</td></tr>
             <tr><td><span class="sb s-pend">WAITLISTED</span></td><td>On the waiting list</td><td>Promote to CONFIRMED if space opens</td></tr>
             <tr><td><span class="sb s-canc">CANCELLED</span></td><td>Registration cancelled</td><td>Process refund if applicable (Section 8)</td></tr>
           </tbody>
         </table>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">When does a registration become PENDING? &mdash; approval-gated tiers</div><div class="c-text">A registration is <strong>PENDING</strong> only when it&rsquo;s created on a pricing tier that has <strong>Requires Approval</strong> switched on. That flag turns off the normal auto-confirm, so instead of landing as CONFIRMED the sign-up waits for you to review it &mdash; useful for member-only rates, VIP/faculty seats, or any ticket you want to vet before accepting. It applies to every sign-up path (public form, CSV import, EventsAir import, manual add).<br><br><strong>Where to find the switch:</strong> open <strong>Tickets</strong> &rarr; on a registration type, <strong>add or edit a Pricing Tier</strong> &rarr; in the tier dialog, tick <strong>&ldquo;Requires Approval&rdquo;</strong> (just below <em>Active</em>). It lives inside the <em>tier</em> editor, not on the ticket-type form &mdash; so if a type has no pricing tiers, there&rsquo;s nowhere to enable it yet. It&rsquo;s <strong>off by default</strong>: leave it unticked and every registration is CONFIRMED instantly.<br><br><strong>To approve a PENDING registration:</strong> open it, and change the <strong>Status</strong> from PENDING to <strong>CONFIRMED</strong> (or CANCELLED to turn them away). There&rsquo;s no separate &ldquo;Approve&rdquo; button &mdash; the status change is the approval.</div></div></div>
       </div>
 
       <div class="sub" id="s4-6">
