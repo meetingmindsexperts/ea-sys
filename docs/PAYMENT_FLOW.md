@@ -367,7 +367,7 @@ PENDING        a Stripe checkout is in progress (waiting for the webhook)
 PAID           money arrived (Stripe or manual)
 COMPLIMENTARY  genuine no-charge (VIP / free ticket)
 INCLUSIVE      a sponsor is paying (needs sponsorId)
-REFUNDED       money was returned (DB flag only — see refunds)
+REFUNDED       fully refunded (partial refunds stay PAID — see §12)
 FAILED         a charge attempt failed
 ```
 
@@ -478,14 +478,38 @@ quote a registrant sees and the invoice they later receive always agree.
 
 ---
 
-## 12. Refunds
+## 12. Refunds (full or partial, credit-note-gated)
 
-Refunds flip `paymentStatus → REFUNDED`. **This is a DB flag only** — it does
-**not** call Stripe to move money. Actually returning funds is done in the Stripe
-dashboard (or a dedicated flow) by a human; the platform records the decision and
-can issue a **credit note** (`createCreditNote` in
-[invoice-service.ts](../src/lib/invoice-service.ts)). `originalPrice` and the
-sponsor attribution are preserved so the history stays intact.
+Refunds are **full or partial**, **organizer-driven**, and **gated on a credit
+note**. The flow ([refund/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/refund/route.ts)
++ [credit-notes/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/credit-notes/route.ts)):
+
+1. The organizer **issues a credit note first** (full or partial) via
+   `POST …/credit-notes` → `createCreditNote` ([invoice-service.ts](../src/lib/invoice-service.ts)).
+   Multiple credit notes per registration are allowed, capped at the amount paid;
+   the cap is enforced **inside the tx under a `SELECT … FOR UPDATE` row lock** so
+   concurrent issues can't over-credit.
+2. `POST …/refund` **requires** a non-cancelled credit note to exist (else `409
+   CREDIT_NOTE_REQUIRED` — it does **not** create one), takes a refund `amount`
+   (default = full remaining), and **does move money**: `stripe.refunds.create({
+   payment_intent, amount })` for a Stripe payment (partial supported, with a
+   cumulative idempotency key), or just records the reversal for an offline
+   payment (cash / bank transfer / card-onsite — the organizer returns the money
+   out of band).
+3. **Running total.** `Registration.refundedAmount` accumulates each refund
+   (optimistic-locked). The reg **stays PAID** while `0 < refundedAmount <
+   paidTotal` and flips to **REFUNDED** only when fully refunded; the `Payment`
+   row flips to REFUNDED on the **full** refund only. `paidTotal` = the sum of all
+   PAID payments (a reg can hold a Stripe charge + a manual capture).
+4. **Out-of-band.** A refund done directly in the **Stripe Dashboard** fires
+   `charge.refunded`, which reconciles the cumulative `amount_refunded` into
+   `refundedAmount` (delta-only, retry-safe) and mints a credit note for the delta.
+5. **No automatic attendee email** — the organizer communicates the refund
+   manually (the credit note can be emailed from the Issue-Credit-Note dialog).
+
+`originalPrice` + sponsor attribution are preserved so history stays intact.
+`refundedAmount` is in `FINANCIAL_KEYS` (hidden from MEMBER). Deferred
+review follow-ups are tracked in [ROADMAP.md](ROADMAP.md).
 
 ---
 

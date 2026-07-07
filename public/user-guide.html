@@ -1121,7 +1121,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="ig-3">
           <div class="ic"><div class="ic-title">Quote</div><div class="ic-body">Generated at registration time when payment is outstanding. The payment request sent to the registrant.</div></div>
           <div class="ic gold"><div class="ic-title">Invoice (PAID)</div><div class="ic-body">Generated automatically when Stripe payment succeeds (promotes the existing Quote) or when finance manually records a payment. PDF includes &ldquo;Paid on X via Visa ending 4242&rdquo; line.</div></div>
-          <div class="ic teal"><div class="ic-title">Credit Note</div><div class="ic-body">Issued for refunds or partial credits. Created alongside the refund transaction.</div></div>
+          <div class="ic teal"><div class="ic-title">Credit Note</div><div class="ic-body">Issued for refunds &mdash; full or partial. The organiser issues it <strong>first</strong> (it unlocks the Refund button); several partial credit notes can be issued against one registration, capped at the amount paid.</div></div>
         </div>
       </div>
 
@@ -1158,9 +1158,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="step"><div class="step-n"></div><div class="step-b">Pick a <strong>Method</strong>: Bank Transfer, Card On-Site, or Cash</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Fill the method-specific fields:
             <ul style="margin-left:16px;margin-top:4px;color:var(--text-muted);font-size:0.82rem">
-              <li><strong>Bank Transfer:</strong> bank reference + upload receipt URL (optional)</li>
-              <li><strong>Card On-Site:</strong> card last-4 digits + receipt number</li>
-              <li><strong>Cash:</strong> receiver name + receipt number</li>
+              <li><strong>Bank Transfer:</strong> bank reference + proof-of-transfer upload (optional)</li>
+              <li><strong>Card On-Site:</strong> card brand + last-4 digits</li>
+              <li><strong>Cash:</strong> receiver name</li>
             </ul>
           </div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Set amount + currency (12 supported, defaults to USD). Add notes if needed.</div></div>
@@ -1191,8 +1191,15 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
       </div>
 
       <div class="sub" id="s8-7">
-        <div class="sub-title">Refunds</div>
-        <div class="callout c-crit"><div class="c-icon">&#x1F534;</div><div class="c-body"><div class="c-title">Refunds must be processed via the dashboard</div><div class="c-text">Open the registration &rarr; click <strong>Refund</strong>. This triggers the actual Stripe refund, updates payment status to REFUNDED, creates a credit note, and emails the registrant &mdash; all in one step. AI agents cannot initiate refunds. Intentional safety boundary.</div></div></div>
+        <div class="sub-title">Refunds (full or partial)</div>
+        <p>A refund is a <strong>two-step, credit-note-gated</strong> flow &mdash; both full and partial refunds are supported. Open the registration &rarr; <strong>Billing &amp; Payments</strong> tab &rarr; <strong>Refunds &amp; credit notes</strong>:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Issue Credit Note</strong> first &mdash; enter the amount (defaults to the full remaining, type a smaller number for a partial), an optional reason, and tick <strong>Email the credit note to the attendee</strong> if you want them to receive it. This is required: the <strong>Issue Refund</strong> button stays disabled until a credit note exists.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Issue Refund</strong> and enter the refund amount (capped at what&rsquo;s still refundable). <strong>Stripe</strong> payments are reversed automatically (a partial amount is sent to Stripe); <strong>offline</strong> payments (cash / bank transfer / card-on-site) must be returned to the attendee <strong>manually</strong> &mdash; the system only records the reversal.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">A <strong>partial</strong> refund keeps the registration <strong>PAID</strong> and shows <strong>&ldquo;Refunded X of Y &middot; Z remaining&rdquo;</strong>; you can refund again later up to the balance. Once the full amount is returned the status flips to <strong>REFUNDED</strong>.</div></div>
+        </div>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">No automatic email to the registrant</div><div class="c-text">Issuing a refund does <strong>not</strong> auto-email the attendee &mdash; you communicate the refund yourself (and send the credit note from the Issue Credit Note dialog if you want them to have it). A Stripe refund made directly in the Stripe Dashboard is reconciled back automatically (the credit note + refunded total update on their own).</div></div></div>
+        <div class="callout c-crit"><div class="c-icon">&#x1F534;</div><div class="c-body"><div class="c-title">Dashboard only &mdash; AI agents cannot refund</div><div class="c-text">Refunds and credit notes are issued from the dashboard by finance/admin roles. AI agents cannot initiate them &mdash; an intentional safety boundary.</div></div></div>
       </div>
     </div>
 
