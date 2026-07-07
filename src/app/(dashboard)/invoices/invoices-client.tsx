@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Receipt, Download, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { useEvents } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -151,14 +152,31 @@ export default function OrgInvoicesClient() {
         <>
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-            <Select value={year} onValueChange={setYear}>
+            <Select
+              value={year}
+              onValueChange={(v) => {
+                setYear(v);
+                // A month is only meaningful within a year — clearing the year
+                // clears the month so we never filter a month across all years.
+                if (v === "all") setMonth("all");
+              }}
+            >
               <SelectTrigger className="w-[130px]"><SelectValue placeholder="Year" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All years</SelectItem>
                 {years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={month} onValueChange={setMonth}>
+            <Select
+              value={month}
+              onValueChange={(v) => {
+                if (v !== "all" && year === "all") {
+                  toast.error("Select a year first, then choose a month.");
+                  return;
+                }
+                setMonth(v);
+              }}
+            >
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="Month" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All months</SelectItem>

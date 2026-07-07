@@ -29,9 +29,18 @@ export const INVOICE_EXPORT_SELECT = {
   registration: {
     select: {
       billingAddress: true,
+      billingCity: true,
+      billingState: true,
+      billingZipCode: true,
+      billingCountry: true,
       ticketType: { select: { name: true } },
       pricingTier: { select: { name: true } },
-      attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
+      attendee: {
+        select: {
+          title: true, firstName: true, lastName: true, email: true,
+          city: true, state: true, zipCode: true, country: true,
+        },
+      },
     },
   },
 } satisfies Prisma.InvoiceSelect;
@@ -53,10 +62,31 @@ export interface InvoiceExportRow {
   event: { name: string; city: string | null };
   registration: {
     billingAddress: string | null;
+    billingCity: string | null;
+    billingState: string | null;
+    billingZipCode: string | null;
+    billingCountry: string | null;
     ticketType: { name: string } | null;
     pricingTier: { name: string } | null;
-    attendee: { title: string | null; firstName: string; lastName: string; email: string };
+    attendee: {
+      title: string | null; firstName: string; lastName: string; email: string;
+      city: string | null; state: string | null; zipCode: string | null; country: string | null;
+    };
   };
+}
+
+/**
+ * Best-available bill-to address for the QuickBooks BillAddrLine1 column.
+ * Prefers the registration's separate billing address (street + city/state/zip/
+ * country); most registrants use "same as personal", so those are null and we
+ * fall back to the attendee's own city/state/zip/country. Composed onto one
+ * line since the template has a single BillAddrLine1 column.
+ */
+export function billToAddressLine(r: InvoiceExportRow["registration"]): string {
+  const billing = [r.billingAddress, r.billingCity, r.billingState, r.billingZipCode, r.billingCountry].filter(Boolean);
+  if (billing.length) return billing.join(", ");
+  const a = r.attendee;
+  return [a.city, a.state, a.zipCode, a.country].filter(Boolean).join(", ");
 }
 
 /**
@@ -162,7 +192,7 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
       inv.invoiceNumber,                                   // RefNumber
       qbDate(inv.issueDate),                               // TxnDate
       customer,                                            // Customer
-      inv.registration.billingAddress ?? "",              // BillAddrLine1
+      billToAddressLine(inv.registration),                 // BillAddrLine1 (billing addr, else attendee location)
       "Due on receipt",                                    // SalesTerm
       inv.event.city ?? "",                                // Location
       inv.event.name,                                      // LineClass (no prefix)

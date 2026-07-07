@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import {
   csvCell,
   invoiceDateFilter,
+  billToAddressLine,
   buildInvoiceCsv,
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
@@ -31,9 +32,16 @@ function row(overrides: Partial<InvoiceExportRow> = {}): InvoiceExportRow {
     event: { name: "Conference 2026", city: "Dubai" },
     registration: {
       billingAddress: null,
+      billingCity: null,
+      billingState: null,
+      billingZipCode: null,
+      billingCountry: null,
       ticketType: { name: "Physician" },
       pricingTier: { name: "Early Bird" },
-      attendee: { title: "Dr", firstName: "Jane", lastName: "Doe", email: "jane@x.test" },
+      attendee: {
+        title: "Dr", firstName: "Jane", lastName: "Doe", email: "jane@x.test",
+        city: null, state: null, zipCode: null, country: null,
+      },
     },
     ...overrides,
   };
@@ -99,9 +107,13 @@ describe("buildInvoiceCsv / buildInvoiceQuickBooksCsv — injection neutralized 
   const evil = row({
     registration: {
       billingAddress: "=cmd|'/c calc'!A1",
+      billingCity: null, billingState: null, billingZipCode: null, billingCountry: null,
       ticketType: { name: "Physician" },
       pricingTier: { name: "Early Bird" },
-      attendee: { title: null, firstName: "=HYPERLINK(\"http://evil\")", lastName: "Doe", email: "e@x.test" },
+      attendee: {
+        title: null, firstName: "=HYPERLINK(\"http://evil\")", lastName: "Doe", email: "e@x.test",
+        city: null, state: null, zipCode: null, country: null,
+      },
     },
   });
 
@@ -120,6 +132,37 @@ describe("buildInvoiceCsv / buildInvoiceQuickBooksCsv — injection neutralized 
 
   it("QuickBooks LineDesc combines ticket type + pricing tier", () => {
     expect(buildInvoiceQuickBooksCsv([row()])).toContain("Physician - Early Bird");
+  });
+
+  it("BillAddrLine1 uses billing address when set, else falls back to attendee location", () => {
+    // No billing fields → falls back to the attendee's own city/country.
+    const attLoc = row({
+      registration: {
+        billingAddress: null, billingCity: null, billingState: null, billingZipCode: null, billingCountry: null,
+        ticketType: null, pricingTier: null,
+        attendee: { title: null, firstName: "A", lastName: "B", email: "a@b.c", city: "Dubai", state: null, zipCode: null, country: "UAE" },
+      },
+    });
+    expect(billToAddressLine(attLoc.registration)).toBe("Dubai, UAE");
+    // Billing fields present → composed and preferred over the attendee fallback.
+    const withBilling = row({
+      registration: {
+        billingAddress: "12 Clinic St", billingCity: "Abu Dhabi", billingState: null,
+        billingZipCode: "0000", billingCountry: "UAE",
+        ticketType: { name: "Physician" }, pricingTier: null,
+        attendee: { title: null, firstName: "A", lastName: "B", email: "a@b.c", city: "Dubai", state: null, zipCode: null, country: "UAE" },
+      },
+    });
+    expect(billToAddressLine(withBilling.registration)).toBe("12 Clinic St, Abu Dhabi, 0000, UAE");
+    // Nothing anywhere → empty.
+    const empty = row({
+      registration: {
+        billingAddress: null, billingCity: null, billingState: null, billingZipCode: null, billingCountry: null,
+        ticketType: null, pricingTier: null,
+        attendee: { title: null, firstName: "A", lastName: "B", email: "a@b.c", city: null, state: null, zipCode: null, country: null },
+      },
+    });
+    expect(billToAddressLine(empty.registration)).toBe("");
   });
 
   it("QuickBooks LineUnitPrice is net of discount so unitPrice + tax = LineAmount (review L4)", () => {
