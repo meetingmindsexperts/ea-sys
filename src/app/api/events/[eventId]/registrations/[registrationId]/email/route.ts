@@ -10,7 +10,7 @@ import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { buildPaymentReminderVars } from "@/lib/payment-reminder";
 
 const sendEmailSchema = z.object({
   type: z.enum(["confirmation", "reminder", "payment-reminder", "custom"]).default("confirmation"),
@@ -260,31 +260,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (type === "payment-reminder") {
-      // Amount DUE — resolved the canonical way (tier / virtual / discount / tax
-      // aware), NOT `ticketType.price` (which is 0 for a tier-priced type, so a
-      // tier or virtual registration used to show "USD 0.00" + a price=0 link).
-      // `readRegistrationBasePrice` prefers the stamped `originalPrice` and falls
-      // back to tier→ticket; `computeRegistrationFinancials` nets the discount +
-      // adds tax so `{{amount}}` matches what Stripe actually charges.
-      const currency = registration.pricingTier?.currency || registration.ticketType?.currency || "USD";
-      const fin = computeRegistrationFinancials({
-        subtotal: readRegistrationBasePrice(registration),
-        discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+      // {{amount}} + {{paymentBlock}} (Pay Now) built by the shared helper so
+      // this single-send path and the bulk sender stay in lock-step.
+      const { amount, paymentBlock } = buildPaymentReminderVars({
+        registrationId: registration.id,
+        firstName: registration.attendee.firstName,
+        eventSlug: event.slug || event.id,
+        originalPrice: registration.originalPrice,
+        discountAmount: registration.discountAmount,
+        pricingTier: registration.pricingTier,
+        ticketType: registration.ticketType,
         taxRate: event.taxRate ? Number(event.taxRate) : null,
         taxLabel: event.taxLabel,
-        currency,
-        totalPaid: 0,
       });
-      const amountDue = fin.total;
-      vars.amount = `${currency} ${amountDue.toFixed(2)}`;
-
-      // Build payment link
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
-      const eventSlug = event.slug || event.id;
-      const paymentLink = `${appUrl}/e/${eventSlug}/confirmation?id=${registration.id}&name=${encodeURIComponent(String(vars.firstName))}&price=${amountDue}&currency=${currency}`;
-      vars.paymentBlock = `<div style="text-align: center; margin: 20px 0;">
-        <a href="${paymentLink}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">Pay Now</a>
-      </div>`;
+      vars.amount = amount;
+      vars.paymentBlock = paymentBlock;
     }
 
     if (type === "custom") {

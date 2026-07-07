@@ -24,6 +24,7 @@ import {
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 import { getTitleLabel } from "./utils";
+import { buildPaymentReminderVars } from "./payment-reminder";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
   DAY_MS,
@@ -40,6 +41,7 @@ export type BulkEmailType =
   | "agreement"
   | "confirmation"
   | "reminder"
+  | "payment-reminder"
   | "custom"
   | "abstract-accepted"
   | "abstract-rejected"
@@ -229,6 +231,7 @@ export const bulkEmailSchema = z.object({
     "agreement",
     "confirmation",
     "reminder",
+    "payment-reminder",
     "custom",
     "abstract-accepted",
     "abstract-rejected",
@@ -334,6 +337,16 @@ interface ResolvedRecipient {
    */
   qrCode?: string | null;
   attendanceMode?: "IN_PERSON" | "VIRTUAL" | null;
+  /**
+   * Pricing — registrations recipients only, consumed solely by the
+   * payment-reminder branch (buildPaymentReminderVars) to render the amount-due
+   * + Pay Now link. `originalPrice`/`discountAmount` are Prisma Decimals (or
+   * null); the helper coerces via Number().
+   */
+  originalPrice?: unknown;
+  discountAmount?: unknown;
+  pricingTier?: { price: unknown; currency: string } | null;
+  ticketTypePricing?: { price: unknown; currency: string } | null;
 }
 
 /**
@@ -418,6 +431,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // tokens for an event that has no survey for the recipient to
       // fill out).
       surveyConfig: true,
+      // Payment-reminder amount-due (tax-inclusive) for the {{amount}} +
+      // Pay Now link, via the shared buildPaymentReminderVars helper.
+      taxRate: true,
+      taxLabel: true,
     },
   });
   if (!event) {
@@ -594,7 +611,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         serialId: true,
         qrCode: true,
         attendanceMode: true,
-        ticketType: { select: { name: true } },
+        // Pricing — feeds the payment-reminder amount-due + Pay Now link
+        // (buildPaymentReminderVars). Cheap columns; loaded for every
+        // registrations send but only consumed for payment-reminder.
+        originalPrice: true,
+        discountAmount: true,
+        pricingTier: { select: { name: true, price: true, currency: true } },
+        ticketType: { select: { name: true, price: true, currency: true } },
         attendee: { select: { email: true, additionalEmail: true, firstName: true, lastName: true, title: true } },
       },
     });
@@ -609,6 +632,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       serialId: r.serialId,
       qrCode: r.qrCode,
       attendanceMode: r.attendanceMode,
+      originalPrice: r.originalPrice,
+      discountAmount: r.discountAmount,
+      pricingTier: r.pricingTier ? { price: r.pricingTier.price, currency: r.pricingTier.currency } : null,
+      ticketTypePricing: r.ticketType ? { price: r.ticketType.price, currency: r.ticketType.currency } : null,
     }));
   }
 
@@ -634,6 +661,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     agreement: "speaker-agreement",
     confirmation: "registration-confirmation",
     reminder: "event-reminder",
+    "payment-reminder": "payment-reminder",
     custom: "custom-notification",
     "webinar-confirmation": "webinar-confirmation",
     "webinar-reminder-24h": "webinar-reminder-24h",
@@ -879,6 +907,27 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // operator, owns the content), so default to empty.
       vars.subject = customSubject ?? "";
       vars.message = customMessage ?? "";
+    }
+
+    // Payment-reminder {{amount}} (amount due) + {{paymentBlock}} (Pay Now
+    // link), via the SAME helper the single-send route uses so the two can't
+    // drift. Gated on the resolved template slug so it fires whether the send
+    // is the first-class "payment-reminder" type OR a saved template on that
+    // slug — the bulk path previously left both tokens empty (no link).
+    if (templateSlug === "payment-reminder" && recipientType === "registrations") {
+      const { amount, paymentBlock } = buildPaymentReminderVars({
+        registrationId: recipient.id,
+        firstName: recipient.firstName,
+        eventSlug: event.slug || event.id,
+        originalPrice: recipient.originalPrice,
+        discountAmount: recipient.discountAmount,
+        pricingTier: recipient.pricingTier ?? null,
+        ticketType: recipient.ticketTypePricing ?? null,
+        taxRate: event.taxRate ? Number(event.taxRate) : null,
+        taxLabel: event.taxLabel,
+      });
+      vars.amount = amount;
+      vars.paymentBlock = paymentBlock;
     }
 
     if (emailType === "survey-invitation") {

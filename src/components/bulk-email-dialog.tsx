@@ -156,6 +156,9 @@ const reviewerEmailTypes: EmailTypeOption[] = [
 const registrationEmailTypes: EmailTypeOption[] = [
   { value: "confirmation", label: "Registration Confirmation", description: "Confirm their registration" },
   { value: "reminder", label: "Event Reminder", description: "Remind about the upcoming event" },
+  // Amount due + a "Pay Now" link, resolved per-recipient (tier / discount /
+  // tax aware) — best paired with the Payment Status = Unpaid filter.
+  { value: "payment-reminder", label: "Payment Reminder", description: "Chase an outstanding balance with a Pay Now link" },
   // Survey invitation — per-recipient token mint + {{surveyLink}}.
   // Body comes from the per-event "Survey Invitation" template
   // (override in Communications → Email Templates) or the cert-
