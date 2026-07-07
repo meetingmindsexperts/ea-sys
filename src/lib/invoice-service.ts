@@ -417,6 +417,7 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       creditNoteNumber: invoice.invoiceNumber,
       issueDate: invoice.issueDate,
       originalInvoiceNumber: invoice.parentInvoice?.invoiceNumber || null,
+      logoPath: org.logo,
       orgName: org.name,
       companyName: org.companyName,
       companyAddress: org.companyAddress,
