@@ -294,8 +294,8 @@ The following features shipped in the most recent release:
 **Event-Scoped Media Library**
 Organizers can upload and manage images per event, accessible from the event sidebar under Tools. Images can be inserted directly into email templates.
 
-**Stripe Refund Processing**
-Admins can issue full refunds from the registration detail panel. The system sends a refund confirmation email to the attendee, updates payment status automatically, and handles refunds initiated directly in the Stripe Dashboard via webhook.
+**Refund Processing (Stripe + offline)**
+Admins can issue full refunds from the registration detail panel for **both** Stripe and offline (cash / bank-transfer / card-onsite) payments. Stripe payments are reversed automatically via the Stripe API; offline payments are returned to the attendee out-of-band and the system just records the reversal. Either way it marks the registration Refunded, flips the payment record, sends a refund confirmation email, and issues a branded credit-note PDF. Refunds initiated directly in the Stripe Dashboard are handled via webhook. _(Manual/offline refund path + branded credit note shipped July 7, 2026.)_
 
 **Abstract System Expansion**
 - Added Video and Workshop as presentation types

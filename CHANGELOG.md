@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Manual/offline refunds + branded credit-note PDF (July 7)
+
+"Issue Refund" hard-required a Stripe payment: it looked up the most-recent PAID
+`Payment` and 400'd ("No Stripe payment found") when it had no `stripePaymentId`
+— i.e. every cash / bank-transfer / card-onsite capture, plus PAID regs an admin
+hand-flipped with no `Payment` row. The whole offline-payment population could
+never be refunded from the UI.
+
+- **Route (`refund/route.ts`):** branches on `isManualRefund = !payment?.stripePaymentId`.
+  Manual path skips Stripe (organizer returns money out-of-band) and just records
+  the reversal — optimistic-lock reg → REFUNDED (409 on lost race), flip the
+  `Payment` row if one exists, issue a credit note. Stripe path unchanged
+  (idempotent `refunds.create`, rollback→PAID + 502 on error). Amount from the
+  `Payment` row, else computed via `computeRegistrationFinancials` (tax-inclusive).
+  Response `{ refundId, manual, status: "succeeded"|"recorded" }`.
+- **UI:** confirm text distinguishes auto-reversed Stripe vs manual-return offline
+  refunds; success toast branches on `data.manual`.
+- **Credit-note PDF:** rewritten to share the invoice/quote branded layout
+  (`document-layout`) — logo + header + info boxes + line items + totals +
+  footers, titled "CREDIT NOTE" / "TOTAL CREDIT" + REASON. `CreditNotePDFData`
+  gained `logoPath`; amounts now render positive (standard convention).
+- +8 refund-route tests; 2 stale `events/refund.test.ts` cases updated (old
+  400-on-manual → 200). tsc 0, eslint 0, vitest green, build 0.
+
 ### Added / Security — Per-event ONSITE staff + cross-event isolation fix (July 7)
 
 ONSITE (registration-desk) staff, previously org-bound and able to see every
