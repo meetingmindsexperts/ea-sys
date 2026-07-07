@@ -440,7 +440,7 @@ export function registerAllMcpTools(
       tags: z.array(z.string()).optional(),
     }},
     // ─── Actions / updates ───
-    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, attendanceMode, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
+    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, pricingTierId, attendanceMode, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. Changing ticketTypeId and/or pricingTierId reprices originalPrice (unpaid-only; blocked if a promo is applied). NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       registrationId: z.string(),
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.nativeEnum(RegistrationStatus).optional(),
@@ -450,6 +450,7 @@ export function registerAllMcpTools(
       payerReference: z.string().nullable().optional().describe("PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
       attendeeIsGuarantor: z.boolean().optional().describe("If true with a billingAccountId, the attendee stays guarantor for an unpaid third-party invoice."),
       ticketTypeId: z.string().optional(),
+      pricingTierId: z.string().nullable().optional().describe("Pricing tier id (re-tier) — an id, or null/empty for the base price. Reprices originalPrice (UNPAID-ONLY; blocked with TIER_CHANGE_HAS_DISCOUNT if a promo/discount is applied). When ticketTypeId is ALSO changing, the tier is validated against the NEW type (PRICING_TIER_NOT_FOUND otherwise). A bare type change with no tier reprices to the new type's base."),
       attendanceMode: z.enum(["IN_PERSON", "VIRTUAL"]).optional().describe("Hybrid attendance: move the registration between in-person and virtual. virtual→in-person mints an entry barcode + claims a venue seat (returns CAPACITY_EXCEEDED if the type is sold out — the reg stays virtual); in-person→virtual releases the seat (keeps the barcode for audit). Does NOT recompute the amount owed (virtualPrice vs in-person price) — change paymentStatus separately if needed. Only meaningful on HYBRID events."),
       badgeType: z.string().nullable().optional(),
       dtcmBarcode: z.string().nullable().optional(),

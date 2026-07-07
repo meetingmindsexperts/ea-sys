@@ -217,8 +217,6 @@ export function RegistrationDetailSheet({
   // Staged pricing-tier selection for the Payment Summary's Apply button (the
   // tier is the one field that keeps its own explicit Apply instead of the
   // Save-button form). null = untouched; otherwise the picked tier id or "".
-  const [pendingTierId, setPendingTierId] = useState<string | null>(null);
-  const [tierApplying, setTierApplying] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
@@ -274,7 +272,6 @@ export function RegistrationDetailSheet({
       setIsEditing(false);
       setFinancialsLoadedForId(null);
       setBadgeCustomOpen(false);
-      setPendingTierId(null);
     }
   }
 
@@ -555,8 +552,31 @@ export function RegistrationDetailSheet({
     }
   };
 
+  // When the organizer changes the registration type to one that HAS pricing
+  // tiers, they must explicitly pick one of the NEW type's tiers before saving
+  // — tier-priced types usually have a $0 base, so defaulting to base would
+  // silently make the registration free. Unpaid-only (repricing is unpaid-only).
+  const tierSelectionRequired = (() => {
+    if (!selectedRegistration) return false;
+    // H1: with a promo applied the tier can't be changed (server blocks it) and
+    // the picker is hidden, so DON'T disable Save — that would be a dead-end with
+    // no on-screen remedy. Repricing is deferred to the "remove promo first" flow.
+    if (selectedRegistration.promoCode) return false;
+    const currentTypeId = selectedRegistration.ticketType?.id ?? "";
+    if (editData.ticketTypeId === currentTypeId) return false; // type unchanged
+    if (!(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus)) return false;
+    const tt = (regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId);
+    const tiers = tt?.pricingTiers ?? [];
+    if (tiers.length === 0) return false; // new type has no tiers → base is fine
+    return !tiers.some((t) => t.id === editData.pricingTierId);
+  })();
+
   const saveEdits = () => {
     if (!selectedRegistration) return;
+    if (tierSelectionRequired) {
+      toast.error("Pick a pricing tier for the new registration type before saving.");
+      return;
+    }
     // Client-side guard (server validates too): only block when the user is
     // CHANGING the status to INCLUSIVE without picking a sponsor. Don't block an
     // unrelated edit on a row that's already INCLUSIVE — a legacy/imported row
@@ -688,7 +708,8 @@ export function RegistrationDetailSheet({
                       <Button
                         size="sm"
                         onClick={saveEdits}
-                        disabled={updateRegistration.isPending}
+                        disabled={updateRegistration.isPending || tierSelectionRequired}
+                        title={tierSelectionRequired ? "Pick a pricing tier for the new registration type first" : undefined}
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <Save className="mr-2 h-4 w-4" />
@@ -1167,7 +1188,18 @@ export function RegistrationDetailSheet({
                     ) : (
                       <Select
                         value={isEditing ? editData.ticketTypeId : (selectedRegistration.ticketType?.id ?? "")}
-                        onValueChange={(value) => setEditData((p) => ({ ...p, ticketTypeId: value }))}
+                        onValueChange={(value) =>
+                          setEditData((p) => {
+                            const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
+                            if (!unpaid) return { ...p, ticketTypeId: value }; // paid: tier isn't repriceable, leave it
+                            const loadedTypeId = selectedRegistration.ticketType?.id ?? "";
+                            const loadedTierId = selectedRegistration.pricingTier?.id ?? "";
+                            // M1: reverting to the ORIGINAL type restores its original tier
+                            // (so flipping A→B→A doesn't silently drop the tier + reprice to
+                            // base). Any OTHER type clears the tier so the organizer re-picks.
+                            return { ...p, ticketTypeId: value, pricingTierId: value === loadedTypeId ? loadedTierId : "" };
+                          })
+                        }
                         disabled={!isEditing || updateRegistration.isPending}
                       >
                         <SelectTrigger>
@@ -1234,6 +1266,81 @@ export function RegistrationDetailSheet({
                   <div className="font-medium">{displayRegistrationType({ ticketTypeName: selectedRegistration.ticketType?.name, isFaculty: selectedRegistration.ticketType?.isFaculty, attendeeRegistrationType: selectedRegistration.attendee.registrationType })}</div>
                 </div>
               )}
+
+              {/* Pricing Tier — sits with Registration Type so type + tier change
+                  TOGETHER. Read-only in view mode; a staged picker in Edit mode
+                  (unpaid, non-faculty, tiered type). Changing the type clears the
+                  pick so the organizer explicitly re-picks a tier of the new type
+                  (re-stamps originalPrice via the shared repricing resolver). */}
+              {!selectedRegistration.ticketType?.isFaculty && (() => {
+                const unpaid = (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus);
+                const editTt = (regTypes as TicketType[]).find((t) => t.id === editData.ticketTypeId);
+                const editTiers = editTt?.pricingTiers ?? [];
+                const viewTiers = (regTypes as TicketType[]).find((t) => t.id === (selectedRegistration.ticketType?.id ?? ""))?.pricingTiers ?? [];
+                const currentTierName = selectedRegistration.pricingTier?.name ?? null;
+                // Only relevant when the type (in the active mode) has tiers, or a
+                // tier is already assigned — a flat-priced type has no tier concept.
+                const relevant = (isEditing ? editTiers.length : viewTiers.length) > 0 || !!currentTierName;
+                if (!relevant) return null;
+                const promoBlocks = isEditing && unpaid && !isReviewer && !!selectedRegistration.promoCode && editTiers.length > 0;
+                const canEditTier = isEditing && unpaid && !isReviewer && editTiers.length > 0 && !selectedRegistration.promoCode;
+                const typeChanged = editData.ticketTypeId !== (selectedRegistration.ticketType?.id ?? "");
+                const picked = editTiers.some((t) => t.id === editData.pricingTierId);
+                const needsTier = typeChanged && !picked;
+                return (
+                  <div className="space-y-2">
+                    <Label>Pricing Tier</Label>
+                    {canEditTier ? (
+                      <>
+                        <Select
+                          value={picked ? editData.pricingTierId : typeChanged ? "" : editData.pricingTierId || "__base__"}
+                          onValueChange={(v) => setEditData((p) => ({ ...p, pricingTierId: v === "__base__" ? "" : v }))}
+                          disabled={updateRegistration.isPending}
+                        >
+                          <SelectTrigger className={needsTier ? "border-amber-400 ring-1 ring-amber-300" : ""}>
+                            <SelectValue placeholder="Select a pricing tier" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {/* Base only when the type is unchanged — after a type
+                                change the organizer must pick a real tier (tiered
+                                types usually have a $0 base). */}
+                            {!typeChanged && <SelectItem value="__base__">Base price (no tier)</SelectItem>}
+                            {editTiers.map((tier) => (
+                              <SelectItem key={tier.id} value={tier.id}>
+                                {tier.name}
+                                {tier.isActive ? "" : " (closed)"} — {tier.currency} {tier.price}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {needsTier ? (
+                          <p className="text-[11px] font-medium text-amber-700">
+                            You changed the registration type — pick a pricing tier for {editTt?.name} before saving.
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">
+                            Courtesy rate (e.g. Early Bird). Saved + re-priced with your other edits. Unpaid only.
+                          </p>
+                        )}
+                      </>
+                    ) : promoBlocks ? (
+                      <div className="text-sm">
+                        <span className="font-medium">{currentTierName ?? "Base price (no tier)"}</span>
+                        <span className="text-muted-foreground"> — remove the promo code to change the tier</span>
+                      </div>
+                    ) : isEditing && typeChanged && editTiers.length === 0 ? (
+                      // L-A: switched to a flat (no-tier) type while a tier is set —
+                      // Save will drop the tier + price to the new type's base, so
+                      // don't show the stale old tier name as if it survives.
+                      <div className="text-sm text-muted-foreground">Base price (no tier) — the new type has no tiers</div>
+                    ) : (
+                      <div className="text-sm font-medium">
+                        {currentTierName ?? <span className="text-muted-foreground">Base price (no tier)</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Attendance mode — HYBRID events only. Gated `!isReviewer` to
                   match the other seat-affecting selects (Registration Type)
@@ -1682,91 +1789,8 @@ export function RegistrationDetailSheet({
                         )}
                       </div>
                     )}
-                    {/* Pricing tier — re-classify to give a late / onsite
-                        registrant the Early Bird price (or any tier) while the
-                        registration is still unpaid. Re-stamps the price; the
-                        Payment Summary + quote update on save. Finance-gated
-                        (this whole section) + unpaid-only, like the promo. */}
-                    {(["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) &&
-                      !isReviewer &&
-                      // Hidden while a promo is applied — re-tiering with a stored
-                      // discount can over-discount, so the server blocks it. Remove
-                      // the promo (control below) first, re-tier, then re-apply.
-                      !selectedRegistration.promoCode &&
-                      (() => {
-                        const tt = regTypes.find((t) => t.id === selectedRegistration.ticketType?.id);
-                        const tiers = (tt?.pricingTiers ?? []) as Array<{
-                          id: string;
-                          name: string;
-                          isActive: boolean;
-                          currency: string;
-                          price: number | string;
-                        }>;
-                        if (tiers.length === 0) return null;
-                        return (
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing tier</p>
-                            <Select
-                              // Staged pick (no save-on-change) — committed by the
-                              // Apply button below. Shows the staged value if the
-                              // user has picked one, else the current tier.
-                              value={pendingTierId ?? (selectedRegistration.pricingTier?.id ?? "__base__")}
-                              onValueChange={(v) => setPendingTierId(v)}
-                              disabled={tierApplying || updateRegistration.isPending}
-                            >
-                              <SelectTrigger className="h-9">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__base__">Base price (no tier)</SelectItem>
-                                {tiers.map((tier) => (
-                                  <SelectItem key={tier.id} value={tier.id}>
-                                    {tier.name}
-                                    {tier.isActive ? "" : " (closed)"} — {tier.currency} {tier.price}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {pendingTierId !== null &&
-                              pendingTierId !== (selectedRegistration.pricingTier?.id ?? "__base__") && (
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    className="h-8"
-                                    disabled={tierApplying}
-                                    onClick={() => {
-                                      const next = pendingTierId === "__base__" ? null : pendingTierId;
-                                      setTierApplying(true);
-                                      updateRegistration.mutate(
-                                        {
-                                          id: selectedRegistration.id,
-                                          data: { pricingTierId: next, expectedUpdatedAt: selectedRegistration.updatedAt },
-                                        },
-                                        {
-                                          onSuccess: () => setPendingTierId(null),
-                                          onSettled: () => setTierApplying(false),
-                                        },
-                                      );
-                                    }}
-                                  >
-                                    {tierApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply tier"}
-                                  </Button>
-                                  <button
-                                    type="button"
-                                    className="text-xs text-slate-600 underline underline-offset-2 hover:text-slate-900 disabled:opacity-50"
-                                    disabled={tierApplying}
-                                    onClick={() => setPendingTierId(null)}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              )}
-                            <p className="text-[11px] text-muted-foreground">
-                              Give a courtesy rate (e.g. Early Bird) — click Apply to update the price. Unpaid only.
-                            </p>
-                          </div>
-                        );
-                      })()}
+                    {/* Pricing tier lives on the Details tab now, next to
+                        Registration Type (so type + tier change together). */}
                     {/* Promo code — apply/remove while payment is still
                         outstanding. Same rules as the registrant self-apply
                         (organizers don't bypass a promo's own limits). */}

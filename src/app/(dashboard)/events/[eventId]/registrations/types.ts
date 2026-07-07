@@ -62,9 +62,10 @@ export interface TicketType {
   soldCount: number;
   /** Hidden Faculty companion ticket type (excluded from delegate counts). */
   isFaculty?: boolean;
-  // /api/events/[eventId]/tickets returns the active pricing tiers nested
-  // under each ticket type so admin forms can render a tier picker without
-  // a second fetch. Tiers are ordered by sortOrder + createdAt.
+  // /api/events/[eventId]/tickets returns ALL pricing tiers (active AND closed)
+  // nested under each ticket type so admin forms can render a tier picker
+  // without a second fetch — closed tiers are shown labelled "(closed)" and can
+  // still be assigned as a courtesy. Tiers are ordered by sortOrder + createdAt.
   pricingTiers?: TicketTypePricingTier[];
 }
 

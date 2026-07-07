@@ -6,6 +6,7 @@ import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { planSeatTransition, needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import { releaseSeat, claimSeat, releaseSeats } from "@/lib/registration-seat-db";
+import { resolveRepricing } from "@/lib/registration-repricing";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -425,6 +426,9 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         ticketTypeId: true,
         attendeeId: true,
         promoCodeId: true,
+        // Repricing guard (shared resolveRepricing): a stored discount blocks a
+        // re-tier / type reprice (re-stamping the base could over-discount).
+        discountAmount: true,
         // Hybrid seat accounting + lazy barcode mint on virtual↔in-person.
         attendanceMode: true,
         qrCode: true,
@@ -522,6 +526,32 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (!ticket) return { error: `ticketTypeId ${newTicketTypeId} not found in this event` };
     }
 
+    // Pricing — re-tier and/or type-change repricing, resolved by the SHARED
+    // helper so MCP and the REST PUT stay in lock-step (previously MCP couldn't
+    // set a tier and never repriced on a type change). `pricingTierId`: an id, or
+    // null / "" for base; omit to leave the tier untouched.
+    const pricingTierIdInput =
+      input.pricingTierId === undefined
+        ? undefined
+        : input.pricingTierId === null || String(input.pricingTierId).trim() === ""
+        ? null
+        : String(input.pricingTierId).trim();
+    const repricing = await resolveRepricing({
+      eventId: existing.eventId,
+      existing: {
+        ticketTypeId: existing.ticketTypeId,
+        pricingTierId: existing.pricingTierId,
+        paymentStatus: existing.paymentStatus,
+        promoCodeId: existing.promoCodeId,
+        discountAmount: existing.discountAmount,
+      },
+      ticketTypeId: newTicketTypeId,
+      pricingTierId: pricingTierIdInput,
+    });
+    if (!repricing.ok) {
+      return { error: repricing.message, code: repricing.code };
+    }
+
     // Hybrid attendance mode change (HYBRID events). VIRTUAL holds no venue
     // seat + has no barcode; virtual→in-person lazily mints a qrCode + claims a
     // seat, in-person→virtual releases the seat (keeps the barcode for audit).
@@ -603,6 +633,10 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         effectiveStatus === "CANCELLED" && existing.status !== "CANCELLED";
       const isChangingType =
         !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
+      // Effective tier for seat accounting: the resolved next tier, or the
+      // existing one when the request leaves the tier unchanged (undefined).
+      const seatTierId =
+        repricing.nextTierId !== undefined ? repricing.nextTierId : existing.pricingTierId;
 
       // Seat accounting via the single seat model (mirrors REST PUT): status /
       // attendanceMode / ticketType changes are all handled, the correct counter
@@ -628,7 +662,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
           status: effectiveStatus as typeof existing.status,
           attendanceMode: effectiveMode as typeof existing.attendanceMode,
           ticketTypeId: effectiveTypeId,
-          pricingTierId: isChangingType ? null : existing.pricingTierId,
+          pricingTierId: seatTierId,
           createdSource: existing.createdSource,
         },
       );
@@ -674,10 +708,12 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       if (payerReferenceInput !== undefined) regData.payerReference = payerReferenceInput;
       if (attendeeIsGuarantorInput !== undefined) regData.attendeeIsGuarantor = attendeeIsGuarantorInput;
       if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
-      // A type change invalidates the pricing tier (tiers belong to a ticket
-      // type) — null it so the stored row stays consistent with where its seat
-      // now lives (else a later cancel would release the wrong counter).
-      if (isChangingType) regData.pricingTierId = null;
+      // Persist the resolved tier + re-stamped price (undefined = leave the tier
+      // unchanged). A re-tier / type change sets the new tier + originalPrice; a
+      // bare type change nulls the tier (tiers belong to a type) so the stored
+      // row stays consistent with where its seat now lives. Shared with REST.
+      if (repricing.nextTierId !== undefined) regData.pricingTierId = repricing.nextTierId;
+      if (repricing.originalPrice !== undefined) regData.originalPrice = repricing.originalPrice;
       if (attendanceMode !== undefined) regData.attendanceMode = attendanceMode as never;
       // Lazy entry-barcode mint when becoming (or already) in-person with none.
       if (needsQrCode(effectiveMode, existing.qrCode)) regData.qrCode = generateBarcode();

@@ -170,6 +170,14 @@ describe("toEditData", () => {
     expect(d.sponsorId).toBe("sp-1");
     expect(d.ticketTypeId).toBe("tt-1");
   });
+
+  it("reads the pricing tier id ('' when none)", () => {
+    expect(toEditData(makeReg()).pricingTierId).toBe("");
+    const d = toEditData(
+      makeReg({ pricingTier: { id: "pt-1", name: "Early Bird" } as Registration["pricingTier"] }),
+    );
+    expect(d.pricingTierId).toBe("pt-1");
+  });
 });
 
 describe("toServerPayload", () => {
@@ -360,6 +368,41 @@ describe("toServerPayload", () => {
         const out = toServerPayload({ ...orig, sponsorId: "sp-9" }, UPDATED, orig);
         expect(out.sponsorId).toBe("sp-9");
         expect("paymentStatus" in out).toBe(false); // status itself unchanged
+      });
+
+      it("sends pricingTierId when the tier changed; '' → null (base)", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          ticketTypeId: "tt-1",
+          pricingTierId: "pt-old",
+        };
+        expect(toServerPayload({ ...orig, pricingTierId: "pt-new" }, UPDATED, orig).pricingTierId).toBe("pt-new");
+        expect(toServerPayload({ ...orig, pricingTierId: "" }, UPDATED, orig).pricingTierId).toBe(null);
+      });
+
+      it("omits pricingTierId when the tier did not change", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          ticketTypeId: "tt-1",
+          pricingTierId: "pt-1",
+        };
+        const out = toServerPayload({ ...orig, phone: "+971" }, UPDATED, orig);
+        expect("pricingTierId" in out).toBe(false);
+      });
+
+      it("type + tier change together are both sent (Physician→Nurse + Nurse tier)", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          ticketTypeId: "tt-physician",
+          pricingTierId: "pt-phys",
+        };
+        const out = toServerPayload(
+          { ...orig, ticketTypeId: "tt-nurse", pricingTierId: "pt-nurse" },
+          UPDATED,
+          orig,
+        );
+        expect(out.ticketTypeId).toBe("tt-nurse");
+        expect(out.pricingTierId).toBe("pt-nurse");
       });
     });
   });

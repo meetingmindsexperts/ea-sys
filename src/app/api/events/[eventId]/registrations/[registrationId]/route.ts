@@ -18,6 +18,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { readSponsors } from "@/lib/webinar";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { resolveRepricing } from "@/lib/registration-repricing";
 
 // NOTE: `attendee.email` is intentionally NOT in this schema. Email is
 // immutable at the general-purpose update path — use the dedicated
@@ -492,97 +493,29 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Pricing-tier re-classification — give a late / onsite registrant the Early
-    // Bird price (or any other tier). UNPAID-ONLY: re-tiering after payment would
-    // require a refund of the difference (out of scope). The tier must belong to
-    // the registration's ticket type; INACTIVE/closed tiers are allowed on
-    // purpose (that's the whole point of a courtesy re-tier). We re-stamp
-    // originalPrice from the tier so every finance surface (detail, quote,
-    // invoice, pay-later checkout) reflects the new price. Skipped when the
-    // ticket type is also changing (a type change nulls the tier — tiers belong
-    // to a type — handled by isChangingType below).
-    const isRetier =
-      pricingTierId !== undefined &&
-      pricingTierId !== existingRegistration.pricingTierId &&
-      !(ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId);
-    let retierOriginalPrice: number | undefined;
-    if (isRetier) {
-      const unpaid =
-        existingRegistration.paymentStatus === PaymentStatus.UNASSIGNED ||
-        existingRegistration.paymentStatus === PaymentStatus.UNPAID ||
-        existingRegistration.paymentStatus === PaymentStatus.PENDING;
-      if (!unpaid) {
-        // Message depends on WHY: a paid reg needs a refund; a comp/sponsor reg
-        // has no balance, so its payment status must change first.
-        const noBalance =
-          existingRegistration.paymentStatus === PaymentStatus.COMPLIMENTARY ||
-          existingRegistration.paymentStatus === PaymentStatus.INCLUSIVE;
-        apiLogger.warn({
-          msg: "registration-update:retier-blocked-not-unpaid",
-          registrationId,
-          paymentStatus: existingRegistration.paymentStatus,
-        });
-        return NextResponse.json(
-          {
-            error: noBalance
-              ? "This registration has no balance due (complimentary / sponsor-paid). Change its payment status before changing the tier."
-              : "The pricing tier can only be changed while the registration is unpaid. Refund the payment first.",
-            code: "TIER_CHANGE_REQUIRES_UNPAID",
-          },
-          { status: 400 },
-        );
-      }
-      // A stored promo/discount was validated against the OLD price. Re-stamping
-      // the base price without recomputing the discount can OVER-discount (a fixed
-      // −$100 on a $50 tier clamps to $0, silently voiding the charge). Require the
-      // organizer to remove the promo first, then re-tier + re-apply (which
-      // re-validates against the new subtotal).
-      if (existingRegistration.promoCodeId || Number(existingRegistration.discountAmount ?? 0) > 0) {
-        apiLogger.warn({ msg: "registration-update:retier-blocked-has-discount", registrationId });
-        return NextResponse.json(
-          {
-            error: "Remove the applied promo code / discount before changing the pricing tier, then re-apply it if needed.",
-            code: "TIER_CHANGE_HAS_DISCOUNT",
-          },
-          { status: 400 },
-        );
-      }
-      const currentTicketTypeId = existingRegistration.ticketTypeId;
-      if (pricingTierId === null) {
-        // Clearing the tier → fall back to the ticket type's base price (skip if
-        // the reg somehow has no ticket type).
-        if (currentTicketTypeId) {
-          const baseTt = await db.ticketType.findFirst({
-            where: { id: currentTicketTypeId, eventId },
-            select: { price: true },
-          });
-          if (!baseTt) {
-            apiLogger.warn({ msg: "registration-update:retier-clear-no-ticket-type", registrationId, currentTicketTypeId });
-          }
-          retierOriginalPrice = baseTt ? Number(baseTt.price) : undefined;
-        }
-      } else {
-        if (!currentTicketTypeId) {
-          apiLogger.warn({ msg: "registration-update:retier-no-ticket-type", registrationId });
-          return NextResponse.json(
-            { error: "This registration has no ticket type, so it can't be assigned a pricing tier.", code: "NO_TICKET_TYPE" },
-            { status: 400 },
-          );
-        }
-        const tier = await db.pricingTier.findFirst({
-          where: { id: pricingTierId, ticketTypeId: currentTicketTypeId },
-          select: { id: true, price: true },
-        });
-        if (!tier) {
-          apiLogger.warn({ msg: "registration-update:pricing-tier-not-found", registrationId, pricingTierId });
-          return NextResponse.json(
-            { error: "Pricing tier not found for this registration's ticket type.", code: "PRICING_TIER_NOT_FOUND" },
-            { status: 404 },
-          );
-        }
-        retierOriginalPrice = Number(tier.price);
-      }
+    // Pricing — re-tier AND/OR ticket-type-change repricing, resolved by the
+    // shared `resolveRepricing` helper so this REST path and the MCP
+    // `update_registration` tool can't drift. It re-stamps originalPrice
+    // (UNPAID-ONLY + no-promo guarded), validates a provided tier against the
+    // EFFECTIVE (new) type, and reprices a bare type change to the new type's
+    // base. `nextTierId === undefined` means "leave the tier column unchanged".
+    const repricing = await resolveRepricing({
+      eventId,
+      existing: {
+        ticketTypeId: existingRegistration.ticketTypeId,
+        pricingTierId: existingRegistration.pricingTierId,
+        paymentStatus: existingRegistration.paymentStatus,
+        promoCodeId: existingRegistration.promoCodeId,
+        discountAmount: existingRegistration.discountAmount,
+      },
+      ticketTypeId,
+      pricingTierId,
+    });
+    if (!repricing.ok) {
+      apiLogger.warn({ msg: "registration-update:repricing-blocked", registrationId, code: repricing.code });
+      return NextResponse.json({ error: repricing.message, code: repricing.code }, { status: repricing.status });
     }
+    const { isChangingType, effectiveTypeId, nextTierId, originalPrice: retierOriginalPrice } = repricing;
 
     // Wrap soldCount + registration update in a transaction to prevent race
     // conditions on the soldCount counter, AND to make the optimistic lock
@@ -592,9 +525,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const registration = await db.$transaction(async (tx) => {
       const effectiveStatus = status || existingRegistration.status;
       const effectiveMode = attendanceMode || existingRegistration.attendanceMode;
-      const effectiveTypeId = ticketTypeId || existingRegistration.ticketTypeId;
       const isBecomingCancelled = effectiveStatus === "CANCELLED" && existingRegistration.status !== "CANCELLED";
-      const isChangingType = ticketTypeId && ticketTypeId !== existingRegistration.ticketTypeId;
+      // Effective tier for seat accounting: the resolved next tier, or the
+      // existing one when the request leaves the tier unchanged (undefined).
+      const seatTierId = nextTierId !== undefined ? nextTierId : existingRegistration.pricingTierId;
 
       // Seat accounting — routed through the single seat model, which now picks
       // the correct counter (PricingTier vs TicketType) per registration, so a
@@ -620,10 +554,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
           status: effectiveStatus,
           attendanceMode: effectiveMode,
           ticketTypeId: effectiveTypeId,
-          // A type change nulls the tier; a re-tier moves to the new tier; else
-          // unchanged. planSeatTransition/seatCounter route the seat move (e.g.
-          // a public+tier reg switching tiers moves between tier counters).
-          pricingTierId: isChangingType ? null : isRetier ? pricingTierId : existingRegistration.pricingTierId,
+          // planSeatTransition/seatCounter route the seat move (e.g. a public+tier
+          // reg switching tiers moves between tier counters) from the resolved
+          // next tier — a type change nulls it, a re-tier moves to the new tier.
+          pricingTierId: seatTierId,
           createdSource: existingRegistration.createdSource,
         },
       );
@@ -675,14 +609,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(badgeType !== undefined && { badgeType }),
         ...(dtcmBarcode !== undefined && { dtcmBarcode: dtcmBarcode || null }),
         ...(ticketTypeId && { ticketTypeId }),
-        // A type change invalidates any pricing tier (tiers belong to a ticket
-        // type). Null it so the stored row stays consistent with where its seat
-        // now lives (the new ticket-type counter) — else a later cancel would
-        // release the wrong counter.
-        ...(isChangingType && { pricingTierId: null }),
-        // Post-create re-tier (unpaid-only, validated above): set the new tier +
-        // re-stamp originalPrice so quote/invoice/checkout reflect the new price.
-        ...(isRetier && { pricingTierId }),
+        // Persist the resolved tier (undefined = leave unchanged). A re-tier
+        // and/or type change sets the new tier + re-stamps originalPrice so
+        // quote/invoice/checkout reflect the new price; a bare type change nulls
+        // the tier (tiers belong to a type) so the stored row stays consistent
+        // with where its seat now lives — else a later cancel releases the wrong
+        // counter.
+        ...(nextTierId !== undefined && { pricingTierId: nextTierId }),
         ...(retierOriginalPrice !== undefined && { originalPrice: retierOriginalPrice }),
         ...(attendanceMode !== undefined && { attendanceMode }),
         // Lazy entry-barcode mint: a registration becoming (or already)

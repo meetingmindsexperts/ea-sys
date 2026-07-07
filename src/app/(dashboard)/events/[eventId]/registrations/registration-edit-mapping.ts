@@ -82,9 +82,12 @@ export interface RegistrationEditData {
   // Registration-level fields that used to auto-save on change (each inline
   // Select fired an immediate PUT). They now stage into the edit form and
   // commit together via Save, so nothing writes until the user clicks Save.
-  // (The pricing tier is NOT here — it has its own Apply button in the
-  // Payment Summary.)
   ticketTypeId: string;
+  // Pricing tier ("" = base / no tier). Staged + committed with Save alongside
+  // ticketTypeId — changing the type clears this so the organizer explicitly
+  // re-picks a tier of the new type (the server validates it against the new
+  // type + re-stamps originalPrice). Unpaid-only, like the promo.
+  pricingTierId: string;
   badgeType: string;
   attendanceMode: string;
   status: string;
@@ -133,6 +136,7 @@ export const EMPTY_REGISTRATION_EDIT_DATA: RegistrationEditData = {
   payerReference: "",
   attendeeIsGuarantor: false,
   ticketTypeId: "",
+  pricingTierId: "",
   badgeType: "",
   attendanceMode: "IN_PERSON",
   status: "",
@@ -185,6 +189,7 @@ export function toEditData(reg: Registration): RegistrationEditData {
     payerReference: reg.payerReference || "",
     attendeeIsGuarantor: reg.attendeeIsGuarantor ?? false,
     ticketTypeId: reg.ticketType?.id || "",
+    pricingTierId: reg.pricingTier?.id || "",
     badgeType: reg.badgeType || "",
     attendanceMode: reg.attendanceMode || "IN_PERSON",
     status: reg.status,
@@ -216,6 +221,12 @@ export function toServerPayload(
     // ticketTypeId/attendanceMode/badgeType are omitted when blank so we never
     // null them; all reg-level fields are further gated on having changed.
     ...(changed("ticketTypeId") && d.ticketTypeId ? { ticketTypeId: d.ticketTypeId } : {}),
+    // Pricing tier — sent only when it changed (the tier Select edited it, or a
+    // type change reset it). "" → null (base); the server validates a non-base
+    // tier against the effective (possibly new) type + re-stamps originalPrice.
+    // Only mutated for unpaid regs (the picker + the type-change reset are
+    // unpaid-gated in the sheet), so a paid reg never sends it → no reprice.
+    ...(changed("pricingTierId") ? { pricingTierId: d.pricingTierId || null } : {}),
     ...(changed("badgeType") && d.badgeType ? { badgeType: d.badgeType } : {}),
     ...(changed("attendanceMode") && d.attendanceMode ? { attendanceMode: d.attendanceMode } : {}),
     ...(changed("status") ? { status: d.status || undefined } : {}),
