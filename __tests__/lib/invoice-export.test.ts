@@ -81,12 +81,18 @@ describe("invoiceDateFilter — year/month filters", () => {
 });
 
 describe("csvCell — formula-injection guard", () => {
-  it("prefixes a quote to values starting with a formula trigger", () => {
+  it("prefixes a quote to formula-like values (but not plain numbers)", () => {
     expect(csvCell("=1+1")).toBe("'=1+1");
     expect(csvCell("+A1")).toBe("'+A1");
-    expect(csvCell("-5")).toBe("'-5");
+    expect(csvCell("-2+3")).toBe("'-2+3"); // formula, not a number → escaped
     expect(csvCell("@SUM(A1)")).toBe("'@SUM(A1)");
     expect(csvCell("\tfoo")).toBe("'\tfoo");
+  });
+
+  it("does NOT escape legitimate negative numbers (credit-note amounts stay numeric)", () => {
+    expect(csvCell("-105.00")).toBe("-105.00");
+    expect(csvCell("-5")).toBe("-5");
+    expect(csvCell("-0.50")).toBe("-0.50");
   });
 
   it("leaves ordinary values untouched (and still quotes commas/quotes/newlines)", () => {
@@ -180,5 +186,20 @@ describe("buildInvoiceCsv / buildInvoiceQuickBooksCsv — injection neutralized 
     const cols = buildInvoiceQuickBooksCsv([row()]).split("\r\n")[1].split(",");
     expect(cols[7]).toBe("100.00");
     expect(cols[12]).toBe("105.00");
+  });
+
+  it("plain CSV emits credit-note amounts negative so the file nets correctly (review L5)", () => {
+    const cn = row({ type: "CREDIT_NOTE", subtotal: 100, discountAmount: 0, taxAmount: 5, total: 105 });
+    const cols = buildInvoiceCsv([cn]).split("\r\n")[1].split(",");
+    expect(cols[9]).toBe("-100.00");  // Subtotal
+    expect(cols[11]).toBe("-5.00");   // Tax
+    expect(cols[12]).toBe("-105.00"); // Total — SUM(Total) now matches the on-screen net
+  });
+
+  it("QuickBooks emits credit-note LineUnitPrice + LineAmount negative (review L5)", () => {
+    const cn = row({ type: "CREDIT_NOTE", subtotal: 100, discountAmount: 0, taxRate: 5, taxAmount: 5, total: 105 });
+    const cols = buildInvoiceQuickBooksCsv([cn]).split("\r\n")[1].split(",");
+    expect(cols[7]).toBe("-100.00");  // LineUnitPrice
+    expect(cols[12]).toBe("-105.00"); // LineAmount → imports as a credit, not a positive invoice
   });
 });

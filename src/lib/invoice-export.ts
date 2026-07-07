@@ -130,10 +130,12 @@ export function csvCell(v: unknown): string {
   let s = v == null ? "" : String(v);
   // Formula-injection guard: Excel / QuickBooks / Google Sheets treat a cell
   // that begins with = + - @ (or a leading tab / carriage-return) as a FORMULA.
-  // Names, organization, and billing address flow into these exports and are
-  // attacker-controllable via public self-registration, so prefix a single
-  // quote to force the value to render as literal text. (OWASP CSV injection.)
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  // Names, organization, and billing address are attacker-controllable via
+  // public self-registration, so prefix a single quote to force literal text.
+  // BUT leave a plain numeric value alone — a legitimate negative amount like
+  // "-105.00" (a credit note) must stay a number, not become text. (OWASP CSV
+  // injection; the number carve-out avoids corrupting the finance amounts.)
+  if (/^[=+\-@\t\r]/.test(s) && Number.isNaN(Number(s))) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export function toCsv(rows: (string | number)[][]): string {
@@ -156,14 +158,19 @@ export function buildInvoiceCsv(invoices: InvoiceExportRow[]): string {
     "Invoice #", "Type", "Status", "Event", "Bill-to", "Email",
     "Issue date", "Due date", "Paid date", "Subtotal", "Discount", "Tax", "Total", "Currency",
   ];
-  const rows = invoices.map((inv) => [
-    inv.invoiceNumber, inv.type, inv.status, inv.event.name,
-    `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim(),
-    inv.registration.attendee.email,
-    ymd(inv.issueDate), ymd(inv.dueDate), ymd(inv.paidDate),
-    Number(inv.subtotal).toFixed(2), Number(inv.discountAmount).toFixed(2),
-    Number(inv.taxAmount).toFixed(2), Number(inv.total).toFixed(2), inv.currency,
-  ]);
+  const rows = invoices.map((inv) => {
+    // Credit notes are money OUT — emit their amounts negative so summing the
+    // Total column gives net revenue and matches the on-screen total (review L5).
+    const sign = inv.type === "CREDIT_NOTE" ? -1 : 1;
+    return [
+      inv.invoiceNumber, inv.type, inv.status, inv.event.name,
+      `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim(),
+      inv.registration.attendee.email,
+      ymd(inv.issueDate), ymd(inv.dueDate), ymd(inv.paidDate),
+      (sign * Number(inv.subtotal)).toFixed(2), (sign * Number(inv.discountAmount)).toFixed(2),
+      (sign * Number(inv.taxAmount)).toFixed(2), (sign * Number(inv.total)).toFixed(2), inv.currency,
+    ];
+  });
   return toCsv([header, ...rows]);
 }
 
@@ -188,6 +195,9 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
     const att = inv.registration.attendee;
     const customer = `${att.title ? att.title + " " : ""}${att.firstName} ${att.lastName}`.trim();
     const taxed = inv.taxRate != null && Number(inv.taxRate) > 0;
+    // Credit notes → negative amounts so QuickBooks treats the line as a credit
+    // (money out), not another positive invoice (review L5).
+    const sign = inv.type === "CREDIT_NOTE" ? -1 : 1;
     return [
       inv.invoiceNumber,                                   // RefNumber
       qbDate(inv.issueDate),                               // TxnDate
@@ -200,13 +210,13 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
       // unitPrice × qty + tax = LineAmount (= total). The discount is baked in
       // here (the flat qty-1 template has no separate discount line); it's still
       // a distinct column in the plain reconciliation CSV.
-      Math.max(0, Number(inv.subtotal) - Number(inv.discountAmount)).toFixed(2), // LineUnitPrice (net of discount)
+      (sign * Math.max(0, Number(inv.subtotal) - Number(inv.discountAmount))).toFixed(2), // LineUnitPrice (net of discount; negative for credit notes)
       "TaxExcluded",                                       // AmountsIncl
       [inv.registration.ticketType?.name, inv.registration.pricingTier?.name]
         .filter(Boolean).join(" - ") || inv.type,          // LineDesc (ticket type + pricing tier)
       "",                                                  // LineItem (blank — set from your QB item list)
       1,                                                   // LineQty
-      Number(inv.total).toFixed(2),                        // LineAmount (gross)
+      (sign * Number(inv.total)).toFixed(2),               // LineAmount (gross; negative for credit notes)
       taxed ? "Standard" : "Zero Rated",                   // LineTaxCode
       inv.currency,                                        // Currency
     ];
