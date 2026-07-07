@@ -27,8 +27,15 @@ never be refunded from the UI.
   (`document-layout`) — logo + header + info boxes + line items + totals +
   footers, titled "CREDIT NOTE" / "TOTAL CREDIT" + REASON. `CreditNotePDFData`
   gained `logoPath`; amounts now render positive (standard convention).
-- +8 refund-route tests; 2 stale `events/refund.test.ts` cases updated (old
-  400-on-manual → 200). tsc 0, eslint 0, vitest green, build 0.
+- **`createCreditNote` is now idempotent** — a registration gets exactly one
+  credit note. A route-initiated Stripe refund creates the CN *and* fires a
+  `charge.refunded` webhook (which Stripe also retries) that would each mint a
+  second CREDIT_NOTE + duplicate email. It now returns `{ invoice, created }`;
+  when a CN already exists it returns it with `created: false` and both callers
+  skip re-emailing. Manual + Dashboard refunds unaffected (one CN each).
+- +9 refund-route tests + 1 idempotency service test; 2 stale
+  `events/refund.test.ts` cases updated (old 400-on-manual → 200). tsc 0,
+  eslint 0, vitest green, build 0.
 
 ### Added / Security — Per-event ONSITE staff + cross-event isolation fix (July 7)
 
