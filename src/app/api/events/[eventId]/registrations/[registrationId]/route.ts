@@ -320,7 +320,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const effectiveSponsorId =
       sponsorId === undefined ? existingRegistration.sponsorId : sponsorId;
 
-    if (effectivePaymentStatus === PaymentStatus.INCLUSIVE && !effectiveSponsorId) {
+    // Only enforce the INCLUSIVE↔sponsor invariant when the caller is actually
+    // changing paymentStatus or sponsorId. An unrelated edit (e.g. fixing a
+    // phone number) on a legacy/imported INCLUSIVE row that somehow lacks a
+    // sponsor — or whose sponsor was later removed from the event — must not be
+    // blocked from saving. Setting/keeping INCLUSIVE via this request still
+    // validates fully (review H2).
+    const touchingSponsorFields = paymentStatus !== undefined || sponsorId !== undefined;
+
+    if (touchingSponsorFields && effectivePaymentStatus === PaymentStatus.INCLUSIVE && !effectiveSponsorId) {
       apiLogger.warn({
         msg: "registration-update:inclusive-requires-sponsor",
         registrationId,
@@ -336,7 +344,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (effectiveSponsorId) {
+    if (touchingSponsorFields && effectiveSponsorId) {
       const sponsors = readSponsors(event.settings);
       const match = sponsors.find((s) => s.id === effectiveSponsorId);
       if (!match) {

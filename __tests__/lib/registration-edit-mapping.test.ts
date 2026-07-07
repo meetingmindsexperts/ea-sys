@@ -141,6 +141,35 @@ describe("toEditData", () => {
       toEditData(makeReg({ attendeeIsGuarantor: null as unknown as boolean })).attendeeIsGuarantor,
     ).toBe(false);
   });
+
+  it("registration-level fields default correctly on a sparse row (no auto-save selects)", () => {
+    const d = toEditData(makeReg());
+    expect(d.ticketTypeId).toBe("");
+    expect(d.badgeType).toBe("");
+    expect(d.attendanceMode).toBe("IN_PERSON");
+    expect(d.status).toBe("CONFIRMED");
+    expect(d.paymentStatus).toBe("UNASSIGNED");
+    expect(d.sponsorId).toBe("");
+  });
+
+  it("registration-level fields read from a populated row", () => {
+    const d = toEditData(
+      makeReg({
+        status: "PENDING",
+        paymentStatus: "INCLUSIVE",
+        badgeType: "Faculty",
+        attendanceMode: "VIRTUAL",
+        sponsorId: "sp-1",
+        ticketType: { id: "tt-1", name: "Physician" } as Registration["ticketType"],
+      }),
+    );
+    expect(d.status).toBe("PENDING");
+    expect(d.paymentStatus).toBe("INCLUSIVE");
+    expect(d.badgeType).toBe("Faculty");
+    expect(d.attendanceMode).toBe("VIRTUAL");
+    expect(d.sponsorId).toBe("sp-1");
+    expect(d.ticketTypeId).toBe("tt-1");
+  });
 });
 
 describe("toServerPayload", () => {
@@ -230,6 +259,108 @@ describe("toServerPayload", () => {
         UPDATED,
       );
       expect(out.payerReference).toBeNull();
+    });
+  });
+
+  describe("registration-level fields (folded in from the removed auto-save selects)", () => {
+    it("status + paymentStatus pass through; sponsorId '' → null", () => {
+      const out = toServerPayload(
+        { ...EMPTY_REGISTRATION_EDIT_DATA, status: "CANCELLED", paymentStatus: "PAID" },
+        UPDATED,
+      );
+      expect(out.status).toBe("CANCELLED");
+      expect(out.paymentStatus).toBe("PAID");
+      expect(out.sponsorId).toBeNull();
+    });
+
+    it("sponsorId preserved when set (INCLUSIVE case)", () => {
+      const out = toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, sponsorId: "sp-1" }, UPDATED);
+      expect(out.sponsorId).toBe("sp-1");
+    });
+
+    it("ticketTypeId omitted when blank (never nulls the type), included when set", () => {
+      expect("ticketTypeId" in toServerPayload(EMPTY_REGISTRATION_EDIT_DATA, UPDATED)).toBe(false);
+      const out = toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, ticketTypeId: "tt-9" }, UPDATED);
+      expect(out.ticketTypeId).toBe("tt-9");
+    });
+
+    it("attendanceMode included when set, omitted when blank", () => {
+      expect(
+        toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, attendanceMode: "IN_PERSON" }, UPDATED).attendanceMode,
+      ).toBe("IN_PERSON");
+      expect(
+        "attendanceMode" in toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, attendanceMode: "" }, UPDATED),
+      ).toBe(false);
+    });
+
+    it("badgeType sent when set, omitted when blank (don't flip a legacy null badge to '')", () => {
+      expect(toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, badgeType: "Faculty" }, UPDATED).badgeType).toBe("Faculty");
+      expect("badgeType" in toServerPayload({ ...EMPTY_REGISTRATION_EDIT_DATA, badgeType: "" }, UPDATED)).toBe(false);
+    });
+
+    it("empty status/paymentStatus → undefined (belt-and-braces; toEditData always fills them)", () => {
+      const out = toServerPayload(EMPTY_REGISTRATION_EDIT_DATA, UPDATED);
+      expect(out.status).toBeUndefined();
+      expect(out.paymentStatus).toBeUndefined();
+    });
+
+    // H1/H2 — with an `original` snapshot, reg-level fields are a true diff:
+    // unchanged ones are OMITTED so an unrelated edit doesn't re-send them.
+    describe("diff mode (3-arg with the loaded row's snapshot)", () => {
+      it("omits reg-level fields that did not change", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          status: "CONFIRMED",
+          paymentStatus: "PAID",
+          ticketTypeId: "tt-1",
+          sponsorId: "sp-1",
+          badgeType: "Faculty",
+        };
+        // Only phone changed (an attendee field) — no reg-level field differs.
+        const out = toServerPayload({ ...orig, phone: "+971 9 999" }, UPDATED, orig);
+        expect("status" in out).toBe(false);
+        expect("paymentStatus" in out).toBe(false);
+        expect("ticketTypeId" in out).toBe(false);
+        expect("sponsorId" in out).toBe(false);
+        expect("badgeType" in out).toBe(false);
+        // attendee edit still flows through
+        expect((out.attendee as Record<string, unknown>).phone).toBe("+971 9 999");
+      });
+
+      it("sends only the reg-level field that changed", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          status: "CONFIRMED",
+          paymentStatus: "UNPAID",
+        };
+        const out = toServerPayload({ ...orig, status: "CANCELLED" }, UPDATED, orig);
+        expect(out.status).toBe("CANCELLED");
+        expect("paymentStatus" in out).toBe(false);
+      });
+
+      it("H2: unchanged INCLUSIVE-without-sponsor row → neither paymentStatus nor sponsorId sent", () => {
+        // A legacy row that is INCLUSIVE but has no sponsor. Editing an unrelated
+        // field must not re-send payment/sponsor (which the server would reject).
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          paymentStatus: "INCLUSIVE",
+          sponsorId: "",
+        };
+        const out = toServerPayload({ ...orig, phone: "+971 1 000" }, UPDATED, orig);
+        expect("paymentStatus" in out).toBe(false);
+        expect("sponsorId" in out).toBe(false);
+      });
+
+      it("sends sponsorId when the user assigns one (changed)", () => {
+        const orig: typeof EMPTY_REGISTRATION_EDIT_DATA = {
+          ...EMPTY_REGISTRATION_EDIT_DATA,
+          paymentStatus: "INCLUSIVE",
+          sponsorId: "",
+        };
+        const out = toServerPayload({ ...orig, sponsorId: "sp-9" }, UPDATED, orig);
+        expect(out.sponsorId).toBe("sp-9");
+        expect("paymentStatus" in out).toBe(false); // status itself unchanged
+      });
     });
   });
 

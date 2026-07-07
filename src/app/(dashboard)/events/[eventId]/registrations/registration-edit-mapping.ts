@@ -79,6 +79,18 @@ export interface RegistrationEditData {
   billingAccountId: string;
   payerReference: string;
   attendeeIsGuarantor: boolean;
+  // Registration-level fields that used to auto-save on change (each inline
+  // Select fired an immediate PUT). They now stage into the edit form and
+  // commit together via Save, so nothing writes until the user clicks Save.
+  // (The pricing tier is NOT here — it has its own Apply button in the
+  // Payment Summary.)
+  ticketTypeId: string;
+  badgeType: string;
+  attendanceMode: string;
+  status: string;
+  paymentStatus: string;
+  /** Sponsor that paid — only meaningful when paymentStatus === "INCLUSIVE". */
+  sponsorId: string;
 }
 
 /**
@@ -120,6 +132,12 @@ export const EMPTY_REGISTRATION_EDIT_DATA: RegistrationEditData = {
   billingAccountId: "",
   payerReference: "",
   attendeeIsGuarantor: false,
+  ticketTypeId: "",
+  badgeType: "",
+  attendanceMode: "IN_PERSON",
+  status: "",
+  paymentStatus: "",
+  sponsorId: "",
 };
 
 /**
@@ -166,6 +184,12 @@ export function toEditData(reg: Registration): RegistrationEditData {
     billingAccountId: reg.billingAccountId || "",
     payerReference: reg.payerReference || "",
     attendeeIsGuarantor: reg.attendeeIsGuarantor ?? false,
+    ticketTypeId: reg.ticketType?.id || "",
+    badgeType: reg.badgeType || "",
+    attendanceMode: reg.attendanceMode || "IN_PERSON",
+    status: reg.status,
+    paymentStatus: reg.paymentStatus,
+    sponsorId: reg.sponsorId || "",
   };
 }
 
@@ -177,9 +201,26 @@ export function toEditData(reg: Registration): RegistrationEditData {
 export function toServerPayload(
   d: RegistrationEditData,
   expectedUpdatedAt: string,
+  original?: RegistrationEditData,
 ): Record<string, unknown> {
+  // Registration-level fields (previously auto-saved inline) are only sent when
+  // they actually CHANGED vs the loaded row. Without `original` (unit tests /
+  // legacy 2-arg callers) they're sent as before. Diffing matters on the live
+  // path: an unrelated attendee edit must NOT re-send an unchanged
+  // paymentStatus/sponsorId — which would, e.g., make the server re-validate
+  // (and re-reject) a legacy INCLUSIVE-without-sponsor row, or re-run the
+  // sponsor-exists check when a sponsor was later removed (review H1/H2).
+  const changed = (k: keyof RegistrationEditData) => !original || d[k] !== original[k];
   return {
     expectedUpdatedAt,
+    // ticketTypeId/attendanceMode/badgeType are omitted when blank so we never
+    // null them; all reg-level fields are further gated on having changed.
+    ...(changed("ticketTypeId") && d.ticketTypeId ? { ticketTypeId: d.ticketTypeId } : {}),
+    ...(changed("badgeType") && d.badgeType ? { badgeType: d.badgeType } : {}),
+    ...(changed("attendanceMode") && d.attendanceMode ? { attendanceMode: d.attendanceMode } : {}),
+    ...(changed("status") ? { status: d.status || undefined } : {}),
+    ...(changed("paymentStatus") ? { paymentStatus: d.paymentStatus || undefined } : {}),
+    ...(changed("sponsorId") ? { sponsorId: d.sponsorId || null } : {}),
     notes: d.notes || undefined,
     dtcmBarcode: d.dtcmBarcode.trim() || null,
     taxNumber: d.taxNumber.trim() || null,

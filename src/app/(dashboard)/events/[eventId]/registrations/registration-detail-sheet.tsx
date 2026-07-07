@@ -210,6 +210,15 @@ export function RegistrationDetailSheet({
   const [printingBadge, setPrintingBadge] = useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
+  // True while the user is entering a custom (non-standard) badge type in the
+  // edit form — lets "Custom…" show the free-text input even before a value is
+  // typed. Reset when the sheet opens a different registration / starts editing.
+  const [badgeCustomOpen, setBadgeCustomOpen] = useState(false);
+  // Staged pricing-tier selection for the Payment Summary's Apply button (the
+  // tier is the one field that keeps its own explicit Apply instead of the
+  // Save-button form). null = untouched; otherwise the picked tier id or "".
+  const [pendingTierId, setPendingTierId] = useState<string | null>(null);
+  const [tierApplying, setTierApplying] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
@@ -264,6 +273,8 @@ export function RegistrationDetailSheet({
       setSelectedRegistration(registration);
       setIsEditing(false);
       setFinancialsLoadedForId(null);
+      setBadgeCustomOpen(false);
+      setPendingTierId(null);
     }
   }
 
@@ -539,19 +550,38 @@ export function RegistrationDetailSheet({
   const startEditing = () => {
     if (selectedRegistration) {
       setEditData(toEditData(selectedRegistration));
+      setBadgeCustomOpen(false);
       setIsEditing(true);
     }
   };
 
   const saveEdits = () => {
     if (!selectedRegistration) return;
+    // Client-side guard (server validates too): only block when the user is
+    // CHANGING the status to INCLUSIVE without picking a sponsor. Don't block an
+    // unrelated edit on a row that's already INCLUSIVE — a legacy/imported row
+    // could lack a sponsor, and the admin must still be able to save other
+    // fields (review H2).
+    if (
+      editData.paymentStatus === "INCLUSIVE" &&
+      editData.paymentStatus !== selectedRegistration.paymentStatus &&
+      !editData.sponsorId
+    ) {
+      toast.error("Pick a sponsor before marking this registration Inclusive.");
+      return;
+    }
     updateRegistration.mutate(
       {
         id: selectedRegistration.id,
-        // Optimistic-lock token + per-field normalization (null vs
-        // undefined, payer-triplet atomicity) all live in
-        // toServerPayload — see registration-edit-mapping.ts.
-        data: toServerPayload(editData, selectedRegistration.updatedAt),
+        // Optimistic-lock token + per-field normalization (null vs undefined,
+        // payer-triplet atomicity) live in toServerPayload. The third arg is the
+        // loaded row's edit-shape so reg-level fields are sent only when changed
+        // (review H1) — see registration-edit-mapping.ts.
+        data: toServerPayload(
+          editData,
+          selectedRegistration.updatedAt,
+          toEditData(selectedRegistration),
+        ),
       },
       {
         // Only exit edit mode on success — keep user input on error so they can retry
@@ -1136,14 +1166,9 @@ export function RegistrationDetailSheet({
                       </div>
                     ) : (
                       <Select
-                        value={selectedRegistration.ticketType?.id ?? ""}
-                        onValueChange={(value) =>
-                          updateRegistration.mutate({
-                            id: selectedRegistration.id,
-                            data: { ticketTypeId: value },
-                          })
-                        }
-                        disabled={updateRegistration.isPending}
+                        value={isEditing ? editData.ticketTypeId : (selectedRegistration.ticketType?.id ?? "")}
+                        onValueChange={(value) => setEditData((p) => ({ ...p, ticketTypeId: value }))}
+                        disabled={!isEditing || updateRegistration.isPending}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -1162,26 +1187,24 @@ export function RegistrationDetailSheet({
                     <Label>Badge Type</Label>
                     {(() => {
                       const BADGE_TYPES = ["Delegate", "Faculty", "Exhibitor", "Committee", "Chairman", "Co-Chairman"];
-                      const currentBadge = selectedRegistration.badgeType || "Delegate";
-                      const isCustom = !BADGE_TYPES.includes(currentBadge) && currentBadge !== "Custom";
+                      // Staged in the edit form (no auto-save). Source from editData
+                      // while editing, from the row while viewing (read-only).
+                      const rawBadge = (isEditing ? editData.badgeType : selectedRegistration.badgeType) || "Delegate";
+                      const isCustom = badgeCustomOpen || (rawBadge !== "" && !BADGE_TYPES.includes(rawBadge));
                       return (
                         <>
                           <Select
-                            value={isCustom ? "Custom" : currentBadge}
+                            value={isCustom ? "Custom" : rawBadge}
                             onValueChange={(value) => {
                               if (value === "Custom") {
-                                updateRegistration.mutate({
-                                  id: selectedRegistration.id,
-                                  data: { badgeType: "" },
-                                });
+                                setBadgeCustomOpen(true);
+                                setEditData((p) => ({ ...p, badgeType: "" }));
                               } else {
-                                updateRegistration.mutate({
-                                  id: selectedRegistration.id,
-                                  data: { badgeType: value },
-                                });
+                                setBadgeCustomOpen(false);
+                                setEditData((p) => ({ ...p, badgeType: value }));
                               }
                             }}
-                            disabled={updateRegistration.isPending}
+                            disabled={!isEditing || updateRegistration.isPending}
                           >
                             <SelectTrigger>
                               <SelectValue />
@@ -1193,26 +1216,11 @@ export function RegistrationDetailSheet({
                               <SelectItem value="Custom">Custom...</SelectItem>
                             </SelectContent>
                           </Select>
-                          {(isCustom || currentBadge === "" || currentBadge === "Custom") && (
+                          {isEditing && isCustom && (
                             <Input
                               placeholder="Enter custom badge type"
-                              defaultValue={isCustom ? currentBadge : ""}
-                              onBlur={(e) => {
-                                if (e.target.value.trim()) {
-                                  updateRegistration.mutate({
-                                    id: selectedRegistration.id,
-                                    data: { badgeType: e.target.value.trim() },
-                                  });
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
-                                  updateRegistration.mutate({
-                                    id: selectedRegistration.id,
-                                    data: { badgeType: (e.target as HTMLInputElement).value.trim() },
-                                  });
-                                }
-                              }}
+                              value={editData.badgeType}
+                              onChange={(e) => setEditData((p) => ({ ...p, badgeType: e.target.value }))}
                             />
                           )}
                         </>
@@ -1235,14 +1243,9 @@ export function RegistrationDetailSheet({
                 <div className="space-y-2">
                   <Label>Attendance</Label>
                   <Select
-                    value={selectedRegistration.attendanceMode ?? "IN_PERSON"}
-                    onValueChange={(value) =>
-                      updateRegistration.mutate({
-                        id: selectedRegistration.id,
-                        data: { attendanceMode: value },
-                      })
-                    }
-                    disabled={updateRegistration.isPending}
+                    value={isEditing ? editData.attendanceMode : (selectedRegistration.attendanceMode ?? "IN_PERSON")}
+                    onValueChange={(value) => setEditData((p) => ({ ...p, attendanceMode: value }))}
+                    disabled={!isEditing || updateRegistration.isPending}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1391,14 +1394,9 @@ export function RegistrationDetailSheet({
                   <div className="space-y-2">
                     <Label>Registration Status</Label>
                     <Select
-                      value={selectedRegistration.status}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { status: value },
-                        })
-                      }
-                      disabled={updateRegistration.isPending}
+                      value={isEditing ? editData.status : selectedRegistration.status}
+                      onValueChange={(value) => setEditData((p) => ({ ...p, status: value }))}
+                      disabled={!isEditing || updateRegistration.isPending}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -1415,24 +1413,11 @@ export function RegistrationDetailSheet({
                   <div className="space-y-2">
                     <Label>Payment Status</Label>
                     <Select
-                      value={selectedRegistration.paymentStatus}
-                      onValueChange={(value) => {
-                        // When flipping to INCLUSIVE, require a sponsor pick before
-                        // sending the mutation — the server validates it but a
-                        // client-side guard avoids a useless round-trip + a confusing
-                        // 400 toast. If no sponsor is currently set on the
-                        // registration, prompt the user to pick one via the sponsor
-                        // dropdown below; do NOT send the mutation yet.
-                        if (value === "INCLUSIVE" && !selectedRegistration.sponsorId) {
-                          toast.error("Pick a sponsor below before marking this Inclusive.");
-                          return;
-                        }
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { paymentStatus: value },
-                        });
-                      }}
-                      disabled={updateRegistration.isPending}
+                      value={isEditing ? editData.paymentStatus : selectedRegistration.paymentStatus}
+                      // Staged into the edit form; the "INCLUSIVE needs a sponsor"
+                      // guard runs at Save time (saveEdits) instead of on change.
+                      onValueChange={(value) => setEditData((p) => ({ ...p, paymentStatus: value }))}
+                      disabled={!isEditing || updateRegistration.isPending}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -1449,11 +1434,9 @@ export function RegistrationDetailSheet({
                 </div>
               )}
 
-              {/* Sponsor picker — only relevant when the registration is INCLUSIVE.
-                  Shown in the edit area (above the Payment Summary). Picking from
-                  here triggers an immediate update, same as the other inline
-                  selects in this section. */}
-              {isEditing && selectedRegistration.paymentStatus === "INCLUSIVE" && (
+              {/* Sponsor picker — only relevant when the (staged) payment status
+                  is INCLUSIVE. Staged into the edit form; committed by Save. */}
+              {isEditing && editData.paymentStatus === "INCLUSIVE" && (
                 <div className="space-y-2">
                   <Label>Sponsored by</Label>
                   {sponsors.length === 0 ? (
@@ -1469,13 +1452,8 @@ export function RegistrationDetailSheet({
                     </p>
                   ) : (
                     <Select
-                      value={selectedRegistration.sponsorId ?? ""}
-                      onValueChange={(value) =>
-                        updateRegistration.mutate({
-                          id: selectedRegistration.id,
-                          data: { sponsorId: value },
-                        })
-                      }
+                      value={editData.sponsorId}
+                      onValueChange={(value) => setEditData((p) => ({ ...p, sponsorId: value }))}
                       disabled={updateRegistration.isPending}
                     >
                       <SelectTrigger>
@@ -1497,18 +1475,18 @@ export function RegistrationDetailSheet({
               {/* "Charge to another account" — reassign the payer post-hoc.
                   This is also the fallback control: setting it back to
                   self-pay reverts an unpaid third-party invoice to the
-                  attendee. Orthogonal to paymentStatus. Immediate-update on
-                  change, like the other inline selects in this section. */}
+                  attendee. Orthogonal to paymentStatus. Staged into the edit
+                  form; committed by Save. */}
               {isEditing && (
                 <div className="space-y-2">
                   <Label>Charge to (billing account)</Label>
                   <Select
-                    value={selectedRegistration.billingAccountId ?? "__self__"}
+                    value={editData.billingAccountId || "__self__"}
                     onValueChange={(value) =>
-                      updateRegistration.mutate({
-                        id: selectedRegistration.id,
-                        data: { billingAccountId: value === "__self__" ? null : value },
-                      })
+                      setEditData((p) => ({
+                        ...p,
+                        billingAccountId: value === "__self__" ? "" : value,
+                      }))
                     }
                     disabled={updateRegistration.isPending}
                   >
@@ -1522,12 +1500,13 @@ export function RegistrationDetailSheet({
                           include it. Render it as a synthetic option so the
                           dropdown reflects the actual state and the user can
                           consciously keep or change it. */}
-                      {selectedRegistration.billingAccountId &&
+                      {editData.billingAccountId &&
+                        editData.billingAccountId === selectedRegistration.billingAccountId &&
                         selectedRegistration.billingAccount &&
                         !billingAccounts.some(
-                          (ba) => ba.id === selectedRegistration.billingAccountId,
+                          (ba) => ba.id === editData.billingAccountId,
                         ) && (
-                          <SelectItem value={selectedRegistration.billingAccountId}>
+                          <SelectItem value={editData.billingAccountId}>
                             {selectedRegistration.billingAccount.name} (no longer attached to this event)
                           </SelectItem>
                         )}
@@ -1538,18 +1517,12 @@ export function RegistrationDetailSheet({
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedRegistration.billingAccountId && (
+                  {editData.billingAccountId && (
                     <>
                       <Input
                         value={editData.payerReference}
                         onChange={(e) =>
                           setEditData((p) => ({ ...p, payerReference: e.target.value }))
-                        }
-                        onBlur={() =>
-                          updateRegistration.mutate({
-                            id: selectedRegistration.id,
-                            data: { payerReference: editData.payerReference.trim() || null },
-                          })
                         }
                         placeholder="PO / grant reference (printed on invoice)"
                       />
@@ -1557,12 +1530,9 @@ export function RegistrationDetailSheet({
                         <input
                           type="checkbox"
                           className="mt-0.5"
-                          checked={selectedRegistration.attendeeIsGuarantor}
+                          checked={editData.attendeeIsGuarantor}
                           onChange={(e) =>
-                            updateRegistration.mutate({
-                              id: selectedRegistration.id,
-                              data: { attendeeIsGuarantor: e.target.checked },
-                            })
+                            setEditData((p) => ({ ...p, attendeeIsGuarantor: e.target.checked }))
                           }
                         />
                         Attendee is guarantor — if the payer doesn&apos;t settle,
@@ -1737,16 +1707,12 @@ export function RegistrationDetailSheet({
                           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 space-y-2">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pricing tier</p>
                             <Select
-                              value={selectedRegistration.pricingTier?.id ?? "__base__"}
-                              onValueChange={(v) => {
-                                const next = v === "__base__" ? null : v;
-                                if ((next ?? null) === (selectedRegistration.pricingTier?.id ?? null)) return;
-                                updateRegistration.mutate({
-                                  id: selectedRegistration.id,
-                                  data: { pricingTierId: next, expectedUpdatedAt: selectedRegistration.updatedAt },
-                                });
-                              }}
-                              disabled={updateRegistration.isPending}
+                              // Staged pick (no save-on-change) — committed by the
+                              // Apply button below. Shows the staged value if the
+                              // user has picked one, else the current tier.
+                              value={pendingTierId ?? (selectedRegistration.pricingTier?.id ?? "__base__")}
+                              onValueChange={(v) => setPendingTierId(v)}
+                              disabled={tierApplying || updateRegistration.isPending}
                             >
                               <SelectTrigger className="h-9">
                                 <SelectValue />
@@ -1761,8 +1727,42 @@ export function RegistrationDetailSheet({
                                 ))}
                               </SelectContent>
                             </Select>
+                            {pendingTierId !== null &&
+                              pendingTierId !== (selectedRegistration.pricingTier?.id ?? "__base__") && (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="h-8"
+                                    disabled={tierApplying}
+                                    onClick={() => {
+                                      const next = pendingTierId === "__base__" ? null : pendingTierId;
+                                      setTierApplying(true);
+                                      updateRegistration.mutate(
+                                        {
+                                          id: selectedRegistration.id,
+                                          data: { pricingTierId: next, expectedUpdatedAt: selectedRegistration.updatedAt },
+                                        },
+                                        {
+                                          onSuccess: () => setPendingTierId(null),
+                                          onSettled: () => setTierApplying(false),
+                                        },
+                                      );
+                                    }}
+                                  >
+                                    {tierApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply tier"}
+                                  </Button>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-slate-600 underline underline-offset-2 hover:text-slate-900 disabled:opacity-50"
+                                    disabled={tierApplying}
+                                    onClick={() => setPendingTierId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
                             <p className="text-[11px] text-muted-foreground">
-                              Give a courtesy rate (e.g. Early Bird) — updates the price. Unpaid only.
+                              Give a courtesy rate (e.g. Early Bird) — click Apply to update the price. Unpaid only.
                             </p>
                           </div>
                         );
