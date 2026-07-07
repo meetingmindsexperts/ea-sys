@@ -12,7 +12,6 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
   MapPin,
-  Clock,
   Loader2,
   AlertCircle,
   Lock,
@@ -296,10 +295,6 @@ function CompleteRegistrationContent() {
             <div className="flex items-center gap-1.5 text-sm text-slate-500">
               <Calendar className="h-3.5 w-3.5 text-primary/70" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-sm text-slate-500">
-              <Clock className="h-3.5 w-3.5 text-primary/70" />
-              <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
             {locationParts.length > 0 && (
               <div className="flex items-center gap-1.5 text-sm text-slate-500">

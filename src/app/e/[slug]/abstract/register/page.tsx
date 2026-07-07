@@ -13,7 +13,6 @@ import { sanitizeHtml } from "@/lib/sanitize";
 import {
   Calendar,
   MapPin,
-  Clock,
   Loader2,
   CheckCircle2,
   FileText,
@@ -120,10 +119,6 @@ function BrandedShell({ event, children }: { event: Event; children: ReactNode }
             <div className="flex items-center gap-1.5 text-base text-slate-500">
               <Calendar className="h-4 w-4 text-primary/70" />
               <span>{format(new Date(event.startDate), "MMM d, yyyy")}</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-base text-slate-500">
-              <Clock className="h-4 w-4 text-primary/70" />
-              <span>{format(new Date(event.startDate), "h:mm a")}</span>
             </div>
             {locationParts.length > 0 && (
               <div className="flex items-center gap-1.5 text-base text-slate-500">
