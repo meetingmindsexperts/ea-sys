@@ -451,7 +451,11 @@ export function RegistrationDetailSheet({
 
   const handleRefundClick = () => {
     if (!selectedRegistration) return;
-    if (confirm("Issue a full refund via Stripe? This cannot be undone.")) {
+    if (
+      confirm(
+        "Issue a full refund? Stripe payments are reversed automatically; offline payments (cash / bank transfer / card-onsite) must be returned to the attendee manually. Either way this marks the registration Refunded and issues a credit note. It cannot be undone.",
+      )
+    ) {
       issueRefund.mutate(selectedRegistration.id);
     }
   };
@@ -517,10 +521,15 @@ export function RegistrationDetailSheet({
   const issueRefund = useMutation({
     mutationFn: (id: string) =>
       apiPostJson(`/api/events/${eventId}/registrations/${id}/refund`),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       setSelectedRegistration((prev) => prev ? { ...prev, paymentStatus: "REFUNDED" } : prev);
-      toast.success("Refund issued successfully");
+      const manual = (data as { manual?: boolean } | null | undefined)?.manual;
+      toast.success(
+        manual
+          ? "Offline refund recorded — marked Refunded + credit note issued. Return the money to the attendee manually."
+          : "Refund issued via Stripe",
+      );
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -1259,7 +1268,8 @@ export function RegistrationDetailSheet({
                   tab for ALL roles incl. MEMBER — the tier NAME is
                   operational, only the tier PRICE is financial, so it must
                   not be buried in the finance-gated Payment Summary. */}
-              <div className="space-y-2">
+                {/* Krishna commented this code, no need to put this back */}
+              {/* <div className="space-y-2">
                 <Label>Pricing Tier</Label>
                 <div className="bg-muted p-3 rounded-lg">
                   {selectedRegistration.pricingTier?.name ? (
@@ -1272,7 +1282,7 @@ export function RegistrationDetailSheet({
                     </span>
                   )}
                 </div>
-              </div>
+              </div> */}
 
               {/* Payment block — finance-gated (showFinance hides it for
                   MEMBER; `financials` is also absent in MEMBER payloads).

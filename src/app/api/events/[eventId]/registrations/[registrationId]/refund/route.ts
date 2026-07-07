@@ -9,6 +9,7 @@ import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandin
 import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { refreshEventStats } from "@/lib/event-stats";
 
 export async function POST(
@@ -39,10 +40,15 @@ export async function POST(
           serialId: true,
           eventId: true,
           paymentStatus: true,
+          // originalPrice/discountAmount + tier/ticket price feed the computed
+          // refund amount when there's no Payment row to read (a PAID reg that
+          // was hand-flipped without recording a payment).
+          originalPrice: true,
+          discountAmount: true,
           attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true, title: true } },
-          ticketType: { select: { name: true, currency: true } },
-          pricingTier: { select: { currency: true } },
-          event: { select: { id: true, organizationId: true, name: true, startDate: true } },
+          ticketType: { select: { name: true, price: true, currency: true } },
+          pricingTier: { select: { price: true, currency: true } },
+          event: { select: { id: true, organizationId: true, name: true, startDate: true, taxRate: true, taxLabel: true } },
           payments: {
             where: { status: "PAID" },
             orderBy: { createdAt: "desc" },
@@ -63,17 +69,37 @@ export async function POST(
       return NextResponse.json({ error: "Registration is not in a paid state" }, { status: 400 });
     }
 
+    // Most recent PAID payment. A Stripe payment carries a `stripePaymentId`;
+    // a MANUAL/offline payment (cash / bank transfer / card-onsite) does not.
+    // A PAID registration with no Payment row at all (admin hand-flipped the
+    // status) is treated as a manual refund too — there's nothing to reverse in
+    // Stripe, we just record the reversal + issue a credit note.
     const payment = registration.payments[0];
-    if (!payment?.stripePaymentId) {
-      return NextResponse.json({ error: "No Stripe payment found for this registration" }, { status: 400 });
-    }
+    const isManualRefund = !payment?.stripePaymentId;
 
-    const currency = (payment.currency || registration.pricingTier?.currency || registration.ticketType?.currency || "USD").toUpperCase();
-    const amount = Number(payment.amount);
+    // Resolve the refunded amount + currency for the email / notification / log.
+    // From the payment row when present; else computed from the registration
+    // (tax-inclusive total, matching the manual-payment capture).
+    const currency = (
+      payment?.currency ||
+      registration.pricingTier?.currency ||
+      registration.ticketType?.currency ||
+      "USD"
+    ).toUpperCase();
+    const amount = payment
+      ? Number(payment.amount)
+      : computeRegistrationFinancials({
+          subtotal: readRegistrationBasePrice(registration),
+          discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+          taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
+          taxLabel: registration.event.taxLabel,
+          currency,
+          totalPaid: 0,
+        }).total;
     const formattedAmount = `${currency} ${amount.toFixed(2)}`;
 
-    // Optimistic lock: mark as REFUNDED in DB before calling Stripe to prevent
-    // concurrent duplicate refund requests from both reaching Stripe.
+    // Optimistic lock: mark REFUNDED in DB first so two concurrent refund clicks
+    // can't both reach Stripe / both record a reversal.
     const locked = await db.registration.updateMany({
       where: { id: registrationId, paymentStatus: "PAID" },
       data: { paymentStatus: "REFUNDED" },
@@ -82,39 +108,57 @@ export async function POST(
       return NextResponse.json({ error: "Registration is no longer in a paid state" }, { status: 409 });
     }
 
-    // Issue refund via Stripe — idempotency key prevents duplicate charges on retries
-    let refund: { id: string; status: string | null };
-    try {
-      const stripe = getStripe();
-      refund = await stripe.refunds.create(
-        { payment_intent: payment.stripePaymentId },
-        { idempotencyKey: `refund-${payment.id}` }
-      );
-    } catch (stripeErr) {
-      // Stripe call failed — roll back the optimistic lock so the admin can retry
-      await db.registration.update({
-        where: { id: registrationId },
-        data: { paymentStatus: "PAID" },
-      }).catch((rollbackErr) => apiLogger.error({ rollbackErr, msg: "Failed to roll back optimistic lock after Stripe error", registrationId }));
-      apiLogger.error({ err: stripeErr, msg: "Stripe refund failed", registrationId, paymentIntentId: payment.stripePaymentId });
-      return NextResponse.json({ error: "Refund could not be processed. Please try again or issue the refund directly in Stripe." }, { status: 502 });
+    let stripeRefundId: string | null = null;
+    if (isManualRefund) {
+      // Offline refund — no Stripe charge to reverse. The organizer returns the
+      // money out-of-band (reverses the transfer / hands cash back); we record
+      // the reversal, flip the Payment row (if any), and issue a credit note.
+      apiLogger.info({
+        msg: "Manual/offline refund recorded (no Stripe charge to reverse)",
+        registrationId,
+        eventId,
+        paymentId: payment?.id ?? null,
+        amount,
+        currency,
+        issuedBy: session.user.id,
+      });
+    } else {
+      // Issue the refund via Stripe — idempotency key prevents a duplicate on retries.
+      try {
+        const stripe = getStripe();
+        const refund = await stripe.refunds.create(
+          { payment_intent: payment!.stripePaymentId! },
+          { idempotencyKey: `refund-${payment!.id}` }
+        );
+        stripeRefundId = refund.id;
+      } catch (stripeErr) {
+        // Stripe call failed — roll back the optimistic lock so the admin can retry.
+        await db.registration.update({
+          where: { id: registrationId },
+          data: { paymentStatus: "PAID" },
+        }).catch((rollbackErr) => apiLogger.error({ rollbackErr, msg: "Failed to roll back optimistic lock after Stripe error", registrationId }));
+        apiLogger.error({ err: stripeErr, msg: "Stripe refund failed", registrationId, paymentIntentId: payment!.stripePaymentId });
+        return NextResponse.json({ error: "Refund could not be processed. Please try again or issue the refund directly in Stripe." }, { status: 502 });
+      }
+      apiLogger.info({
+        msg: "Refund issued",
+        registrationId,
+        eventId,
+        stripeRefundId,
+        amount,
+        currency,
+        issuedBy: session.user.id,
+      });
     }
 
-    // Update Payment record status
-    await db.payment.update({
-      where: { id: payment.id },
-      data: { status: "REFUNDED" },
-    });
-
-    apiLogger.info({
-      msg: "Refund issued",
-      registrationId,
-      eventId,
-      stripeRefundId: refund.id,
-      amount,
-      currency,
-      issuedBy: session.user.id,
-    });
+    // Flip the Payment record to REFUNDED (if one exists — a hand-flipped PAID
+    // reg may have none). Keeps the Payment row consistent with the registration.
+    if (payment) {
+      await db.payment.update({
+        where: { id: payment.id },
+        data: { status: "REFUNDED" },
+      });
+    }
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
@@ -139,7 +183,7 @@ export async function POST(
           registrationId,
           eventId,
           organizationId: session.user.organizationId!,
-          reason: `Admin-initiated refund of ${formattedAmount}`,
+          reason: `${isManualRefund ? "Offline" : "Stripe"} refund of ${formattedAmount}`,
         });
         await sendInvoiceEmail(cn.id);
       } catch (cnErr) {
@@ -147,7 +191,11 @@ export async function POST(
       }
     })();
 
-    return NextResponse.json({ refundId: refund.id, status: refund.status });
+    return NextResponse.json({
+      refundId: stripeRefundId,
+      manual: isManualRefund,
+      status: stripeRefundId ? "succeeded" : "recorded",
+    });
   } catch (err) {
     apiLogger.error({ err, msg: "Failed to issue refund", registrationId, eventId });
     return NextResponse.json({ error: "Failed to issue refund" }, { status: 500 });

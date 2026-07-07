@@ -149,20 +149,31 @@ describe("Refund: business rule validations", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 when no Stripe payment record exists", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({ ...sampleRegistration, payments: [] });
+  // Manual/offline refund (option A): a PAID reg with no payment row (admin
+  // hand-flipped) or a payment with no stripePaymentId (cash/bank/card-onsite)
+  // is refundable WITHOUT Stripe — it used to 400 "No Stripe payment found".
+  it("records a manual/offline refund when there's no payment row (hand-flipped PAID)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({ ...sampleRegistration, originalPrice: 150, payments: [] });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     const res = await POST(makeRequest(), makeParams());
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ error: "No Stripe payment found for this registration" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).manual).toBe(true);
+    expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
+    expect(mockDb.payment.update).not.toHaveBeenCalled(); // nothing to flip
   });
 
-  it("returns 400 when payment has no stripePaymentId", async () => {
+  it("records a manual/offline refund when the payment has no stripePaymentId (cash/bank/card-onsite)", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
       ...sampleRegistration,
       payments: [{ id: "pay-1", stripePaymentId: null, amount: 150, currency: "USD" }],
     });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.payment.update.mockResolvedValue({});
     const res = await POST(makeRequest(), makeParams());
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect((await res.json()).manual).toBe(true);
+    expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { status: "REFUNDED" } });
   });
 });
 
