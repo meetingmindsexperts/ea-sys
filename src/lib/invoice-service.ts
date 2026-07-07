@@ -455,39 +455,8 @@ export async function createCreditNote(params: {
     include: registrationInclude,
   });
 
-  const { price, currency, discount, discountCode, taxRate, taxAmount, total: fullTotal } =
+  const { price, currency, discount, discountCode, taxRate, total: fullTotal } =
     calcInvoicePricing(registration);
-
-  // Sum what's already credited (non-cancelled credit notes) to cap the total.
-  const existingCns = await db.invoice.findMany({
-    where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
-    select: { total: true },
-  });
-  const creditedBefore = round2(existingCns.reduce((s, c) => s + Number(c.total), 0));
-  const outstanding = round2(fullTotal - creditedBefore);
-
-  const amt = amount != null ? round2(amount) : outstanding;
-  if (amt <= 0) {
-    throw new CreditNoteAmountError(
-      "INVALID_AMOUNT",
-      "Credit note amount must be greater than zero.",
-      { paidTotal: fullTotal, creditedBefore, outstanding, currency },
-    );
-  }
-  if (amt > outstanding + 0.005) {
-    throw new CreditNoteAmountError(
-      "CREDIT_LIMIT_EXCEEDED",
-      `Credit note amount ${currency} ${amt.toFixed(2)} exceeds the outstanding ${currency} ${outstanding.toFixed(2)}.`,
-      { paidTotal: fullTotal, creditedBefore, outstanding, currency },
-    );
-  }
-
-  // Scale the frozen pricing components proportionally for a partial credit.
-  const ratio = fullTotal > 0 ? amt / fullTotal : 0;
-  const cnSubtotal = round2(price * ratio);
-  const cnDiscount = round2(discount * ratio);
-  const cnTax = round2(taxAmount * ratio);
-  const coversFull = amt >= fullTotal - 0.005;
 
   const eventCode = await resolveEventCode(
     { id: eventId, code: registration.event.code, name: registration.event.name },
@@ -505,7 +474,49 @@ export async function createCreditNote(params: {
     parentId = existingInvoice?.id || undefined;
   }
 
-  const creditNote = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  // The whole cap check + create runs inside ONE transaction under a row lock on
+  // the registration, so two concurrent Issue-Credit-Note calls (double-click, or
+  // organizer + webhook) serialize — the sum-of-existing-credit-notes cap is
+  // re-read after the lock, so they can never both slip past it and over-credit.
+  const { creditNote, creditedBefore, amt } = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Serialize concurrent credit-note issues for this registration. The lock is
+    // held for the duration of the tx (works through the pgbouncer transaction
+    // pooler — single backend per tx), same pattern as updateEventSettings.
+    await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+
+    // Re-read the already-credited sum INSIDE the lock to cap the total.
+    const existingCns = await tx.invoice.findMany({
+      where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
+      select: { total: true },
+    });
+    const creditedBefore = round2(existingCns.reduce((s, c) => s + Number(c.total), 0));
+    const outstanding = round2(fullTotal - creditedBefore);
+
+    const amt = amount != null ? round2(amount) : outstanding;
+    if (amt <= 0) {
+      throw new CreditNoteAmountError(
+        "INVALID_AMOUNT",
+        "Credit note amount must be greater than zero.",
+        { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+      );
+    }
+    if (amt > outstanding + 0.005) {
+      throw new CreditNoteAmountError(
+        "CREDIT_LIMIT_EXCEEDED",
+        `Credit note amount ${currency} ${amt.toFixed(2)} exceeds the outstanding ${currency} ${outstanding.toFixed(2)}.`,
+        { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+      );
+    }
+
+    // Scale the frozen pricing components proportionally for a partial credit.
+    // Reconcile the last component (tax) to the remainder so subtotal − discount
+    // + tax === total to the cent, even when independent rounding would drift.
+    const ratio = fullTotal > 0 ? amt / fullTotal : 0;
+    const cnSubtotal = round2(price * ratio);
+    const cnDiscount = round2(discount * ratio);
+    const cnTax = round2(amt - (cnSubtotal - cnDiscount));
+    const coversFull = amt >= fullTotal - 0.005;
+
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "CREDIT_NOTE", eventCode
     );
@@ -519,7 +530,7 @@ export async function createCreditNote(params: {
       });
     }
 
-    return tx.invoice.create({
+    const creditNote = await tx.invoice.create({
       data: {
         organizationId,
         eventId,
@@ -541,6 +552,7 @@ export async function createCreditNote(params: {
         notes: reason || (coversFull ? "Full refund" : `Partial credit ${currency} ${amt.toFixed(2)}`),
       },
     });
+    return { creditNote, creditedBefore, amt };
   });
 
   const creditedAfter = round2(creditedBefore + amt);

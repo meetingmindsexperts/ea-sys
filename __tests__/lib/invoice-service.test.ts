@@ -151,9 +151,15 @@ const fakeRegistration = {
 
 // ── Helper: set up transaction mock ──────────────────────────────────────────
 
-function setupTxMock(onData?: (data: Record<string, unknown>) => void) {
+function setupTxMock(
+  onData?: (data: Record<string, unknown>) => void,
+  txExistingCns: Array<{ total: string }> = [],
+) {
   mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
     const txMock = {
+      // createCreditNote locks the registration row + re-reads the credited
+      // sum INSIDE the tx (atomic cap). $queryRaw is the FOR UPDATE lock.
+      $queryRaw: vi.fn().mockResolvedValue([]),
       invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
       invoice: {
         // `createPaidInvoice` probes for an existing SENT/DRAFT/OVERDUE
@@ -161,6 +167,8 @@ function setupTxMock(onData?: (data: Record<string, unknown>) => void) {
         // callers exercise the create path unless they explicitly
         // override via `mockFindFirst.mockResolvedValueOnce(...)`.
         findFirst: mockFindFirst.mockResolvedValue(null),
+        // In-tx credited-sum re-read for the atomic credit-note cap.
+        findMany: vi.fn().mockResolvedValue(txExistingCns),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn().mockResolvedValue({}),
         create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
@@ -525,9 +533,11 @@ describe("createCreditNote", () => {
     let parentMarkedRefunded = false;
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([]),
         invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
         invoice: {
           findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]), // no prior credit notes
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
           update: vi.fn().mockImplementation(() => { parentMarkedRefunded = true; return {}; }),
           create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
@@ -554,9 +564,9 @@ describe("createCreditNote", () => {
   });
 
   it("allows a second credit note up to the remaining outstanding", async () => {
-    mockFindMany.mockResolvedValue([{ total: "100.00" }]); // already credited 100 of 105
     let captured: Record<string, unknown> = {};
-    setupTxMock((data) => { captured = data; });
+    // Already credited 100 of 105 (in-tx re-read).
+    setupTxMock((data) => { captured = data; }, [{ total: "100.00" }]);
 
     const result = await createCreditNote({
       registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", // amount omitted → outstanding 5
@@ -567,8 +577,8 @@ describe("createCreditNote", () => {
     expect(captured.total).toBe(5);
   });
 
-  it("throws CREDIT_LIMIT_EXCEEDED when the amount exceeds the outstanding", async () => {
-    mockFindMany.mockResolvedValue([{ total: "100.00" }]); // outstanding is 5
+  it("throws CREDIT_LIMIT_EXCEEDED when the amount exceeds the outstanding (checked inside the tx/lock)", async () => {
+    setupTxMock(undefined, [{ total: "100.00" }]); // outstanding is 5
 
     await expect(
       createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 50 }),
@@ -576,9 +586,37 @@ describe("createCreditNote", () => {
   });
 
   it("throws INVALID_AMOUNT for a non-positive amount", async () => {
+    setupTxMock();
     await expect(
       createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 0 }),
     ).rejects.toMatchObject({ code: "INVALID_AMOUNT" });
+  });
+
+  it("acquires a FOR UPDATE row lock inside the tx before re-reading the credited sum (H1)", async () => {
+    const calls: string[] = [];
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+      const txMock = {
+        $queryRaw: vi.fn().mockImplementation(() => { calls.push("lock"); return Promise.resolve([]); }),
+        invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+        invoice: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockImplementation(() => { calls.push("read-credited"); return Promise.resolve([]); }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          update: vi.fn().mockResolvedValue({}),
+          create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+            calls.push("create");
+            return { id: "inv-1", ...args.data };
+          }),
+        },
+      };
+      return cb(txMock);
+    });
+
+    await createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 42 });
+
+    // Lock BEFORE the credited-sum read BEFORE the create — the ordering that
+    // makes the cap atomic under concurrent issues.
+    expect(calls).toEqual(["lock", "read-credited", "create"]);
   });
 });
 

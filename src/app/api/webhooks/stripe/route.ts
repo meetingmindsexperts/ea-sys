@@ -258,7 +258,16 @@ export async function POST(req: Request) {
       // — supports partial + repeated Dashboard refunds. Reconcile our running
       // `Registration.refundedAmount` up to it.
       const cumulativeRefunded = round2(fromStripeAmount(charge.amount_refunded, charge.currency));
-      const paidTotal = round2(Number(payment.amount));
+      // `paidTotal` is the FULL collected total for the registration — the sum of
+      // ALL PAID payments (a reg can hold a Stripe charge + a manual/offline
+      // capture). Deriving it from this single PaymentIntent's row would flag a
+      // full refund of one charge as "fully refunded" and mislabel the whole reg,
+      // stranding the rest. Matches the refund route's paidTotal derivation.
+      const paidAgg = await db.payment.aggregate({
+        where: { registrationId: payment.registrationId, status: "PAID" },
+        _sum: { amount: true },
+      });
+      const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
       const already = round2(Number(payment.registration.refundedAmount));
       const delta = round2(cumulativeRefunded - already);
       const isFull = cumulativeRefunded >= paidTotal - 0.005;

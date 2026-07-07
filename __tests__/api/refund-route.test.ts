@@ -235,15 +235,12 @@ describe("refund — guards", () => {
     expect(res.status).toBe(403);
   });
 
-  it("does not email the credit note (organizer sends it manually)", async () => {
+  it("sends NO automatic email — the organizer communicates the refund manually", async () => {
     mockDb.registration.findUnique.mockResolvedValue(
       registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
     );
     await POST(req(), { params });
     await flush();
-    // refund confirmation email goes to the attendee, but no invoice/CN email
-    // is triggered from this route.
-    expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-    expect(sendEmailSpy.mock.calls[0][0].emailType).toBe("refund_confirmation");
+    expect(sendEmailSpy).not.toHaveBeenCalled();
   });
 });

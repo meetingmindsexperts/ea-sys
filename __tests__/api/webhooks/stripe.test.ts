@@ -25,6 +25,7 @@ const {
         create: vi.fn(),
         findUnique: vi.fn(),
         update: vi.fn(),
+        aggregate: vi.fn(),
       },
       $transaction: vi.fn(),
     },
@@ -192,6 +193,8 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb.payment.update.mockResolvedValue({});
+    // Default: the reg's only PAID payment is this $100 Stripe charge.
+    mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
     createCreditNoteMock.mockResolvedValue({ invoice: { id: "cn1" }, created: true });
   });
 
@@ -230,6 +233,24 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { status: "REFUNDED" } });
     await flush();
     expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
+  });
+
+  it("H2: full refund of ONE charge on a multi-payment reg keeps PAID (paidTotal = sum of all PAID)", async () => {
+    // Reg collected $100 = $60 Stripe + $40 manual. Dashboard fully refunds the
+    // $60 Stripe charge. paidTotal must be $100 (aggregate), so isFull is false.
+    mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 6000 })); // $60 refunded
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 60)); // this charge is $60
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", refundedAmount: { lt: 60 } },
+      data: { refundedAmount: 60 }, // NO REFUNDED flip — $40 manual still owed
+    });
+    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    await flush();
+    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 60 }));
   });
 
   it("reconciles a PARTIAL Dashboard refund → keeps PAID, credit note for the delta", async () => {

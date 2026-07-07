@@ -6,8 +6,6 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getStripe, toStripeAmount } from "@/lib/stripe";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
-import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -244,9 +242,10 @@ export async function POST(
       link: `/events/${eventId}/registrations`,
     }).catch((err: unknown) => apiLogger.error({ err, msg: "Failed to send refund admin notification" }));
 
-    sendRefundConfirmationEmail(registration, formattedAmount).catch((err: unknown) =>
-      apiLogger.error({ err, msg: "Failed to send refund confirmation email", registrationId })
-    );
+    // NOTE: no automatic refund-confirmation email is sent to the attendee.
+    // The organizer communicates the refund manually (consistent with the
+    // credit-note flow, which is also organizer-sent). The admin notification
+    // above is in-app only.
 
     return NextResponse.json({
       refundId: stripeRefundId,
@@ -264,70 +263,3 @@ export async function POST(
   }
 }
 
-async function sendRefundConfirmationEmail(
-  registration: {
-    id: string;
-    serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
-    ticketType: { name: string } | null;
-    event: { id: string; organizationId: string; name: string; startDate: Date };
-  },
-  formattedAmount: string
-) {
-  const eventDate = new Intl.DateTimeFormat("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  }).format(new Date(registration.event.startDate));
-
-  const refundDate = new Intl.DateTimeFormat("en-US", {
-    year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit",
-  }).format(new Date());
-
-  const displayRegistrationId =
-    registration.serialId != null
-      ? String(registration.serialId).padStart(3, "0")
-      : registration.id;
-
-  const vars: Record<string, string> = {
-    title: getTitleLabel(registration.attendee.title),
-    firstName: registration.attendee.firstName,
-    lastName: registration.attendee.lastName,
-    eventName: registration.event.name,
-    eventDate,
-    registrationId: displayRegistrationId,
-    ticketType: registration.ticketType?.name ?? "General",
-    amount: formattedAmount,
-    refundDate,
-  };
-
-  const tpl = await getEventTemplate(registration.event.id, "refund-confirmation");
-  const template = tpl || getDefaultTemplate("refund-confirmation");
-  if (!template) {
-    apiLogger.warn({ msg: "No refund-confirmation template found" });
-    return;
-  }
-
-  const branding = tpl?.branding || { eventName: registration.event.name };
-  const rendered = renderAndWrap(template, vars, branding);
-
-  await sendEmail({
-    to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
-    cc: brandingCc(
-      branding,
-      [{ email: registration.attendee.email }],
-      [registration.attendee.additionalEmail],
-    ),
-    ...rendered,
-    from: brandingFrom(branding),
-    emailType: "refund_confirmation",
-    stream: "transactional",
-    logContext: {
-      organizationId: registration.event.organizationId,
-      eventId: registration.event.id,
-      entityType: "REGISTRATION",
-      entityId: registration.id,
-      templateSlug: "refund-confirmation",
-    },
-  });
-
-  apiLogger.info({ msg: "Refund confirmation email sent", registrationId: registration.id });
-}
