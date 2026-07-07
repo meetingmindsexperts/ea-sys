@@ -393,13 +393,16 @@ describe("createPaidReceipt", () => {
 
     const result = await createPaidReceipt({
       registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
-      paymentId: "pay-1", parentInvoiceId: "inv-1", paymentMethod: "stripe", paymentReference: "pi_123",
+      parentInvoiceId: "inv-1", paymentMethod: "stripe", paymentReference: "pi_123",
     });
 
     expect(result.created).toBe(true);
     expect(captured.type).toBe("RECEIPT");
     expect(captured.status).toBe("PAID");
     expect(captured.parentInvoiceId).toBe("inv-1");
+    // Must NOT claim the payment — Invoice.paymentId is @unique and owned by
+    // the INVOICE row; setting it here collides with the paid invoice.
+    expect(captured.paymentId).toBeUndefined();
     expect(captured.paymentMethod).toBe("stripe");
     expect(captured.paymentReference).toBe("pi_123");
     // Same pricing as the invoice (100 + 5% VAT).
@@ -414,7 +417,7 @@ describe("createPaidReceipt", () => {
     setupTxMock(() => { created = true; });
 
     const result = await createPaidReceipt({
-      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", paymentId: "pay-1",
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
     });
 
     expect(result.created).toBe(false);

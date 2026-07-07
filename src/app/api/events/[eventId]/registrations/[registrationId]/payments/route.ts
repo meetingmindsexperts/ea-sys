@@ -365,7 +365,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId: registrationId!,
         eventId,
         organizationId: event.organizationId,
-        paymentId: payment.id,
         parentInvoiceId: invoice.id,
         paymentMethod: data.method,
         paymentReference,

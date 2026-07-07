@@ -317,7 +317,6 @@ export async function createPaidReceipt(params: {
   registrationId: string;
   eventId: string;
   organizationId: string;
-  paymentId: string;
   parentInvoiceId?: string;
   paymentMethod?: string;
   paymentReference?: string;
@@ -327,7 +326,6 @@ export async function createPaidReceipt(params: {
     registrationId,
     eventId,
     organizationId,
-    paymentId,
     parentInvoiceId,
     paymentMethod,
     paymentReference,
@@ -369,7 +367,9 @@ export async function createPaidReceipt(params: {
         organizationId,
         eventId,
         registrationId,
-        paymentId,
+        // NOTE: `Invoice.paymentId` is @unique (1:1 Payment↔Invoice, owned by
+        // the INVOICE row). The receipt must NOT set it or it collides with the
+        // paid invoice's row — it traces to the payment via `parentInvoiceId`.
         parentInvoiceId,
         type: "RECEIPT",
         invoiceNumber,
@@ -857,7 +857,7 @@ export async function issuePaidRegistrationDocuments(params: {
     registrationId, eventId, organizationId, paymentId, paymentMethod, paymentReference, paidAt,
   });
   const { receipt } = await createPaidReceipt({
-    registrationId, eventId, organizationId, paymentId,
+    registrationId, eventId, organizationId,
     parentInvoiceId: invoice.id, paymentMethod, paymentReference, paidAt,
   });
 
