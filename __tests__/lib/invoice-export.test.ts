@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   csvCell,
+  invoiceDateFilter,
   buildInvoiceCsv,
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
@@ -37,6 +38,39 @@ function row(overrides: Partial<InvoiceExportRow> = {}): InvoiceExportRow {
     ...overrides,
   };
 }
+
+describe("invoiceDateFilter — year/month filters", () => {
+  const iso = (c: { issueDate: { gte: Date; lt: Date } }) => [c.issueDate.gte.toISOString(), c.issueDate.lt.toISOString()];
+
+  it("year + month → that single month", () => {
+    const out = invoiceDateFilter(2026, 3, 2020, 2026);
+    expect(out).toHaveLength(1);
+    expect(iso(out[0] as never)).toEqual(["2026-03-01T00:00:00.000Z", "2026-04-01T00:00:00.000Z"]);
+  });
+
+  it("year only → that whole year", () => {
+    const out = invoiceDateFilter(2026, undefined, 2020, 2026);
+    expect(iso(out[0] as never)).toEqual(["2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z"]);
+  });
+
+  it("month only → that month across every year (the bug fix)", () => {
+    const out = invoiceDateFilter(undefined, 1, 2024, 2026);
+    expect(out).toHaveLength(1);
+    const or = (out[0] as { OR: unknown[] }).OR;
+    expect(or).toHaveLength(3); // Jan 2024, 2025, 2026
+    expect(iso(or[0] as never)).toEqual(["2024-01-01T00:00:00.000Z", "2024-02-01T00:00:00.000Z"]);
+    expect(iso(or[2] as never)).toEqual(["2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"]);
+  });
+
+  it("neither → no date filter", () => {
+    expect(invoiceDateFilter(undefined, undefined, 2020, 2026)).toEqual([]);
+  });
+
+  it("invalid month (0 or 13) is ignored", () => {
+    expect(invoiceDateFilter(undefined, 0, 2020, 2026)).toEqual([]);
+    expect(invoiceDateFilter(undefined, 13, 2020, 2026)).toEqual([]);
+  });
+});
 
 describe("csvCell — formula-injection guard", () => {
   it("prefixes a quote to values starting with a formula trigger", () => {

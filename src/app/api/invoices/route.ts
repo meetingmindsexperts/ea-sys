@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { invoiceDateFilter } from "@/lib/invoice-export";
 
 /**
  * GET /api/invoices
@@ -44,31 +45,29 @@ export async function GET(req: Request) {
     const status = url.searchParams.get("status") || undefined;
     const search = url.searchParams.get("search")?.trim() || undefined;
 
-    // Year / month → an issueDate range. Month without a year is ignored (a
-    // month is only meaningful within a year).
-    let issueDate: Prisma.DateTimeFilter | undefined;
     const year = yearRaw ? Number(yearRaw) : undefined;
     const month = monthRaw ? Number(monthRaw) : undefined;
-    if (year && Number.isFinite(year)) {
-      if (month && month >= 1 && month <= 12) {
-        issueDate = {
-          gte: new Date(Date.UTC(year, month - 1, 1)),
-          lt: new Date(Date.UTC(year, month, 1)),
-        };
-      } else {
-        issueDate = {
-          gte: new Date(Date.UTC(year, 0, 1)),
-          lt: new Date(Date.UTC(year + 1, 0, 1)),
-        };
-      }
-    }
+    const currentYear = new Date().getUTCFullYear();
+
+    // Earliest invoice year (unfiltered, org-wide) seeds the Year dropdown AND
+    // bounds the "month across all years" filter — computed first so the where
+    // can be built from it. Cheap indexed aggregate.
+    const earliest = await db.invoice.aggregate({
+      where: { organizationId },
+      _min: { issueDate: true },
+    });
+    const earliestYear = earliest._min.issueDate ? earliest._min.issueDate.getUTCFullYear() : currentYear;
+
+    // year+month → that month; year only → that year; month only → that month
+    // across every year (so picking "January" with no year works). Spread into
+    // `AND` so it coexists with the search `OR` at the same level.
+    const dateAnd = invoiceDateFilter(year, month, earliestYear, currentYear);
 
     const where: Prisma.InvoiceWhereInput = {
       organizationId,
       ...(eventId && { eventId }),
       ...(type && { type: type as Prisma.EnumInvoiceTypeFilter["equals"] }),
       ...(status && { status: status as Prisma.EnumInvoiceStatusFilter["equals"] }),
-      ...(issueDate && { issueDate }),
       ...(search && {
         OR: [
           { invoiceNumber: { contains: search, mode: "insensitive" } },
@@ -77,43 +76,32 @@ export async function GET(req: Request) {
           { registration: { attendee: { lastName: { contains: search, mode: "insensitive" } } } },
         ],
       }),
+      ...(dateAnd.length > 0 && { AND: dateAnd }),
     };
 
-    // Earliest invoice year (unfiltered, org-wide) seeds the Year dropdown —
-    // cheap aggregate, no full scan.
-    const [invoices, earliest] = await Promise.all([
-      db.invoice.findMany({
-        where,
-        select: {
-          id: true,
-          eventId: true,
-          invoiceNumber: true,
-          type: true,
-          status: true,
-          issueDate: true,
-          dueDate: true,
-          paidDate: true,
-          total: true,
-          currency: true,
-          event: { select: { id: true, name: true } },
-          registration: {
-            select: {
-              attendee: { select: { firstName: true, lastName: true, email: true } },
-            },
+    const invoices = await db.invoice.findMany({
+      where,
+      select: {
+        id: true,
+        eventId: true,
+        invoiceNumber: true,
+        type: true,
+        status: true,
+        issueDate: true,
+        dueDate: true,
+        paidDate: true,
+        total: true,
+        currency: true,
+        event: { select: { id: true, name: true } },
+        registration: {
+          select: {
+            attendee: { select: { firstName: true, lastName: true, email: true } },
           },
         },
-        orderBy: { issueDate: "desc" },
-        take: 1000,
-      }),
-      db.invoice.aggregate({
-        where: { organizationId },
-        _min: { issueDate: true },
-      }),
-    ]);
-
-    const earliestYear = earliest._min.issueDate
-      ? earliest._min.issueDate.getUTCFullYear()
-      : new Date().getUTCFullYear();
+      },
+      orderBy: { issueDate: "desc" },
+      take: 1000,
+    });
 
     return NextResponse.json({
       invoices: invoices.map((inv) => ({

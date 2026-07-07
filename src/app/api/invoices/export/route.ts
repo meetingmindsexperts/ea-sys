@@ -8,6 +8,7 @@ import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import {
   INVOICE_EXPORT_SELECT,
+  invoiceDateFilter,
   buildInvoiceCsv,
   buildInvoiceQuickBooksCsv,
   type InvoiceExportRow,
@@ -62,21 +63,17 @@ export async function GET(req: Request) {
     const type = url.searchParams.get("type") || undefined;
     const status = url.searchParams.get("status") || undefined;
 
-    let issueDate: Prisma.DateTimeFilter | undefined;
-    if (year && Number.isFinite(year)) {
-      if (month && month >= 1 && month <= 12) {
-        issueDate = { gte: new Date(Date.UTC(year, month - 1, 1)), lt: new Date(Date.UTC(year, month, 1)) };
-      } else {
-        issueDate = { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) };
-      }
-    }
+    const currentYear = new Date().getUTCFullYear();
+    const earliest = await db.invoice.aggregate({ where: { organizationId }, _min: { issueDate: true } });
+    const earliestYear = earliest._min.issueDate ? earliest._min.issueDate.getUTCFullYear() : currentYear;
+    const dateAnd = invoiceDateFilter(year, month, earliestYear, currentYear);
 
     const where: Prisma.InvoiceWhereInput = {
       organizationId,
       ...(eventId && { eventId }),
       ...(type && { type: type as Prisma.EnumInvoiceTypeFilter["equals"] }),
       ...(status && { status: status as Prisma.EnumInvoiceStatusFilter["equals"] }),
-      ...(issueDate && { issueDate }),
+      ...(dateAnd.length > 0 && { AND: dateAnd }),
     };
 
     // ── PDF (ZIP of invoice PDFs) ──────────────────────────────────────────
@@ -125,6 +122,17 @@ export async function GET(req: Request) {
     }
 
     // ── CSV / QuickBooks (shared formatters) ───────────────────────────────
+    // Count-first cap (review M2): a CSV that silently drops rows past the take
+    // limit is a reconciliation hazard — fail loud so the operator narrows the
+    // filter, consistent with the PDF path's EXPORT_TOO_LARGE.
+    const csvCount = await db.invoice.count({ where });
+    if (csvCount > MAX_CSV) {
+      apiLogger.warn({ msg: "org-invoices:export-csv-too-large", organizationId, count: csvCount, format });
+      return NextResponse.json(
+        { error: `Too many rows to export at once (${csvCount}). Narrow the filter by year/month — max ${MAX_CSV}.`, code: "EXPORT_TOO_LARGE" },
+        { status: 400 },
+      );
+    }
     const invoices = (await db.invoice.findMany({
       where,
       select: INVOICE_EXPORT_SELECT,

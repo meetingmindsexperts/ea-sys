@@ -62,6 +62,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     // CSV / QuickBooks — shared formatters, byte-identical to the org-level
     // export. Honor the same type/status filters as the PDF ZIP.
     if (format === "csv" || format === "quickbooks") {
+      // Count-first cap (review M2) — fail loud rather than silently truncate.
+      const csvCount = await db.invoice.count({ where });
+      if (csvCount > 10000) {
+        apiLogger.warn({ msg: "invoices:export-csv-too-large", eventId, count: csvCount, format });
+        return NextResponse.json(
+          { error: `Too many rows to export at once (${csvCount}). Narrow the type/status filter — max 10000.`, code: "EXPORT_TOO_LARGE" },
+          { status: 400 },
+        );
+      }
       const invoices = (await db.invoice.findMany({
         where,
         select: INVOICE_EXPORT_SELECT,

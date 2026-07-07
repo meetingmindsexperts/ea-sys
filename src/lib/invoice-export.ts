@@ -59,6 +59,42 @@ export interface InvoiceExportRow {
   };
 }
 
+/**
+ * Build the `issueDate` filter clauses for the year/month invoice filters,
+ * returned as an array to spread into `where.AND` (so it coexists with a search
+ * `OR` at the same level — Prisma ANDs top-level `AND`/`OR`/scalars together):
+ *   - year + month → that single month
+ *   - year only    → that whole year
+ *   - month only   → that month across EVERY year (earliestYear..currentYear) —
+ *                    so picking "January" with no year works (the bug fix)
+ *   - neither      → no date filter ([])
+ * Pure — `currentYear` is passed in (no `new Date()` here).
+ */
+export function invoiceDateFilter(
+  year: number | undefined,
+  month: number | undefined,
+  earliestYear: number,
+  currentYear: number,
+): Prisma.InvoiceWhereInput[] {
+  const monthRange = (y: number, m: number) => ({
+    gte: new Date(Date.UTC(y, m - 1, 1)),
+    lt: new Date(Date.UTC(y, m, 1)),
+  });
+  const hasMonth = month != null && Number.isFinite(month) && month >= 1 && month <= 12;
+  const hasYear = year != null && Number.isFinite(year);
+
+  if (hasYear && hasMonth) return [{ issueDate: monthRange(year, month) }];
+  if (hasYear) {
+    return [{ issueDate: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } }];
+  }
+  if (hasMonth) {
+    const ranges: Prisma.InvoiceWhereInput[] = [];
+    for (let y = earliestYear; y <= currentYear; y++) ranges.push({ issueDate: monthRange(y, month) });
+    return ranges.length ? [{ OR: ranges }] : [];
+  }
+  return [];
+}
+
 // ── CSV primitives ───────────────────────────────────────────────────────────
 export function csvCell(v: unknown): string {
   let s = v == null ? "" : String(v);
