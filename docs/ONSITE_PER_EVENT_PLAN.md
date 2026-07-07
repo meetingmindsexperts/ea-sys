@@ -1,9 +1,36 @@
 # Per-event ONSITE (registration-desk) staff — implementation plan
 
-> Status: **PLAN — not yet implemented.** Created July 6, 2026.
+> Status: **✅ IMPLEMENTED + hardened.** Created July 6, 2026; shipped July 7, 2026.
 > Goal: make the ONSITE role assignable **per event** (a temp desk worker hired
 > for "Conference X" sees only Conference X), instead of the current org-wide
 > visibility.
+>
+> **Shipped as Model A** (org-bound + per-event assignment via
+> `Event.settings.onsiteUserIds`), commit `893d3b3`. **No backfill** (decision:
+> existing ONSITE users are reassigned; scoping + UI ship together). Invite flow:
+> per-event create+assign from the Settings → Onsite Staff tab (reuses
+> `POST /api/organization/users` role=ONSITE). One temp assignable to multiple
+> events.
+>
+> **⚠️ Adversarial review (July 7) found a BLOCKER — now fixed (`93deed7`).**
+> The per-event scoping only enforced *visibility* via `buildEventAccessWhere`.
+> The 5 desk routes ONSITE actually uses (registrations list/create, detail PUT,
+> check-in POST+PUT, badge print) authorized on **org membership alone**, so an
+> ONSITE user assigned to Event A could read/write **any** Event B in the same
+> org — attendee + payment data (ONSITE is finance-capable), registration
+> create/edit, check-in, and badge PDFs (entry barcodes). Fix: every
+> ONSITE-reachable event lookup now routes through `buildEventAccessWhere`
+> (assignment-gated; the list GET is API-key-aware via `getOrgContext`). Payments
+> route + detail GET already used it. +7 cross-event isolation tests
+> ([__tests__/api/onsite-cross-event-isolation.test.ts](../__tests__/api/onsite-cross-event-isolation.test.ts)).
+>
+> **Deferred review items** (in [docs/ROADMAP.md](ROADMAP.md)): H1 — make the
+> registrations page server-component 404 on unassigned events (UI matches API);
+> M1 — direct-API account delete leaves stale ids in `onsiteUserIds` (cosmetic;
+> the UI strips-first); M2 — ORGANIZER (not just ADMIN) can assign + the
+> create+assign UI has no partial-failure surfacing.
+>
+> The rest of this doc is the original design/decision record.
 
 ---
 

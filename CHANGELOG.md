@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added / Security — Per-event ONSITE staff + cross-event isolation fix (July 7)
+
+ONSITE (registration-desk) staff, previously org-bound and able to see every
+event in the org, are now assignable PER EVENT — a temp desk worker sees/acts on
+only the events they're assigned to (mirrors the reviewer model). No schema:
+assignment lives in `Event.settings.onsiteUserIds`.
+
+- **Feature (`893d3b3`):** `buildEventAccessWhere` ONSITE branch (org-bound AND
+  assigned); `POST/GET/DELETE /api/events/[eventId]/onsite-staff`;
+  `GET /api/organization/onsite-staff`; a Settings → Onsite Staff tab (create a
+  temp + assign to events, searchable per-row management, remove, delete). One
+  temp can span multiple events. No backfill (scoping + UI ship together).
+- **Security fix (`93deed7`, BLOCKER):** an adversarial review found the
+  per-event scoping only covered *visibility* — the 5 desk routes ONSITE
+  actually uses (registrations list/create, detail PUT, check-in POST+PUT, badge
+  print) authorized on ORG membership alone, so an ONSITE user assigned to Event
+  A could read/write any Event B in the same org (attendee + PAYMENT data — ONSITE
+  is finance-capable — plus create/edit/check-in and badge PDFs carrying entry
+  barcodes). Fixed by routing every ONSITE-reachable event lookup through
+  `buildEventAccessWhere` (the list GET is API-key-aware via `getOrgContext`).
+  +7 cross-event isolation tests. **Must ship before the ONSITE feature deploys
+  to prod.**
+- UI: add-temp-staff dialog widened to XL + searchable event assignment.
+
+tsc 0, eslint 0, vitest 1844, build 0. Plan/history in
+docs/ONSITE_PER_EVENT_PLAN.md. Deferred review items (page-404 for unassigned
+events, stale-id cleanup on direct-API delete, organizer-assign trust boundary)
+tracked in docs/ROADMAP.md.
+
 ### Added — Abstracts submitter flow: details page, guidelines, co-authors, presentation types, 300-word cap (July 2)
 
 Cluster of abstract-submission improvements.

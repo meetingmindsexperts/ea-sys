@@ -210,7 +210,35 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
-## Current Release — June 30, 2026
+## Current Release — July 7, 2026
+
+### Per-event ONSITE staff (shipped) — deferred review follow-ups
+
+Per-event ONSITE registration-desk staff shipped (`893d3b3`) + the adversarial-
+review BLOCKER fix (`93deed7`, cross-event isolation on the 5 desk routes). See
+[docs/ONSITE_PER_EVENT_PLAN.md](ONSITE_PER_EVENT_PLAN.md). Deferred, non-blocking
+review findings (BLOCKER already fixed; these are HIGH-cosmetic / MED / LOW):
+
+- **H1 (cosmetic post-fix)** — the middleware confines ONSITE to
+  `/registrations*`/`/check-in*` but not to *assigned* events. Now that the API
+  404s an unassigned event (B1–B4 fix), navigating there loads an empty shell
+  instead of redirecting. Fix: make the registrations page server component 404
+  when `buildEventAccessWhere(user, eventId)` returns nothing, so the UI matches
+  the API. **Not a security issue** — the API is the authoritative gate and it's
+  closed.
+- **M1** — deleting an ONSITE account via `DELETE /api/organization/users/[userId]`
+  leaves stale ids in every event's `onsiteUserIds` (cosmetic; cuids aren't
+  reused; the Settings-tab delete already strips-first, but a direct API call
+  doesn't). Fix: on ONSITE account delete, sweep `onsiteUserIds` org-wide.
+- **M2** — ORGANIZER (not just ADMIN) can assign existing ONSITE users to events
+  (creating the account is ADMIN-only). Confirm intended. The create+assign UI
+  flow (POST users → N× POST assign) has no partial-failure rollback — surfaces a
+  warning toast but leaves an unassigned account on partial failure.
+- **L1/L2** — `updateUserSchema` role enum omits ONSITE/MEMBER (can't PUT-change
+  to ONSITE, only invite/promote); org onsite-staff GET over-fetches full
+  `settings` JSON per event to read one array.
+
+## Previous Release — June 30, 2026
 
 ### Scheduled email — "one-shot, late-inclusive" + fixed `recipientIds` overlook
 
