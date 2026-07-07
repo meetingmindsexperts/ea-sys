@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Payment-reminder email showed the wrong amount for tier-priced/virtual registrations (July 7)
+
+The admin single-send "payment-reminder" ("Pay Now") email built `{{amount}}`
+and the Pay-Now link from `registration.ticketType.price` only. For a
+tier-priced registration (ticket type base 0, real price on the pricing tier)
+or a virtual one (priced via `virtualPrice`), that rendered **"USD 0.00"** + a
+`price=0` link — the payment-collection email told the registrant they owed
+nothing. It also ignored promo discount and tax.
+
+Now resolved the canonical way (matching the confirmation email + checkout):
+`readRegistrationBasePrice(registration)` (prefers stamped `originalPrice`,
+falls back tier→ticket) → `computeRegistrationFinancials` (nets discount, adds
+tax) → `{{amount}}` = the true tax-inclusive amount due. No new query — the
+route already loads `originalPrice`/`pricingTier`/`discountAmount`/`event.taxRate`.
++4 route tests (tier / tier+tax / discount+tax / virtual). tsc/eslint/vitest/build green.
+
 ### Fixed — Manual/offline refunds + branded credit-note PDF (July 7)
 
 "Issue Refund" hard-required a Stripe payment: it looked up the most-recent PAID
