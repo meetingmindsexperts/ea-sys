@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UserPlus, Trash2, Loader2, CalendarDays, X, Check } from "lucide-react";
+import { UserPlus, Trash2, Loader2, CalendarDays, X, Check, Search } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -239,41 +239,11 @@ export function OnsiteStaffCard() {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        <CalendarDays className="mr-2 h-4 w-4" />
-                        Manage events
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-72 p-0">
-                      <div className="border-b p-2 text-xs font-medium text-muted-foreground">
-                        Assign to events
-                      </div>
-                      <div className="max-h-64 overflow-y-auto p-1">
-                        {events.length === 0 ? (
-                          <div className="p-3 text-center text-xs text-muted-foreground">No events yet.</div>
-                        ) : (
-                          events.map((e) => {
-                            const assigned = s.eventIds.includes(e.id);
-                            return (
-                              <button
-                                key={e.id}
-                                type="button"
-                                onClick={() => toggleMutation.mutate({ eventId: e.id, userId: s.id, assign: !assigned })}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                              >
-                                <span className={`flex h-4 w-4 items-center justify-center rounded border ${assigned ? "border-[#00aade] bg-[#00aade] text-white" : "border-input"}`}>
-                                  {assigned && <Check className="h-3 w-3" />}
-                                </span>
-                                <span className="truncate">{e.name}</span>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <ManageEventsPopover
+                    events={events}
+                    assignedIds={s.eventIds}
+                    onToggle={(eventId, assign) => toggleMutation.mutate({ eventId, userId: s.id, assign })}
+                  />
                   <Button
                     variant="ghost"
                     size="sm"
@@ -327,6 +297,68 @@ export function OnsiteStaffCard() {
   );
 }
 
+function ManageEventsPopover({
+  events,
+  assignedIds,
+  onToggle,
+}: {
+  events: EventLite[];
+  assignedIds: string[];
+  onToggle: (eventId: string, assign: boolean) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const q = search.trim().toLowerCase();
+  const filtered = q ? events.filter((e) => e.name.toLowerCase().includes(q)) : events;
+
+  return (
+    <Popover onOpenChange={(o) => !o && setSearch("")}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">
+          <CalendarDays className="mr-2 h-4 w-4" />
+          Manage events
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="border-b p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search events…"
+              className="h-8 pl-7 text-sm"
+            />
+          </div>
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1">
+          {events.length === 0 ? (
+            <div className="p-3 text-center text-xs text-muted-foreground">No events yet.</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-3 text-center text-xs text-muted-foreground">No events match your search.</div>
+          ) : (
+            filtered.map((e) => {
+              const assigned = assignedIds.includes(e.id);
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => onToggle(e.id, !assigned)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                >
+                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${assigned ? "border-[#00aade] bg-[#00aade] text-white" : "border-input"}`}>
+                    {assigned && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="truncate">{e.name}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function AddTempStaffDialog({
   open,
   onOpenChange,
@@ -345,6 +377,10 @@ function AddTempStaffDialog({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [eventIds, setEventIds] = useState<string[]>([]);
+  const [eventSearch, setEventSearch] = useState("");
+
+  const q = eventSearch.trim().toLowerCase();
+  const filteredEvents = q ? events.filter((e) => e.name.toLowerCase().includes(q)) : events;
 
   // Reset when closing so a reopened dialog is clean.
   const handleOpenChange = (o: boolean) => {
@@ -354,6 +390,7 @@ function AddTempStaffDialog({
       setEmail("");
       setPassword("");
       setEventIds([]);
+      setEventSearch("");
     }
     onOpenChange(o);
   };
@@ -363,7 +400,7 @@ function AddTempStaffDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Add temp staff</DialogTitle>
           <DialogDescription>
@@ -396,18 +433,33 @@ function AddTempStaffDialog({
             {events.length === 0 ? (
               <p className="text-sm text-muted-foreground">No events yet — create one first.</p>
             ) : (
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
-                {events.map((e) => (
-                  <label key={e.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
-                    <Checkbox
-                      checked={eventIds.includes(e.id)}
-                      onCheckedChange={(c) =>
-                        setEventIds((prev) => (c ? [...prev, e.id] : prev.filter((id) => id !== e.id)))
-                      }
-                    />
-                    <span className="truncate">{e.name}</span>
-                  </label>
-                ))}
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={eventSearch}
+                    onChange={(e) => setEventSearch(e.target.value)}
+                    placeholder="Search events…"
+                    className="h-8 pl-7"
+                  />
+                </div>
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                  {filteredEvents.length === 0 ? (
+                    <p className="p-2 text-center text-xs text-muted-foreground">No events match your search.</p>
+                  ) : (
+                    filteredEvents.map((e) => (
+                      <label key={e.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                        <Checkbox
+                          checked={eventIds.includes(e.id)}
+                          onCheckedChange={(c) =>
+                            setEventIds((prev) => (c ? [...prev, e.id] : prev.filter((id) => id !== e.id)))
+                          }
+                        />
+                        <span className="truncate">{e.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
