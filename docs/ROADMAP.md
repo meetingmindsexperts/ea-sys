@@ -2,7 +2,7 @@
 
 **Project:** EA-SYS (Event Administration System)
 **Owner:** MeetingMinds Group
-**Last Updated:** June 1, 2026
+**Last Updated:** July 7, 2026
 **Platform URL:** events.meetingmindsgroup.com
 
 ---
@@ -719,6 +719,21 @@ trigger fires:
 **Recommended sequence when a trigger fires**: G first (it's the prerequisite
 for a clean H), then H if needed, then F is moot. Skipping straight to H
 without G is possible but doubles the diff size of the single PR.
+
+### Registration & finance UX follow-ups (deferred July 7, 2026)
+
+Consciously deferred out of the July 7 "no-auto-save" refactor (commit `334d57a`)
+and the adjacent finance-UX / registration work. None blocking; each is
+independently shippable.
+
+| Item | What it does | Cost | Trigger / notes |
+|---|---|---|---|
+| **M2 — reset staged tier pick on Edit** | The Pricing-Tier picker keeps its own staged `pendingTierId` + Apply button (view mode). After staging a tier, clicking Edit→Save on an unrelated field leaves the staged pick lingering with its Apply still visible. Cosmetic only — Apply re-reads the fresh optimistic-lock token, so no stale/double write. Fix: `setPendingTierId(null)` in `startEditing` (+ on Cancel). | ~5 min | Flagged by the no-auto-save review (M2). Pick up next time the sheet is touched. |
+| **"Requires Approval" on the ticket-type form** | The approval-gating toggle (`TicketType.requiresApproval`, which backs the PENDING registration status) is currently only exposed inside the **pricing-tier** dialog — so a ticket type with **no tiers** can't enable it from the UI. Backend + all create paths already honor it. Fix: add the checkbox to the ticket-type add/edit form ([tickets/page.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/tickets/page.tsx)). | ~30 min | When an organizer wants to gate a non-tiered ticket. See the user-guide §4 approval-gated-tiers note. |
+| **Quote/invoice PDFs — show `VAT (0%)` line** | The on-screen Payment Summary now **always** renders the tax line (`VAT (0%) 0.00` at 0%); the quote/invoice **PDFs** still omit it at 0%. Product call: match the screen (always show the line) or keep omitting a $0 tax row on print. | ~20 min | Only if the screen/PDF mismatch bothers finance. [quote-pdf.ts](../src/lib/quote-pdf.ts) / [invoice-pdf.ts](../src/lib/invoice-pdf.ts) `drawTotals`. |
+| **Re-tier L1 — regenerate invoice/quote on re-tier** | Giving an unpaid reg a courtesy tier (Apply) re-stamps `originalPrice` and the live financials update everywhere, but any **already-generated** quote/invoice PDF isn't re-rendered. | ~30 min | When an admin re-tiers a reg that already had a quote/invoice issued. |
+| **Re-tier L2 — reject simultaneous type + tier change** | The PUT allows changing `ticketTypeId` and `pricingTierId` in one request; a type change nulls the tier, so a combined change is ambiguous. Add a 400 guard. | ~15 min | Low — the UI paths don't currently send both together; belt-and-braces. |
+| **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
 ### Certificates — operator-feedback round, deferred review findings (June 3, 2026)
 
