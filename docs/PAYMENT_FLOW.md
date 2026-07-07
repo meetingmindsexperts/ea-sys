@@ -226,6 +226,12 @@ renders straight from it. **Non‑finance roles** (e.g. MEMBER, ONSITE) get the
 whole `financials` block stripped by `redactFinancialFields` — they never see
 amounts.
 
+**Display rule:** the on‑screen breakdown **always shows the tax line, even at
+0%** — `VAT (0%) 0.00` on a VAT‑free event, `VAT (5%) 12.50` otherwise — so the
+chain is always the explicit `Subtotal → VAT → Total`. (The quote/invoice **PDFs**
+still omit the tax line at 0% — a `$0.00` tax row on a printed invoice reads as
+noise; on‑screen we favour explicitness.)
+
 ---
 
 ## 5. Flow A — Public paid registration (Stripe)
@@ -420,11 +426,23 @@ apply promo:
   increment PromoCode.usedCount  ATOMICALLY, guarded by  usedCount < maxUses
 ```
 
-The **discount is applied before VAT** (see the `taxableBase` line in Section
-4b). Removing a promo decrements `usedCount` (guarded so it never goes below 0)
-and clears the discount. Only **unpaid** registrations can have a promo applied,
-same as re‑tiering — for the same reason (never silently change a settled
-charge).
+The **discount is applied to the tier (base) price, then VAT is charged on the
+discounted amount** — i.e. the promo lowers *both* the price and the VAT. This
+is the `taxableBase = subtotal − discount` line in Section 4b.
+
+**Worked example** — Early Bird **250**, a **10%** promo, **5%** VAT:
+
+```
+Subtotal   250.00
+Discount   −25.00
+VAT (5%)    11.25      ← charged on 225, NOT on 250
+────────────────────
+Total      236.25
+```
+
+Removing a promo decrements `usedCount` (guarded so it never goes below 0) and
+clears the discount. Only **unpaid** registrations can have a promo applied, same
+as re‑tiering — for the same reason (never silently change a settled charge).
 
 ---
 
