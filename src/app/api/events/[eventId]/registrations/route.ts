@@ -7,6 +7,7 @@ import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -149,10 +150,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Parallelize event validation and registrations fetch
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: orgCtx.organizationId,
-        },
+        // Assignment-scoped for ONSITE (per-event desk staff): buildEventAccessWhere
+        // returns an org-scoped where for admin/organizer/API-key callers but a
+        // settings.onsiteUserIds-gated where for ONSITE, so an ONSITE user only
+        // reads registrations for events they're assigned to. API-key auth has
+        // role/userId null → org-scoped (unchanged).
+        where: buildEventAccessWhere(
+          { id: orgCtx.userId ?? "", role: orgCtx.role ?? "", organizationId: orgCtx.organizationId },
+          eventId,
+        ),
         select: { id: true },
       }),
       db.registration.findMany({
@@ -299,6 +305,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
+
+    // Event-assignment gate: an ONSITE user may only create registrations on the
+    // events they're assigned to (settings.onsiteUserIds), not every event in the
+    // org. buildEventAccessWhere is org-scoped (no-op) for admin/organizer.
+    const accessibleEvent = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true },
+    });
+    if (!accessibleEvent) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const validated = createRegistrationSchema.safeParse(body);
 

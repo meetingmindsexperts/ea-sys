@@ -230,7 +230,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Event.settings.sponsors[] without a second round-trip.
     const [event, existingRegistration] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user
+        // may only edit registrations for events they're assigned to. Org-scoped
+        // (unchanged) for admin/organizer. Mirrors the GET above.
+        where: buildEventAccessWhere(session.user, eventId),
         // taxRate/taxLabel feed the recomputed `financials` attached to the
         // PUT response so the detail sheet's Payment Summary refreshes after an
         // inline edit (e.g. a pricing-tier re-classification) without a

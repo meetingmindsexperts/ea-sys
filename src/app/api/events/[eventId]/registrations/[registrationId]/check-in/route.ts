@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -25,10 +26,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
+      // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
+      // only check in attendees for events they're assigned to. Org-scoped
+      // (unchanged) for admin/organizer.
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
 
@@ -141,10 +142,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: session.user.organizationId!,
-      },
+      // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
+      // only check in attendees for events they're assigned to. Org-scoped
+      // (unchanged) for admin/organizer.
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
 
