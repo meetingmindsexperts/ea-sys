@@ -262,13 +262,15 @@ export async function POST(req: Request) {
       // Auto-create credit note (non-blocking)
       (async () => {
         try {
-          const cn = await createCreditNote({
+          const { invoice: cn, created } = await createCreditNote({
             registrationId: payment.registrationId,
             eventId: payment.registration.eventId,
             organizationId: payment.registration.event.organizationId,
             reason: "Refund via Stripe",
           });
-          await sendInvoiceEmail(cn.id);
+          // Skip re-emailing when the route (or a webhook retry) already created
+          // the credit note — `createCreditNote` is idempotent per registration.
+          if (created) await sendInvoiceEmail(cn.id);
         } catch (err) {
           apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
         }

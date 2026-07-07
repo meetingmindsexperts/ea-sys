@@ -23,7 +23,7 @@ const {
   },
   mockAuth: vi.fn(),
   stripeRefundsCreate: vi.fn(),
-  createCreditNoteSpy: vi.fn().mockResolvedValue({ id: "cn1" }),
+  createCreditNoteSpy: vi.fn().mockResolvedValue({ invoice: { id: "cn1" }, created: true }),
   sendInvoiceEmailSpy: vi.fn().mockResolvedValue(undefined),
   sendEmailSpy: vi.fn().mockResolvedValue(undefined),
 }));
@@ -100,6 +100,19 @@ describe("refund — manual/offline payment (option A)", () => {
     expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
     await flush();
     expect(createCreditNoteSpy).toHaveBeenCalledTimes(1);
+    expect(sendInvoiceEmailSpy).toHaveBeenCalledWith("cn1"); // created:true → email sent
+  });
+
+  it("does NOT re-email when the credit note already exists (idempotent createCreditNote)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }),
+    );
+    createCreditNoteSpy.mockResolvedValueOnce({ invoice: { id: "cn1" }, created: false });
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(200);
+    await flush();
+    expect(createCreditNoteSpy).toHaveBeenCalledTimes(1);
+    expect(sendInvoiceEmailSpy).not.toHaveBeenCalled(); // created:false → no duplicate email
   });
 
   it("refunds a PAID reg with NO payment row (hand-flipped) without Stripe; no payment.update", async () => {

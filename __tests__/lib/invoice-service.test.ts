@@ -345,8 +345,16 @@ describe("createCreditNote", () => {
     mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
   });
 
+  // createCreditNote now queries invoice.findFirst twice: (1) the CREDIT_NOTE
+  // idempotency check, (2) the parent INVOICE lookup. Route by `where.type`.
+  function stubFindFirst({ existingCreditNote = null as unknown, parentInvoice = null as unknown } = {}) {
+    mockFindFirst.mockImplementation((args: { where: { type: string } }) =>
+      Promise.resolve(args.where.type === "CREDIT_NOTE" ? existingCreditNote : parentInvoice),
+    );
+  }
+
   it("creates a credit note linked to original invoice", async () => {
-    mockFindFirst.mockResolvedValue({ id: "inv-original" });
+    stubFindFirst({ parentInvoice: { id: "inv-original" } });
 
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });
@@ -356,24 +364,42 @@ describe("createCreditNote", () => {
       reason: "Customer requested refund",
     });
 
-    expect(result.type).toBe("CREDIT_NOTE");
-    expect(result.status).toBe("REFUNDED");
+    expect(result.created).toBe(true);
+    expect(result.invoice.type).toBe("CREDIT_NOTE");
+    expect(result.invoice.status).toBe("REFUNDED");
     expect(captured.parentInvoiceId).toBe("inv-original");
     expect(captured.notes).toBe("Customer requested refund");
   });
 
   it("creates credit note without parent when no invoice exists", async () => {
-    mockFindFirst.mockResolvedValue(null);
+    stubFindFirst();
 
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });
 
-    await createCreditNote({
+    const result = await createCreditNote({
       registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
     });
 
+    expect(result.created).toBe(true);
     expect(captured.parentInvoiceId).toBeUndefined();
     expect(captured.notes).toBe("Full refund");
+  });
+
+  it("is idempotent — returns the existing credit note without creating a duplicate", async () => {
+    stubFindFirst({ existingCreditNote: { id: "cn-existing", invoiceNumber: "CN-1", type: "CREDIT_NOTE" } });
+
+    let created = false;
+    setupTxMock(() => { created = true; });
+
+    const result = await createCreditNote({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.invoice.id).toBe("cn-existing");
+    expect(created).toBe(false); // no transaction → no second CREDIT_NOTE row
+    expect(mockFindUniqueOrThrow).not.toHaveBeenCalled(); // short-circuits before loading the registration
   });
 });
 

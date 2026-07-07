@@ -179,13 +179,16 @@ export async function POST(
     // Auto-create credit note (non-blocking)
     (async () => {
       try {
-        const cn = await createCreditNote({
+        const { invoice: cn, created } = await createCreditNote({
           registrationId,
           eventId,
           organizationId: session.user.organizationId!,
           reason: `${isManualRefund ? "Offline" : "Stripe"} refund of ${formattedAmount}`,
         });
-        await sendInvoiceEmail(cn.id);
+        // Only email on a fresh credit note. For a Stripe refund the resulting
+        // `charge.refunded` webhook may reach `createCreditNote` too; whichever
+        // runs second gets `created: false` and must not re-email the attendee.
+        if (created) await sendInvoiceEmail(cn.id);
       } catch (cnErr) {
         apiLogger.error({ err: cnErr, msg: "Failed to auto-create credit note", registrationId });
       }

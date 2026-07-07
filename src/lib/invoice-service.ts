@@ -302,8 +302,27 @@ export async function createCreditNote(params: {
   organizationId: string;
   originalInvoiceId?: string;
   reason?: string;
-}): Promise<Invoice> {
+}): Promise<{ invoice: Invoice; created: boolean }> {
   const { registrationId, eventId, organizationId, originalInvoiceId, reason } = params;
+
+  // Idempotency: a registration gets exactly ONE credit note. A route-initiated
+  // Stripe refund creates the CN AND triggers a `charge.refunded` webhook that
+  // would create a second one; Stripe also retries webhook deliveries, and a
+  // Dashboard refund fires the same webhook. Without this guard each of those
+  // mints a fresh CREDIT_NOTE (new number) + a duplicate credit-note email.
+  // Return the existing one with `created: false` so the caller skips re-emailing.
+  const existingCreditNote = await db.invoice.findFirst({
+    where: { registrationId, type: "CREDIT_NOTE" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existingCreditNote) {
+    apiLogger.info({
+      msg: "Credit note already exists for registration; returning existing (idempotent)",
+      invoiceNumber: existingCreditNote.invoiceNumber,
+      registrationId,
+    });
+    return { invoice: existingCreditNote, created: false };
+  }
 
   const registration = await db.registration.findUniqueOrThrow({
     where: { id: registrationId },
@@ -365,7 +384,7 @@ export async function createCreditNote(params: {
   });
 
   apiLogger.info({ msg: "Credit note created", invoiceNumber: creditNote.invoiceNumber, registrationId, total: Number(creditNote.total), currency });
-  return creditNote;
+  return { invoice: creditNote, created: true };
 }
 
 // ── Generate PDF ────────────────────────────────────────────────────────────
