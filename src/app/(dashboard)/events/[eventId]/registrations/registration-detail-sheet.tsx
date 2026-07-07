@@ -1327,14 +1327,14 @@ export function RegistrationDetailSheet({
                           </span>
                         </div>
                       )}
-                      {f.taxRate > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            {f.taxLabel} ({f.taxRate}%)
-                          </span>
-                          <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
-                        </div>
-                      )}
+                      {/* Always show the tax line — even at 0% — so the
+                          breakdown is unambiguous (Subtotal → VAT → Total). */}
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          {f.taxLabel} ({f.taxRate}%)
+                        </span>
+                        <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
+                      </div>
                       <div className="flex justify-between border-t pt-1.5">
                         <span className="text-muted-foreground">Total</span>
                         <span className="font-semibold">{formatCurrency(f.total, f.currency)}</span>
@@ -1612,12 +1612,12 @@ export function RegistrationDetailSheet({
                             <span className="font-medium text-emerald-600">−{formatCurrency(f.discount, f.currency)}</span>
                           </div>
                         )}
-                        {f.taxRate > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">{f.taxLabel} ({f.taxRate}%)</span>
-                            <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
-                          </div>
-                        )}
+                        {/* Always show the tax line — even at 0% — so the
+                            breakdown is unambiguous (Subtotal → VAT → Total). */}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">{f.taxLabel} ({f.taxRate}%)</span>
+                          <span className="font-medium">{formatCurrency(f.taxAmount, f.currency)}</span>
+                        </div>
                         <div className="flex justify-between border-t pt-2">
                           <span className="text-muted-foreground">Total</span>
                           <span className="font-semibold">{formatCurrency(f.total, f.currency)}</span>
