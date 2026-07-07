@@ -539,6 +539,18 @@ Every failure is **logged** (this codebase's rule: no silent catches).
 5. **Everything money survives being run twice.** Idempotency guards on the
    webhook, the manual route, and the seat counters are not optional.
 
+### Bonus gotcha (cost us real debugging time — see `ERRORS_AND_FIXES.md` U8)
+
+The `financials` block (subtotal / VAT / total) is computed **only by the
+registration *detail* endpoint (GET) and the update (PUT)** — **NOT by the
+registrations *list* endpoint** (it's derived and expensive per row). The detail
+**sheet** seeds itself from the list row, so it must **fetch the full detail on
+open** to have `financials`. If a screen shows a money field, ask: *"did this
+object actually come from an endpoint that computes it?"* A `financials` that is
+`undefined` renders as *"no price set yet"* — which looks like missing data, not
+a missing fetch. **A detail view must load detail data; never trust a list
+payload for a derived finance field.**
+
 ---
 
 *Last updated: July 2026. If you change how a total or VAT is computed, update

@@ -2,7 +2,7 @@
 
 A comprehensive record of every significant error, bug, and issue encountered in the project, organized by category. Each entry includes the root cause, the fix applied, and the files affected.
 
-**Last updated:** 2026-06-10
+**Last updated:** 2026-07-07
 
 ---
 
@@ -657,6 +657,29 @@ function getApiInstance() { /* create on first call */ }
 **Verification:** Reproduced on the dev server via **client-side** navigation (the bug doesn't appear under full-reload navigation) — 3 event↔Events round-trips, counting sidebar "Overview" links each time. Before: 1→2→3. After: stays 1 (event) / 0 (Events).
 
 **Prevention:** Never key a `.map()` on a value that can repeat (an empty/optional label, a nullable field). Two siblings sharing a key is silently corrupting — React warns in dev but the symptom (leaked/duplicated DOM that grows across navigations, not on reload) looks like a data bug. Prefer the array index or a guaranteed-unique id for list keys when the natural key isn't provably unique.
+
+---
+
+### U8 — Payment Summary shows "no price set yet" / "Free registration" for a registration that HAS a pricing tier (July 6–7, 2026)
+
+**Symptom:** On the registration detail sheet → Billing & Payments, the Payment Summary read *"Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed."* even though the Pricing Tier dropdown clearly showed **"Early Bird — USD 250"** selected. Re-picking the same tier did nothing (it's already selected), so the registration looked permanently stuck with no amount. A separate report: a manual payment recorded **65** when the attendee actually paid **68** (VAT), because the amount field prefilled the pre-VAT base.
+
+**This was a three-layer bug — worth studying because each fix was correct but insufficient until the last one.** The mistake to learn from: **fixing the symptom's nearest cause instead of tracing where the number actually comes from.**
+
+**Layer 1 — the money math short-circuited on `0` (`src/lib/registration-financials.ts`, commit `555451f`).**
+`readRegistrationBasePrice` was `toNum(originalPrice) ?? toNum(tier.price) ?? toNum(ticket.price) ?? 0`. JavaScript `??` only falls through on `null`/`undefined`, **not `0`** — so a registration with a stamped `originalPrice = 0` sitting on a priced tier resolved to `0` (`0 ?? 250` is `0`). Fix: when `originalPrice === 0` **and** a tier with `price > 0` exists, prefer the tier price. A genuine $0 comp has no priced tier, so it stays 0. *(This was real, but not why the user's screen was broken.)*
+
+**Layer 2 — the PUT didn't return `financials` (`.../registrations/[registrationId]/route.ts`, commit `45e226d`).**
+After an inline edit the sheet set `selectedRegistration` from the PUT response, which included `pricingTier` but not the computed `financials` block — so the summary went stale after a re-tier. Fix: recompute `financials` on the PUT return using the same block the GET uses. *(Also real, but the user still saw the bug because they never triggered a PUT.)*
+
+**Layer 3 — THE ACTUAL CAUSE: the sheet is seeded from the LIST API, which never computes `financials` (`registration-detail-sheet.tsx`, commit `d4b1f1d`).**
+The detail sheet's `selectedRegistration` starts as the **list row**. The registrations **list** endpoint deliberately does **not** compute the per-row `financials` block (it's derived, and expensive per row). So on open, `selectedRegistration.financials` was `undefined` → `showFinancials` (`total > 0`) false → the "no price set yet" branch fired **regardless of the tier**. The earlier PUT/math fixes only populated `financials` *after a mutation*, and re-selecting the already-chosen tier no-ops — so a tiered registration could never self-heal. **Fix:** the sheet now fetches the full detail (the GET computes `financials`) **when it opens**, full-replacing the row exactly like the existing promo/mutation refresh paths already did, with a per-id `financialsLoadedForId` flag showing *"Loading payment details…"* until it lands (so the message never flashes and only appears when the price genuinely can't resolve — the CSV/manual-add-no-tier case).
+
+**Related fix — manual payment defaults to the VAT-inclusive total (`payments/route.ts` + `record-payment-dialog.tsx`, commit `99509db`).** The record-payment dialog now prefills `financials.balanceDue` (tax-inclusive) and shows a Subtotal / VAT / Total breakdown, so organizers record the full amount the attendee pays, not the pre-tax base. (This *looked* broken too, for the same Layer-1/3 reason — the prefilled balance was 0/base — so it came right once Layers 1 & 3 landed.)
+
+**Root-cause lesson:** when a **displayed number is wrong**, trace it to **the exact object the component reads and where that object was populated** — don't stop at the first plausible computation. The number here was `selectedRegistration.financials`, and the bug was that this specific object came from a payload (the list) that never contained it. The math and the PUT were red herrings that *looked* like the cause. **Rule going forward: a detail view must load detail data — never rely on a list payload for a derived/finance field a list endpoint doesn't compute.**
+
+**Files:** [src/lib/registration-financials.ts](../src/lib/registration-financials.ts), [src/app/api/events/[eventId]/registrations/[registrationId]/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/route.ts), [src/app/(dashboard)/events/[eventId]/registrations/registration-detail-sheet.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/registrations/registration-detail-sheet.tsx), [src/components/payments/record-payment-dialog.tsx](../src/components/payments/record-payment-dialog.tsx). Full subsystem walkthrough: [docs/PAYMENT_FLOW.md](PAYMENT_FLOW.md). Commits `555451f`, `45e226d`, `d4b1f1d`, `99509db`.
 
 ---
 
