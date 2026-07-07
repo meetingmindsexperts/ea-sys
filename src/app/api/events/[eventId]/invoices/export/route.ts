@@ -6,6 +6,12 @@ import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import {
+  INVOICE_EXPORT_SELECT,
+  buildInvoiceCsv,
+  buildInvoiceQuickBooksCsv,
+  type InvoiceExportRow,
+} from "@/lib/invoice-export";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -40,6 +46,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const url = new URL(req.url);
+    // Backward-compat: no `format` → the original ZIP-of-PDFs behavior.
+    const format = (url.searchParams.get("format") || "pdf").toLowerCase();
     const type = url.searchParams.get("type") || undefined;
     const status = url.searchParams.get("status") || undefined;
 
@@ -50,6 +58,28 @@ export async function GET(req: Request, { params }: RouteParams) {
         status: status as "DRAFT" | "SENT" | "PAID" | "OVERDUE" | "CANCELLED" | "REFUNDED",
       }),
     };
+
+    // CSV / QuickBooks — shared formatters, byte-identical to the org-level
+    // export. Honor the same type/status filters as the PDF ZIP.
+    if (format === "csv" || format === "quickbooks") {
+      const invoices = (await db.invoice.findMany({
+        where,
+        select: INVOICE_EXPORT_SELECT,
+        orderBy: { issueDate: "desc" },
+        take: 10000,
+      })) as unknown as InvoiceExportRow[];
+      const csv = format === "quickbooks" ? buildInvoiceQuickBooksCsv(invoices) : buildInvoiceCsv(invoices);
+      const name = format === "quickbooks" ? "invoices-quickbooks" : "invoices";
+      const stamp = new Date().toISOString().slice(0, 10);
+      apiLogger.info({ msg: `invoices:export-${format}`, eventId, count: invoices.length });
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${name}-${event.code || eventId}-${stamp}.csv"`,
+        },
+      });
+    }
 
     const count = await db.invoice.count({ where });
     if (count === 0) {

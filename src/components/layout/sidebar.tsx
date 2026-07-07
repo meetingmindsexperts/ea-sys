@@ -21,6 +21,7 @@ import {
   UserCheck,
   Users,
   BookUser,
+  Receipt,
   Calendar,
   ScrollText,
   ScanBarcode,
@@ -55,10 +56,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
+  { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
@@ -220,6 +222,7 @@ export function Sidebar() {
       : navigation.filter((item) => {
           if (item.superAdminOnly && !isSuperAdmin) return false;
           if (item.adminOnly && !isAdmin) return false;
+          if (item.financeOnly && !canFinance) return false;
           return true;
         });
 

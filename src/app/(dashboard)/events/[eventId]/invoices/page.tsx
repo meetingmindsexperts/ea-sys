@@ -255,6 +255,18 @@ export default function EventInvoicesPage() {
     link.click();
   };
 
+  // QuickBooks import CSV — server-generated (shared with the org-level export)
+  // so the format is identical everywhere. Honors the current type/status
+  // filter (server-side), like the PDF ZIP.
+  const exportQuickBooks = () => {
+    const p = new URLSearchParams({ format: "quickbooks" });
+    if (invType !== "all") p.set("type", invType);
+    if (invStatus !== "all") p.set("status", invStatus);
+    const a = document.createElement("a");
+    a.href = `/api/events/${eventId}/invoices/export?${p.toString()}`;
+    a.click();
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -322,6 +334,15 @@ export default function EventInvoicesPage() {
                 disabled={filteredInvoices.length === 0}
               >
                 <Download className="mr-2 h-4 w-4" /> Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportQuickBooks}
+                disabled={invAll.length === 0}
+                title="Export invoices in the QuickBooks import format (current type/status filter)"
+              >
+                <FileText className="mr-2 h-4 w-4" /> QuickBooks
               </Button>
               <Button
                 variant="outline"
