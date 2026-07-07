@@ -11,7 +11,8 @@ const {
   mockAuth,
   mockDb,
   mockCreatePaidInvoice,
-  mockSendInvoiceEmail,
+  mockCreatePaidReceipt,
+  mockSendPaymentDocumentsEmail,
   mockNotifyEventAdmins,
   mockRefreshEventStats,
 } = vi.hoisted(() => ({
@@ -24,7 +25,8 @@ const {
     $transaction: vi.fn(),
   },
   mockCreatePaidInvoice: vi.fn(),
-  mockSendInvoiceEmail: vi.fn(),
+  mockCreatePaidReceipt: vi.fn(),
+  mockSendPaymentDocumentsEmail: vi.fn(),
   mockNotifyEventAdmins: vi.fn().mockReturnValue({ catch: () => {} }),
   mockRefreshEventStats: vi.fn(),
 }));
@@ -68,7 +70,8 @@ vi.mock("@/lib/event-access", () => ({
 }));
 vi.mock("@/lib/invoice-service", () => ({
   createPaidInvoice: (args: unknown) => mockCreatePaidInvoice(args),
-  sendInvoiceEmail: (id: string) => mockSendInvoiceEmail(id),
+  createPaidReceipt: (args: unknown) => mockCreatePaidReceipt(args),
+  sendPaymentDocumentsEmail: (args: unknown) => mockSendPaymentDocumentsEmail(args),
 }));
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: (...args: unknown[]) => mockNotifyEventAdmins(...args),
@@ -119,7 +122,8 @@ beforeEach(() => {
   mockDb.payment.count.mockResolvedValue(0);
   // Default: invoice creation succeeds.
   mockCreatePaidInvoice.mockResolvedValue({ id: "inv-1", invoiceNumber: "TEST-INV-001" });
-  mockSendInvoiceEmail.mockResolvedValue(undefined);
+  mockCreatePaidReceipt.mockResolvedValue({ receipt: { id: "rec-1", invoiceNumber: "TEST-REC-001" }, created: true });
+  mockSendPaymentDocumentsEmail.mockResolvedValue(undefined);
 });
 
 describe("POST manual-payment route — auth", () => {
@@ -352,7 +356,7 @@ describe("POST manual-payment route — happy paths", () => {
     });
   });
 
-  it("triggers createPaidInvoice + sendInvoiceEmail", async () => {
+  it("triggers createPaidInvoice + createPaidReceipt + combined documents email", async () => {
     await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
     expect(mockCreatePaidInvoice).toHaveBeenCalledTimes(1);
     expect(mockCreatePaidInvoice).toHaveBeenCalledWith(
@@ -363,7 +367,18 @@ describe("POST manual-payment route — happy paths", () => {
         paymentMethod: "cash",
       }),
     );
-    expect(mockSendInvoiceEmail).toHaveBeenCalledWith("inv-1");
+    expect(mockCreatePaidReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ registrationId: "reg-1", parentInvoiceId: "inv-1", paymentMethod: "cash" }),
+    );
+    // One combined email with both the invoice + receipt; offline → no Stripe link.
+    expect(mockSendPaymentDocumentsEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        registrationId: "reg-1",
+        invoice: expect.objectContaining({ id: "inv-1" }),
+        receipt: expect.objectContaining({ id: "rec-1" }),
+        receiptUrl: null,
+      }),
+    );
   });
 
   it("invoice creation failure does NOT fail the response (Payment row already landed)", async () => {
@@ -372,7 +387,7 @@ describe("POST manual-payment route — happy paths", () => {
     // Response is still 200 — the Payment was successfully recorded; the
     // admin can resend the invoice manually if needed.
     expect(res.status).toBe(200);
-    expect(mockSendInvoiceEmail).not.toHaveBeenCalled();
+    expect(mockSendPaymentDocumentsEmail).not.toHaveBeenCalled();
   });
 
   it("respects custom amount + currency override", async () => {

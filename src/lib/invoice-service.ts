@@ -8,6 +8,12 @@ import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note
 import { sendEmail } from "@/lib/email";
 import { getTitleLabel, deriveEventCode } from "@/lib/utils";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import {
+  sendPaymentConfirmationEmail,
+  paymentConfirmationRegInclude,
+  INVOICE_ACCOUNTING_BCC,
+  type PaymentEmailAttachment,
+} from "@/lib/payment-confirmation-email";
 import type { Invoice } from "@prisma/client";
 
 // ── Shared query for building PDF data ──────────────────────────────────────
@@ -224,19 +230,22 @@ export async function createPaidInvoice(params: {
   const paid = paidAt ?? new Date();
 
   const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-    // If an admin pre-created an INVOICE (status=SENT/DRAFT/OVERDUE) for
-    // this registration, promote it to PAID in place rather than minting
-    // a duplicate. Matches the "manual invoice then payment lands" flow.
+    // Reuse-or-promote (idempotent): a registration gets exactly ONE INVOICE.
+    //   - already PAID (webhook retry / reconciliation re-run) → return as-is
+    //     so we never mint a duplicate PAID invoice number.
+    //   - admin pre-created (SENT/DRAFT/OVERDUE) → promote to PAID in place.
+    //   - none → mint a new PAID invoice below.
     const existing = await tx.invoice.findFirst({
       where: {
         registrationId,
         type: "INVOICE",
-        status: { in: ["DRAFT", "SENT", "OVERDUE"] },
+        status: { in: ["DRAFT", "SENT", "OVERDUE", "PAID"] },
       },
       orderBy: { createdAt: "desc" },
     });
 
     if (existing) {
+      if (existing.status === "PAID") return existing;
       return tx.invoice.update({
         where: { id: existing.id },
         data: {
@@ -289,10 +298,108 @@ export async function createPaidInvoice(params: {
   return invoice;
 }
 
-/** @deprecated Renamed to `createPaidInvoice`. Kept temporarily so any unmigrated
- *  external code still compiles; delegates 1:1 to the new function. Remove after
- *  the next release cycle. */
-export const createReceipt = createPaidInvoice;
+// ── Create Receipt ────────────────────────────────────────────────────────────
+
+/**
+ * Mint the post-payment RECEIPT document — the proof-of-payment artifact that
+ * finance wants issued alongside the invoice. Distinct from the invoice (the
+ * demand): the receipt is numbered on its own per-event sequence (`…-REC-001`)
+ * and links back to the paid invoice via `parentInvoiceId` for traceability.
+ *
+ * Idempotent: a registration gets exactly ONE receipt. Returns the existing one
+ * with `created: false` on a webhook retry / reconciliation re-run (mirrors
+ * `createCreditNote`) so the caller can skip re-emailing.
+ *
+ * Only ever called for registrations that actually paid (Stripe / manual /
+ * reconciliation) — comp / free / INCLUSIVE registrations never get a receipt.
+ */
+export async function createPaidReceipt(params: {
+  registrationId: string;
+  eventId: string;
+  organizationId: string;
+  paymentId: string;
+  parentInvoiceId?: string;
+  paymentMethod?: string;
+  paymentReference?: string;
+  paidAt?: Date;
+}): Promise<{ receipt: Invoice; created: boolean }> {
+  const {
+    registrationId,
+    eventId,
+    organizationId,
+    paymentId,
+    parentInvoiceId,
+    paymentMethod,
+    paymentReference,
+    paidAt,
+  } = params;
+
+  const existing = await db.invoice.findFirst({
+    where: { registrationId, type: "RECEIPT" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existing) {
+    apiLogger.info({
+      msg: "Receipt already exists for registration; returning existing (idempotent)",
+      invoiceNumber: existing.invoiceNumber,
+      registrationId,
+    });
+    return { receipt: existing, created: false };
+  }
+
+  const registration = await db.registration.findUniqueOrThrow({
+    where: { id: registrationId },
+    include: registrationInclude,
+  });
+
+  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
+  const eventCode = await resolveEventCode(
+    { id: eventId, code: registration.event.code, name: registration.event.name },
+    { registrationId, flow: "RECEIPT" },
+  );
+
+  const paid = paidAt ?? new Date();
+
+  const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
+      tx, eventId, "RECEIPT", eventCode
+    );
+    return tx.invoice.create({
+      data: {
+        organizationId,
+        eventId,
+        registrationId,
+        paymentId,
+        parentInvoiceId,
+        type: "RECEIPT",
+        invoiceNumber,
+        sequenceNumber,
+        status: "PAID",
+        issueDate: new Date(),
+        paidDate: paid,
+        subtotal: price,
+        discountCode,
+        discountAmount: discount,
+        taxRate,
+        taxLabel: registration.event.taxLabel || "VAT",
+        taxAmount,
+        total,
+        currency,
+        paymentMethod: paymentMethod || "stripe",
+        paymentReference,
+      },
+    });
+  });
+
+  apiLogger.info({
+    msg: "Receipt created",
+    invoiceNumber: receipt.invoiceNumber,
+    registrationId,
+    total: Number(receipt.total),
+    currency,
+  });
+  return { receipt, created: true };
+}
 
 // ── Create Credit Note ──────────────────────────────────────────────────────
 
@@ -576,16 +683,6 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
 
 // ── Send Invoice Email ──────────────────────────────────────────────────────
 
-/**
- * Accounting inboxes BCC'd on every invoice / receipt / credit-note email so
- * finance keeps a copy of each issued financial document. BCC (not CC) so the
- * attendee never sees these internal addresses.
- */
-const INVOICE_ACCOUNTING_BCC = [
-  { email: "accounts@meetingmindsdubai.com" },
-  { email: "accounts@meetingmindsexperts.com" },
-];
-
 export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
   // Single query: fetch invoice + minimal registration data + full data for PDF in one go
   const invoice = await db.invoice.findUniqueOrThrow({
@@ -680,6 +777,95 @@ function buildInvoiceEmailHtml(typeLabel: string, invoiceNumber: string, eventNa
       </p>
     </div>
   `;
+}
+
+// ── Combined post-payment documents email ────────────────────────────────────
+
+/**
+ * Send ONE "payment received" email carrying BOTH the paid invoice PDF and the
+ * receipt PDF (plus Stripe's hosted-receipt link when present). This is the
+ * single post-payment message — it replaces the previously-separate payment-
+ * confirmation and invoice emails. Marks both documents as sent.
+ */
+export async function sendPaymentDocumentsEmail(params: {
+  registrationId: string;
+  invoice: Invoice;
+  receipt: Invoice;
+  amount: number;
+  currency: string;
+  receiptUrl?: string | null;
+  paymentReference?: string | null;
+}): Promise<void> {
+  const { registrationId, invoice, receipt, amount, currency, receiptUrl, paymentReference } = params;
+
+  // Build both PDFs (generatePDFForInvoice branches on type → invoice vs receipt).
+  const [invoicePdf, receiptPdf] = await Promise.all([
+    generatePDFForInvoice(invoice.id),
+    generatePDFForInvoice(receipt.id),
+  ]);
+  const attachments: PaymentEmailAttachment[] = [
+    { name: `${invoice.invoiceNumber}.pdf`, content: invoicePdf.toString("base64"), contentType: "application/pdf" },
+    { name: `${receipt.invoiceNumber}.pdf`, content: receiptPdf.toString("base64"), contentType: "application/pdf" },
+  ];
+
+  const registration = await db.registration.findUniqueOrThrow({
+    where: { id: registrationId },
+    include: paymentConfirmationRegInclude,
+  });
+
+  await sendPaymentConfirmationEmail(
+    registration,
+    amount,
+    currency,
+    receiptUrl ?? null,
+    paymentReference ?? null,
+    attachments,
+  );
+
+  const sentAt = new Date();
+  await db.invoice.updateMany({
+    where: { id: { in: [invoice.id, receipt.id] } },
+    data: { sentAt, sentTo: registration.attendee.email },
+  });
+}
+
+/**
+ * The single post-payment fan-out used by ALL payment channels (Stripe webhook,
+ * manual/offline capture, reconciliation): mint the PAID invoice + the receipt,
+ * then send one combined email carrying both PDFs. Idempotent end-to-end
+ * (`createPaidInvoice` + `createPaidReceipt` both reuse existing rows), so a
+ * webhook retry or reconciliation re-run won't duplicate documents.
+ */
+export async function issuePaidRegistrationDocuments(params: {
+  registrationId: string;
+  eventId: string;
+  organizationId: string;
+  paymentId: string;
+  paymentMethod?: string;
+  paymentReference?: string;
+  paidAt?: Date;
+  amount: number;
+  currency: string;
+  receiptUrl?: string | null;
+}): Promise<{ invoice: Invoice; receipt: Invoice }> {
+  const {
+    registrationId, eventId, organizationId, paymentId,
+    paymentMethod, paymentReference, paidAt, amount, currency, receiptUrl,
+  } = params;
+
+  const invoice = await createPaidInvoice({
+    registrationId, eventId, organizationId, paymentId, paymentMethod, paymentReference, paidAt,
+  });
+  const { receipt } = await createPaidReceipt({
+    registrationId, eventId, organizationId, paymentId,
+    parentInvoiceId: invoice.id, paymentMethod, paymentReference, paidAt,
+  });
+
+  await sendPaymentDocumentsEmail({
+    registrationId, invoice, receipt, amount, currency, receiptUrl, paymentReference,
+  });
+
+  return { invoice, receipt };
 }
 
 // ── Cancel Invoice ──────────────────────────────────────────────────────────

@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { createPaidInvoice, createCreditNote, sendInvoiceEmail } from "@/lib/invoice-service";
+import { createCreditNote, sendInvoiceEmail, issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
-import { getTitleLabel } from "@/lib/utils";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -171,15 +169,11 @@ export async function POST(req: Request) {
         link: `/events/${registration.event.id}/registrations`,
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send payment notification" }));
 
-      // Send payment confirmation email (non-blocking).
-      // paymentIntentId → `Payment Reference` field in the email.
-      sendPaymentConfirmationEmail(registration, amount, currency, receiptUrl, paymentIntentId).catch((err) =>
-        apiLogger.error({ err, msg: "Failed to send payment confirmation email", registrationId })
-      );
-
-      // Auto-create the post-payment Invoice (status=PAID) and email it.
-      // Stripe sends its own receipt email separately — this is our system
-      // invoice with our numbering + branding. Non-blocking.
+      // Post-payment documents: mint the PAID invoice + the receipt and send
+      // ONE combined "payment received" email carrying both PDFs, plus Stripe's
+      // hosted-receipt link. Replaces the previously-separate payment-
+      // confirmation and invoice emails. Non-blocking; idempotent end-to-end
+      // so a webhook retry won't duplicate documents or emails.
       (async () => {
         try {
           const payment = await db.payment.findFirst({
@@ -188,7 +182,7 @@ export async function POST(req: Request) {
             select: { id: true },
           });
           if (payment) {
-            const invoice = await createPaidInvoice({
+            await issuePaidRegistrationDocuments({
               registrationId,
               eventId: registration.event.id,
               organizationId: registration.event.organizationId,
@@ -196,11 +190,13 @@ export async function POST(req: Request) {
               paymentMethod: paymentMethodType || "card",
               paymentReference: paymentIntentId || undefined,
               paidAt: paidAt ?? undefined,
+              amount,
+              currency,
+              receiptUrl,
             });
-            await sendInvoiceEmail(invoice.id);
           }
         } catch (err) {
-          apiLogger.error({ err, msg: "Failed to auto-create paid invoice", registrationId });
+          apiLogger.error({ err, msg: "Failed to issue post-payment documents", registrationId });
         }
       })();
     } catch (err) {
@@ -294,156 +290,4 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ received: true });
-}
-
-async function sendPaymentConfirmationEmail(
-  registration: {
-    id: string;
-    serialId: number | null;
-    attendee: { firstName: string; lastName: string; email: string; additionalEmail: string | null; title: string | null };
-    ticketType: { name: string; price: unknown; currency: string } | null;
-    pricingTier: { price: unknown; currency: string } | null;
-    discountAmount: unknown;
-    event: { id: string; organizationId: string; name: string; slug: string; startDate: Date; venue: string | null; city: string | null; taxRate: unknown; taxLabel: string | null };
-  },
-  amount: number,
-  currency: string,
-  receiptUrl: string | null,
-  paymentIntentId: string | null,
-) {
-  const eventDate = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(new Date(registration.event.startDate));
-
-  const paymentDate = new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date());
-
-  // Totals — via the canonical computeRegistrationFinancials so the breakdown
-  // matches the invoice PDF. The previous inline `basePrice * taxRate/100`
-  // ignored the promo discount (taxed the pre-discount amount) and skipped
-  // rounding. These breakdown vars feed only CUSTOM templates; the default
-  // payment-confirmation template renders {{amount}} (the actual paid amount),
-  // so the default email is unchanged.
-  const basePrice = readRegistrationBasePrice(registration);
-  const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
-  const taxLabel = registration.event.taxLabel || "VAT";
-  const fin = computeRegistrationFinancials({
-    subtotal: basePrice,
-    discount,
-    taxRate: Number(registration.event.taxRate || 0),
-    taxLabel,
-    currency,
-    totalPaid: amount,
-  });
-  const taxRate = fin.taxRate;
-  const taxAmount = fin.taxAmount;
-  const subtotal = fin.subtotal;
-  const total = fin.total;
-
-  // Discount row — only shown (in custom templates) when a discount applies.
-  const discountBlock = fin.discount > 0
-    ? `<tr><td style="padding: 4px 0; color: #555; font-size: 14px;">Discount</td><td style="padding: 4px 0; text-align: right; font-size: 14px;">&minus;${currency} ${fin.discount.toFixed(2)}</td></tr>`
-    : "";
-
-  // Build tax block — only shown when taxRate > 0
-  const taxBlock = taxRate > 0
-    ? `<tr><td style="padding: 4px 0; color: #555; font-size: 14px;">${taxLabel} (${taxRate}%)</td><td style="padding: 4px 0; text-align: right; font-size: 14px;">${currency} ${taxAmount.toFixed(2)}</td></tr>`
-    : "";
-
-  // Receipt block: the Stripe-hosted receipt button (only when Stripe gave us a
-  // receipt URL) + a note that the formal invoice PDF arrives in a separate
-  // email (sent by createPaidInvoice → sendInvoiceEmail below). The note always
-  // renders so the attendee knows to expect the invoice even if there's no
-  // receipt URL.
-  const receiptButton = receiptUrl
-    ? `<div style="text-align: center; margin: 20px 0 0 0;">
-        <a href="${receiptUrl}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">View Receipt</a>
-      </div>`
-    : "";
-  const invoiceNote = `<p style="text-align: center; font-size: 13px; color: #6b7280; margin: 10px 0 0 0;">A copy of your invoice will be sent to your email separately.</p>`;
-  const receiptBlock = receiptButton + invoiceNote;
-  const receiptBlockText =
-    (receiptUrl ? `View Receipt: ${receiptUrl}\n` : "") +
-    "A copy of your invoice will be sent to your email separately.";
-
-  // registrationId → the padded serial number (e.g. "002") that matches the
-  // first confirmation email the user already has. paymentReference → Stripe
-  // payment intent id (the transaction-level identifier). Fall back to "—"
-  // when either is missing so the template doesn't render a raw "undefined".
-  const displayRegistrationId =
-    registration.serialId != null
-      ? String(registration.serialId).padStart(3, "0")
-      : registration.id;
-  const paymentReference = paymentIntentId ?? "—";
-
-  const vars: Record<string, string | number | undefined> = {
-    title: getTitleLabel(registration.attendee.title),
-    firstName: registration.attendee.firstName,
-    lastName: registration.attendee.lastName,
-    eventName: registration.event.name,
-    eventDate,
-    eventVenue: [registration.event.venue, registration.event.city].filter(Boolean).join(", "),
-    registrationId: displayRegistrationId,
-    paymentReference,
-    ticketType: registration.ticketType?.name ?? "General",
-    amount: `${currency} ${amount.toFixed(2)}`,
-    currency,
-    paymentDate,
-    receiptUrl: receiptUrl || undefined,
-    receiptBlock,
-    subtotal: `${currency} ${subtotal.toFixed(2)}`,
-    discount: fin.discount > 0 ? `${currency} ${fin.discount.toFixed(2)}` : undefined,
-    discountBlock,
-    taxRate: taxRate > 0 ? taxRate : undefined,
-    taxLabel: taxRate > 0 ? taxLabel : undefined,
-    taxAmount: taxRate > 0 ? `${currency} ${taxAmount.toFixed(2)}` : undefined,
-    total: `${currency} ${total.toFixed(2)}`,
-    taxBlock,
-  };
-
-  const tpl = await getEventTemplate(registration.event.id, "payment-confirmation");
-  const template = tpl || getDefaultTemplate("payment-confirmation");
-
-  if (!template) {
-    apiLogger.warn({ msg: "No payment-confirmation template found" });
-    return;
-  }
-
-  const branding = tpl?.branding || { eventName: registration.event.name };
-  const rendered = renderAndWrap(template, vars, branding, new Set(["receiptBlock", "taxBlock", "discountBlock"]));
-
-  // Override text content with plain text receipt link
-  const textVars = { ...vars, receiptBlock: receiptBlockText };
-  const { renderTemplatePlain } = await import("@/lib/email");
-  rendered.textContent = renderTemplatePlain(template.textContent, textVars);
-
-  await sendEmail({
-    to: [{ email: registration.attendee.email, name: registration.attendee.firstName }],
-    cc: brandingCc(
-      branding,
-      [{ email: registration.attendee.email }],
-      [registration.attendee.additionalEmail],
-    ),
-    ...rendered,
-    from: brandingFrom(branding),
-    emailType: "payment_confirmation",
-    stream: "transactional",
-    logContext: {
-      organizationId: registration.event.organizationId,
-      eventId: registration.event.id,
-      entityType: "REGISTRATION",
-      entityId: registration.id,
-      templateSlug: "payment-confirmation",
-    },
-  });
-
-  apiLogger.info({ msg: "Payment confirmation email sent", registrationId: registration.id });
 }

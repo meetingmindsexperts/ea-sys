@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { createPaidInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import { createPaidInvoice, createPaidReceipt, sendPaymentDocumentsEmail } from "@/lib/invoice-service";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -29,10 +29,10 @@ import { refreshEventStats } from "@/lib/event-stats";
  *   1. Insert a `Payment` row with `status: "PAID"` + the captured
  *      method-specific fields. `stripePaymentId` is left null.
  *   2. Flip `registration.paymentStatus` to `"PAID"`.
- *   3. Fire-and-forget: `createPaidInvoice(...)` (promotes any existing
- *      admin INVOICE in place, else mints a new INVOICE/PAID row) +
- *      `sendInvoiceEmail(invoice.id)` so the registrant receives the
- *      proper Invoice PDF.
+ *   3. `createPaidInvoice(...)` (promotes any existing admin INVOICE in
+ *      place, else mints a new INVOICE/PAID row) + `createPaidReceipt(...)`,
+ *      then fire-and-forget `sendPaymentDocumentsEmail(...)` so the registrant
+ *      receives ONE email with both the Invoice and Receipt PDFs.
  *   4. Audit log (`MANUAL_PAYMENT_RECORDED`) + admin notification.
  *
  * Returns 409 if the registration is already PAID — admins should never
@@ -341,31 +341,51 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ err, msg: "manual-payment:notification-failed", paymentId: payment.id }),
     );
 
-    // Auto-create the post-payment INVOICE (status PAID) and email it.
-    // Mirrors the Stripe webhook side-effect fan-out so the registrant
-    // receives the same artifact regardless of payment channel.
+    // Auto-create the post-payment INVOICE + RECEIPT (both status PAID) and
+    // email them together. Mirrors the Stripe webhook fan-out so the registrant
+    // receives the same combined packet regardless of payment channel. Offline
+    // payments have no Stripe hosted receipt — our RECEIPT PDF is the proof.
     let invoiceId: string | null = null;
     try {
+      const paymentReference =
+        data.bankReference ||
+        (data.method === "card_onsite" && data.cardLast4 ? `Card ending ${data.cardLast4}` : undefined) ||
+        (data.method === "cash" ? `Cash — received by ${data.cashReceivedBy ?? "organizer"}` : undefined);
       const invoice = await createPaidInvoice({
         registrationId: registrationId!,
         eventId,
         organizationId: event.organizationId,
         paymentId: payment.id,
         paymentMethod: data.method,
-        paymentReference:
-          data.bankReference ||
-          (data.method === "card_onsite" && data.cardLast4 ? `Card ending ${data.cardLast4}` : undefined) ||
-          (data.method === "cash" ? `Cash — received by ${data.cashReceivedBy ?? "organizer"}` : undefined),
+        paymentReference,
         paidAt: paidAtDate,
       });
       invoiceId = invoice.id;
-      // Fire-and-forget the email so the API responds quickly. Email
+      const { receipt } = await createPaidReceipt({
+        registrationId: registrationId!,
+        eventId,
+        organizationId: event.organizationId,
+        paymentId: payment.id,
+        parentInvoiceId: invoice.id,
+        paymentMethod: data.method,
+        paymentReference,
+        paidAt: paidAtDate,
+      });
+      // Fire-and-forget the combined email so the API responds quickly. Email
       // failure is logged but doesn't fail the manual-payment recording —
       // the admin can resend from the registration detail sheet.
-      sendInvoiceEmail(invoice.id).catch((err) =>
+      sendPaymentDocumentsEmail({
+        registrationId: registrationId!,
+        invoice,
+        receipt,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+        receiptUrl: null,
+        paymentReference,
+      }).catch((err) =>
         apiLogger.error({
           err,
-          msg: "manual-payment:invoice-email-failed",
+          msg: "manual-payment:documents-email-failed",
           registrationId,
           invoiceId: invoice.id,
         }),

@@ -56,6 +56,20 @@ vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+// The combined-documents sender delegates the actual email to the shared
+// payment-confirmation module — spy on it here (its own behavior is covered in
+// payment-confirmation-email.test.ts). Provide the constants invoice-service
+// imports from it.
+const mockSendPaymentConfirmationEmail = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/payment-confirmation-email", () => ({
+  sendPaymentConfirmationEmail: mockSendPaymentConfirmationEmail,
+  paymentConfirmationRegInclude: {},
+  INVOICE_ACCOUNTING_BCC: [
+    { email: "accounts@meetingmindsdubai.com" },
+    { email: "accounts@meetingmindsexperts.com" },
+  ],
+}));
+
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -78,7 +92,10 @@ vi.mock("@/lib/utils", () => ({
   }),
 }));
 
-import { createInvoice, createPaidInvoice, createCreditNote, cancelInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import {
+  createInvoice, createPaidInvoice, createPaidReceipt, createCreditNote,
+  cancelInvoice, sendInvoiceEmail, issuePaidRegistrationDocuments,
+} from "@/lib/invoice-service";
 import { sendEmail } from "@/lib/email";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -337,6 +354,117 @@ describe("createPaidInvoice", () => {
     }));
     expect(mockCreate).not.toHaveBeenCalled();
     expect(result.invoiceNumber).toBe("INV-2026-0001");
+  });
+});
+
+describe("createPaidInvoice — idempotency for an already-PAID invoice", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
+  });
+
+  it("returns the existing PAID invoice untouched (no duplicate, no update)", async () => {
+    // Webhook retry / reconciliation re-run: an INVOICE is already PAID.
+    mockFindFirst.mockResolvedValueOnce({ id: "inv-paid", invoiceNumber: "INV-2026-0001", status: "PAID" });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({ invoice: { findFirst: mockFindFirst, create: mockCreate, update: mockUpdate, updateMany: mockUpdateMany } }),
+    );
+
+    const result = await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", paymentId: "pay-1",
+    });
+
+    expect(result.id).toBe("inv-paid");
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("createPaidReceipt", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
+  });
+
+  it("mints a RECEIPT (status PAID) linked to the paid invoice via parentInvoiceId", async () => {
+    mockFindFirst.mockResolvedValueOnce(null); // no existing receipt
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; });
+
+    const result = await createPaidReceipt({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1", parentInvoiceId: "inv-1", paymentMethod: "stripe", paymentReference: "pi_123",
+    });
+
+    expect(result.created).toBe(true);
+    expect(captured.type).toBe("RECEIPT");
+    expect(captured.status).toBe("PAID");
+    expect(captured.parentInvoiceId).toBe("inv-1");
+    expect(captured.paymentMethod).toBe("stripe");
+    expect(captured.paymentReference).toBe("pi_123");
+    // Same pricing as the invoice (100 + 5% VAT).
+    expect(Number(captured.subtotal)).toBe(100);
+    expect(Number(captured.taxAmount)).toBe(5);
+    expect(Number(captured.total)).toBe(105);
+  });
+
+  it("is idempotent — returns the existing receipt without creating a duplicate", async () => {
+    mockFindFirst.mockResolvedValueOnce({ id: "rec-existing", invoiceNumber: "REC-1", type: "RECEIPT" });
+    let created = false;
+    setupTxMock(() => { created = true; });
+
+    const result = await createPaidReceipt({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", paymentId: "pay-1",
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.receipt.id).toBe("rec-existing");
+    expect(created).toBe(false); // no transaction → no second RECEIPT row
+    expect(mockFindUniqueOrThrow).not.toHaveBeenCalled(); // short-circuits before loading the registration
+  });
+});
+
+describe("issuePaidRegistrationDocuments — invoice + receipt + one combined email", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
+    mockUpdateMany.mockResolvedValue({ count: 2 });
+  });
+
+  it("creates the invoice + receipt and sends ONE email carrying BOTH PDFs", async () => {
+    const { db } = await import("@/lib/db");
+    // createPaidInvoice + createPaidReceipt both mint (no existing docs).
+    mockFindFirst.mockResolvedValue(null);
+    setupTxMock(); // tx create returns { id: "inv-1", ... }
+
+    // generatePDFForInvoice loads each doc by id; return an INVOICE then a RECEIPT.
+    const pdfReg = { ...fakeRegistration };
+    (db.invoice.findUniqueOrThrow as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ type: "INVOICE", invoiceNumber: "HFC2026-INV-001", subtotal: 100, currency: "USD", taxRate: 5, taxLabel: "VAT", discountCode: null, discountAmount: 0, issueDate: new Date(), dueDate: new Date(), status: "PAID", paidDate: new Date(), paymentMethod: "stripe", paymentReference: "pi_1", parentInvoice: null, payment: null, registration: pdfReg })
+      .mockResolvedValueOnce({ type: "RECEIPT", invoiceNumber: "HFC2026-REC-001", subtotal: 100, currency: "USD", taxRate: 5, taxLabel: "VAT", discountCode: null, discountAmount: 0, issueDate: new Date(), paidDate: new Date(), paymentMethod: "stripe", paymentReference: "pi_1", registration: pdfReg });
+
+    const result = await issuePaidRegistrationDocuments({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1", paymentMethod: "card", paymentReference: "pi_1",
+      amount: 105, currency: "USD", receiptUrl: "https://stripe.test/r/1",
+    });
+
+    expect(result.invoice).toBeDefined();
+    expect(result.receipt).toBeDefined();
+
+    // The single combined email got BOTH attachments + the amount/receipt link.
+    expect(mockSendPaymentConfirmationEmail).toHaveBeenCalledTimes(1);
+    const [, amount, currency, receiptUrl, , attachments] = mockSendPaymentConfirmationEmail.mock.calls[0];
+    expect(amount).toBe(105);
+    expect(currency).toBe("USD");
+    expect(receiptUrl).toBe("https://stripe.test/r/1");
+    expect(attachments).toHaveLength(2);
+    // Two PDF attachments (invoice + receipt); names come from each doc's number.
+    expect(attachments.every((a: { name: string; contentType: string }) => a.name.endsWith(".pdf") && a.contentType === "application/pdf")).toBe(true);
+    // Both documents marked as sent.
+    expect(mockUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ sentTo: "john@example.com" }),
+    }));
   });
 });
 

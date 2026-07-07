@@ -10,15 +10,18 @@
  * the webhook can't retry a post-commit failure. This sweep closes that gap.
  *
  * The reconciliation signature is precise: a registration that is PAID, has a
- * PAID `Payment` row (so money really moved), but has no `INVOICE`-type Invoice.
- * Each recovery reuses the same `createPaidInvoice` + `sendInvoiceEmail` path as
- * the webhook, so the output is identical to a successful webhook. Idempotent —
- * once an invoice exists the registration drops out of the candidate set.
+ * PAID `Payment` row (so money really moved), but is missing its `INVOICE` OR
+ * its `RECEIPT` document. Each recovery reuses the same
+ * `issuePaidRegistrationDocuments` path as the webhook, so the output is
+ * identical to a successful webhook (invoice + receipt + one combined email).
+ * Idempotent — once both documents exist the registration drops out of the
+ * candidate set, and `createPaidInvoice`/`createPaidReceipt` reuse existing
+ * rows so a re-run never duplicates.
  */
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { createPaidInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 
 // Bounded look-back so the scan stays cheap. A dropped invoice is reconciled
 // within one cron cadence of the payment, far inside this window; older gaps
@@ -48,9 +51,12 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
     where: {
       paymentStatus: "PAID",
       updatedAt: { gte: cutoff },
-      // No system invoice yet …
-      invoices: { none: { type: "INVOICE" } },
-      // … but a real PAID payment exists → the webhook's invoice block dropped.
+      // Missing the INVOICE or the RECEIPT document …
+      OR: [
+        { invoices: { none: { type: "INVOICE" } } },
+        { invoices: { none: { type: "RECEIPT" } } },
+      ],
+      // … but a real PAID payment exists → the webhook's document block dropped.
       payments: { some: { status: "PAID" } },
     },
     select: {
@@ -66,6 +72,9 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
           stripePaymentId: true,
           paymentMethodType: true,
           paidAt: true,
+          amount: true,
+          currency: true,
+          receiptUrl: true,
         },
       },
     },
@@ -81,7 +90,7 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
     if (!payment) continue; // defensive — the `where` guarantees one
 
     try {
-      const invoice = await createPaidInvoice({
+      const { invoice, receipt } = await issuePaidRegistrationDocuments({
         registrationId: reg.id,
         eventId: reg.eventId,
         organizationId: reg.event.organizationId,
@@ -89,14 +98,17 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
         paymentMethod: payment.paymentMethodType || "card",
         paymentReference: payment.stripePaymentId || undefined,
         paidAt: payment.paidAt ?? undefined,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+        receiptUrl: payment.receiptUrl,
       });
-      await sendInvoiceEmail(invoice.id);
       reconciled++;
       apiLogger.info({
         msg: "invoice-reconciliation:recovered",
         registrationId: reg.id,
         eventId: reg.eventId,
         invoiceId: invoice.id,
+        receiptId: receipt.id,
       });
     } catch (err) {
       failed++;
