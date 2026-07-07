@@ -7,6 +7,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { createCreditNote, sendInvoiceEmail, issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { refreshEventStats } from "@/lib/event-stats";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { captureStripeReceipt } from "@/lib/stripe-receipt";
 
 export async function POST(req: Request) {
   let event: Stripe.Event;
@@ -140,6 +141,7 @@ export async function POST(req: Request) {
             stripeCustomerId: customerId,
             status: "PAID",
             receiptUrl,
+            stripeReceiptUrl: receiptUrl,
             cardBrand,
             cardLast4,
             paymentMethodType,
@@ -194,6 +196,20 @@ export async function POST(req: Request) {
               currency,
               receiptUrl,
             });
+
+            // Store a durable local snapshot of Stripe's hosted receipt so it
+            // survives if the Stripe URL ever breaks. Isolated try/catch — a
+            // capture failure must never affect document issuance.
+            if (receiptUrl) {
+              try {
+                const stripeReceiptFile = await captureStripeReceipt(receiptUrl);
+                if (stripeReceiptFile) {
+                  await db.payment.update({ where: { id: payment.id }, data: { stripeReceiptFile } });
+                }
+              } catch (err) {
+                apiLogger.error({ err, msg: "Failed to capture Stripe receipt snapshot", registrationId, paymentId: payment.id });
+              }
+            }
           }
         } catch (err) {
           apiLogger.error({ err, msg: "Failed to issue post-payment documents", registrationId });

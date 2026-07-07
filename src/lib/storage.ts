@@ -192,6 +192,21 @@ export async function uploadCertificatePdf(
 }
 
 /**
+ * Persist a downloaded Stripe receipt (HTML) into our storage under
+ * `/uploads/stripe-receipts/{YYYY}/{MM}/`. Mirrors uploadCertificatePdf.
+ */
+export async function uploadStripeReceipt(
+  buffer: Buffer,
+  filename: string
+): Promise<string> {
+  const subdir = "stripe-receipts";
+  if (PROVIDER === "supabase") {
+    return uploadSupabase(buffer, filename, "text/html", subdir);
+  }
+  return uploadLocal(buffer, filename, subdir);
+}
+
+/**
  * Downloads an external photo URL and re-hosts it in our storage.
  * Returns the local/Supabase URL on success, or null on failure.
  * Skips URLs that are already hosted by us.

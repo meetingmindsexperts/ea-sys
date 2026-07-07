@@ -84,6 +84,10 @@ export interface Payment {
   // payments it's Stripe's hosted receipt URL. Same column, two
   // semantics — context comes from `paymentMethodType`.
   receiptUrl?: string | null;
+  // Stripe's hosted receipt URL + our durable local snapshot of it. The
+  // receipt link prefers the local snapshot (never expires) over the live URL.
+  stripeReceiptUrl?: string | null;
+  stripeReceiptFile?: string | null;
   // Additional reconciliation fields surfaced from `Payment.metadata`
   // when the payment was recorded manually (bank reference, cash
   // recipient, free-form notes). Stripe-driven payments have these

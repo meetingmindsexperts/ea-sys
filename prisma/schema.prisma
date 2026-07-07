@@ -929,6 +929,12 @@ model Payment {
   stripeCustomerId  String?
   status            PaymentStatus @default(PENDING)
   receiptUrl        String?
+  /// Stripe's hosted receipt page URL (charge.receipt_url) — the canonical
+  /// "stripe_receipt". `stripeReceiptFile` is our durable local snapshot of that
+  /// page (downloaded at settlement), so the receipt survives even if Stripe's
+  /// URL ever breaks. Both null for manual/offline payments.
+  stripeReceiptUrl  String?
+  stripeReceiptFile String?
   // Card / payment instrument details captured from the Stripe PaymentIntent
   // at settlement time. `cardBrand` + `cardLast4` appear on the post-payment
   // Invoice PDF and the registration Billing panel so organizers can

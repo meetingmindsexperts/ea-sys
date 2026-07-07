@@ -70,6 +70,10 @@ vi.mock("@/lib/invoice-service", () => ({
   sendInvoiceEmail: (...args: unknown[]) => sendInvoiceEmailMock(...args),
   issuePaidRegistrationDocuments: vi.fn().mockResolvedValue(undefined),
 }));
+// Fire-and-forget Stripe-receipt snapshot — mock so no real fetch happens.
+vi.mock("@/lib/stripe-receipt", () => ({
+  captureStripeReceipt: vi.fn().mockResolvedValue("/uploads/stripe-receipts/x.html"),
+}));
 
 import { POST } from "@/app/api/webhooks/stripe/route";
 

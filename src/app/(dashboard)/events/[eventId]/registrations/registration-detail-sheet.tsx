@@ -2411,10 +2411,11 @@ export function RegistrationDetailSheet({
                           const bankReference = meta?.bankReference;
                           const cashReceivedBy = meta?.cashReceivedBy;
                           const paymentNotes = meta?.notes;
-                          // For manual transfers `receiptUrl` carries the organizer-
-                          // uploaded proof (transfer copy / receipt photo). For Stripe
-                          // it's the hosted receipt URL.
-                          const proofUrl = payment.receiptUrl;
+                          // Receipt link. For Stripe payments prefer our durable
+                          // local snapshot (never expires) → the live Stripe URL →
+                          // else the manual-payment proof artifact in `receiptUrl`.
+                          const proofUrl =
+                            payment.stripeReceiptFile || payment.stripeReceiptUrl || payment.receiptUrl;
                           return (
                             <div key={payment.id} className="flex items-start justify-between gap-3 p-3 bg-muted rounded-lg">
                               <div className="min-w-0 flex-1">
