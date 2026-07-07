@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -251,13 +251,48 @@ export function RegistrationDetailSheet({
   // The `!== null` guard is kept so closing the sheet (parent passes
   // null) doesn't blank the visible content mid-close animation.
   const [prevRegistration, setPrevRegistration] = useState<Registration | null>(registration);
+  // Which registration id we've loaded the FULL detail (with `financials`) for.
+  // The row that seeds `selectedRegistration` comes from the LIST API, which
+  // does NOT compute `financials` — so on open the Payment Summary would show
+  // "no price set yet" even for a tier-priced registration. We fetch the detail
+  // on open (below) and, until it lands, show a "Loading…" state instead of the
+  // misleading no-price message.
+  const [financialsLoadedForId, setFinancialsLoadedForId] = useState<string | null>(null);
   if (registration !== prevRegistration) {
     setPrevRegistration(registration);
     if (registration !== null) {
       setSelectedRegistration(registration);
       setIsEditing(false);
+      setFinancialsLoadedForId(null);
     }
   }
+
+  // On open (or when the opened registration changes), pull the full detail so
+  // `financials` (subtotal + VAT + total + balance) is present and accurate.
+  // Full replace mirrors the promo/mutation refresh paths, which already treat
+  // the detail GET as a complete superset of what the sheet renders. setState
+  // happens only after the await, so it's outside the effect's synchronous body.
+  useEffect(() => {
+    if (!open || !registration?.id) return;
+    const id = registration.id;
+    let cancelled = false;
+    apiFetch<Registration>(`/api/events/${eventId}/registrations/${id}`)
+      .then((fresh) => {
+        if (cancelled) return;
+        setSelectedRegistration(fresh);
+        setFinancialsLoadedForId(id);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Non-fatal: keep the list-seeded row. Mark loaded so we stop showing
+        // the spinner and fall back to the genuine display. Never swallow.
+        setFinancialsLoadedForId(id);
+        console.error("[RegistrationDetail] detail fetch on open failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, registration?.id, eventId]);
 
   const updateRegistration = useMutation({
     // STALE_WRITE branching lives in onError below — the ApiError thrown
@@ -1607,13 +1642,19 @@ export function RegistrationDetailSheet({
                     ) : selectedRegistration.paymentStatus === "INCLUSIVE" ? (
                       <p className="text-sm text-muted-foreground">Sponsor-paid registration — no payment due from attendee.</p>
                     ) : (["UNASSIGNED", "UNPAID", "PENDING"] as string[]).includes(selectedRegistration.paymentStatus) ? (
-                      // NEVER say "free" for a registration that owes money. If we
-                      // land here the price hasn't resolved (no stamped price /
-                      // pricing tier) — surface it as outstanding and point the
-                      // organizer at the tier picker above to set the amount.
-                      <p className="text-sm font-medium text-amber-800">
-                        Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed.
-                      </p>
+                      financialsLoadedForId !== selectedRegistration.id ? (
+                        // Detail (with financials) still loading — don't flash the
+                        // "no price set yet" message before we actually know.
+                        <p className="text-sm text-muted-foreground">Loading payment details…</p>
+                      ) : (
+                        // NEVER say "free" for a registration that owes money. If we
+                        // land here the price genuinely hasn't resolved (no stamped
+                        // price / no pricing tier) — surface it as outstanding and
+                        // point the organizer at the tier picker above.
+                        <p className="text-sm font-medium text-amber-800">
+                          Payment outstanding — no price set yet. Choose a pricing tier above to set the amount owed.
+                        </p>
+                      )
                     ) : (
                       <p className="text-sm text-muted-foreground">No payment due.</p>
                     )}
