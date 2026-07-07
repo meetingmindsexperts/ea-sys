@@ -22,6 +22,9 @@ import {
   Info,
   Zap,
   Trash2,
+  Archive,
+  X,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +55,7 @@ export default function LogsPage() {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [logSource, setLogSource] = useState("docker");
   const [sourceLabel, setSourceLabel] = useState("docker");
+  const [showArchives, setShowArchives] = useState(false);
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -270,6 +274,8 @@ export default function LogsPage() {
       {/* Scanline effect */}
       <div className="absolute inset-0 bg-scanlines pointer-events-none opacity-5" />
 
+      {showArchives && <LogArchivesPanel onClose={() => setShowArchives(false)} />}
+
       {/* Header */}
       <div className="relative z-10 border-b border-cyan-500/20 bg-[#0d1219]/80 backdrop-blur-sm">
         <div className="px-6 py-4">
@@ -387,6 +393,15 @@ export default function LogsPage() {
               >
                 <Download className="w-4 h-4 mr-1.5" />
                 All
+              </Button>
+              <Button
+                onClick={() => setShowArchives(true)}
+                variant="outline"
+                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 font-mono"
+                size="sm"
+              >
+                <Archive className="w-4 h-4 mr-1.5" />
+                Archives
               </Button>
               {logSource === "database" && (
                 <Button
@@ -560,6 +575,90 @@ export default function LogsPage() {
           background: rgba(0, 170, 222, 0.5);
         }
       `}</style>
+    </div>
+  );
+}
+
+interface ArchiveRow { name: string; month: string; sizeBytes: number; modifiedAt: string }
+
+function LogArchivesPanel({ onClose }: { onClose: () => void }) {
+  const [archives, setArchives] = useState<ArchiveRow[] | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/logs/archive");
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Failed to load archives"); return; }
+      setArchives(data.archives ?? []);
+    } catch {
+      toast.error("Failed to load archives");
+      setArchives([]);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const runNow = async () => {
+    setRunning(true);
+    try {
+      const res = await fetch("/api/logs/archive", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error || "Archive run failed"); return; }
+      const months = (data.archivedMonths ?? []) as string[];
+      toast.success(months.length ? `Archived ${data.totalRows} rows across ${months.length} month(s)` : "Nothing to archive yet");
+      await load();
+    } catch {
+      toast.error("Archive run failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const fmtSize = (b: number) =>
+    b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col rounded-lg border border-cyan-500/30 bg-[#0d1219] font-mono" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-cyan-500/20 px-5 py-3">
+          <div className="flex items-center gap-2 text-cyan-400">
+            <Archive className="w-4 h-4" />
+            <span className="text-sm font-bold tracking-wider">LOG ARCHIVES</span>
+          </div>
+          <button onClick={onClose} className="text-cyan-400/60 hover:text-cyan-300"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="px-5 py-2 text-[11px] text-cyan-400/50 border-b border-cyan-500/10">
+          Monthly gzip archives of the database logs. The current + previous month stay live; older months are archived here.
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {archives === null ? (
+            <div className="flex items-center gap-2 text-cyan-400/60 text-xs py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : archives.length === 0 ? (
+            <div className="text-cyan-400/50 text-xs py-6 text-center">No archives yet — nothing older than the previous month.</div>
+          ) : (
+            <ul className="space-y-1.5">
+              {archives.map((a) => (
+                <li key={a.name} className="flex items-center justify-between rounded border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs">
+                  <div className="text-cyan-100">
+                    <span className="font-semibold">{a.month}</span>
+                    <span className="text-cyan-400/50 ml-2">{fmtSize(a.sizeBytes)}</span>
+                  </div>
+                  <a href={`/api/logs/archive?file=${encodeURIComponent(a.name)}`} className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300">
+                    <Download className="w-3.5 h-3.5" /> Download
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="border-t border-cyan-500/20 px-5 py-3 flex justify-end">
+          <Button onClick={runNow} disabled={running} size="sm" variant="outline" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 font-mono">
+            {running ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Archive className="w-4 h-4 mr-1.5" />}
+            Run archive now
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

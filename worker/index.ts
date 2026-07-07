@@ -53,6 +53,7 @@ import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
 import * as contactsCentralSync from "./jobs/contacts-central-sync";
 import * as contactsCentralReconcile from "./jobs/contacts-central-reconcile";
+import * as logArchive from "./jobs/log-archive";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -142,6 +143,7 @@ const tasks = [
   cron.schedule(invoiceReconciliation.SCHEDULE, wrapTick(invoiceReconciliation)),
   cron.schedule(contactsCentralSync.SCHEDULE, wrapTick(contactsCentralSync)),
   cron.schedule(contactsCentralReconcile.SCHEDULE, wrapTick(contactsCentralReconcile)),
+  cron.schedule(logArchive.SCHEDULE, wrapTick(logArchive)),
 ];
 
 const healthServer = startHealthServer(HEALTH_PORT, state);
@@ -163,5 +165,9 @@ apiLogger.info({
     [webinarRecordings.JOB_NAME]: webinarRecordings.SCHEDULE,
     [webinarAttendance.JOB_NAME]: webinarAttendance.SCHEDULE,
     [oauthCleanup.JOB_NAME]: oauthCleanup.SCHEDULE,
+    [invoiceReconciliation.JOB_NAME]: invoiceReconciliation.SCHEDULE,
+    [contactsCentralSync.JOB_NAME]: contactsCentralSync.SCHEDULE,
+    [contactsCentralReconcile.JOB_NAME]: contactsCentralReconcile.SCHEDULE,
+    [logArchive.JOB_NAME]: logArchive.SCHEDULE,
   },
 });
