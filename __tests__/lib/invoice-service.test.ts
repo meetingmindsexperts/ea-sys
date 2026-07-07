@@ -78,7 +78,8 @@ vi.mock("@/lib/utils", () => ({
   }),
 }));
 
-import { createInvoice, createPaidInvoice, createCreditNote, cancelInvoice } from "@/lib/invoice-service";
+import { createInvoice, createPaidInvoice, createCreditNote, cancelInvoice, sendInvoiceEmail } from "@/lib/invoice-service";
+import { sendEmail } from "@/lib/email";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -417,5 +418,33 @@ describe("cancelInvoice", () => {
       data: { status: "CANCELLED" },
     });
     expect(result.status).toBe("CANCELLED");
+  });
+});
+
+describe("sendInvoiceEmail", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("BCCs the accounting inboxes on every invoice email", async () => {
+    const { db } = await import("@/lib/db");
+    (db.invoice.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "inv-1", type: "INVOICE", invoiceNumber: "INV-1",
+      organizationId: "org-1", eventId: "evt-1", registrationId: "reg-1",
+      subtotal: 100, discountAmount: 0, discountCode: null, taxRate: 5,
+      taxLabel: "VAT", taxAmount: 5, total: 105, currency: "USD",
+      issueDate: new Date("2026-07-07"), paidDate: null, paymentMethod: null, paymentReference: null, notes: null,
+      parentInvoice: null, payment: null,
+      registration: { ...fakeRegistration, event: { ...fakeRegistration.event, emailFromAddress: null, emailFromName: null } },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    await sendInvoiceEmail("inv-1");
+
+    const call = (sendEmail as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const bccEmails = (call.bcc as { email: string }[]).map((b) => b.email);
+    expect(bccEmails).toEqual(
+      expect.arrayContaining(["accounts@meetingmindsdubai.com", "accounts@meetingmindsexperts.com"]),
+    );
+    // attendee is still the primary recipient (accounting is BCC, not visible)
+    expect(call.to[0].email).toBe("john@example.com");
   });
 });

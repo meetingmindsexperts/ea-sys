@@ -576,6 +576,16 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
 
 // ── Send Invoice Email ──────────────────────────────────────────────────────
 
+/**
+ * Accounting inboxes BCC'd on every invoice / receipt / credit-note email so
+ * finance keeps a copy of each issued financial document. BCC (not CC) so the
+ * attendee never sees these internal addresses.
+ */
+const INVOICE_ACCOUNTING_BCC = [
+  { email: "accounts@meetingmindsdubai.com" },
+  { email: "accounts@meetingmindsexperts.com" },
+];
+
 export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
   // Single query: fetch invoice + minimal registration data + full data for PDF in one go
   const invoice = await db.invoice.findUniqueOrThrow({
@@ -622,6 +632,7 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
 
   await sendEmail({
     to: [{ email: attendee.email, name: `${attendee.firstName} ${attendee.lastName}` }],
+    bcc: INVOICE_ACCOUNTING_BCC,
     subject,
     htmlContent,
     from: event.emailFromAddress
