@@ -93,12 +93,17 @@ export function readRegistrationBasePrice(reg: {
   pricingTier?: { price?: unknown } | null;
   ticketType?: { price?: unknown } | null;
 }): number {
-  return (
-    toNum(reg.originalPrice) ??
-    toNum(reg.pricingTier?.price) ??
-    toNum(reg.ticketType?.price) ??
-    0
-  );
+  const orig = toNum(reg.originalPrice);
+  const tier = toNum(reg.pricingTier?.price);
+  // Stamping-gap guard: a stamped `originalPrice` of exactly 0 sitting next to a
+  // positively-priced pricing tier means the price wasn't re-stamped when the
+  // tier was assigned (tier set at create on a $0-base type, or a legacy row).
+  // Nullish-coalescing wouldn't catch this — `0 ?? tierPrice` is `0` — so the
+  // row reads as a "Free registration" while it actually owes the tier price,
+  // and re-picking the same tier in the UI no-ops (it can't self-heal). Prefer
+  // the tier price here. A genuine $0 comp has NO priced tier, so it's unaffected.
+  if (orig === 0 && tier != null && tier > 0) return tier;
+  return orig ?? tier ?? toNum(reg.ticketType?.price) ?? 0;
 }
 
 export function computeRegistrationFinancials(

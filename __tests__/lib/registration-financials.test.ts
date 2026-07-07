@@ -5,7 +5,10 @@
  * organizer specifically called out.
  */
 import { describe, it, expect } from "vitest";
-import { computeRegistrationFinancials } from "@/lib/registration-financials";
+import {
+  computeRegistrationFinancials,
+  readRegistrationBasePrice,
+} from "@/lib/registration-financials";
 
 describe("computeRegistrationFinancials", () => {
   it("subtotal + VAT, nothing paid → full balance", () => {
@@ -111,5 +114,46 @@ describe("computeRegistrationFinancials", () => {
     expect(f.total).toBe(0);
     expect(f.isPaidInFull).toBe(true);
     expect(f.hasOutstandingBalance).toBe(false);
+  });
+});
+
+describe("readRegistrationBasePrice", () => {
+  it("prefers a stamped originalPrice", () => {
+    expect(
+      readRegistrationBasePrice({ originalPrice: 300, pricingTier: { price: 250 }, ticketType: { price: 100 } }),
+    ).toBe(300);
+  });
+
+  it("falls back to the tier price when originalPrice is null", () => {
+    expect(
+      readRegistrationBasePrice({ originalPrice: null, pricingTier: { price: 250 }, ticketType: { price: 100 } }),
+    ).toBe(250);
+  });
+
+  it("falls back to the ticket price when no originalPrice and no tier", () => {
+    expect(readRegistrationBasePrice({ originalPrice: null, pricingTier: null, ticketType: { price: 100 } })).toBe(100);
+  });
+
+  // The reported bug: a stamped originalPrice of exactly 0 alongside a priced
+  // tier used to resolve to 0 (`0 ?? 250` → 0) → "no price set yet" while the
+  // Early Bird tier is clearly 250.
+  it("stamping gap: originalPrice 0 + priced tier → prefers the tier price", () => {
+    expect(readRegistrationBasePrice({ originalPrice: 0, pricingTier: { price: 250 }, ticketType: { price: 0 } })).toBe(250);
+  });
+
+  it("stamping gap: originalPrice '0' string + priced tier → prefers the tier price", () => {
+    expect(readRegistrationBasePrice({ originalPrice: "0", pricingTier: { price: 250 } })).toBe(250);
+  });
+
+  it("genuine free comp: originalPrice 0, no priced tier → stays 0", () => {
+    expect(readRegistrationBasePrice({ originalPrice: 0, pricingTier: null, ticketType: { price: 100 } })).toBe(0);
+  });
+
+  it("free tier (price 0) with originalPrice 0 → stays 0", () => {
+    expect(readRegistrationBasePrice({ originalPrice: 0, pricingTier: { price: 0 } })).toBe(0);
+  });
+
+  it("nothing set → 0", () => {
+    expect(readRegistrationBasePrice({})).toBe(0);
   });
 });
