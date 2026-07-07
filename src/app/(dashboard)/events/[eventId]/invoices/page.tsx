@@ -245,9 +245,14 @@ export default function EventInvoicesPage() {
         i.sentAt ? new Date(i.sentAt).toLocaleDateString() : "",
       ]),
     ];
-    const csv = rows
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
+    // Formula-injection guard (Excel/Sheets treat a leading = + - @ / tab / CR
+    // as a formula; names + email are attacker-controllable) — prefix a quote.
+    const esc = (c: unknown) => {
+      let s = String(c ?? "");
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const csv = rows.map((r) => r.map(esc).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);

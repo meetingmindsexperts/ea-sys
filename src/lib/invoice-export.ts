@@ -61,7 +61,13 @@ export interface InvoiceExportRow {
 
 // ── CSV primitives ───────────────────────────────────────────────────────────
 export function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  // Formula-injection guard: Excel / QuickBooks / Google Sheets treat a cell
+  // that begins with = + - @ (or a leading tab / carriage-return) as a FORMULA.
+  // Names, organization, and billing address flow into these exports and are
+  // attacker-controllable via public self-registration, so prefix a single
+  // quote to force the value to render as literal text. (OWASP CSV injection.)
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 export function toCsv(rows: (string | number)[][]): string {
