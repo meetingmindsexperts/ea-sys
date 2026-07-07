@@ -53,6 +53,7 @@ import {
   Square,
   Calendar,
   CreditCard,
+  FileText,
   Utensils,
   Hotel,
   Send,
@@ -386,6 +387,14 @@ export function RegistrationDetailSheet({
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  // Credit-note + refund dialogs (partial amounts). A refund requires a credit
+  // note to exist first (server-enforced), so the CN dialog gates the flow.
+  const [creditNoteOpen, setCreditNoteOpen] = useState(false);
+  const [creditNoteAmount, setCreditNoteAmount] = useState("");
+  const [creditNoteReason, setCreditNoteReason] = useState("");
+  const [creditNoteSend, setCreditNoteSend] = useState(true);
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
   const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
   const sendCompletionEmails = useSendCompletionEmails(eventId);
   // Existing tags for autocomplete on the in-sheet edit. Cached with
@@ -457,16 +466,12 @@ export function RegistrationDetailSheet({
     }
   };
 
-  const handleRefundClick = () => {
-    if (!selectedRegistration) return;
-    if (
-      confirm(
-        "Issue a full refund? Stripe payments are reversed automatically; offline payments (cash / bank transfer / card-onsite) must be returned to the attendee manually. Either way this marks the registration Refunded and issues a credit note. It cannot be undone.",
-      )
-    ) {
-      issueRefund.mutate(selectedRegistration.id);
-    }
-  };
+  // Refund progress figures from the detail financials (finance roles only).
+  const refundFin = selectedRegistration?.financials ?? null;
+  const paidTotal = refundFin?.paidTotal ?? 0;
+  const refundedSoFar = refundFin?.refundedAmount ?? 0;
+  const refundRemaining = Math.max(0, Math.round((paidTotal - refundedSoFar) * 100) / 100);
+  const refundCurrency = refundFin?.currency ?? "USD";
 
   // Badge print fetches a binary PDF, opens it in a new tab, and triggers
   // print there. Uses raw fetch because the response is a PDF blob — the
@@ -527,20 +532,61 @@ export function RegistrationDetailSheet({
   });
 
   const issueRefund = useMutation({
-    mutationFn: (id: string) =>
-      apiPostJson(`/api/events/${eventId}/registrations/${id}/refund`),
+    mutationFn: ({ id, amount }: { id: string; amount?: number }) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${id}/refund`, amount != null ? { amount } : {}),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
-      setSelectedRegistration((prev) => prev ? { ...prev, paymentStatus: "REFUNDED" } : prev);
-      const manual = (data as { manual?: boolean } | null | undefined)?.manual;
+      const d = data as { manual?: boolean; fullyRefunded?: boolean; refundedAmount?: number; amount?: number; currency?: string } | null | undefined;
+      const fullyRefunded = d?.fullyRefunded ?? true;
+      setSelectedRegistration((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          paymentStatus: fullyRefunded ? "REFUNDED" : prev.paymentStatus,
+          financials: prev.financials
+            ? { ...prev.financials, refundedAmount: d?.refundedAmount ?? prev.financials.refundedAmount }
+            : prev.financials,
+        };
+      });
+      setRefundOpen(false);
+      setRefundAmount("");
+      const amt = d?.amount != null ? formatCurrency(d.amount, d.currency ?? "USD") : "the amount";
       toast.success(
-        manual
-          ? "Offline refund recorded — marked Refunded + credit note issued. Return the money to the attendee manually."
-          : "Refund issued via Stripe",
+        d?.manual
+          ? `Offline refund of ${amt} recorded${fullyRefunded ? " — marked Refunded" : " (partial)"}. Return the money to the attendee manually.`
+          : `Refund of ${amt} issued via Stripe${fullyRefunded ? "" : " (partial)"}.`,
       );
     },
-    onError: (error: Error) => {
-      toast.error(error.message);
+    onError: (error: unknown) => {
+      const code = (error as { code?: string })?.code;
+      if (code === "CREDIT_NOTE_REQUIRED") {
+        toast.error("Issue a credit note first, then refund.");
+        setRefundOpen(false);
+        setCreditNoteOpen(true);
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Refund failed");
+    },
+  });
+
+  const issueCreditNote = useMutation({
+    mutationFn: ({ id, amount, reason, send }: { id: string; amount?: number; reason?: string; send: boolean }) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${id}/credit-notes`, {
+        ...(amount != null ? { amount } : {}),
+        ...(reason ? { reason } : {}),
+        send,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      setCreditNoteOpen(false);
+      setCreditNoteAmount("");
+      setCreditNoteReason("");
+      const d = data as { amount?: number; currency?: string; emailed?: boolean } | null | undefined;
+      const amt = d?.amount != null ? formatCurrency(d.amount, d.currency ?? "USD") : "Credit note";
+      toast.success(`Credit note for ${amt} issued${d?.emailed ? " and emailed to the attendee" : ""}.`);
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : "Could not issue the credit note");
     },
   });
 
@@ -2431,20 +2477,53 @@ export function RegistrationDetailSheet({
                           )}
                         </div>
                       )}
-                      {!isReviewer && selectedRegistration.paymentStatus === "PAID" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                          disabled={issueRefund.isPending}
-                          onClick={handleRefundClick}
-                        >
-                          {issueRefund.isPending ? (
-                            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
-                          ) : (
-                            <><CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund</>
+                      {/* Refunds & credit notes — issue a credit note (full or
+                          partial) first, then refund. Shown while the reg is PAID
+                          with a positive collected total. A partial refund keeps
+                          the reg PAID; "Refunded X of Y" tracks progress. */}
+                      {!isReviewer && selectedRegistration.paymentStatus === "PAID" && paidTotal > 0 && (
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <div className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                            Refunds &amp; credit notes
+                          </div>
+                          {refundedSoFar > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                              Refunded{" "}
+                              <span className="font-semibold text-slate-700">{formatCurrency(refundedSoFar, refundCurrency)}</span>{" "}
+                              of {formatCurrency(paidTotal, refundCurrency)}
+                              {refundRemaining > 0 && (
+                                <> · {formatCurrency(refundRemaining, refundCurrency)} remaining</>
+                              )}
+                            </div>
                           )}
-                        </Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={issueCreditNote.isPending}
+                              onClick={() => {
+                                setCreditNoteAmount(refundRemaining > 0 ? String(refundRemaining) : "");
+                                setCreditNoteReason("");
+                                setCreditNoteSend(true);
+                                setCreditNoteOpen(true);
+                              }}
+                            >
+                              <FileText className="mr-2 h-3.5 w-3.5" /> Issue Credit Note
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              disabled={issueRefund.isPending || refundRemaining <= 0}
+                              onClick={() => {
+                                setRefundAmount(refundRemaining > 0 ? String(refundRemaining) : "");
+                                setRefundOpen(true);
+                              }}
+                            >
+                              <CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund
+                            </Button>
+                          </div>
+                        </div>
                       )}
                     </>
                   ) : (
@@ -2775,6 +2854,143 @@ export function RegistrationDetailSheet({
             queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
           }}
         />
+
+        {/* Issue Credit Note — full or partial. Optionally emails the attendee. */}
+        <Dialog open={creditNoteOpen} onOpenChange={setCreditNoteOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Issue Credit Note</DialogTitle>
+              <DialogDescription>
+                Issue a credit note against this registration (up to{" "}
+                {formatCurrency(paidTotal, refundCurrency)}). A credit note must be
+                issued before a refund can be processed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cn-amount">Amount ({refundCurrency})</Label>
+                <Input
+                  id="cn-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={creditNoteAmount}
+                  onChange={(e) => setCreditNoteAmount(e.target.value)}
+                  placeholder={String(refundRemaining || paidTotal)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Defaults to the remaining balance. Enter a smaller amount for a partial credit note.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cn-reason">Reason (optional)</Label>
+                <Input
+                  id="cn-reason"
+                  value={creditNoteReason}
+                  onChange={(e) => setCreditNoteReason(e.target.value)}
+                  placeholder="e.g. Cancellation, duplicate payment"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={creditNoteSend}
+                  onChange={(e) => setCreditNoteSend(e.target.checked)}
+                />
+                Email the credit note to the attendee
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setCreditNoteOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={
+                  issueCreditNote.isPending ||
+                  !creditNoteAmount ||
+                  Number(creditNoteAmount) <= 0 ||
+                  Number(creditNoteAmount) > paidTotal + 0.005
+                }
+                onClick={() =>
+                  selectedRegistration &&
+                  issueCreditNote.mutate({
+                    id: selectedRegistration.id,
+                    amount: Number(creditNoteAmount),
+                    reason: creditNoteReason.trim() || undefined,
+                    send: creditNoteSend,
+                  })
+                }
+              >
+                {issueCreditNote.isPending ? (
+                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Issuing…</>
+                ) : (
+                  "Issue Credit Note"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Issue Refund — full or partial. Requires a credit note (server-enforced). */}
+        <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Issue Refund</DialogTitle>
+              <DialogDescription>
+                Refund up to {formatCurrency(refundRemaining, refundCurrency)} (of{" "}
+                {formatCurrency(paidTotal, refundCurrency)} paid). Stripe payments
+                are reversed automatically; offline payments must be returned to the
+                attendee manually. A partial refund keeps the registration paid.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-amount">Amount ({refundCurrency})</Label>
+                <Input
+                  id="refund-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={refundRemaining}
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {refundedSoFar > 0
+                    ? `Already refunded ${formatCurrency(refundedSoFar, refundCurrency)}. This cannot be undone.`
+                    : "This cannot be undone."}
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setRefundOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700"
+                disabled={
+                  issueRefund.isPending ||
+                  !refundAmount ||
+                  Number(refundAmount) <= 0 ||
+                  Number(refundAmount) > refundRemaining + 0.005
+                }
+                onClick={() =>
+                  selectedRegistration &&
+                  issueRefund.mutate({ id: selectedRegistration.id, amount: Number(refundAmount) })
+                }
+              >
+                {issueRefund.isPending ? (
+                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
+                ) : (
+                  "Issue Refund"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     )}
     </>

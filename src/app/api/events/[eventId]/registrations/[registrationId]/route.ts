@@ -181,7 +181,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const totalPaid = (registration.payments ?? [])
       .filter((p) => p.status?.toLowerCase() === "succeeded" || p.status === "PAID")
       .reduce((sum, p) => sum + Number(p.amount), 0);
-    const financials = computeRegistrationFinancials({
+    const baseFinancials = computeRegistrationFinancials({
       subtotal,
       discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
       taxRate: event.taxRate ? Number(event.taxRate) : null,
@@ -189,6 +189,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       currency,
       totalPaid,
     });
+    // Refund progress: `paidTotal` is what was collected (payments when present,
+    // else the computed total for a hand-flipped PAID reg); `refundedAmount` is
+    // the running total already refunded. Drives the "Refunded X of Y" line +
+    // the default partial-refund amount.
+    const refundedAmount = Number(registration.refundedAmount ?? 0);
+    const financials = {
+      ...baseFinancials,
+      refundedAmount,
+      paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
+    };
 
     const withFinancials = { ...registration, financials };
 
@@ -704,7 +714,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const totalPaid = (registration.payments ?? [])
       .filter((p) => p.status?.toLowerCase() === "succeeded" || p.status === "PAID")
       .reduce((sum, p) => sum + Number(p.amount), 0);
-    const financials = computeRegistrationFinancials({
+    const baseFinancials = computeRegistrationFinancials({
       subtotal,
       discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
       taxRate: event.taxRate ? Number(event.taxRate) : null,
@@ -712,6 +722,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       currency: registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD",
       totalPaid,
     });
+    const refundedAmount = Number(registration.refundedAmount ?? 0);
+    const financials = {
+      ...baseFinancials,
+      refundedAmount,
+      paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
+    };
     const withFinancials = { ...registration, financials };
 
     // ONSITE (registration-desk) can PUT but must never see amounts —
