@@ -358,6 +358,19 @@ A 3-agent end-to-end trace of the reviewer + submitter + crossover flows. **Two 
 | **Authors can't edit a REVISION_REQUESTED abstract** | LOW | XS | July 2: per organizer request, submitters can now edit/withdraw only while their abstract is **DRAFT** — once submitted it's locked and they contact the organizer ([abstracts/[abstractId]/route.ts](../src/app/api/events/%5BeventId%5D/abstracts/%5BabstractId%5D/route.ts) `SUBMITTED_LOCKED`; edit page `canEdit = isSubmitter ? DRAFT : editableStatuses`). **Consequence:** a `REVISION_REQUESTED` abstract is also locked to the author, so a reviewer asking for changes needs an organizer to reopen it (or the author emails the team). If authors should be able to self-edit when a revision is *explicitly requested*, it's a **one-line tweak** — allow `["DRAFT", "REVISION_REQUESTED"]` for submitters in both the edit page `canEdit` and the server submitter block. Left as a deliberate product call. |
 
 
+### Partial refunds + credit notes — deferred review findings (July 7, 2026)
+
+Adversarial review of the gated-partial-refund feature (commits `b02c361`, `1e483e3`, `dd5df4c`) returned **no BLOCKER**. The two HIGHs were **fixed + shipped**: **H1** (concurrent over-credit — `createCreditNote` now caps inside the tx under a `SELECT … FOR UPDATE` lock) and **H2** (multi-payment webhook `paidTotal` now sums all PAID payments so a full refund of one charge can't mislabel the whole reg REFUNDED); **L4** (partial-CN tax reconciled to the remainder) was folded in too. The remaining findings are deferred, non-blocking, each independently shippable:
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **Refund gate accepts *any-amount* credit note (M2)** | MED | S | [refund/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/refund/route.ts) only checks a non-cancelled CN *exists* — a $1 CN unlocks a $500 refund. Should gate on `Σ non-cancelled CN total ≥ refund amount` (or ≥ cumulative refundedAfter). **Partially mitigated in the UI July 7** (Issue Refund button disabled until `creditedAmount > 0`), but the **server** still gates on existence only — the amount-level server gate is the deferred piece. |
+| **`paidTotal` (payments-sum) vs CN `fullTotal` (computed pricing) divergence (M1)** | MED | M | Refund caps against Σ PAID payments; `createCreditNote` caps against `calcInvoicePricing` (current tier/ticket − discount + tax). If price/tier/discount changed post-payment they disagree. Pick one source of truth for "what was collected" and cap both against it, or document the split deliberately. |
+| **Stripe-error rollback can clobber a webhook-advanced `refundedAmount` (M3)** | MED | S | [refund/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/refund/route.ts) unconditionally resets `refundedAmount` on a Stripe error; if Stripe created the refund then errored on the response, the `charge.refunded` webhook advances it first and the rollback under-reports. Make the rollback conditional (`updateMany where refundedAmount = refundedAfter`). |
+| **`refundedAmount` never reset on re-payment (L1)** | LOW | S | Monotonic forever; a partial-refund-then-repay reg misstates the refundable balance. Reset/rebase on new payment or document as unsupported. |
+| **Webhook out-of-band CN rejected by the cap is silent (L2)** | LOW | S | If the auto-CN `createCreditNote({amount: delta})` throws `CREDIT_LIMIT_EXCEEDED` it's caught + logged only — no admin surface. Per the "surface failures" stance, add an admin notification. |
+| **Client CN cap uses payments-sum, server uses computed total (L3)** | LOW | XS | Cosmetic — the detail-sheet CN dialog can permit an amount the server rejects (or vice-versa) when M1 diverges. Server is authoritative. |
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to

@@ -199,9 +199,11 @@ export interface Registration {
     isPaidInFull: boolean;
     hasOutstandingBalance: boolean;
     // Refund progress. `paidTotal` = amount collected (Y in "refunded X of Y");
-    // `refundedAmount` = running total already refunded (X).
+    // `refundedAmount` = running total already refunded (X); `creditedAmount` =
+    // sum of non-cancelled credit notes (a refund requires one to exist first).
     refundedAmount: number;
     paidTotal: number;
+    creditedAmount: number;
   } | null;
 }
 

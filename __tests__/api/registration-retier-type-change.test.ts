@@ -33,6 +33,8 @@ const { mockDb, mockAuth, captured } = vi.hoisted(() => {
       pricingTier: { findFirst: vi.fn() },
       billingAccount: { findFirst: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // PUT recomputes `financials` including the credited-so-far sum.
+      invoice: { aggregate: vi.fn().mockResolvedValue({ _sum: { total: null } }) },
       $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
       _tx: tx,
     },

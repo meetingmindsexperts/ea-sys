@@ -113,8 +113,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parallelize event check and registration fetch
-    const [event, registration] = await Promise.all([
+    // Parallelize event check, registration fetch, and the credited-so-far sum.
+    const [event, registration, creditedAgg] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
         // taxRate/taxLabel feed the `financials` block so the Payment
@@ -158,6 +158,12 @@ export async function GET(req: Request, { params }: RouteParams) {
           },
         },
       }),
+      // Sum of non-cancelled credit notes — drives whether the refund button is
+      // enabled (a credit note must exist before a refund can be issued).
+      db.invoice.aggregate({
+        where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
+        _sum: { total: true },
+      }),
     ]);
 
     if (!event) {
@@ -198,6 +204,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       ...baseFinancials,
       refundedAmount,
       paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
+      creditedAmount: Number(creditedAgg._sum.total ?? 0),
     };
 
     const withFinancials = { ...registration, financials };
@@ -723,10 +730,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
       totalPaid,
     });
     const refundedAmount = Number(registration.refundedAmount ?? 0);
+    const creditedAgg = await db.invoice.aggregate({
+      where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
+      _sum: { total: true },
+    });
     const financials = {
       ...baseFinancials,
       refundedAmount,
       paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
+      creditedAmount: Number(creditedAgg._sum.total ?? 0),
     };
     const withFinancials = { ...registration, financials };
 

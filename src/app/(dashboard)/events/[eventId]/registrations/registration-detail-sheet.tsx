@@ -472,6 +472,9 @@ export function RegistrationDetailSheet({
   const refundedSoFar = refundFin?.refundedAmount ?? 0;
   const refundRemaining = Math.max(0, Math.round((paidTotal - refundedSoFar) * 100) / 100);
   const refundCurrency = refundFin?.currency ?? "USD";
+  // A refund requires a credit note to exist first (server-enforced). Gate the
+  // Issue Refund button on it so the ordering is obvious in the UI.
+  const hasCreditNote = (refundFin?.creditedAmount ?? 0) > 0;
 
   // Badge print fetches a binary PDF, opens it in a new tab, and triggers
   // print there. Uses raw fetch because the response is a PDF blob — the
@@ -581,7 +584,14 @@ export function RegistrationDetailSheet({
       setCreditNoteOpen(false);
       setCreditNoteAmount("");
       setCreditNoteReason("");
-      const d = data as { amount?: number; currency?: string; emailed?: boolean } | null | undefined;
+      const d = data as { amount?: number; currency?: string; emailed?: boolean; creditedAfter?: number } | null | undefined;
+      // Reflect the new credited total inline so the Issue Refund button
+      // enables immediately (it's gated on creditedAmount > 0).
+      setSelectedRegistration((prev) =>
+        prev && prev.financials
+          ? { ...prev, financials: { ...prev.financials, creditedAmount: d?.creditedAfter ?? prev.financials.creditedAmount } }
+          : prev,
+      );
       const amt = d?.amount != null ? formatCurrency(d.amount, d.currency ?? "USD") : "Credit note";
       toast.success(`Credit note for ${amt} issued${d?.emailed ? " and emailed to the attendee" : ""}.`);
     },
@@ -2514,7 +2524,8 @@ export function RegistrationDetailSheet({
                               variant="outline"
                               size="sm"
                               className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                              disabled={issueRefund.isPending || refundRemaining <= 0}
+                              disabled={issueRefund.isPending || refundRemaining <= 0 || !hasCreditNote}
+                              title={!hasCreditNote ? "Issue a credit note first" : undefined}
                               onClick={() => {
                                 setRefundAmount(refundRemaining > 0 ? String(refundRemaining) : "");
                                 setRefundOpen(true);
@@ -2523,6 +2534,11 @@ export function RegistrationDetailSheet({
                               <CreditCard className="mr-2 h-3.5 w-3.5" /> Issue Refund
                             </Button>
                           </div>
+                          {!hasCreditNote && (
+                            <p className="text-[11px] text-muted-foreground">
+                              Issue a credit note before refunding.
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
