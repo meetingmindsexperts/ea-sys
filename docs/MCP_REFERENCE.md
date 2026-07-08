@@ -2,7 +2,7 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** June 25, 2026 — speaker-as-attendee + multi-role certs. **70 tools** across 10 domains.
+**Last updated:** July 8, 2026 — dinner RSVP read tool. **71 tools** across 11 domains.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
 
@@ -114,6 +114,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `get_event_info` | Event details: name, dates, venue, status, counts |
 | `get_event_stats` | Basic dashboard: registration/payment/speaker/abstract status counts |
 | `get_event_dashboard` | Rich aggregate: counts + upcoming sessions + live now + recent registrations + agreement signed/unsigned. **Replaces 5-call sequences.** |
+| `list_dinner_rsvps` | Dinner RSVPs: each dinner with per-night headcount (attendees + guests + total seats), invited/responded/pending summary, and per-invitee responses (which dinners, guest counts, dietary). Optional `status` (PENDING/RESPONDED) + `limit`. Read-only. |
 | `search_event` | Cross-domain substring search across registrations, speakers, abstracts, contacts |
 
 ### Registrations & tickets (8)

@@ -308,6 +308,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
     <a class="nav-a" href="#s10"><span class="nav-n">10</span>Sponsors</a>
     <div class="nav-lbl">Communications</div>
     <a class="nav-a" href="#s9"><span class="nav-n">9</span>Communications</a>
+    <a class="nav-a" href="#sdinner">Dinner RSVP</a>
     <a class="nav-a" href="#s10c">Contacts</a>
     <a class="nav-a" href="#s10m">Media Library</a>
     <div class="nav-lbl">Digital &amp; On-site</div>
@@ -1359,6 +1360,42 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <div class="ic navy"><div class="ic-title">Auto-CC list</div><div class="ic-body">Always cc&rsquo;s a list of internal email addresses on every event email &mdash; useful for record-keeping. Combines with per-attendee <code>additionalEmail</code>.</div></div>
         </div>
         <p>Each organizer also has a personal <strong>email signature</strong> appended to speaker invitations and agreements they send personally &mdash; edited in their Profile.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- DINNER RSVP -->
+    <div class="section" id="sdinner">
+      <div class="sec-hd"><div class="sec-num">&#127869;</div><div class="sec-meta">
+        <div class="sec-title">Dinner RSVP</div>
+        <div class="sec-desc">Invite people to the event dinners with a personalized link and track who&rsquo;s coming.</div>
+        <span class="sec-badge b-event">Communications &amp; Marketing &middot; Event Coordination</span>
+      </div></div>
+
+      <div class="sub" id="sdinner-1">
+        <p>Use <strong>Dinner RSVP</strong> when an event has one or more dinners (a welcome dinner, a gala, a dinner each night) and you need to know who&rsquo;s attending each one, with guest counts and dietary needs. Each invitee gets <strong>one personalized link</strong> that covers <em>all</em> the event&rsquo;s dinners. Find it at <strong>Event &rarr; Setup &rarr; Dinner RSVP</strong>.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Each day can have its own dinner</div><div class="c-text">Add a separate dinner for Day 1, Day 2, the gala, etc. &mdash; each with its own date, venue and (optional) RSVP deadline. The invitee ticks the ones they&rsquo;ll attend on a single form; you get a headcount per dinner.</div></div></div>
+      </div>
+
+      <div class="sub" id="sdinner-2">
+        <div class="sub-title">Setting it up</div>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Add dinners</strong> &mdash; name (e.g. &ldquo;Day 1 Dinner&rdquo; / &ldquo;Gala Dinner&rdquo;), date &amp; time, venue, and an optional RSVP deadline (after the deadline that dinner locks on the form).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Build the invite list</strong> &mdash; <strong>Add invitees</strong> to type names + emails manually, or <strong>Import</strong> to pick from the event&rsquo;s Registrations and Speakers (searchable; already-invited people are shown greyed out). Duplicates by email are skipped automatically.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Send the links</strong> &mdash; <strong>Email invitations</strong> mails everyone their personalized link; <strong>Remind pending</strong> mails only those who haven&rsquo;t responded. Or copy an individual link from the roster to send it yourself.</div></div>
+        </div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">The invitation is a normal email template &mdash; preview before you send</div><div class="c-text">The email uses the <strong>Dinner RSVP Invitation</strong> template, editable (wording + branding) under <strong>Communications &rarr; Email Templates</strong> like every other email. In the send dialog you can add an optional note and click <strong>Preview</strong> to see exactly what goes out (desktop/mobile) before sending.</div></div></div>
+      </div>
+
+      <div class="sub" id="sdinner-3">
+        <div class="sub-title">What the invitee sees</div>
+        <p>Their link opens a branded page with their name &amp; email pre-filled (read-only), a checkbox for each dinner (with a guest-count box), and a dietary-requirements field. They can reopen the link to change their answer any time before the deadline. Ticking no dinners records &ldquo;not attending&rdquo; &mdash; it&rsquo;s a real response, not a silent no-show.</p>
+      </div>
+
+      <div class="sub" id="sdinner-4">
+        <div class="sub-title">Tracking responses</div>
+        <p>The console shows a <strong>headcount tile per dinner</strong> (&ldquo;Day 1: 42 attending, +8 guests, 50 seats&rdquo;) and a <strong>roster</strong> of every invitee &mdash; responded/pending, which dinners, guest counts, and dietary notes. <strong>Export CSV</strong> gives you the whole list (one column per dinner + guests) for catering. The AI Agent can also answer &ldquo;who&rsquo;s coming to the gala?&rdquo; via the <code>list_dinner_rsvps</code> tool.</p>
       </div>
     </div>
 
