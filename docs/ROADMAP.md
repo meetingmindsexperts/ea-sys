@@ -2,7 +2,7 @@
 
 **Project:** EA-SYS (Event Administration System)
 **Owner:** MeetingMinds Group
-**Last Updated:** July 7, 2026
+**Last Updated:** July 8, 2026
 **Platform URL:** events.meetingmindsgroup.com
 
 ---
@@ -210,7 +210,34 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
-## Current Release — July 7, 2026
+## Current Release — July 8, 2026
+
+### Dinner RSVP (shipped) — backlog / deferred items
+
+Dinner RSVP shipped P1→P3 + a first-class email template with preview, then an
+adversarial review (no BLOCKER/HIGH; M2 + M3 fixed). See
+[docs/DINNER_RSVP.md](DINNER_RSVP.md). Deferred / conscious-accept items:
+
+- **Auto-reminder cron (P3c) — deliberately NOT built** (owner decision, July 8).
+  The manual **"Remind pending"** button covers it. Revisit only if an event needs
+  hands-off reminders — would need a `RsvpInvite.lastReminderAt` field + a worker
+  job + a trigger-timing decision (e.g. X hours before each dinner's deadline).
+- **Scheduled send** — the invitation send is direct (per-recipient, immediate),
+  not routed through the Scheduled Emails queue, so there's no "schedule for later."
+  Add by wiring the send through `ScheduledEmail` if organizers want to pre-schedule
+  the wave.
+- **L1 (accepted-as-is)** — the organizer's `personalMessage` is rendered as raw HTML
+  (in `rawHtmlKeys`), consistent with bulk-email / speaker-email (trusted,
+  ADMIN/ORGANIZER-only; no invitee-controlled value hits an unescaped sink). It's a
+  plain `<textarea>` (not Tiptap), so multi-line notes currently collapse. Optional
+  hardening: `escapeHtml` + `nl2br` the plain-text message.
+- **L2 (accepted-as-is)** — the roster GET is org-scoped but not role-narrowed, so a
+  MEMBER (read-only viewer) can read every invitee's capability `token` + email. No
+  finance data. Revisit (narrow the GET to non-MEMBER, or strip tokens for MEMBER) if
+  RSVP links ever become sensitive.
+- **MCP write tools** — only the read tool `list_dinner_rsvps` exists; creating dinners
+  / adding invitees / sending stays in the organizer UI. Add write tools if agent-driven
+  RSVP management is wanted.
 
 ### Per-event ONSITE staff (shipped) — deferred review follow-ups
 
