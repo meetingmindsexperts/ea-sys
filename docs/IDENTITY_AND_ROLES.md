@@ -179,6 +179,10 @@ routinely need reviewer + submitter on one identity, that's the trigger to revis
   speaker *record*, not a *presenter*. Assign them to a session to put them on the agenda.
 - **"Pure committee/faculty person, never registered."** — Fine. They can hold a speaker
   facet + badge with no login, or a reviewer login with no registration, or both.
+- **"How do we mark and pull committee members?"** — Committee is a **tag**
+  (`committee` + optional `committee-organizing` / `committee-scientific`), *not* a ticket
+  type — so it stacks with faculty. Comp registration + committee badge + the tag. Pull with
+  `GET …/registrations?tags=committee`. Full model: [COMMITTEE_MEMBERS.md](COMMITTEE_MEMBERS.md).
 - **"Can I (an organizer) register myself as an attendee to test?"** — Yes. Register through
   the public form with your organizer email + a password and it *links* the test registration
   to your account **without** changing your `ORGANIZER` role (a brand-new email becomes a
