@@ -45,6 +45,10 @@ Organizer (session, org-scoped, `denyReviewer` on writes, rate-limited):
 - `GET/POST /api/events/[eventId]/dinners` · `PUT/DELETE /api/events/[eventId]/dinners/[dinnerId]`
 - `GET /api/events/[eventId]/rsvp-invites` (roster + headcounts; `?export=csv`)
 - `POST /api/events/[eventId]/rsvp-invites` (bulk add, ≤500) · `DELETE …/[inviteId]`
+- `POST /api/events/[eventId]/rsvp-invites/send` `{ target: "all" | "pending", subject?, message? }`
+  — emails each invitee their personalized link via the branded email pipeline
+  (`brandingFrom`/`renderAndWrap`/`sendEmail` + EmailLog, `templateSlug: "dinner-rsvp-invitation"`);
+  per-recipient try/catch, 10/hr/event. "pending" = remind non-responders.
 
 Public (token-gated, per-IP rate-limited):
 - `GET/POST /api/public/events/[slug]/rsvp/[token]`
@@ -61,6 +65,8 @@ three tables; old code ignores them).
 
 - **P1 (shipped):** schema, dinners CRUD, invite list (manual add), public RSVP form, roster
   + headcounts + CSV, copy-link, Setup-hub card.
-- **P2:** email the personalized links via the bulk-email system (`{{rsvpLink}}`) +
-  "remind pending".
-- **P3:** import invitees from Registrations/Speakers (picker), MCP pull tool, reminder cron.
+- **P2 (shipped):** email the personalized links (`{{rsvpLink}}`) via the branded email
+  pipeline + **"remind pending"** — "Email invitations" / "Remind pending" buttons on the
+  organizer console → optional subject + message → `POST .../rsvp-invites/send`.
+- **P3:** import invitees from Registrations/Speakers (picker), MCP pull tool,
+  scheduled/auto reminder cron.

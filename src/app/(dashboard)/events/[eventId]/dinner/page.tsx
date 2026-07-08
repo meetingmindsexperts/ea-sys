@@ -22,6 +22,8 @@ import {
   CalendarDays,
   Check,
   Clock,
+  Send,
+  BellRing,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +92,12 @@ export default function DinnerRsvpPage() {
     { name: "", email: "" },
   ]);
   const [savingInvites, setSavingInvites] = useState(false);
+
+  const [sendDialog, setSendDialog] = useState(false);
+  const [sendTarget, setSendTarget] = useState<"all" | "pending">("all");
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const [sending, setSending] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -220,6 +228,34 @@ export default function DinnerRsvpPage() {
     navigator.clipboard.writeText(`${origin}/e/${slug}/rsvp/${token}`);
     toast.success("RSVP link copied");
   };
+  const openSend = (target: "all" | "pending") => {
+    setSendTarget(target);
+    setSendDialog(true);
+  };
+  const sendInvitations = async () => {
+    setSending(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/rsvp-invites/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: sendTarget,
+          subject: sendSubject.trim() || undefined,
+          message: sendMessage.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || "Failed to send");
+        return;
+      }
+      toast.success(`Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}`);
+      setSendDialog(false);
+      await loadRoster();
+    } finally {
+      setSending(false);
+    }
+  };
 
   const headByDinner = useMemo(
     () => new Map(headcounts.map((h) => [h.dinnerId, h])),
@@ -248,6 +284,11 @@ export default function DinnerRsvpPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {invites.length > 0 && (
+            <Button size="sm" onClick={() => openSend("all")}>
+              <Send className="h-4 w-4 mr-1" /> Email invitations
+            </Button>
+          )}
           <a href={`/api/events/${eventId}/rsvp-invites?export=csv`}>
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4 mr-1" /> Export CSV
@@ -318,9 +359,16 @@ export default function DinnerRsvpPage() {
               ({respondedCount}/{invites.length} responded)
             </span>
           </h2>
-          <Button size="sm" onClick={() => setInviteDialog(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add invitees
-          </Button>
+          <div className="flex gap-2">
+            {invites.some((i) => i.status === "PENDING") && (
+              <Button size="sm" variant="outline" onClick={() => openSend("pending")}>
+                <BellRing className="h-4 w-4 mr-1" /> Remind pending
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setInviteDialog(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add invitees
+            </Button>
+          </div>
         </div>
         {invites.length === 0 ? (
           <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -487,6 +535,53 @@ export default function DinnerRsvpPage() {
             <Button variant="outline" onClick={() => setInviteDialog(false)}>Cancel</Button>
             <Button onClick={addInvites} disabled={savingInvites}>
               {savingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send dialog */}
+      <Dialog open={sendDialog} onOpenChange={setSendDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {sendTarget === "pending" ? "Remind pending invitees" : "Email RSVP invitations"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {sendTarget === "pending"
+                ? `Sends to the ${invites.filter((i) => i.status === "PENDING").length} invitee(s) who haven't responded yet.`
+                : `Sends to all ${invites.length} invitee(s). Each gets their own personalized RSVP link.`}
+            </p>
+            <div>
+              <Label>Subject (optional)</Label>
+              <Input
+                value={sendSubject}
+                onChange={(e) => setSendSubject(e.target.value)}
+                placeholder={`You're invited — ${slug ? "" : ""}the event dinners`}
+              />
+            </div>
+            <div>
+              <Label>Message (optional)</Label>
+              <Textarea
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                rows={4}
+                placeholder="A short note shown above the RSVP button. Leave blank for the default invitation text."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendDialog(false)}>Cancel</Button>
+            <Button onClick={sendInvitations} disabled={sending}>
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-1" /> Send
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
