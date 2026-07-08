@@ -1825,6 +1825,20 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s18-7">
         <div class="sub-title">Tagging recipients before you issue</div>
+
+        <div class="callout c-info"><div class="c-icon">&#x1F4A1;</div><div class="c-body"><div class="c-title">How each certificate &ldquo;knows&rdquo; it&rsquo;s the Speaker / Moderator / Delegate one</div><div class="c-text">
+          <p style="margin:0 0 6px">The system does <strong>not</strong> figure out who is a moderator, speaker, or delegate. <strong>You</strong> decide, by pairing a <strong>template</strong> with a <strong>tag</strong>. The simplest way to think about it:</p>
+          <p style="margin:0 0 8px"><strong>One certificate = one template. A tag is that template&rsquo;s guest list. The Role field is just the word that prints on it.</strong></p>
+          <p style="margin:0 0 4px">So for a conference with delegates, speakers, and moderators you make <strong>one template per certificate</strong> and give each its own tag:</p>
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin:4px 0">
+            <tr style="text-align:left;border-bottom:1px solid rgba(0,0,0,0.1)"><th style="padding:4px 8px">Template you create</th><th style="padding:4px 8px">Type</th><th style="padding:4px 8px">Its tag</th><th style="padding:4px 8px">Tag these people</th></tr>
+            <tr style="border-bottom:1px solid rgba(0,0,0,0.05)"><td style="padding:4px 8px"><strong>Attendance Certificate</strong></td><td style="padding:4px 8px">Attendance</td><td style="padding:4px 8px"><code>delegate</code></td><td style="padding:4px 8px">attendees (Registrations)</td></tr>
+            <tr style="border-bottom:1px solid rgba(0,0,0,0.05)"><td style="padding:4px 8px"><strong>Speaker Appreciation</strong></td><td style="padding:4px 8px">Appreciation</td><td style="padding:4px 8px"><code>speaker</code></td><td style="padding:4px 8px">speakers (Speakers)</td></tr>
+            <tr><td style="padding:4px 8px"><strong>Moderator Appreciation</strong></td><td style="padding:4px 8px">Appreciation</td><td style="padding:4px 8px"><code>moderator</code></td><td style="padding:4px 8px">moderators (Speakers)</td></tr>
+          </table>
+          <p style="margin:6px 0 0">A person gets exactly the templates whose tag they hold &mdash; so someone who is <strong>both</strong> a speaker and a moderator (tagged both) gets <strong>both</strong> certificates. What identifies a certificate as &ldquo;the Moderator one&rdquo; is simply <strong>which template it is</strong> + <strong>which tag routes people to it</strong> &mdash; never anything auto-detected from the person&rsquo;s record.</p>
+        </div></div></div>
+
         <p>The Issue flow is <strong>tag-driven manual selection</strong> &mdash; no auto-eligibility based on check-in status or session role. You tag people in advance from the existing Registrations + Speakers pages, then at Issue time you pick which tag gets which template.</p>
         <p>This puts you in full control: a Chairman cert goes to people tagged &ldquo;Chairman&rdquo;; a Poster Presenter cert goes to people tagged &ldquo;Poster Presenter&rdquo;. Nothing fires until you tell it to, and only the tagged people get certs.</p>
         <p>Tags live on:</p>
@@ -1849,6 +1863,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
             <li><strong>Role</strong> field = <em>what the certificate says</em>. It fills the <code>{{role}}</code> token with a <strong>fixed</strong> label for the whole template &mdash; it is NOT looked up per person from their session role. Every cert from that template prints the same role text (blank if you leave Role empty).</li>
           </ul>
           So to give people role-specific certificates, make <strong>one template per role</strong>: e.g. a <em>Speaker</em> template (Role = &ldquo;Speaker&rdquo;, tag <code>speaker</code>) and a <em>Moderator</em> template (Role = &ldquo;Moderator&rdquo;, tag <code>moderator</code>). Someone who is both gets both certs &mdash; just give them both tags. Keep each template&rsquo;s Role and tag aligned so &ldquo;who gets it&rdquo; and &ldquo;what it says&rdquo; agree.
+          <p style="margin:6px 0 0"><strong>Not the same as a person&rsquo;s profession.</strong> This template <strong>Role</strong> field is the designation printed on the certificate &mdash; it is <em>not</em> the attendee/speaker <strong>Role</strong> field you see in Registrations &amp; Speakers (Physician, Nurse, Pharma, Student&hellip;, the person&rsquo;s profession). That profession field <strong>never appears on certificates</strong> and is not used to pick who gets one; only tags do.</p>
         </div></div></div>
       </div>
 
