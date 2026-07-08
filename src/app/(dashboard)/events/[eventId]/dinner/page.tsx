@@ -39,6 +39,8 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/dinner/import-invitees-dialog";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { usePreviewEmailBySlug } from "@/hooks/use-api";
 import { toast } from "sonner";
 
 interface Dinner {
@@ -102,6 +104,10 @@ export default function DinnerRsvpPage() {
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
   const [sending, setSending] = useState(false);
+
+  const previewMutation = usePreviewEmailBySlug(eventId);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -265,6 +271,20 @@ export default function DinnerRsvpPage() {
   const openSend = (target: "all" | "pending") => {
     setSendTarget(target);
     setSendDialog(true);
+  };
+  const openPreview = async () => {
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: "dinner-rsvp-invitation",
+        customSubject: sendSubject.trim() || undefined,
+        customMessage: sendMessage.trim() || undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error("dinner-console:preview-error", err);
+      toast.error(err instanceof Error ? err.message : "Failed to generate preview");
+    }
   };
   const sendInvitations = async () => {
     setSending(true);
@@ -620,21 +640,39 @@ export default function DinnerRsvpPage() {
                 placeholder="A short note shown above the RSVP button. Leave blank for the default invitation text."
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              Uses the <strong>Dinner RSVP Invitation</strong> email template (edit its wording
+              &amp; branding under Communications → Email Templates). Click Preview to see it.
+            </p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSendDialog(false)}>Cancel</Button>
-            <Button onClick={sendInvitations} disabled={sending}>
-              {sending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <Send className="h-4 w-4 mr-1" /> Send
-                </>
-              )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={openPreview} disabled={previewMutation.isPending}>
+              {previewMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Preview"}
             </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSendDialog(false)}>Cancel</Button>
+              <Button onClick={sendInvitations} disabled={sending}>
+                {sending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-1" /> Send
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
+      )}
     </div>
   );
 }

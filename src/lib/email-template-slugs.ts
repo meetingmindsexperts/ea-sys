@@ -30,6 +30,7 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "refund-confirmation",
   "survey-invitation",
   "survey-thankyou",
+  "dinner-rsvp-invitation",
   "webinar-confirmation",
   "webinar-live-now",
   "webinar-panelist-invitation",

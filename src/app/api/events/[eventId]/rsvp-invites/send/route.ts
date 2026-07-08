@@ -22,9 +22,9 @@ import { checkRateLimit } from "@/lib/security";
 import {
   brandingCc,
   brandingFrom,
+  getEventTemplate,
   renderAndWrap,
   sendEmail,
-  type EmailBranding,
 } from "@/lib/email";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -75,12 +75,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         id: true,
         name: true,
         slug: true,
-        emailFromAddress: true,
-        emailFromName: true,
-        emailHeaderImage: true,
-        emailFooterImage: true,
-        emailFooterHtml: true,
-        emailCcAddresses: true,
         organization: { select: { name: true } },
       },
     });
@@ -89,46 +83,42 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const invites = await db.rsvpInvite.findMany({
-      where: {
-        eventId,
-        ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}),
-      },
-      select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
-    });
+    const [invites, tpl, sender] = await Promise.all([
+      db.rsvpInvite.findMany({
+        where: {
+          eventId,
+          ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}),
+        },
+        select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
+      }),
+      // Loads the per-event override if the organizer customised it, else the
+      // system default — both carry the resolved event branding.
+      getEventTemplate(eventId, "dinner-rsvp-invitation"),
+      db.user.findUnique({
+        where: { id: session.user.id },
+        select: { firstName: true, lastName: true, emailSignature: true },
+      }),
+    ]);
     if (invites.length === 0) {
       apiLogger.info({ eventId, target: parsed.data.target }, "rsvp-send:no-recipients");
       return NextResponse.json({ sent: 0, failed: 0, message: "No matching invitees." });
     }
+    if (!tpl) {
+      apiLogger.error({ eventId }, "rsvp-send:template-missing");
+      return NextResponse.json({ error: "Dinner RSVP email template not found" }, { status: 500 });
+    }
 
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const branding: EmailBranding = {
-      emailHeaderImage: event.emailHeaderImage,
-      emailFooterImage: event.emailFooterImage,
-      emailFooterHtml: event.emailFooterHtml,
-      emailFromAddress: event.emailFromAddress,
-      emailFromName: event.emailFromName,
-      emailCcAddresses: event.emailCcAddresses,
-      eventName: event.name,
-    };
+    const branding = tpl.branding;
     const from = brandingFrom(branding);
-
-    const subject = parsed.data.subject?.trim() || `You're invited — {{eventName}} dinners`;
-    const messageHtml = parsed.data.message?.trim() || "";
-
-    // The body: optional organizer message + a big RSVP button. Both the
-    // message and the button carry raw HTML, so they're in rawHtmlKeys.
-    const htmlContent = `
-      <p>Dear {{firstName}},</p>
-      ${messageHtml ? `<div>{{message}}</div>` : `<p>You're invited to the dinners for <strong>{{eventName}}</strong>. Please let us know which you'll attend.</p>`}
-      <p style="text-align:center;margin:28px 0;">
-        <a href="{{rsvpLink}}" style="background:#00aade;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">RSVP now</a>
-      </p>
-      <p style="font-size:13px;color:#667;">If the button doesn't work, copy this link into your browser:<br>{{rsvpLink}}</p>
-    `;
-    const textContent =
-      "Dear {{firstName}},\n\nYou're invited to the dinners for {{eventName}}. RSVP here:\n{{rsvpLink}}\n";
+    const subject = parsed.data.subject?.trim() || tpl.subject;
+    const personalMessage = parsed.data.message?.trim() || "";
+    const organizerName =
+      event.organization?.name ||
+      `${sender?.firstName ?? ""} ${sender?.lastName ?? ""}`.trim() ||
+      "Event Organizer";
+    const organizerSignature = sender?.emailSignature || "";
 
     let sent = 0;
     let failed = 0;
@@ -136,15 +126,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       const rsvpLink = `${appUrl}/e/${event.slug}/rsvp/${inv.token}`;
       try {
         const rendered = renderAndWrap(
-          { subject, htmlContent, textContent },
+          { subject, htmlContent: tpl.htmlContent, textContent: tpl.textContent },
           {
             firstName: firstNameOf(inv.inviteeName),
             eventName: event.name,
             rsvpLink,
-            message: messageHtml,
+            personalMessage,
+            organizerName,
+            organizerSignature,
           },
           branding,
-          new Set(["message", "rsvpLink"]),
+          new Set(["personalMessage", "rsvpLink", "organizerSignature"]),
         );
         await sendEmail({
           to: [{ email: inv.inviteeEmail, name: inv.inviteeName }],

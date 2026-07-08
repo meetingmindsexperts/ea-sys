@@ -1147,6 +1147,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "paymentBlock", description: "Pay Now button (auto-generated)" },
     { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
   ],
+  "dinner-rsvp-invitation": [
+    { key: "firstName", description: "Invitee first name" },
+    { key: "eventName", description: "Event name" },
+    { key: "rsvpLink", description: "The invitee's personalized RSVP link (unique per recipient)" },
+    { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
+    { key: "organizerName", description: "Organizing team / organization name" },
+    { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
+  ],
 };
 
 // ── Default template HTML (body fragments only — wrapped at render time) ──────
@@ -1954,6 +1962,40 @@ Thank you for completing the post-event survey for {{eventName}}. Your feedback 
 
 — The {{eventName}} team`,
   },
+
+  {
+    slug: "dinner-rsvp-invitation",
+    name: "Dinner RSVP Invitation",
+    // Sent (bulk) to dinner invitees with their personalized {{rsvpLink}}.
+    // Editable per-event under Communications → Email Templates; the send
+    // dialog previews it. {{personalMessage}} carries the optional note the
+    // organizer types at send time.
+    subject: "You're invited — {{eventName}} dinners",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{firstName}}</strong>,</p>
+    <p>You&apos;re invited to the dinners for <strong>{{eventName}}</strong>. Please let us know which you&apos;ll attend — it only takes a moment.</p>
+    {{personalMessage}}
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{rsvpLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">RSVP now</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; margin: 0;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{rsvpLink}}</span></p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `You're invited — {{eventName}} dinners
+
+Dear {{firstName}},
+
+You're invited to the dinners for {{eventName}}. Please let us know which you'll attend:
+{{rsvpLink}}
+
+{{personalMessage}}
+
+Best regards,
+{{organizerName}}
+
+{{organizerSignature}}`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────
@@ -2197,6 +2239,8 @@ export function getSamplePreviewVariables(
     // Survey-invitation template placeholder — real sends mint a per-recipient
     // token; the preview shows a representative link, not literal {{surveyLink}}.
     surveyLink: "#",
+    // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
+    rsvpLink: "#",
     daysUntilEvent: 7,
     subject: "Custom Subject",
     message: "This is a custom message body.",

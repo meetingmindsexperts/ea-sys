@@ -46,9 +46,13 @@ Organizer (session, org-scoped, `denyReviewer` on writes, rate-limited):
 - `GET /api/events/[eventId]/rsvp-invites` (roster + headcounts; `?export=csv`)
 - `POST /api/events/[eventId]/rsvp-invites` (bulk add, ≤500) · `DELETE …/[inviteId]`
 - `POST /api/events/[eventId]/rsvp-invites/send` `{ target: "all" | "pending", subject?, message? }`
-  — emails each invitee their personalized link via the branded email pipeline
-  (`brandingFrom`/`renderAndWrap`/`sendEmail` + EmailLog, `templateSlug: "dinner-rsvp-invitation"`);
-  per-recipient try/catch, 10/hr/event. "pending" = remind non-responders.
+  — renders the **`dinner-rsvp-invitation` system email template** (per-event override via
+  Communications → Email Templates, else the default) with `{{firstName}}`, `{{eventName}}`,
+  `{{rsvpLink}}`, `{{personalMessage}}` (the optional note), `{{organizerName}}`,
+  `{{organizerSignature}}`, and sends via the branded pipeline (`getEventTemplate` +
+  `renderAndWrap` + `sendEmail` + EmailLog); per-recipient try/catch, 10/hr/event.
+  "pending" = remind non-responders. The send dialog has a **Preview** button
+  (`/api/events/[eventId]/email-preview` by slug → `EmailPreviewDialog`).
 
 Public (token-gated, per-IP rate-limited):
 - `GET/POST /api/public/events/[slug]/rsvp/[token]`
