@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
+import { resolveTimezone, isSessionWithinEventDates, localDateInTz } from "@/lib/event-time";
 import type { ToolExecutor } from "./_shared";
 
 const SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
@@ -82,21 +83,12 @@ const createSession: ToolExecutor = async (input, ctx) => {
       select: { startDate: true, endDate: true, timezone: true },
     });
     if (!event) return { error: "Event not found" };
-    const timezone = event.timezone || "Asia/Dubai";
-    const toLocalDate = (d: Date): string =>
-      new Intl.DateTimeFormat("en-CA", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(d);
-    const eventStartDate = toLocalDate(event.startDate);
-    const eventEndDate = toLocalDate(event.endDate);
-    const sessionStartDate = toLocalDate(startTime);
-    const sessionEndDate = toLocalDate(endTime);
-    if (sessionStartDate < eventStartDate || sessionEndDate > eventEndDate) {
+    // Shared event-TZ date validation (single source of truth with the REST
+    // sessions route — was a hand-rolled Intl copy, see src/lib/event-time.ts).
+    const timezone = resolveTimezone(event.timezone);
+    if (!isSessionWithinEventDates(startTime, endTime, event.startDate, event.endDate, timezone)) {
       return {
-        error: `Session must fall within event dates (${eventStartDate} to ${eventEndDate} ${timezone})`,
+        error: `Session must fall within event dates (${localDateInTz(event.startDate, timezone)} to ${localDateInTz(event.endDate, timezone)} ${timezone})`,
       };
     }
 
@@ -362,21 +354,10 @@ const updateSession: ToolExecutor = async (input, ctx) => {
     // Session must fall within the parent event's date range, compared as LOCAL
     // DATES in the event's timezone (default Asia/Dubai). UTC comparison would
     // incorrectly reject late-evening sessions on the last event day.
-    const timezone = existing.event.timezone || "Asia/Dubai";
-    const toLocalDate = (d: Date): string =>
-      new Intl.DateTimeFormat("en-CA", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(d);
-    const eventStartDate = toLocalDate(existing.event.startDate);
-    const eventEndDate = toLocalDate(existing.event.endDate);
-    const newStartDate = toLocalDate(newStart);
-    const newEndDate = toLocalDate(newEnd);
-    if (newStartDate < eventStartDate || newEndDate > eventEndDate) {
+    const timezone = resolveTimezone(existing.event.timezone);
+    if (!isSessionWithinEventDates(newStart, newEnd, existing.event.startDate, existing.event.endDate, timezone)) {
       return {
-        error: `Session must fall within event dates (${eventStartDate} to ${eventEndDate} ${timezone})`,
+        error: `Session must fall within event dates (${localDateInTz(existing.event.startDate, timezone)} to ${localDateInTz(existing.event.endDate, timezone)} ${timezone})`,
       };
     }
 
