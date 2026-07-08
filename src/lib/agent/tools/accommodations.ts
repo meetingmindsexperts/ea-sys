@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createAccommodation } from "@/services/accommodation-service";
+import { applyRoomStatusTransition } from "@/lib/accommodation-rooms";
 import type { ToolExecutor } from "./_shared";
 
 const ACCOMMODATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "CHECKED_IN", "CHECKED_OUT"]);
@@ -452,38 +453,15 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
       });
     }
 
-    // Room counter adjustments around CANCELLED transitions (matches REST route logic)
-    const wasActive = existing.status !== "CANCELLED";
-    const willBeActive = status !== "CANCELLED";
-
     const updated = await db.$transaction(async (tx) => {
-      if (wasActive && !willBeActive) {
-        // active → CANCELLED: release the room
-        await tx.roomType.update({
-          where: { id: existing.roomTypeId },
-          data: { bookedRooms: { decrement: 1 } },
-        });
-      } else if (!wasActive && willBeActive) {
-        // CANCELLED → active: re-book the room ATOMICALLY. The
-        // `bookedRooms < totalRooms` predicate guards against two concurrent
-        // reactivations both claiming the last room — the previous
-        // read-then-increment could overbook under READ COMMITTED. Mirrors the
-        // REST accommodations route.
-        const fresh = await tx.roomType.findUnique({
-          where: { id: existing.roomTypeId },
-          select: { totalRooms: true },
-        });
-        if (!fresh) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-        const claimed = await tx.roomType.updateMany({
-          where: { id: existing.roomTypeId, bookedRooms: { lt: fresh.totalRooms } },
-          data: { bookedRooms: { increment: 1 } },
-        });
-        if (claimed.count === 0) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-      }
+      // Room-counter accounting for the status transition (release-on-cancel /
+      // atomic reclaim-on-reactivate) — the SHARED applier, single source of
+      // truth with the REST accommodation status route.
+      await applyRoomStatusTransition(tx, {
+        prevStatus: existing.status,
+        nextStatus: status,
+        roomTypeId: existing.roomTypeId,
+      });
 
       // Optimistic lock fires inside the tx so a stale-write rejection
       // rolls back the room-counter delta we just applied.

@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { optimisticLockField } from "@/lib/optimistic-lock";
+import { applyRoomStatusTransition } from "@/lib/accommodation-rooms";
 
 const updateAccommodationSchema = z.object({
   ...optimisticLockField,
@@ -211,32 +212,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
         }
       }
 
-      // Handle cancellation — release room
-      if (data.status === "CANCELLED" && existingAccommodation.status !== "CANCELLED") {
-        await tx.roomType.update({
-          where: { id: existingAccommodation.roomTypeId },
-          data: { bookedRooms: { decrement: 1 } },
-        });
-      } else if (data.status && data.status !== "CANCELLED" && existingAccommodation.status === "CANCELLED") {
-        const freshRoom = await tx.roomType.findUnique({
-          where: { id: existingAccommodation.roomTypeId },
-          select: { totalRooms: true },
-        });
-        if (!freshRoom) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-        // Atomic re-claim on reinstate — predicate guards against oversell.
-        const claimed = await tx.roomType.updateMany({
-          where: {
-            id: existingAccommodation.roomTypeId,
-            bookedRooms: { lt: freshRoom.totalRooms },
-          },
-          data: { bookedRooms: { increment: 1 } },
-        });
-        if (claimed.count === 0) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-      }
+      // Room-counter accounting for a status transition (release-on-cancel /
+      // atomic reclaim-on-reactivate) — the SHARED applier, single source of
+      // truth with the MCP update_accommodation_status tool.
+      await applyRoomStatusTransition(tx, {
+        prevStatus: existingAccommodation.status,
+        nextStatus: data.status ?? existingAccommodation.status,
+        roomTypeId: existingAccommodation.roomTypeId,
+      });
 
       // Optimistic lock (W2-F8). If supplied, the conditional updateMany
       // rejects stale writes — and because we're inside the transaction,
