@@ -164,7 +164,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const toCreate = deduped.filter((i) => !already.has(normalizeRsvpEmail(i.email)));
     let created = 0;
     if (toCreate.length > 0) {
-      await db.rsvpInvite.createMany({
+      // Read the DB's actual insert count — `skipDuplicates` silently drops any
+      // row that lost a race to a concurrent add (unique on eventId+email), so
+      // `toCreate.length` would over-report. This is the honest number.
+      const result = await db.rsvpInvite.createMany({
         data: toCreate.map((i) => ({
           eventId,
           token: generateRsvpToken(),
@@ -175,7 +178,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         })),
         skipDuplicates: true,
       });
-      created = toCreate.length;
+      created = result.count;
     }
 
     db.auditLog

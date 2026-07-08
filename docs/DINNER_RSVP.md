@@ -65,6 +65,20 @@ Shared helpers: [src/lib/rsvp/rsvp.ts](../src/lib/rsvp/rsvp.ts) — `generateRsv
 `prisma/migrations/20260708120000_add_dinner_rsvp` — additive + blue-green safe (new enum +
 three tables; old code ignores them).
 
+## Review
+
+Independent adversarial review (2026-07-08) — **no BLOCKER/HIGH**; org-scoping/IDOR, public-token
+security, `denyReviewer` coverage, cascade/unique integrity, headcount math, silent-failure logging,
+email isolation, React correctness, and migration safety all verified clean. **Fixed:** **M2** the
+bulk-add `created` count now comes from `createMany`'s real `{ count }` (not `toCreate.length`), so a
+`skipDuplicates`-dropped race isn't over-reported; **M3** the public submit is now server-authoritative
+**replace-all over open dinners** (clears the invite's open-dinner responses, re-creates only the
+attending ones) so a partial/crafted POST can't leave ghost attendance — closed dinners untouched.
+Route tests in [__tests__/api/dinner-rsvp-routes.test.ts](../__tests__/api/dinner-rsvp-routes.test.ts).
+Accepted-as-is (consistent with the codebase): organizer `personalMessage` is raw HTML (trusted,
+ADMIN/ORGANIZER-only, no invitee-controlled value hits an unescaped sink); MEMBER can read the roster
+(no finance data).
+
 ## Status / roadmap
 
 - **P1 (shipped):** schema, dinners CRUD, invite list (manual add), public RSVP form, roster

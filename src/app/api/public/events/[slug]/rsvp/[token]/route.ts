@@ -155,17 +155,25 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "RSVP is now closed for this event." }, { status: 400 });
     }
 
+    // Server-authoritative REPLACE-ALL over the OPEN dinners: the submit is the
+    // invitee's complete intent for every open dinner, so we clear their open-
+    // dinner responses and re-create only the ones they're attending. A partial
+    // or crafted POST that omits a previously-attended (open) dinner therefore
+    // can't leave ghost attendance. Closed dinners are left untouched (a
+    // response captured before the deadline stays valid).
+    const attendingRows = accepted.filter((d) => d.attending);
     await db.$transaction(async (tx) => {
-      for (const d of accepted) {
-        await tx.rsvpDinnerResponse.upsert({
-          where: { inviteId_dinnerId: { inviteId: invite.id, dinnerId: d.dinnerId } },
-          create: {
+      await tx.rsvpDinnerResponse.deleteMany({
+        where: { inviteId: invite.id, dinnerId: { in: [...openIds] } },
+      });
+      if (attendingRows.length > 0) {
+        await tx.rsvpDinnerResponse.createMany({
+          data: attendingRows.map((d) => ({
             inviteId: invite.id,
             dinnerId: d.dinnerId,
-            attending: d.attending,
-            guestCount: d.attending ? d.guestCount : 0,
-          },
-          update: { attending: d.attending, guestCount: d.attending ? d.guestCount : 0 },
+            attending: true,
+            guestCount: d.guestCount,
+          })),
         });
       }
       await tx.rsvpInvite.update({
