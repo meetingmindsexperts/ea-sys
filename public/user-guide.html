@@ -1833,6 +1833,23 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <li><strong>Speakers</strong> &mdash; via the speaker detail sheet&rsquo;s Tags field. Drives Appreciation cert eligibility for both formal speakers and abstract submitters (submitters are stored as speakers).</li>
         </ul>
         <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Pre-event tagging is the planning step</div><div class="c-text">Before you start issuing, run through your speaker + registration lists and tag people by what cert they should receive. &ldquo;Speaker&rdquo;, &ldquo;Moderator&rdquo;, &ldquo;Chairperson&rdquo;, &ldquo;VIP&rdquo;, &ldquo;Sponsor Guest&rdquo;, &ldquo;Poster Presenter&rdquo; &mdash; whatever your event needs. The tag value is freeform; you decide what makes sense.</div></div></div>
+
+        <div class="callout c-warn"><div class="c-icon">&#x1F511;</div><div class="c-body"><div class="c-title">Tag rules &mdash; read this before you tag</div><div class="c-text">
+          <ul style="margin:4px 0 0 16px">
+            <li><strong>Freeform value</strong> &mdash; any label you like (<code>Speaker</code>, <code>VIP</code>, <code>Poster Presenter</code>). No prefix or format required.</li>
+            <li><strong>Matched EXACTLY, case-sensitive</strong> &mdash; <code>speaker</code>, <code>Speaker</code> and <code>SPEAKER</code> are three <em>different</em> tags. The tag on the person must be spelled + cased <strong>identically</strong> to the tag on the template. Avoid trailing spaces.</li>
+            <li><strong>Tag the right list</strong> &mdash; an <strong>Attendance</strong> template reads the <strong>attendee&rsquo;s</strong> tags (on the Registration); an <strong>Appreciation</strong> template reads the <strong>speaker&rsquo;s</strong> tags (on the Speaker). Tag someone in the wrong list and the template simply won&rsquo;t match them &mdash; no error, no certificate.</li>
+            <li><strong>The tag decides WHO; it does NOT print on the certificate.</strong> What prints as the person&rsquo;s role is the template&rsquo;s own <strong>Role</strong> field (the <code>{{role}}</code> token) &mdash; see the next note.</li>
+          </ul>
+        </div></div></div>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Tag vs. Role &mdash; two different knobs on a template</div><div class="c-text">These are set separately and do different jobs:
+          <ul style="margin:4px 0 0 16px">
+            <li><strong>Tag</strong> = <em>who</em> gets this certificate (the selection filter, matched against people&rsquo;s tags).</li>
+            <li><strong>Role</strong> field = <em>what the certificate says</em>. It fills the <code>{{role}}</code> token with a <strong>fixed</strong> label for the whole template &mdash; it is NOT looked up per person from their session role. Every cert from that template prints the same role text (blank if you leave Role empty).</li>
+          </ul>
+          So to give people role-specific certificates, make <strong>one template per role</strong>: e.g. a <em>Speaker</em> template (Role = &ldquo;Speaker&rdquo;, tag <code>speaker</code>) and a <em>Moderator</em> template (Role = &ldquo;Moderator&rdquo;, tag <code>moderator</code>). Someone who is both gets both certs &mdash; just give them both tags. Keep each template&rsquo;s Role and tag aligned so &ldquo;who gets it&rdquo; and &ldquo;what it says&rdquo; agree.
+        </div></div></div>
       </div>
 
       <div class="sub" id="s18-8">
