@@ -661,7 +661,7 @@ async function processSendPhase(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-interface EventContext {
+export interface EventContext {
   name: string;
   startDate: Date;
   endDate: Date;
@@ -678,7 +678,7 @@ interface EventContext {
   settings: unknown;
 }
 
-async function loadEventContext(eventId: string): Promise<EventContext | null> {
+export async function loadEventContext(eventId: string): Promise<EventContext | null> {
   const event = await db.event.findUnique({
     where: { id: eventId },
     select: {
@@ -713,7 +713,7 @@ async function loadEventContext(eventId: string): Promise<EventContext | null> {
 // templates moved to the CertificateTemplate table; the run carries the
 // templateId directly.
 
-async function loadRecipient(
+export async function loadRecipient(
   registrationId: string | null,
   speakerId: string | null,
 ): Promise<CertificateData["recipient"] | null> {
@@ -763,13 +763,13 @@ async function loadRecipient(
   return null;
 }
 
-function formatRecipientName(title: string | null, first: string, last: string): string {
+export function formatRecipientName(title: string | null, first: string, last: string): string {
   const map: Record<string, string> = { DR: "Dr.", MR: "Mr.", MRS: "Mrs.", MS: "Ms.", PROF: "Prof." };
   const t = title ? `${map[title] ?? ""} ` : "";
   return `${t}${first} ${last}`.trim();
 }
 
-async function allocateSerial(eventId: string, type: CertificateType): Promise<string> {
+export async function allocateSerial(eventId: string, type: CertificateType): Promise<string> {
   const counter = await db.certificateSerialCounter.upsert({
     where: { eventId_type: { eventId, type } },
     create: { eventId, type, lastSerial: 1 },
@@ -781,7 +781,7 @@ async function allocateSerial(eventId: string, type: CertificateType): Promise<s
   return `${prefix}-${type.slice(0, 3)}-${String(counter.lastSerial).padStart(4, "0")}`;
 }
 
-async function loadPosterAbstractTitle(speakerId: string, eventId: string): Promise<string | null> {
+export async function loadPosterAbstractTitle(speakerId: string, eventId: string): Promise<string | null> {
   const abstract = await db.abstract.findFirst({
     where: { eventId, presentationType: "POSTER", status: "ACCEPTED", speakerId },
     select: { title: true },

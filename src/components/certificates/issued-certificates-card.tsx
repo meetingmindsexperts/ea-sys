@@ -45,7 +45,7 @@ import {
 import { toast } from "sonner";
 import {
   useIssuedCertificates,
-  useResendCertificate,
+  useReissueCertificate,
   type IssuedCertificateRow,
 } from "@/hooks/use-api";
 
@@ -70,7 +70,7 @@ export function IssuedCertificatesCard({
     speakerId,
   });
 
-  const resendMutation = useResendCertificate(eventId);
+  const resendMutation = useReissueCertificate(eventId);
 
   // Confirm dialog state — single cert at a time. We track the whole
   // row (not just id) so the dialog can show the cert's type + serial
@@ -82,18 +82,10 @@ export function IssuedCertificatesCard({
   async function handleResend(cert: IssuedCertificateRow) {
     try {
       const result = await resendMutation.mutateAsync(cert.id);
-      // H4 fix (review round): the previous wording "sent N times" was
-      // ambiguous — N is the resend count, but the cert was also sent
-      // ONCE via the original CertificateIssueRun. So a fresh cert
-      // post-first-resend reads as resendCount=1, and "sent 1 time" is
-      // misleading (it's been sent 2 times total). Spell out both
-      // numbers so the operator can correlate with what they see in
-      // the row and in EmailHistory.
-      const totalSent = result.resendCount + 1; // original + resends
       const category = cert.type === "ATTENDANCE" ? "attendance" : "appreciation";
-      toast.success(
-        `Resent ${category} certificate · now sent ${totalSent} time${totalSent === 1 ? "" : "s"} total`,
-      );
+      // Reissue re-renders from the CURRENT template (so template/greeting
+      // edits propagate) and re-sends — not a replay of the frozen original.
+      toast.success(`Re-rendered the ${category} certificate from the latest template and re-sent to ${result.recipientEmail}`);
       setConfirmCert(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Resend failed";
@@ -165,13 +157,12 @@ export function IssuedCertificatesCard({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-4 w-4" />
-              Resend certificate
+              Resend latest version
             </DialogTitle>
             <DialogDescription>
-              This re-fires the original delivery email with the same PDF and
-              the same cover-email text the recipient would have received the
-              first time. No new certificate is generated; the serial stays
-              the same.
+              This re-renders the certificate from the <strong>current</strong>{" "}
+              template (picking up any design or cover-email edits) and emails it
+              again. The serial stays the same; the PDF is refreshed.
             </DialogDescription>
           </DialogHeader>
           {confirmCert && (

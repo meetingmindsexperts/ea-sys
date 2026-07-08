@@ -2267,3 +2267,53 @@ export function useResendCertificate(eventId: string) {
     },
   });
 }
+
+/**
+ * Re-render an already-issued cert from the CURRENT template (picks up
+ * template / greeting edits), update its PDF, and email it again. Distinct
+ * from useResendCertificate (which replays the frozen original).
+ */
+export function useReissueCertificate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (certificateId: string) =>
+      fetchApi<{
+        ok: true;
+        certificateId: string;
+        serial: string;
+        recipientEmail: string;
+        emailMessageId?: string;
+      }>(
+        `/api/events/${eventId}/certificates/issued/${certificateId}/reissue`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["events", eventId, "certificates", "issued"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["email-logs"] });
+    },
+  });
+}
+
+/** Issue one certificate template to ONE registration or speaker on demand. */
+export function useIssueSingleCertificate(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { templateId: string; registrationId?: string; speakerId?: string }) =>
+      fetchApi<{ ok: true; certificateId: string; serial: string; recipientEmail: string }>(
+        `/api/events/${eventId}/certificates/issue-single`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["events", eventId, "certificates", "issued"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["email-logs"] });
+    },
+  });
+}
