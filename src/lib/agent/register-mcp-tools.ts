@@ -277,6 +277,9 @@ export function registerAllMcpTools(
     }},
     { name: "list_email_templates", description: "List email templates.", params: {} },
     { name: "get_event_stats", description: "Get event statistics dashboard.", params: {} },
+    { name: "list_dinner_rsvps", description: "List dinner RSVPs: each dinner with its per-night headcount (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses (which dinners, guest counts, dietary). Optional status (PENDING/RESPONDED) + limit.", params: {
+      status: z.enum(["PENDING", "RESPONDED"]).optional(), limit: z.number().optional(),
+    }},
     // ─── Orchestration reads ───
     { name: "get_event_dashboard", description: "Get a rich dashboard snapshot: registration counts by status + payment, speaker counts, session counts (upcoming / live now / past), check-in rate, signed/unsigned agreements, recent 5 registrations, next session.", params: {} },
     { name: "get_event_analytics", description: "Operational analytics for reporting: registration funnel (by status/type/tier/day), check-in metrics (rate, no-shows, by-hour rush curve, peak hour, by-staff) + per-attendee check-in log (name, email, time, who, scanned/manual), badge-print stats (printed vs registered, reprints), and revenue (collected by currency, outstanding).", params: {} },

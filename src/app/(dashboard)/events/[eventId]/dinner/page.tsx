@@ -24,6 +24,7 @@ import {
   Clock,
   Send,
   BellRing,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { ImportInviteesDialog } from "@/components/dinner/import-invitees-dialog";
 import { toast } from "sonner";
 
 interface Dinner {
@@ -92,6 +94,8 @@ export default function DinnerRsvpPage() {
     { name: "", email: "" },
   ]);
   const [savingInvites, setSavingInvites] = useState(false);
+
+  const [importDialog, setImportDialog] = useState(false);
 
   const [sendDialog, setSendDialog] = useState(false);
   const [sendTarget, setSendTarget] = useState<"all" | "pending">("all");
@@ -398,6 +402,9 @@ export default function DinnerRsvpPage() {
                 <BellRing className="h-4 w-4 mr-1" /> Remind pending
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={() => setImportDialog(true)}>
+              <Users className="h-4 w-4 mr-1" /> Import
+            </Button>
             <Button size="sm" onClick={() => setInviteDialog(true)}>
               <Plus className="h-4 w-4 mr-1" /> Add invitees
             </Button>
@@ -572,6 +579,15 @@ export default function DinnerRsvpPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import dialog */}
+      <ImportInviteesDialog
+        eventId={eventId}
+        open={importDialog}
+        onOpenChange={setImportDialog}
+        existingEmails={new Set(invites.map((i) => i.inviteeEmail.toLowerCase()))}
+        onImported={loadRoster}
+      />
 
       {/* Send dialog */}
       <Dialog open={sendDialog} onOpenChange={setSendDialog}>

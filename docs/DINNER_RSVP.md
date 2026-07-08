@@ -68,5 +68,8 @@ three tables; old code ignores them).
 - **P2 (shipped):** email the personalized links (`{{rsvpLink}}`) via the branded email
   pipeline + **"remind pending"** — "Email invitations" / "Remind pending" buttons on the
   organizer console → optional subject + message → `POST .../rsvp-invites/send`.
-- **P3:** import invitees from Registrations/Speakers (picker), MCP pull tool,
-  scheduled/auto reminder cron.
+- **P3 (partial):** ✅ import invitees from Registrations/Speakers (picker,
+  [ImportInviteesDialog](../src/components/dinner/import-invitees-dialog.tsx)); ✅ MCP pull tool
+  `list_dinner_rsvps` ([tools/dinner.ts](../src/lib/agent/tools/dinner.ts) — dinners +
+  per-night headcounts + per-invitee responses, read-only). ⏳ scheduled/auto reminder cron
+  (trigger design pending — the manual "Remind pending" button already covers the core need).
