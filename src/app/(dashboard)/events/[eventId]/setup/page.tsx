@@ -39,6 +39,7 @@ import {
   PenLine,
   Receipt,
   Ticket,
+  UtensilsCrossed,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -150,6 +151,16 @@ const SETUP_CARDS: SetupCardConfig[] = [
     colorClasses: "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
     hoverBorder: "hover:border-rose-400",
   },
+  {
+    slug: "dinner",
+    title: "Dinner RSVP",
+    description:
+      "Invite people to the event dinners (Day 1, Gala…) with a personalized link, and track who's attending — per-night headcounts, guests, and dietary needs.",
+    icon: UtensilsCrossed,
+    colorClasses:
+      "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
+    hoverBorder: "hover:border-orange-400",
+  },
 ];
 
 // Finance-only card — appended to the hub for finance-capable roles
@@ -221,6 +232,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       // from the platform default).
       db.emailTemplate.count({ where: { eventId } }),
       db.invoice.count({ where: { eventId } }),
+      db.rsvpDinner.count({ where: { eventId } }),
     ]);
   } catch (err) {
     apiLogger.error({ err, msg: "setup-hub:load-failed", eventId });
@@ -237,6 +249,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
     mediaFileCount,
     emailTemplateCount,
     invoiceCount,
+    dinnerCount,
   ] = result;
   if (!event) notFound();
 
@@ -290,6 +303,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
     media: {
       configured: mediaFileCount > 0,
       count: mediaFileCount,
+    },
+    dinner: {
+      configured: dinnerCount > 0,
+      count: dinnerCount,
     },
     invoices: {
       configured: true,

@@ -288,6 +288,8 @@ model Event {
   certificateIssueRuns      CertificateIssueRun[]
   certificateTemplates      CertificateTemplate[]
   surveyResponses           SurveyResponse[]
+  rsvpDinners               RsvpDinner[]
+  rsvpInvites               RsvpInvite[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -2123,4 +2125,77 @@ model EmailLog {
   @@index([eventId])
   @@index([to])
   @@index([createdAt])
+}
+
+// ── Dinner RSVP ────────────────────────────────────────────────────
+// A gala/dinner program for an event. Each event day can have its own
+// dinner (Day 1 Dinner, Day 2 Gala, …). Each invitee gets ONE
+// personalized token link that covers ALL the event's dinners, and
+// answers a per-dinner checkbox (+ per-dinner guest count) plus a
+// single dietary note. Docs: docs/DINNER_RSVP.md.
+
+enum RsvpStatus {
+  PENDING   // invited, not yet responded
+  RESPONDED // submitted the form (attending ≥0 dinners)
+}
+
+model RsvpDinner {
+  id           String    @id @default(cuid())
+  eventId      String
+  name         String
+  dinnerAt     DateTime
+  location     String?
+  description  String?   @db.Text
+  rsvpDeadline DateTime?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpDinnerResponse[]
+
+  @@index([eventId])
+}
+
+model RsvpInvite {
+  id           String     @id @default(cuid())
+  eventId      String
+  token        String     @unique
+  inviteeName  String
+  inviteeEmail String
+  // Soft references (no FK) to the person's Registration/Speaker facet,
+  // if the invitee was picked from an existing record. The invite keeps
+  // its own name/email snapshot, so a dangling id is harmless.
+  registrationId String?
+  speakerId      String?
+  dietary      String?    @db.Text
+  status       RsvpStatus @default(PENDING)
+  respondedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpDinnerResponse[]
+
+  @@unique([eventId, inviteeEmail])
+  @@index([eventId])
+  @@index([eventId, status])
+}
+
+model RsvpDinnerResponse {
+  id         String   @id @default(cuid())
+  inviteId   String
+  dinnerId   String
+  attending  Boolean  @default(false)
+  guestCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  invite RsvpInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  dinner RsvpDinner @relation(fields: [dinnerId], references: [id], onDelete: Cascade)
+
+  @@unique([inviteId, dinnerId])
+  @@index([dinnerId])
+  @@index([inviteId])
 }
