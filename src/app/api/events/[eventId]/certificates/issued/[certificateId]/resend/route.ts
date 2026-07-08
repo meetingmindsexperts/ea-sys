@@ -48,131 +48,13 @@ import {
   SYSTEM_DEFAULT_SUBJECT,
   defaultBodyForCategory,
 } from "@/lib/certificates/email-tokens";
+import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
+import { escapeHtml } from "@/lib/html";
 
 interface RouteParams {
   params: Promise<{ eventId: string; certificateId: string }>;
 }
 
-/**
- * Local copy of the HTML-escape helper used by the issue worker. Same
- * five-replace pattern. Duplicated rather than refactored shared
- * because (a) keeping the resend route self-contained avoids touching
- * the worker mid-feature, and (b) email.ts's private helper is
- * intentionally not exported.
- */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-/** Read PDF bytes from local disk OR remote URL. Mirrors the worker's
- *  loadPdfBytes — local files served directly from public/ on EC2;
- *  Supabase / absolute URLs fetched.
- *
- *  H2 fix (review round): defense-in-depth against path traversal +
- *  SSRF. Today pdfUrl is system-generated (uploadCertificatePdf writes
- *  `${certId}.pdf` under public/uploads/certificates/), so neither
- *  attack lands today. But the pdfUrl column is now read by two routes
- *  (worker + resend) and the surface is permanent — any future MCP
- *  tool, admin endpoint, or migration script that writes pdfUrl
- *  inherits the safety story. The guard is bounded:
- *    - local path  → resolve() + assert prefix is public/uploads/cert*
- *    - remote URL  → must be https + hostname must match the allowlist
- *  Anything else throws and the route 409s PDF_MISSING. */
-const REMOTE_PDF_HOST_ALLOWLIST = [/\.supabase\.co$/i];
-
-/**
- * Load PDF bytes from local disk or remote URL with full structured
- * logging at every rejection point. Each failure reason gets its own
- * apiLogger.warn msg key so an operator scanning /logs can tell at a
- * glance whether a 409 PDF_MISSING was:
- *   pdf-path-traversal   path-traversal probe / regression
- *   pdf-wrong-prefix     pdfUrl points outside /uploads/certificates/
- *   pdf-invalid-url      pdfUrl is not a valid URL string
- *   pdf-non-https        remote pdfUrl uses http (misconfig)
- *   pdf-host-disallowed  remote host not on SSRF allowlist
- *   pdf-fetch-failed     fetch round-trip returned non-2xx
- *
- * The caller (the resend POST handler) catches whatever this function
- * throws and 409s — but the per-reason log line is what an engineer
- * needs to debug, not the catch-all generic.
- */
-async function loadPdfBytes(
-  pdfUrl: string,
-  logCtx: { eventId: string; certificateId: string; userId: string },
-): Promise<Buffer> {
-  if (pdfUrl.startsWith("/uploads/")) {
-    const { readFile } = await import("fs/promises");
-    const { join, resolve, sep } = await import("path");
-    // Allowed prefix = public/uploads/certificates/ (every cert PDF
-    // lives there per uploadCertificatePdf's storage convention). Add
-    // the trailing separator so `/public/uploads/certificates-evil/`
-    // can't slip past the startsWith check by sharing the prefix.
-    const allowedPrefix = resolve(process.cwd(), "public", "uploads", "certificates") + sep;
-    const absPath = resolve(join(process.cwd(), "public", pdfUrl));
-    if (!absPath.startsWith(allowedPrefix)) {
-      apiLogger.warn({
-        msg: "cert-resend:pdf-path-traversal",
-        pdfUrl,
-        absPath,
-        allowedPrefix,
-        ...logCtx,
-      });
-      throw new Error(`PDF path escapes allowed prefix: ${pdfUrl}`);
-    }
-    return readFile(absPath);
-  }
-
-  // Remote — must be https + on the host allowlist. The list is short
-  // by design: Supabase Storage is the only non-local pdfUrl producer
-  // today. Adding a host means adding a regex here.
-  let url: URL;
-  try {
-    url = new URL(pdfUrl);
-  } catch {
-    apiLogger.warn({
-      msg: "cert-resend:pdf-invalid-url",
-      pdfUrl,
-      ...logCtx,
-    });
-    throw new Error(`Invalid pdfUrl (not a valid URL): ${pdfUrl}`);
-  }
-  if (url.protocol !== "https:") {
-    apiLogger.warn({
-      msg: "cert-resend:pdf-non-https",
-      pdfUrl,
-      protocol: url.protocol,
-      ...logCtx,
-    });
-    throw new Error(`Remote pdfUrl must use https: ${pdfUrl}`);
-  }
-  if (!REMOTE_PDF_HOST_ALLOWLIST.some((re) => re.test(url.hostname))) {
-    apiLogger.warn({
-      msg: "cert-resend:pdf-host-disallowed",
-      pdfUrl,
-      hostname: url.hostname,
-      ...logCtx,
-    });
-    throw new Error(`Remote pdfUrl host not on allowlist: ${url.hostname}`);
-  }
-
-  const res = await fetch(pdfUrl);
-  if (!res.ok) {
-    apiLogger.warn({
-      msg: "cert-resend:pdf-fetch-failed",
-      pdfUrl,
-      status: res.status,
-      ...logCtx,
-    });
-    throw new Error(`Failed to fetch PDF: HTTP ${res.status} ${pdfUrl}`);
-  }
-  const arr = await res.arrayBuffer();
-  return Buffer.from(arr);
-}
 
 export async function POST(_req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
@@ -385,7 +267,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       // / fetch-failed). The catch here is the catch-all that maps
       // any of those to the same 409 the user sees, but the engineer
       // looking at /logs already has the per-reason msg key.
-      pdfBuffer = await loadPdfBytes(cert.pdfUrl, {
+      pdfBuffer = await loadCertificatePdfBytes(cert.pdfUrl, {
         eventId: eventId!,
         certificateId: certificateId!,
         userId: session.user.id,

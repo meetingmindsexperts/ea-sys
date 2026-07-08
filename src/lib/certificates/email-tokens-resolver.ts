@@ -10,6 +10,7 @@
  */
 
 import { db } from "@/lib/db";
+import { escapeHtml } from "@/lib/html";
 import { apiLogger } from "@/lib/logger";
 import type { CertificateType } from "@prisma/client";
 
@@ -41,17 +42,6 @@ export interface CoverEmailTokenContext {
    * the plain-text subject + text-body paths so they aren't double-escaped.
    */
   escapeDynamic?: boolean;
-}
-
-/** Local copy — matches the worker's + resend route's escapeHtml (the
- *  cross-file dedup is a tracked LOW backlog item). */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 const CERT_TYPE_LABELS: Record<CertificateType, string> = {

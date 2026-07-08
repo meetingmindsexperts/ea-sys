@@ -39,6 +39,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
 import { uploadCertificatePdf } from "@/lib/storage";
+import { loadCertificatePdfBytes } from "./pdf-loader";
+import { escapeHtml } from "@/lib/html";
 import { sendEmail, wrapWithBranding, inlineCss, brandingFrom, type EmailBranding } from "@/lib/email";
 import {
   resolveCoverEmailTokens,
@@ -49,19 +51,6 @@ import {
   defaultBodyForCategory,
 } from "./email-tokens";
 import type { CertificateData, CertificateTemplate, AccreditationEntry } from "./types";
-
-/** Escape user-controlled strings before HTML-interpolating into email
- *  bodies. Mirrors src/lib/email.ts's private helper — duplicated here
- *  because email.ts doesn't export it and the cert-delivery email is
- *  the only consumer in this module. */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 // Tunables — the math: at 50 renders/tick × 50ms each = 2.5s per tick
 // for the render phase (well under any HTTP timeout). For email at the
@@ -550,7 +539,7 @@ async function processSendPhase(
       if (!cert?.pdfUrl) {
         throw new Error("Cert pdfUrl missing — render phase didn't persist it");
       }
-      const pdfBuffer = await loadPdfBytes(cert.pdfUrl);
+      const pdfBuffer = await loadCertificatePdfBytes(cert.pdfUrl);
 
       // Per-recipient token resolution. The run row carries the
       // organizer-confirmed subject + body; tokens (recipientName,
@@ -810,20 +799,6 @@ async function getRunTriggerUserId(runId: string): Promise<string | null> {
   });
   if (!run) throw new Error(`Run ${runId} not found while resolving triggeredByUserId`);
   return run.triggeredByUserId;
-}
-
-async function loadPdfBytes(pdfUrl: string): Promise<Buffer> {
-  if (pdfUrl.startsWith("/uploads/")) {
-    // Local — read directly from public/ on disk.
-    const { readFile } = await import("fs/promises");
-    const { join } = await import("path");
-    return readFile(join(process.cwd(), "public", pdfUrl));
-  }
-  // Supabase or absolute URL — fetch.
-  const res = await fetch(pdfUrl);
-  if (!res.ok) throw new Error(`Failed to fetch PDF: HTTP ${res.status} ${pdfUrl}`);
-  const arr = await res.arrayBuffer();
-  return Buffer.from(arr);
 }
 
 async function markItemFailed(
