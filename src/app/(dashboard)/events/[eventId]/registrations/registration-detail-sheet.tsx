@@ -395,6 +395,8 @@ export function RegistrationDetailSheet({
   const [creditNoteSend, setCreditNoteSend] = useState(true);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
+  // Confirm dialog when cancelling a PAID registration (refund vs just cancel).
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [sendFormConfirmOpen, setSendFormConfirmOpen] = useState(false);
   const sendCompletionEmails = useSendCompletionEmails(eventId);
   // Existing tags for autocomplete on the in-sheet edit. Cached with
@@ -657,6 +659,21 @@ export function RegistrationDetailSheet({
       toast.error("Pick a sponsor before marking this registration Inclusive.");
       return;
     }
+    // Changing a PAID registration to CANCELLED is a money decision — intercept
+    // and ask whether to refund. Non-paid / non-refundable cancels save normally
+    // (their balance already shows 0). "Just cancel" in the dialog runs the same
+    // normal save (preserving any other staged edits); "Cancel & refund" uses the
+    // dedicated cancel endpoint.
+    const changingToCancelled = editData.status === "CANCELLED" && selectedRegistration.status !== "CANCELLED";
+    if (changingToCancelled && selectedRegistration.paymentStatus === "PAID" && refundRemaining > 0) {
+      setCancelConfirmOpen(true);
+      return;
+    }
+    runSave();
+  };
+
+  const runSave = () => {
+    if (!selectedRegistration) return;
     updateRegistration.mutate(
       {
         id: selectedRegistration.id,
@@ -676,6 +693,37 @@ export function RegistrationDetailSheet({
       }
     );
   };
+
+  const cancelWithRefund = useMutation({
+    mutationFn: (refund: boolean) =>
+      apiPostJson(`/api/events/${eventId}/registrations/${selectedRegistration!.id}/cancel`, { refund }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      const d = data as { refunded?: boolean; refund?: { amount?: number; refundedAmount?: number; currency?: string } } | null | undefined;
+      setSelectedRegistration((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "CANCELLED",
+              paymentStatus: d?.refunded ? "REFUNDED" : prev.paymentStatus,
+              financials: prev.financials
+                ? { ...prev.financials, balanceDue: 0, hasOutstandingBalance: false, refundedAmount: d?.refund?.refundedAmount ?? prev.financials.refundedAmount }
+                : prev.financials,
+            }
+          : prev,
+      );
+      setCancelConfirmOpen(false);
+      setIsEditing(false);
+      toast.success(
+        d?.refunded
+          ? `Cancelled and refunded ${d.refund?.amount != null ? formatCurrency(d.refund.amount, d.refund.currency ?? refundCurrency) : "the balance"}.`
+          : "Registration cancelled.",
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : "Could not cancel the registration");
+    },
+  });
 
   return (
     <>
@@ -2944,6 +2992,50 @@ export function RegistrationDetailSheet({
                   <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Issuing…</>
                 ) : (
                   "Issue Credit Note"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Cancel a PAID registration — refund vs just cancel. */}
+        <Dialog open={cancelConfirmOpen} onOpenChange={(o) => { if (!cancelWithRefund.isPending) setCancelConfirmOpen(o); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cancel this registration?</DialogTitle>
+              <DialogDescription>
+                This registration is paid ({formatCurrency(refundRemaining, refundCurrency)} refundable).
+                Choose whether to refund the balance. Cancelling releases the seat and stops any payment
+                chasing; the amount owed becomes 0.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+              <strong>Cancel &amp; refund</strong> issues a credit note and refunds{" "}
+              {formatCurrency(refundRemaining, refundCurrency)} (Stripe payments reverse automatically; offline
+              payments must be returned to the attendee manually). This is irreversible.
+            </div>
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button variant="ghost" size="sm" disabled={cancelWithRefund.isPending} onClick={() => setCancelConfirmOpen(false)}>
+                Keep registration
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cancelWithRefund.isPending}
+                onClick={() => { setCancelConfirmOpen(false); runSave(); }}
+              >
+                Just cancel, no refund
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700"
+                disabled={cancelWithRefund.isPending}
+                onClick={() => cancelWithRefund.mutate(true)}
+              >
+                {cancelWithRefund.isPending ? (
+                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
+                ) : (
+                  <>Cancel &amp; refund {formatCurrency(refundRemaining, refundCurrency)}</>
                 )}
               </Button>
             </DialogFooter>
