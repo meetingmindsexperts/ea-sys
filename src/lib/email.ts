@@ -2194,6 +2194,9 @@ export function getSamplePreviewVariables(
     reviewScore: 9,
     managementLink: "#",
     loginLink: "#",
+    // Survey-invitation template placeholder — real sends mint a per-recipient
+    // token; the preview shows a representative link, not literal {{surveyLink}}.
+    surveyLink: "#",
     daysUntilEvent: 7,
     subject: "Custom Subject",
     message: "This is a custom message body.",

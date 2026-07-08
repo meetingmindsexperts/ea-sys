@@ -241,6 +241,8 @@ function emailTypeToSlug(emailType: string, recipientType: RecipientType): strin
       return "abstract-status-update";
     case "abstract-reminder":
       return "abstract-submission-confirmation";
+    case "survey-invitation":
+      return "survey-invitation";
     default:
       return null;
   }
@@ -460,7 +462,12 @@ export function BulkEmailDialog({
 
   const handlePreview = async () => {
     const slug = emailTypeToSlug(emailType, recipientType);
-    if (!slug) return;
+    if (!slug) {
+      // Surface rather than silently no-op, so an unmapped email type is
+      // visible instead of a dead Preview button.
+      toast.error("Preview isn't available for this email type.");
+      return;
+    }
     try {
       const result = await previewMutation.mutateAsync({
         slug,
