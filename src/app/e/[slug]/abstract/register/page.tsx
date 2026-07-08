@@ -369,7 +369,7 @@ export default function AbstractRegisterPage() {
           </div>
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Account Created!</h2>
           <p className="text-slate-500 text-base leading-relaxed mb-2">
-            Your speaker account has been created. Log in to submit your abstract for
+            Your presenter account has been created. Log in to submit your abstract for
           </p>
           <p className="font-semibold text-slate-800 mb-6">{event.name}</p>
           <div className="bg-slate-50 rounded-xl p-4 text-left mb-6 border border-slate-100">
@@ -406,7 +406,7 @@ export default function AbstractRegisterPage() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-6 sm:px-10 py-6 border-b border-slate-100">
-            <h2 className="text-2xl font-bold text-slate-900">Abstract Submission — Speaker Registration</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Abstract Submission — Presenter Registration</h2>
             <p className="text-base text-slate-500 mt-1">
               {step === 1 ? "Create your account to get started." : "Fill in your details to complete registration."}
             </p>
@@ -444,7 +444,7 @@ export default function AbstractRegisterPage() {
                       </div>
                       <div>
                         <h3 className="text-lg font-bold text-slate-800">
-                          {emailCheck.state === "signin" ? "Sign in to submit your abstract" : "Create your speaker account"}
+                          {emailCheck.state === "signin" ? "Sign in to submit your abstract" : "Create your presenter account"}
                         </h3>
                         <p className="text-sm text-slate-500">
                           {emailCheck.state === "signin"

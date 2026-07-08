@@ -686,8 +686,8 @@ export default function AbstractsPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Share this link with speakers so they can create an account and submit their abstracts.
-              Speakers register with their profile details, then log in to submit and manage their work.
+              Share this link with presenters so they can create an account and submit their abstracts.
+              Presenters register with their profile details, then log in to submit and manage their work.
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono truncate select-all">
