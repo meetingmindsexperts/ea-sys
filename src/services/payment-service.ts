@@ -5,6 +5,8 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
+import { planSeatTransition } from "@/lib/registration-seat";
+import { releaseSeat } from "@/lib/registration-seat-db";
 
 /**
  * Payment service — the domain home for money movement on a registration:
@@ -371,5 +373,143 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
   } catch (err) {
     apiLogger.error({ err, msg: "refundRegistration:unknown-failure", registrationId, eventId });
     return { ok: false, code: "UNKNOWN", message: "Failed to issue refund" };
+  }
+}
+
+// ── cancelRegistration ───────────────────────────────────────────────────────
+
+export interface CancelRegistrationInput {
+  registrationId: string;
+  eventId: string;
+  organizationId: string;
+  /** When true and the registration is PAID, auto-issue a credit note + refund
+   *  the remaining balance before cancelling. */
+  refund: boolean;
+  source: PaymentSource;
+  issuedByUserId?: string | null;
+}
+
+export type CancelRegistrationErrorCode =
+  | "REGISTRATION_NOT_FOUND"
+  | "ALREADY_CANCELLED"
+  | "REFUND_FAILED"
+  | "UNKNOWN";
+
+export interface CancelSummary {
+  status: "CANCELLED";
+  refunded: boolean;
+  refund?: RefundSummary;
+}
+
+export type CancelRegistrationResult =
+  | { ok: true; cancel: CancelSummary }
+  | { ok: false; code: CancelRegistrationErrorCode; message: string; meta?: Record<string, unknown> };
+
+/**
+ * Cancel a registration — releasing its seat + promo usage — and, for a PAID
+ * registration when `refund` is set, auto-issue a full credit note and refund
+ * the remaining balance FIRST. Refund-before-cancel: if the refund fails we do
+ * NOT cancel (the reg stays active + recoverable, no money moved into limbo).
+ *
+ * COMPLIMENTARY / INCLUSIVE / UNPAID registrations have nothing to refund — they
+ * are simply cancelled (their balance already shows 0, see the detail route).
+ * An already-fully-refunded PAID reg is cancelled without a second refund.
+ */
+export async function cancelRegistration(input: CancelRegistrationInput): Promise<CancelRegistrationResult> {
+  const { registrationId, eventId, organizationId, refund, source, issuedByUserId } = input;
+
+  try {
+    const reg = await db.registration.findUnique({
+      where: { id: registrationId },
+      select: {
+        id: true,
+        eventId: true,
+        status: true,
+        paymentStatus: true,
+        attendanceMode: true,
+        ticketTypeId: true,
+        pricingTierId: true,
+        createdSource: true,
+        promoCodeId: true,
+      },
+    });
+    if (!reg || reg.eventId !== eventId) {
+      return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+    if (reg.status === "CANCELLED") {
+      return { ok: false, code: "ALREADY_CANCELLED", message: "Registration is already cancelled" };
+    }
+
+    // ── Refund first (only a PAID reg has collected money to return) ──────────
+    let refundSummary: RefundSummary | undefined;
+    let refunded = false;
+    if (refund && reg.paymentStatus === "PAID") {
+      // Auto-issue a credit note for the outstanding credit. Tolerate "already
+      // fully credited" (INVALID_AMOUNT / CREDIT_LIMIT_EXCEEDED) — a credit note
+      // already exists, which is all the refund gate needs.
+      const cnRes = await issueCreditNoteForRegistration({ registrationId, eventId, organizationId, source, issuedByUserId });
+      if (!cnRes.ok && cnRes.code !== "INVALID_AMOUNT" && cnRes.code !== "CREDIT_LIMIT_EXCEEDED") {
+        return {
+          ok: false,
+          code: "REFUND_FAILED",
+          message: `Could not issue the credit note for the refund: ${cnRes.message}`,
+          meta: { step: "credit-note", code: cnRes.code },
+        };
+      }
+
+      const refundRes = await refundRegistration({ registrationId, eventId, source, issuedByUserId });
+      if (refundRes.ok) {
+        refundSummary = refundRes.refund;
+        refunded = true;
+      } else if (refundRes.code !== "ALREADY_FULLY_REFUNDED") {
+        // A real refund failure aborts the cancel — nothing is left in limbo.
+        return {
+          ok: false,
+          code: "REFUND_FAILED",
+          message: refundRes.message,
+          meta: { step: "refund", code: refundRes.code, ...(refundRes.meta ?? {}) },
+        };
+      }
+    }
+
+    // ── Cancel: claim the transition, then release seat + promo ───────────────
+    const seat = planSeatTransition(
+      { status: reg.status, attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
+      { status: "CANCELLED", attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
+    );
+    await db.$transaction(async (tx) => {
+      // Claim first so a concurrent cancel can't double-release the seat/promo.
+      const claim = await tx.registration.updateMany({
+        where: { id: registrationId, status: { not: "CANCELLED" } },
+        data: { status: "CANCELLED" },
+      });
+      if (claim.count === 0) return; // lost the race — someone else cancelled
+      if (seat.release) await releaseSeat(tx, seat.release);
+      if (reg.promoCodeId) {
+        await tx.promoCode.update({ where: { id: reg.promoCodeId }, data: { usedCount: { decrement: 1 } } });
+      }
+    });
+
+    refreshEventStats(eventId);
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: issuedByUserId ?? null,
+          action: "REGISTRATION_CANCELLED",
+          entityType: "Registration",
+          entityId: registrationId,
+          changes: { source, refunded, refundAmount: refundSummary?.amount ?? null, currency: refundSummary?.currency ?? null },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "cancel:audit-write-failed", registrationId }));
+
+    apiLogger.info({ msg: "Registration cancelled", registrationId, eventId, refunded, refundAmount: refundSummary?.amount ?? null, source, issuedBy: issuedByUserId ?? null });
+
+    return { ok: true, cancel: { status: "CANCELLED", refunded, refund: refundSummary } };
+  } catch (err) {
+    apiLogger.error({ err, msg: "cancelRegistration:unknown-failure", registrationId, eventId });
+    return { ok: false, code: "UNKNOWN", message: "Failed to cancel the registration" };
   }
 }
