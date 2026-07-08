@@ -200,8 +200,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // the running total already refunded. Drives the "Refunded X of Y" line +
     // the default partial-refund amount.
     const refundedAmount = Number(registration.refundedAmount ?? 0);
+    // A CANCELLED registration owes nothing — the balance shows 0 and it's not
+    // chased. The price (total/subtotal) is kept for history/reporting.
+    const isCancelled = registration.status === "CANCELLED";
     const financials = {
       ...baseFinancials,
+      ...(isCancelled ? { balanceDue: 0, hasOutstandingBalance: false } : {}),
       refundedAmount,
       paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
       creditedAmount: Number(creditedAgg._sum.total ?? 0),
@@ -734,8 +738,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
       _sum: { total: true },
     });
+    // A CANCELLED registration owes nothing — balance shows 0 (price kept for history).
+    const isCancelled = registration.status === "CANCELLED";
     const financials = {
       ...baseFinancials,
+      ...(isCancelled ? { balanceDue: 0, hasOutstandingBalance: false } : {}),
       refundedAmount,
       paidTotal: totalPaid > 0 ? totalPaid : baseFinancials.total,
       creditedAmount: Number(creditedAgg._sum.total ?? 0),

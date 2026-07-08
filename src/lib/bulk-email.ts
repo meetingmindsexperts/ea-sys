@@ -587,6 +587,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
+        // Never chase a CANCELLED registration for payment (it owes nothing).
+        // Only applied when no explicit status filter is set — an explicit
+        // status already scopes the send, and a non-CANCELLED one excludes them.
+        ...(emailType === "payment-reminder" && !status ? { status: { not: "CANCELLED" as const } } : {}),
         ...(paymentStatuses.length === 1
           ? { paymentStatus: paymentStatuses[0] }
           : paymentStatuses.length > 1
