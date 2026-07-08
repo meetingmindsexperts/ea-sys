@@ -108,6 +108,9 @@ export default function DinnerRsvpPage() {
       setDinners(json.dinners);
       setInvites(json.invites);
       setHeadcounts(json.headcounts);
+    } else {
+      console.error("dinner-console:roster-load-failed", res.status);
+      toast.error("Couldn't load the RSVP roster");
     }
   }, [eventId]);
 
@@ -116,6 +119,10 @@ export default function DinnerRsvpPage() {
       try {
         const [ev] = await Promise.all([fetch(`/api/events/${eventId}`), loadRoster()]);
         if (ev.ok) setSlug((await ev.json()).slug || "");
+        else console.error("dinner-console:event-load-failed", ev.status);
+      } catch (err) {
+        console.error("dinner-console:init-error", err);
+        toast.error("Couldn't load the dinner console");
       } finally {
         setLoading(false);
       }
@@ -170,17 +177,26 @@ export default function DinnerRsvpPage() {
       toast.success(editingDinner ? "Dinner updated" : "Dinner added");
       setDinnerDialog(false);
       await loadRoster();
+    } catch (err) {
+      console.error("dinner-console:save-dinner-error", err);
+      toast.error("Failed to save dinner");
     } finally {
       setSavingDinner(false);
     }
   };
   const deleteDinner = async (d: Dinner) => {
     if (!confirm(`Delete "${d.name}"? This removes its RSVP responses.`)) return;
-    const res = await fetch(`/api/events/${eventId}/dinners/${d.id}`, { method: "DELETE" });
-    if (res.ok) {
-      toast.success("Dinner deleted");
-      await loadRoster();
-    } else {
+    try {
+      const res = await fetch(`/api/events/${eventId}/dinners/${d.id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Dinner deleted");
+        await loadRoster();
+      } else {
+        console.error("dinner-console:delete-dinner-failed", res.status);
+        toast.error("Failed to delete dinner");
+      }
+    } catch (err) {
+      console.error("dinner-console:delete-dinner-error", err);
       toast.error("Failed to delete dinner");
     }
   };
@@ -210,23 +226,37 @@ export default function DinnerRsvpPage() {
       setInviteDialog(false);
       setInviteRows([{ name: "", email: "" }]);
       await loadRoster();
+    } catch (err) {
+      console.error("dinner-console:add-invites-error", err);
+      toast.error("Failed to add invitees");
     } finally {
       setSavingInvites(false);
     }
   };
   const removeInvite = async (inv: RosterInvite) => {
     if (!confirm(`Remove ${inv.inviteeName} from the RSVP list?`)) return;
-    const res = await fetch(`/api/events/${eventId}/rsvp-invites/${inv.id}`, { method: "DELETE" });
-    if (res.ok) {
-      toast.success("Removed");
-      await loadRoster();
-    } else {
+    try {
+      const res = await fetch(`/api/events/${eventId}/rsvp-invites/${inv.id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Removed");
+        await loadRoster();
+      } else {
+        console.error("dinner-console:remove-invite-failed", res.status);
+        toast.error("Failed to remove");
+      }
+    } catch (err) {
+      console.error("dinner-console:remove-invite-error", err);
       toast.error("Failed to remove");
     }
   };
   const copyLink = (token: string) => {
-    navigator.clipboard.writeText(`${origin}/e/${slug}/rsvp/${token}`);
-    toast.success("RSVP link copied");
+    navigator.clipboard.writeText(`${origin}/e/${slug}/rsvp/${token}`).then(
+      () => toast.success("RSVP link copied"),
+      (err) => {
+        console.error("dinner-console:copy-link-error", err);
+        toast.error("Couldn't copy the link");
+      },
+    );
   };
   const openSend = (target: "all" | "pending") => {
     setSendTarget(target);
@@ -252,6 +282,9 @@ export default function DinnerRsvpPage() {
       toast.success(`Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}`);
       setSendDialog(false);
       await loadRoster();
+    } catch (err) {
+      console.error("dinner-console:send-error", err);
+      toast.error("Failed to send invitations");
     } finally {
       setSending(false);
     }

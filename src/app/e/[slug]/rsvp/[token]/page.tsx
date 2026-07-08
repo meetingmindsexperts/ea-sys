@@ -75,13 +75,15 @@ export default function RsvpPage() {
         const json = await res.json();
         if (cancelled) return;
         if (!res.ok) {
+          console.error("rsvp-form:load-failed", res.status, json?.error);
           setError(json.error || "This RSVP link is invalid.");
           return;
         }
         setData(json);
         setDinners(json.dinners);
         setDietary(json.invitee.dietary || "");
-      } catch {
+      } catch (err) {
+        console.error("rsvp-form:load-error", err);
         if (!cancelled) setError("Couldn't load your RSVP. Please try again.");
       } finally {
         if (!cancelled) setLoading(false);
@@ -113,11 +115,13 @@ export default function RsvpPage() {
       });
       const json = await res.json();
       if (!res.ok) {
+        console.error("rsvp-form:submit-failed", res.status, json?.error);
         toast.error(json.error || "Failed to submit RSVP");
         return;
       }
       setDone(true);
-    } catch {
+    } catch (err) {
+      console.error("rsvp-form:submit-error", err);
       toast.error("Failed to submit RSVP. Please try again.");
     } finally {
       setSubmitting(false);

@@ -22,13 +22,19 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true },
     });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ eventId, inviteId, userId: session.user.id }, "rsvp-invites:delete-event-not-found");
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const invite = await db.rsvpInvite.findFirst({
       where: { id: inviteId, eventId },
       select: { id: true },
     });
-    if (!invite) return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+    if (!invite) {
+      apiLogger.warn({ eventId, inviteId, userId: session.user.id }, "rsvp-invites:invite-not-found");
+      return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+    }
 
     await db.rsvpInvite.delete({ where: { id: inviteId } });
 

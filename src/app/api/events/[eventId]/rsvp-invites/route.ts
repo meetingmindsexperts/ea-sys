@@ -40,7 +40,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true },
     });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "rsvp-invites:list-event-not-found");
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const [dinners, invites] = await Promise.all([
       db.rsvpDinner.findMany({
@@ -139,7 +142,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true },
     });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "rsvp-invites:add-event-not-found");
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     // De-dup within the payload + against already-invited emails.
     const seen = new Set<string>();

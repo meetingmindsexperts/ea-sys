@@ -84,7 +84,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         organization: { select: { name: true } },
       },
     });
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "rsvp-send:event-not-found");
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
 
     const invites = await db.rsvpInvite.findMany({
       where: {
@@ -94,6 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
     });
     if (invites.length === 0) {
+      apiLogger.info({ eventId, target: parsed.data.target }, "rsvp-send:no-recipients");
       return NextResponse.json({ sent: 0, failed: 0, message: "No matching invitees." });
     }
 

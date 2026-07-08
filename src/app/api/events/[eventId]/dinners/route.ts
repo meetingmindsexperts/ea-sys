@@ -29,6 +29,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "dinners:list-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -83,6 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "dinners:create-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 

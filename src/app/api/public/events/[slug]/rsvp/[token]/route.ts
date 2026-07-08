@@ -66,6 +66,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ slug, ip, stage: "load" }, "rsvp-public:rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -118,6 +119,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ slug, ip, stage: "submit" }, "rsvp-public:rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -149,6 +151,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const accepted = parsed.data.dinners.filter((d) => openIds.has(d.dinnerId));
 
     if (accepted.length === 0 && openIds.size === 0) {
+      apiLogger.warn({ slug, inviteId: invite.id, stage: "closed" }, "rsvp-public:all-closed");
       return NextResponse.json({ error: "RSVP is now closed for this event." }, { status: 400 });
     }
 

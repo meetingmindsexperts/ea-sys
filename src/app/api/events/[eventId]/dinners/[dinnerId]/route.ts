@@ -40,7 +40,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const dinner = await loadDinner(eventId, dinnerId, session.user.organizationId!);
-    if (!dinner) return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
+    if (!dinner) {
+      apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:update-not-found");
+      return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
+    }
 
     const d = parsed.data;
     const updated = await db.rsvpDinner.update({
@@ -86,7 +89,10 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const dinner = await loadDinner(eventId, dinnerId, session.user.organizationId!);
-    if (!dinner) return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
+    if (!dinner) {
+      apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:delete-not-found");
+      return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
+    }
 
     await db.rsvpDinner.delete({ where: { id: dinnerId } });
 
