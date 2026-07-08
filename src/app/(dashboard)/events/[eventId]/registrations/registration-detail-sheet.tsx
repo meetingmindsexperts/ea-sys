@@ -665,9 +665,21 @@ export function RegistrationDetailSheet({
     // normal save (preserving any other staged edits); "Cancel & refund" uses the
     // dedicated cancel endpoint.
     const changingToCancelled = editData.status === "CANCELLED" && selectedRegistration.status !== "CANCELLED";
-    if (changingToCancelled && selectedRegistration.paymentStatus === "PAID" && refundRemaining > 0) {
-      setCancelConfirmOpen(true);
-      return;
+    if (changingToCancelled && selectedRegistration.paymentStatus === "PAID") {
+      // The refund decision depends on the balance, which comes from the on-open
+      // detail fetch. If that hasn't loaded (or failed — a transient DB blip),
+      // DON'T fall through to a silent no-refund cancel: block and ask to reload.
+      const financialsReady =
+        selectedRegistration.financials != null && financialsLoadedForId === selectedRegistration.id;
+      if (!financialsReady) {
+        toast.error("Couldn't load this registration's balance. Reload the page before cancelling a paid registration.");
+        return;
+      }
+      if (refundRemaining > 0) {
+        setCancelConfirmOpen(true);
+        return;
+      }
+      // Balance is loaded and nothing is refundable → a normal cancel is safe.
     }
     runSave();
   };
