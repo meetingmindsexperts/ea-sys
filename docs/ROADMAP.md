@@ -384,6 +384,25 @@ Adversarial review of the cancel→refund arc (commits `dbaf3a2` payment-service
 | **Spurious CN in the (near-unreachable) PAID-but-fully-refunded cancel branch (L2)** | LOW | XS | [payment-service.ts](../src/services/payment-service.ts) — if `paymentStatus:"PAID"` yet `remaining ≤ 0`, `issueCreditNoteForRegistration` runs before the refund returns ALREADY_FULLY_REFUNDED, possibly minting an extra CN. Short-circuit the CN issue when computed remaining ≤ 0. |
 | **PUT cancel double-release depends on callers sending the optional `expectedUpdatedAt` (L3)** | LOW | S | [registrations/[registrationId]/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/route.ts) — the no-double-release guarantee relies on the optimistic lock + a pre-tx `isBecomingCancelled` read; a future PUT caller that omits the lock on a status→CANCELLED would double-release seat/promo. Gate the seat/promo release inside the tx on the claim `updateMany` count (as `cancelRegistration` does). |
 
+### Cross-caller duplication audit — deferred findings (July 8, 2026)
+
+A codebase-wide audit (after the registration seat-transition + accommodation
+duplication fixes) for "same domain op implemented in >1 entry point" — see
+[src/services/README.md](../src/services/README.md) "THE RULE". **The 3 HIGHs were
+fixed + shipped:** #1 accommodation status transition → `applyRoomStatusTransition`
+([accommodation-rooms.ts](../src/lib/accommodation-rooms.ts)); #3 cert `loadPdfBytes`
+(a **live security drift** — the worker copy lacked the resend route's traversal/SSRF
+guards) → shared guarded [pdf-loader.ts](../src/lib/certificates/pdf-loader.ts); #2
+MCP session date-validation → the shared `isSessionWithinEventDates`. Deferred:
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **`updateRegistration` orchestration still mirrored REST ↔ MCP (#5)** | MED | L | The seat/promo transition is now shared (`applyRegistrationTransition`) + `resolveRepricing`/`readSponsors` are shared, but the rest of the update body (sponsor INCLUSIVE-invariant, billingAccount lookup, change-set assembly, audit/sync/stats fan-out) is still hand-mirrored between [registrations/[id]/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/route.ts) and MCP `updateRegistration` ([tools/registrations.ts](../src/lib/agent/tools/registrations.ts)) — the "Same rules as the REST PUT route" comment. Natural next `registration-service.updateRegistration()` extraction (mirrors the create path). |
+| **Bulk-status seat/promo policy is a 4th copy (#6)** | MED | M | `bulk_update_registration_status` reuses the leaf seat primitives but hand-writes the cancel/reactivate → promo+seat *policy* (its own batched aggregation is a legit mechanics exception). Extract `planBulkSeatTransition(rows, status)` returning release/claim/promo maps, keeping bulk oversell-logging in the caller. |
+| **`send_bulk_email` (MCP) reimplements recipient resolution (MED-if-completeness)** | MED | M | The REST bulk-email route shares `executeBulkEmail`; MCP `send_bulk_email` ([tools/communications.ts](../src/lib/agent/tools/communications.ts)) has its own inline recipient-resolution + per-recipient send loop (simpler — no attachments/templates/filters). Route it through `executeBulkEmail` (or a shared resolver) for parity. |
+| **`ATTENDEE_ROLE_VALUES` enum set duplicated in 2 MCP tool files (#7)** | LOW | XS | Re-declared in [tools/speakers.ts](../src/lib/agent/tools/speakers.ts) + [tools/registrations.ts](../src/lib/agent/tools/registrations.ts); `tools/_shared.ts` already holds the sibling enum sets. Move it there. |
+| **`escapeHtml` — 4 more copies repo-wide** | LOW | XS | The 3 cert copies are now shared via [src/lib/html.ts](../src/lib/html.ts); `speaker-agreement.ts`, `email.ts`, `abstract-notifications.ts`, `presenter-agreement.ts` still have local copies. Point them at `@/lib/html` (email.ts's is intentionally private — confirm before touching). |
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to
