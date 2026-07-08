@@ -12,6 +12,7 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeInst
       registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
       payment: { update: vi.fn() },
       invoice: { findFirst: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     mockStripeRefundsCreate,

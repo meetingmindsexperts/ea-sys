@@ -5,13 +5,14 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { checkRateLimit, getClientIp } from "@/lib/security";
-import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
+import { checkRateLimit } from "@/lib/security";
+import { issueCreditNoteForRegistration, type IssueCreditNoteErrorCode } from "@/services/payment-service";
 
 /**
  * Issue a credit note (full OR partial) for a paid registration — the organizer
- * action that MUST precede "Issue Refund" (the refund route requires a credit
- * note to exist). Optionally emails the credit note to the registrant.
+ * action that MUST precede "Issue Refund". Domain logic lives in
+ * `issueCreditNoteForRegistration` (payment-service); this route handles auth,
+ * rate limiting, event access, body parsing, and result→HTTP mapping.
  *
  * Finance action → denyReviewer (blocks REVIEWER/SUBMITTER/REGISTRANT/MEMBER
  * write) + denyFinance (blocks MEMBER money visibility). Event lookup is routed
@@ -26,6 +27,14 @@ const bodySchema = z.object({
   /** Email the credit note to the registrant on issue. */
   send: z.boolean().optional(),
 });
+
+const HTTP_STATUS_FOR_CODE: Record<IssueCreditNoteErrorCode, number> = {
+  REGISTRATION_NOT_FOUND: 404,
+  NOT_PAID: 400,
+  INVALID_AMOUNT: 400,
+  CREDIT_LIMIT_EXCEEDED: 400,
+  UNKNOWN: 500,
+};
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -42,106 +51,44 @@ export async function POST(req: Request, { params }: RouteParams) {
   const financeDenied = denyFinance(session);
   if (financeDenied) return financeDenied;
 
-  try {
-    const rl = checkRateLimit({ key: `credit-note-issue:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
-    if (!rl.allowed) {
-      apiLogger.warn({ msg: "credit-notes:rate-limited", eventId, registrationId, retryAfterSeconds: rl.retryAfterSeconds });
-      return NextResponse.json(
-        { error: "Too many attempts. Please wait a moment." },
-        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
-      );
-    }
-
-    const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
-    if (!parsed.success) {
-      apiLogger.warn({ msg: "credit-notes:invalid-input", eventId, registrationId, errors: parsed.error.flatten() });
-      return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
-    }
-
-    const [event, registration] = await Promise.all([
-      db.event.findFirst({ where: { id: eventId, ...buildEventAccessWhere(session.user) }, select: { id: true } }),
-      db.registration.findUnique({
-        where: { id: registrationId },
-        select: { id: true, eventId: true, paymentStatus: true },
-      }),
-    ]);
-
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    if (!registration || registration.eventId !== eventId) {
-      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
-    }
-    // A credit note only makes sense against money that was actually collected.
-    if (registration.paymentStatus !== "PAID" && registration.paymentStatus !== "REFUNDED") {
-      return NextResponse.json(
-        { error: "A credit note can only be issued for a paid registration.", code: "NOT_PAID" },
-        { status: 400 },
-      );
-    }
-
-    const { invoice: cn, creditedAfter, paidTotal } = await createCreditNote({
-      registrationId,
-      eventId,
-      organizationId: session.user.organizationId!,
-      reason: parsed.data.reason,
-      amount: parsed.data.amount,
-    });
-
-    if (parsed.data.send) {
-      await sendInvoiceEmail(cn.id).catch((err) =>
-        apiLogger.error({ err, msg: "credit-notes:send-failed", creditNoteId: cn.id, registrationId }),
-      );
-    }
-
-    db.auditLog
-      .create({
-        data: {
-          eventId,
-          userId: session.user.id,
-          action: "CREDIT_NOTE_ISSUED",
-          entityType: "Registration",
-          entityId: registrationId,
-          changes: {
-            creditNoteId: cn.id,
-            invoiceNumber: cn.invoiceNumber,
-            amount: Number(cn.total),
-            currency: cn.currency,
-            creditedAfter,
-            paidTotal,
-            emailed: !!parsed.data.send,
-            ip: getClientIp(req),
-          },
-        },
-      })
-      .catch((err) => apiLogger.warn({ err, msg: "credit-notes:audit-write-failed", creditNoteId: cn.id }));
-
-    apiLogger.info({
-      msg: "Credit note issued",
-      eventId,
-      registrationId,
-      creditNoteId: cn.id,
-      invoiceNumber: cn.invoiceNumber,
-      amount: Number(cn.total),
-      creditedAfter,
-      paidTotal,
-      emailed: !!parsed.data.send,
-      issuedBy: session.user.id,
-    });
-
-    return NextResponse.json({
-      creditNoteId: cn.id,
-      invoiceNumber: cn.invoiceNumber,
-      amount: Number(cn.total),
-      currency: cn.currency,
-      creditedAfter,
-      paidTotal,
-      emailed: !!parsed.data.send,
-    });
-  } catch (err) {
-    if (err instanceof CreditNoteAmountError) {
-      apiLogger.warn({ msg: "credit-notes:amount-rejected", eventId, registrationId, code: err.code, meta: err.meta });
-      return NextResponse.json({ error: err.message, code: err.code, ...err.meta }, { status: 400 });
-    }
-    apiLogger.error({ err, msg: "credit-notes:failed", eventId, registrationId });
-    return NextResponse.json({ error: "Failed to issue the credit note" }, { status: 500 });
+  const rl = checkRateLimit({ key: `credit-note-issue:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
+  if (!rl.allowed) {
+    apiLogger.warn({ msg: "credit-notes:rate-limited", eventId, registrationId, retryAfterSeconds: rl.retryAfterSeconds });
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a moment." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
   }
+
+  const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    apiLogger.warn({ msg: "credit-notes:invalid-input", eventId, registrationId, errors: parsed.error.flatten() });
+    return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const event = await db.event.findFirst({
+    where: { id: eventId, ...buildEventAccessWhere(session.user) },
+    select: { id: true },
+  });
+  if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+
+  const result = await issueCreditNoteForRegistration({
+    registrationId,
+    eventId,
+    organizationId: session.user.organizationId!,
+    amount: parsed.data.amount,
+    reason: parsed.data.reason,
+    send: parsed.data.send,
+    source: "rest",
+    issuedByUserId: session.user.id,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.message, code: result.code, ...(result.meta ?? {}) },
+      { status: HTTP_STATUS_FOR_CODE[result.code] },
+    );
+  }
+
+  return NextResponse.json(result.creditNote);
 }

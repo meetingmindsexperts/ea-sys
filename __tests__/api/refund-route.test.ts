@@ -20,6 +20,7 @@ const {
     registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     payment: { update: vi.fn() },
     invoice: { findFirst: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockAuth: vi.fn(),
   stripeRefundsCreate: vi.fn(),
