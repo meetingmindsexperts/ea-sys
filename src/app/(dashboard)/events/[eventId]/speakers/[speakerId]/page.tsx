@@ -67,6 +67,9 @@ import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
+import { fileToBase64 } from "@/lib/file-to-base64";
+import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { formatPersonName, formatDate } from "@/lib/utils";
@@ -193,6 +196,7 @@ export default function SpeakerDetailPage() {
   const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom">("invitation");
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
+  const [invitationFiles, setInvitationFiles] = useState<File[]>([]);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
   const [showAgreementHelp, setShowAgreementHelp] = useState(false);
@@ -394,6 +398,19 @@ export default function SpeakerDetailPage() {
     }
     setSendingEmail(true);
     try {
+      const attachments =
+        emailType === "invitation" && invitationFiles.length > 0
+          ? (
+              await Promise.all(
+                invitationFiles.map(async (file) => {
+                  const contentType = resolveAttachmentMime(file);
+                  if (!contentType) return null;
+                  return { name: file.name, content: await fileToBase64(file), contentType };
+                }),
+              )
+            ).filter((a): a is { name: string; content: string; contentType: string } => a !== null)
+          : undefined;
+
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -402,6 +419,7 @@ export default function SpeakerDetailPage() {
           customSubject: customEmailSubject || undefined,
           customMessage: customEmailMessage || undefined,
           includeAgreementLink: emailType === "agreement",
+          attachments: attachments?.length ? attachments : undefined,
         }),
       });
       const data = await res.json();
@@ -410,6 +428,7 @@ export default function SpeakerDetailPage() {
         setIsEmailDialogOpen(false);
         setCustomEmailSubject("");
         setCustomEmailMessage("");
+        setInvitationFiles([]);
       } else {
         toast.error(data.error || "Failed to send email");
       }
@@ -1152,7 +1171,13 @@ export default function SpeakerDetailPage() {
       </div>
 
       {/* Email Dialog */}
-      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+      <Dialog
+        open={isEmailDialogOpen}
+        onOpenChange={(open) => {
+          setIsEmailDialogOpen(open);
+          if (!open) setInvitationFiles([]);
+        }}
+      >
         <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle>
@@ -1168,9 +1193,16 @@ export default function SpeakerDetailPage() {
               </p>
             </div>
             {emailType === "invitation" && (
-              <p className="text-sm text-muted-foreground">
-                This will send a speaker invitation email with event details and a request to confirm participation.
-              </p>
+              <>
+                <p className="text-sm text-muted-foreground">
+                  This will send a speaker invitation email with event details and a request to confirm participation.
+                </p>
+                <EmailAttachmentPicker
+                  files={invitationFiles}
+                  onChange={setInvitationFiles}
+                  disabled={sendingEmail}
+                />
+              </>
             )}
             {emailType === "agreement" && (
               <p className="text-sm text-muted-foreground">

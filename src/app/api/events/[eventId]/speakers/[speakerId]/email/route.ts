@@ -17,12 +17,27 @@ import {
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
+import { validateManualAttachments } from "@/lib/email-attachments";
+import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
 const sendEmailSchema = z.object({
   type: z.enum(["invitation", "agreement", "custom"]),
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   includeAgreementLink: z.boolean().optional(),
+  // Operator-picked file attachments (PDF/DOC/DOCX) — surfaced in the UI on the
+  // invitation dialog. Base64 in the body (same shape as the bulk-email path);
+  // re-validated by MIME + magic bytes in validateManualAttachments below.
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(255),
+        content: z.string().min(1),
+        contentType: z.string().min(1).max(150),
+      }),
+    )
+    .max(MAX_MANUAL_ATTACHMENTS)
+    .optional(),
 });
 
 interface RouteParams {
@@ -90,6 +105,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const { type, customSubject, customMessage, includeAgreementLink } = validated.data;
+
+    // Validate operator-picked attachments (PDF/DOC/DOCX, ≤3 files, ≤10 MB
+    // total, magic-byte checked). These merge into whatever the chosen email
+    // type already attaches (e.g. the agreement doc).
+    const manualAttachments = validateManualAttachments(validated.data.attachments);
+    if (!manualAttachments.ok) {
+      apiLogger.warn({
+        msg: "events/speakers/email:attachment-rejected",
+        eventId,
+        speakerId,
+        code: manualAttachments.code,
+      });
+      return NextResponse.json(
+        { error: manualAttachments.error, code: manualAttachments.code },
+        { status: 400 },
+      );
+    }
 
     const eventDate = event.startDate
       ? new Date(event.startDate).toLocaleDateString("en-US", {
@@ -186,9 +218,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       new Set(["presentationDetails", "organizerSignature", "personalMessage"]),
     );
 
+    // Seed with the operator-picked files; the agreement branch appends its
+    // generated document on top.
+    const attachments: { name: string; content: string; contentType?: string }[] = [
+      ...manualAttachments.attachments,
+    ];
+
     // For agreement emails, attach a personalized agreement.
     // Precedence: explicit .docx upload wins; else inline HTML → PDF.
-    let attachments: { name: string; content: string; contentType?: string }[] | undefined;
     if (type === "agreement") {
       const mode = pickAgreementAttachmentMode({
         hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
@@ -212,13 +249,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               { status: 500 },
             );
           }
-          attachments = [
-            {
-              name: doc.filename,
-              content: doc.buffer.toString("base64"),
-              contentType: SPEAKER_AGREEMENT_DOCX_MIME,
-            },
-          ];
+          attachments.push({
+            name: doc.filename,
+            content: doc.buffer.toString("base64"),
+            contentType: SPEAKER_AGREEMENT_DOCX_MIME,
+          });
         } else {
           const doc = await generateSpeakerAgreementPdf({ eventId, speakerId });
           if (!doc) {
@@ -227,13 +262,11 @@ export async function POST(req: Request, { params }: RouteParams) {
               { status: 500 },
             );
           }
-          attachments = [
-            {
-              name: doc.filename,
-              content: doc.buffer.toString("base64"),
-              contentType: SPEAKER_AGREEMENT_PDF_MIME,
-            },
-          ];
+          attachments.push({
+            name: doc.filename,
+            content: doc.buffer.toString("base64"),
+            contentType: SPEAKER_AGREEMENT_PDF_MIME,
+          });
         }
       } catch (docErr) {
         apiLogger.error({ err: docErr, msg: "speaker-agreement:generate-failed", eventId, speakerId, mode });
@@ -254,7 +287,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...rendered,
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
-      attachments,
+      attachments: attachments.length ? attachments : undefined,
       emailType: `speaker_${type.replace(/-/g, "_")}`,
       stream: "transactional",
       logContext: {
@@ -285,6 +318,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           emailType: type,
           recipient: speaker.email,
           subject: rendered.subject,
+          attachmentCount: attachments.length,
           ip: getClientIp(req),
         },
       },
