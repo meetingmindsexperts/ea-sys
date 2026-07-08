@@ -511,6 +511,25 @@ note**. The flow ([refund/route.ts](../src/app/api/events/%5BeventId%5D/registra
 `refundedAmount` is in `FINANCIAL_KEYS` (hidden from MEMBER). Deferred
 review follow-ups are tracked in [ROADMAP.md](ROADMAP.md).
 
+The refund + credit-note + cancel logic lives in
+[payment-service.ts](../src/services/payment-service.ts) (`refundRegistration`,
+`issueCreditNoteForRegistration`, `cancelRegistration`); the refund / credit-notes
+/ cancel routes are thin delegators.
+
+### 12.1 Cancellation
+
+Cancelling a registration (status → CANCELLED) handles the money:
+
+- **Unpaid** → cancelled; the balance shows **0** (not chased) and the seat is
+  released. Price kept for history.
+- **Paid** → the dashboard prompts **Cancel & refund** vs **Just cancel**.
+  `cancelRegistration(refund:true)` does **refund-BEFORE-cancel**: auto-issue a
+  full credit note → refund the remaining balance → then cancel (release seat +
+  promo). If the refund fails, the reg is **not** cancelled (recoverable, nothing
+  in limbo). COMPLIMENTARY / INCLUSIVE / UNPAID have nothing to refund; an
+  already-fully-refunded paid reg cancels without a second refund. Endpoint:
+  `POST .../registrations/[id]/cancel` (`denyReviewer` + `denyFinance`).
+
 ---
 
 ## 13. Idempotency & safety (why the code looks paranoid)

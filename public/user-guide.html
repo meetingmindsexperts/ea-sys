@@ -1201,6 +1201,23 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">No automatic email to the registrant</div><div class="c-text">Issuing a refund does <strong>not</strong> auto-email the attendee &mdash; you communicate the refund yourself (and send the credit note from the Issue Credit Note dialog if you want them to have it). A Stripe refund made directly in the Stripe Dashboard is reconciled back automatically (the credit note + refunded total update on their own).</div></div></div>
         <div class="callout c-crit"><div class="c-icon">&#x1F534;</div><div class="c-body"><div class="c-title">Dashboard only &mdash; AI agents cannot refund</div><div class="c-text">Refunds and credit notes are issued from the dashboard by finance/admin roles. AI agents cannot initiate them &mdash; an intentional safety boundary.</div></div></div>
       </div>
+
+      <div class="sub" id="s8-8">
+        <div class="sub-title">Cancelling a registration</div>
+        <p>Open the registration &rarr; <strong>Edit</strong> &rarr; set <strong>Registration Status</strong> to <strong>Cancelled</strong> &rarr; <strong>Save</strong>. What happens next depends on whether it was paid:</p>
+        <div class="steps">
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Unpaid registration</strong> &rarr; cancels immediately. The amount owed becomes <strong>0</strong> (it&rsquo;s no longer chased by payment reminders), and the seat is released back to availability. The original price stays on the record for history.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Paid registration</strong> &rarr; Save opens a confirmation with three choices:
+            <ul style="margin-left:16px;margin-top:4px;color:var(--text-muted);font-size:0.82rem">
+              <li><strong>Cancel &amp; refund</strong> &mdash; issues a credit note and refunds the remaining balance (Stripe reverses automatically; offline payments must be returned to the attendee manually), then cancels. Irreversible.</li>
+              <li><strong>Just cancel, no refund</strong> &mdash; cancels and keeps the money (e.g. a no-refund policy). Any other edits you staged are saved too.</li>
+              <li><strong>Keep registration</strong> &mdash; dismiss, nothing changes.</li>
+            </ul>
+          </div></div>
+        </div>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Refund happens before the cancel</div><div class="c-text">On <strong>Cancel &amp; refund</strong>, the money is returned <em>first</em>; only then is the registration cancelled. If the refund can&rsquo;t be processed, the registration is <strong>not</strong> cancelled &mdash; so you can fix the issue and retry, with nothing left half-done. An already-partly-refunded registration only refunds what&rsquo;s left.</div></div></div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">If the balance didn&rsquo;t load, reload first</div><div class="c-text">The refund choice needs the registration&rsquo;s balance, which loads when you open the detail. If it failed to load, cancelling a <em>paid</em> registration is blocked with a &ldquo;reload the page&rdquo; message &mdash; so a paid attendee is never cancelled without the refund decision being offered.</div></div></div>
+      </div>
     </div>
 
     <div class="divider"></div>
