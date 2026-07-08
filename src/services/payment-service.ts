@@ -5,8 +5,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
-import { planSeatTransition } from "@/lib/registration-seat";
-import { releaseSeat } from "@/lib/registration-seat-db";
+import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 
 /**
  * Payment service — the domain home for money movement on a registration:
@@ -472,11 +471,7 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
       }
     }
 
-    // ── Cancel: claim the transition, then release seat + promo ───────────────
-    const seat = planSeatTransition(
-      { status: reg.status, attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
-      { status: "CANCELLED", attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
-    );
+    // ── Cancel: claim the transition, then apply the shared seat+promo release ─
     await db.$transaction(async (tx) => {
       // Claim first so a concurrent cancel can't double-release the seat/promo.
       const claim = await tx.registration.updateMany({
@@ -484,10 +479,13 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
         data: { status: "CANCELLED" },
       });
       if (claim.count === 0) return; // lost the race — someone else cancelled
-      if (seat.release) await releaseSeat(tx, seat.release);
-      if (reg.promoCodeId) {
-        await tx.promoCode.update({ where: { id: reg.promoCodeId }, data: { usedCount: { decrement: 1 } } });
-      }
+      // Single source of truth for seat + promo release (shared with the REST PUT
+      // + MCP update paths) — see src/services/README.md "THE RULE".
+      await applyRegistrationTransition(tx, {
+        prev: { status: reg.status, attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
+        next: { status: "CANCELLED", attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
+        promoCodeId: reg.promoCodeId,
+      });
     });
 
     refreshEventStats(eventId);

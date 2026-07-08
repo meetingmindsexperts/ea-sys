@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus, AttendanceMode } from "@prisma/client";
-import { planSeatTransition, needsQrCode, holdsSeat, seatCounter } from "@/lib/registration-seat";
-import { releaseSeat, claimSeat } from "@/lib/registration-seat-db";
+import { needsQrCode, holdsSeat, seatCounter } from "@/lib/registration-seat";
+import { releaseSeat, applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -546,51 +546,37 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const registration = await db.$transaction(async (tx) => {
       const effectiveStatus = status || existingRegistration.status;
       const effectiveMode = attendanceMode || existingRegistration.attendanceMode;
-      const isBecomingCancelled = effectiveStatus === "CANCELLED" && existingRegistration.status !== "CANCELLED";
       // Effective tier for seat accounting: the resolved next tier, or the
       // existing one when the request leaves the tier unchanged (undefined).
       const seatTierId = nextTierId !== undefined ? nextTierId : existingRegistration.pricingTierId;
 
-      // Seat accounting — routed through the single seat model, which now picks
-      // the correct counter (PricingTier vs TicketType) per registration, so a
-      // public+tier registration releases/claims its TIER counter rather than
-      // wrongly moving the ticket-type counter (ROADMAP P1.1 double-leak fix).
-      // A VIRTUAL registration holds no venue seat, so cancelling / reactivating
-      // / type-changing it doesn't move any counter. `claimSeat` carries the
-      // atomic `soldCount < quantity` oversell guard; `releaseSeat` is guarded so
-      // a counter can never go negative. A virtual→in-person onto a sold-out
-      // counter hard-fails CAPACITY_EXCEEDED (the reg stays virtual — nobody is
-      // stranded). On a type change the old tier belongs to the old type, so the
+      // Seat + promo accounting is the SHARED applier (single source of truth —
+      // src/services/README.md "THE RULE"), so the REST PUT, the MCP
+      // update_registration tool, and the cancel service can't drift. It picks
+      // the correct counter (PricingTier vs TicketType) per registration (ROADMAP
+      // P1.1), a VIRTUAL reg holds no seat, `claimSeat` carries the atomic oversell
+      // guard + `releaseSeat` can't go negative, a sold-out claim hard-fails
+      // CAPACITY_EXCEEDED, and the promo usedCount is released when becoming
+      // CANCELLED. On a type change the old tier belongs to the old type, so the
       // seat moves to the new ticket-type counter (next.pricingTierId nulled +
       // changeData nulls the stored value to match).
-      const seat = planSeatTransition(
-        {
+      await applyRegistrationTransition(tx, {
+        prev: {
           status: existingRegistration.status,
           attendanceMode: existingRegistration.attendanceMode,
           ticketTypeId: existingRegistration.ticketTypeId,
           pricingTierId: existingRegistration.pricingTierId,
           createdSource: existingRegistration.createdSource,
         },
-        {
+        next: {
           status: effectiveStatus,
           attendanceMode: effectiveMode,
           ticketTypeId: effectiveTypeId,
-          // planSeatTransition/seatCounter route the seat move (e.g. a public+tier
-          // reg switching tiers moves between tier counters) from the resolved
-          // next tier — a type change nulls it, a re-tier moves to the new tier.
           pricingTierId: seatTierId,
           createdSource: existingRegistration.createdSource,
         },
-      );
-      if (seat.release) {
-        await releaseSeat(tx, seat.release);
-      }
-      if (seat.claim) {
-        const claimed = await claimSeat(tx, seat.claim);
-        if (!claimed) {
-          throw new Error("CAPACITY_EXCEEDED");
-        }
-      }
+        promoCodeId: existingRegistration.promoCodeId,
+      });
 
       // Keep attendee.registrationType synced with the ticket type name when
       // the type changes (independent of seat movement — applies to virtual too).
@@ -605,18 +591,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
         await tx.attendee.update({
           where: { id: existingRegistration.attendeeId },
           data: { registrationType: newTicket.name },
-        });
-      }
-
-      // DATA-1: release the promo code's usage count when a registration that
-      // consumed one is cancelled. The public-register path increments
-      // `usedCount` when a promo is applied; without this release a limited-use
-      // code stays permanently "used" after a cancel and wrongly rejects new
-      // eligible registrants. Guarded by `isBecomingCancelled` so it fires once.
-      if (isBecomingCancelled && existingRegistration.promoCodeId) {
-        await tx.promoCode.update({
-          where: { id: existingRegistration.promoCodeId },
-          data: { usedCount: { decrement: 1 } },
         });
       }
 

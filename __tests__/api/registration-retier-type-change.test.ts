@@ -63,6 +63,9 @@ vi.mock("@/lib/registration-seat", () => ({
 vi.mock("@/lib/registration-seat-db", () => ({
   releaseSeat: vi.fn().mockResolvedValue(undefined),
   claimSeat: vi.fn().mockResolvedValue(true),
+  // The PUT now routes seat+promo through the shared applier (mocked no-op here;
+  // this test asserts repricing, not seat accounting).
+  applyRegistrationTransition: vi.fn().mockResolvedValue(undefined),
 }));
 // auth-guards, event-access, finance-visibility, registration-financials,
 // optimistic-lock, schemas are REAL (pure).

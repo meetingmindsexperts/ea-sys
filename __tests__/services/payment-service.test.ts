@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, stripeRefundsCreate, createCreditNoteSpy, sendInvoiceEmailSpy, releaseSeatSpy, planSeatTransitionSpy, CreditNoteAmountError } = vi.hoisted(() => {
+const { mockDb, stripeRefundsCreate, createCreditNoteSpy, sendInvoiceEmailSpy, releaseSeatSpy, planSeatTransitionSpy, applyRegistrationTransitionSpy, CreditNoteAmountError } = vi.hoisted(() => {
   class CreditNoteAmountError extends Error {
     code: string;
     meta: Record<string, unknown>;
@@ -28,6 +28,7 @@ const { mockDb, stripeRefundsCreate, createCreditNoteSpy, sendInvoiceEmailSpy, r
     sendInvoiceEmailSpy: vi.fn().mockResolvedValue(undefined),
     releaseSeatSpy: vi.fn().mockResolvedValue(undefined),
     planSeatTransitionSpy: vi.fn(),
+    applyRegistrationTransitionSpy: vi.fn().mockResolvedValue(undefined),
     CreditNoteAmountError,
   };
 });
@@ -46,7 +47,7 @@ vi.mock("@/lib/invoice-service", () => ({
   CreditNoteAmountError,
 }));
 vi.mock("@/lib/registration-seat", () => ({ planSeatTransition: planSeatTransitionSpy }));
-vi.mock("@/lib/registration-seat-db", () => ({ releaseSeat: releaseSeatSpy }));
+vi.mock("@/lib/registration-seat-db", () => ({ releaseSeat: releaseSeatSpy, applyRegistrationTransition: applyRegistrationTransitionSpy }));
 // registration-financials is REAL (pure).
 
 import { refundRegistration, issueCreditNoteForRegistration, cancelRegistration } from "@/services/payment-service";
@@ -225,7 +226,7 @@ describe("cancelRegistration", () => {
       expect(r.cancel.refund).toMatchObject({ amount: 100, fullyRefunded: true });
     }
     expect(createCreditNoteSpy).toHaveBeenCalled();
-    expect(releaseSeatSpy).toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt1" });
+    expect(applyRegistrationTransitionSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ next: expect.objectContaining({ status: "CANCELLED" }) }));
     expect(mockDb.$transaction).toHaveBeenCalled();
   });
 
@@ -235,7 +236,7 @@ describe("cancelRegistration", () => {
     expect(r).toMatchObject({ ok: true, cancel: { refunded: false } });
     expect(createCreditNoteSpy).not.toHaveBeenCalled();
     expect(stripeRefundsCreate).not.toHaveBeenCalled();
-    expect(releaseSeatSpy).toHaveBeenCalled();
+    expect(applyRegistrationTransitionSpy).toHaveBeenCalled();
   });
 
   it("refund:false on a paid reg → just cancels, no refund", async () => {
@@ -245,10 +246,13 @@ describe("cancelRegistration", () => {
     expect(createCreditNoteSpy).not.toHaveBeenCalled();
   });
 
-  it("releases the promo code usage on cancel", async () => {
+  it("passes the promo code to the shared transition applier on cancel", async () => {
     mockDb.registration.findUnique.mockResolvedValue(cancelReg({ paymentStatus: "UNPAID", payments: [], promoCodeId: "promo1" }));
     await cancelRegistration({ registrationId: "reg1", eventId: "ev1", organizationId: "org1", refund: false, source: "rest" });
-    expect(mockDb.promoCode.update).toHaveBeenCalledWith({ where: { id: "promo1" }, data: { usedCount: { decrement: 1 } } });
+    expect(applyRegistrationTransitionSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ promoCodeId: "promo1", next: expect.objectContaining({ status: "CANCELLED" }) }),
+    );
   });
 
   it("ALREADY_CANCELLED when the reg is already cancelled", async () => {

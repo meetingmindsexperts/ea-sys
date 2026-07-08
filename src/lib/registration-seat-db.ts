@@ -4,7 +4,7 @@
  * (PricingTier or TicketType) as decided by `seatCounter` / `planSeatTransition`.
  */
 import type { Prisma } from "@prisma/client";
-import type { SeatCounter } from "./registration-seat";
+import { planSeatTransition, type SeatCounter, type SeatState } from "./registration-seat";
 
 /**
  * Release a seat — guarded decrement that can NEVER take a counter below 0
@@ -67,4 +67,43 @@ export async function claimSeat(
     data: { soldCount: { increment: 1 } },
   });
   return res.count > 0;
+}
+
+export interface RegistrationTransitionInput {
+  prev: SeatState;
+  next: SeatState;
+  promoCodeId?: string | null;
+}
+
+/**
+ * Single source of truth for the **seat + promo** side effects of a registration
+ * status/type/tier/mode transition, applied inside the caller's `tx`. Replaces
+ * the hand-mirrored copies that used to live in the REST PUT route, the MCP
+ * `update_registration` tool, and `payment-service.cancelRegistration` (the
+ * "MUST mirror the REST route" duplication — see src/services/README.md "THE RULE").
+ *
+ * - Releases the previous seat counter and/or claims the next (atomic oversell
+ *   guard via `claimSeat`). Throws `Error("CAPACITY_EXCEEDED")` — the sentinel
+ *   every caller already maps — when a claim can't be satisfied.
+ * - Releases the promo `usedCount` when the registration is becoming CANCELLED.
+ *
+ * Does NOT sync `attendee.registrationType` (that stays with the type-change
+ * path) and does NOT set the registration's own status/fields (the caller owns
+ * the row update + its optimistic/claim lock). Bulk status changes use their own
+ * batched aggregation (`releaseSeats`) — a documented mechanics exception.
+ */
+export async function applyRegistrationTransition(
+  tx: Prisma.TransactionClient,
+  input: RegistrationTransitionInput,
+): Promise<void> {
+  const seat = planSeatTransition(input.prev, input.next);
+  if (seat.release) await releaseSeat(tx, seat.release);
+  if (seat.claim) {
+    const claimed = await claimSeat(tx, seat.claim);
+    if (!claimed) throw new Error("CAPACITY_EXCEEDED");
+  }
+  const becomingCancelled = input.next.status === "CANCELLED" && input.prev.status !== "CANCELLED";
+  if (becomingCancelled && input.promoCodeId) {
+    await tx.promoCode.update({ where: { id: input.promoCodeId }, data: { usedCount: { decrement: 1 } } });
+  }
 }

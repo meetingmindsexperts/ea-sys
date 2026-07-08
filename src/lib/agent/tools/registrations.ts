@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
-import { planSeatTransition, needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { releaseSeat, claimSeat, releaseSeats } from "@/lib/registration-seat-db";
+import { needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
+import { releaseSeats, applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -629,8 +629,6 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       const effectiveStatus = status || existing.status;
       const effectiveMode = attendanceMode || existing.attendanceMode;
       const effectiveTypeId = newTicketTypeId || existing.ticketTypeId;
-      const isBecomingCancelled =
-        effectiveStatus === "CANCELLED" && existing.status !== "CANCELLED";
       const isChangingType =
         !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
       // Effective tier for seat accounting: the resolved next tier, or the
@@ -638,24 +636,20 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       const seatTierId =
         repricing.nextTierId !== undefined ? repricing.nextTierId : existing.pricingTierId;
 
-      // Seat accounting via the single seat model (mirrors REST PUT): status /
-      // attendanceMode / ticketType changes are all handled, the correct counter
-      // (tier vs ticket type) is released/claimed per registration (ROADMAP
-      // P1.1), and a VIRTUAL reg holds no seat so cancel/reactivate/type-change
-      // of a virtual reg moves nothing. `claimSeat` carries the atomic oversell
-      // guard; `releaseSeat` is guarded so a counter can't go negative;
-      // virtual→in-person on a sold-out counter hard-fails CAPACITY_EXCEEDED. On
-      // a type change the old tier belongs to the old type → drop it (regData
-      // nulls the stored value to match).
-      const seat = planSeatTransition(
-        {
+      // Seat + promo accounting is the SHARED applier (single source of truth —
+      // src/services/README.md "THE RULE"), so this can't drift from the REST PUT
+      // route + the cancel service. It releases/claims the correct counter (tier
+      // vs ticket type; VIRTUAL holds none), throws CAPACITY_EXCEEDED on a
+      // sold-out claim, and releases the promo usedCount when becoming CANCELLED.
+      await applyRegistrationTransition(tx, {
+        prev: {
           status: existing.status,
           attendanceMode: existing.attendanceMode,
           ticketTypeId: existing.ticketTypeId,
           pricingTierId: existing.pricingTierId,
           createdSource: existing.createdSource,
         },
-        {
+        next: {
           // effectiveStatus/effectiveMode are validated strings here; cast to
           // the row's enum types (status was checked against REGISTRATION_STATUSES,
           // attendanceMode against IN_PERSON/VIRTUAL above).
@@ -665,16 +659,8 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
           pricingTierId: seatTierId,
           createdSource: existing.createdSource,
         },
-      );
-      if (seat.release) {
-        await releaseSeat(tx, seat.release);
-      }
-      if (seat.claim) {
-        const claimed = await claimSeat(tx, seat.claim);
-        if (!claimed) {
-          throw new Error("CAPACITY_EXCEEDED");
-        }
-      }
+        promoCodeId: existing.promoCodeId,
+      });
 
       // Keep attendee.registrationType synced with the new ticket type name
       // when the type changes (applies to virtual too).
@@ -689,14 +675,6 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         await tx.attendee.update({
           where: { id: existing.attendeeId },
           data: { registrationType: newTicket.name },
-        });
-      }
-
-      // DATA-1: release the promo code's usage count on cancel (mirrors REST PUT).
-      if (isBecomingCancelled && existing.promoCodeId) {
-        await tx.promoCode.update({
-          where: { id: existing.promoCodeId },
-          data: { usedCount: { decrement: 1 } },
         });
       }
 

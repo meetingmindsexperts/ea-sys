@@ -6,6 +6,33 @@ no sessions, no status codes). Each service is callable from any
 entry point: REST route handlers, MCP agent tools, cron workers,
 future external APIs, tests.
 
+## THE RULE — no cross-caller duplication (why this layer exists)
+
+**If a domain operation is invoked from more than one entry point — a REST
+route, an MCP tool, a cron worker, another service — its logic MUST live in
+exactly one place (a service function or a shared tx-scoped helper). Do NOT
+re-implement it per caller.**
+
+This layer exists specifically because MCP write tools had drifted from the REST
+routes doing "the same thing" separately (paid MCP registrations silently
+skipped the confirmation email; soldCount accounting diverged). Every such
+divergence is a latent bug.
+
+Smells that mean you are about to violate the rule — STOP and extract instead:
+
+- A comment like **"MUST mirror the REST route"** / "keep in sync with…". If two
+  code paths have to be kept in sync by hand, they should be one function.
+- Copy-pasting a transaction body (soldCount / seat / promo / status transition)
+  from a route into an MCP tool (or vice-versa), or into a new service.
+- Adding a second caller for an operation that already exists inline in a route:
+  extract the inline logic into a service **first**, then call it from both.
+
+When you touch an operation that's still duplicated, prefer to converge it (or at
+minimum leave a `// DUPLICATION: also in <file> — extract to a service` marker and
+a ROADMAP note) rather than adding a third copy. Bulk paths with genuinely
+different mechanics (batched aggregates, per-row error capture) are the one
+allowed exception — document why (see `registration-service` / `speaker-service`).
+
 ## Conventions
 
 ### Directory
