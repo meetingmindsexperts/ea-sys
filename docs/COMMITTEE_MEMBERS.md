@@ -81,23 +81,124 @@ facet); committee-ness rides *on top* as a tag.
 
 **REST API-key surface — works today, no code change.** The registrations GET route
 already filters on tags ([registrations/route.ts](../src/app/api/events/%5BeventId%5D/registrations/route.ts),
-`attendee.tags hasSome`, any-of, up to 20 tags):
+`attendee.tags hasSome`, any-of, up to 20 tags).
 
+**Auth** — every call needs your org API key (starts `mmg_`), as either header form. Set
+these once:
+
+```bash
+BASE="https://events.meetingmindsgroup.com"
+KEY="mmg_XXXXXXXXXXXXXXXX"     # org API key (Settings → API Keys)
+EVENT="evt_...."              # the event id
+# For the faculty-by-ticket-type calls below, grab the hidden Faculty type's id:
+FACULTY_TYPE_ID=$(curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/tickets" \
+  | jq -r '.[] | select(.isFaculty == true) | .id')
 ```
-GET /api/events/{eventId}/registrations?tags=committee
-    → every committee member (faculty, delegate, or pure) in one call
 
-GET /api/events/{eventId}/registrations?tags=committee-scientific
-    → just the scientific committee
+```bash
+# All committee (faculty, delegate, or pure) in one call — the anchor pull
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/registrations?tags=committee"
+
+# Just the scientific committee
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/registrations?tags=committee-scientific"
+
+# Organizing OR scientific (comma = OR, any-of)
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/registrations?tags=committee-organizing,committee-scientific"
 ```
 
-This is the anchor for pulling committee onto a website or into any integration.
+`Authorization: Bearer $KEY` works identically in place of `x-api-key`. This is the anchor
+for pulling committee onto a website or into any integration.
 
 **MCP `list_registrations` (agent / claude.ai / n8n) — needs one additive param.** That
 tool currently filters by `status` + `ticketTypeId` only
 ([tools/registrations.ts](../src/lib/agent/tools/registrations.ts)) — no `tags` filter yet.
 A small additive `tags` param mirroring the REST `hasSome` closes the gap. Until then, the
 agent path can't filter by committee tag.
+
+### 4a. Pulling **faculty** (speakers)
+
+Faculty are speakers, so the canonical pull is the Faculty/speakers endpoint (API-key
+accessible, documented in the OpenAPI under the **Faculty** tag):
+
+```bash
+# All faculty (speaker records)
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/speakers"
+
+# Confirmed faculty only
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/speakers?status=CONFIRMED"
+```
+
+If you instead want their **registration/badge** rows (the Faculty *companion*
+registrations), pull registrations by the faculty ticket type — there is **no
+`?isFaculty=true` param**; every row carries `ticketType.isFaculty`, so filter on that or
+pass the id:
+
+```bash
+# Faculty companion registrations (need the faculty ticket-type id first)
+curl -s -H "x-api-key: $KEY" \
+  "$BASE/api/events/$EVENT/registrations?ticketTypeId=$FACULTY_TYPE_ID"
+
+# ...or pull all and keep the faculty rows client-side (jq):
+curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/registrations" \
+  | jq '[.registrations[] | select(.ticketType.isFaculty == true)]'
+```
+
+### 4b. Pulling **faculty + committee together** (the non-delegate cohort)
+
+Committee and faculty sit on **two different dimensions** — committee is a **tag**, faculty
+is a **ticket type** — so there is **no single query that unions them today**. Faculty
+companion registrations carry **no tags** ([speaker-companion.ts](../src/lib/speaker-companion.ts)),
+so `?tags=faculty` matches nothing. Three ways to get "all faculty + committee, no
+delegates":
+
+1. **Two calls + merge (works today).** `?ticketTypeId={facultyTypeId}` (faculty) and
+   `?tags=committee` (committee), then **dedup by email** — a faculty-committee person
+   appears in both.
+2. **One broad pull + client filter (works today).** Every registration row already carries
+   `ticketType.isFaculty` and `attendee.tags`, so keep
+   `row.ticketType?.isFaculty || row.attendee.tags.includes("committee")`. Simple, but
+   delegates come over the wire and get dropped locally.
+3. **A server-side union filter (recommended, additive — _not built yet_).**
+   `GET …/registrations?segment=internal` → `WHERE isFaculty = true OR attendee.tags hasSome
+   [committee, committee-organizing, committee-scientific]`. One call, uniform rows, **no
+   delegates, no client merge**, and it keeps faculty = ticket type and committee = tag as-is
+   (no faculty-tagging, no backfill, no drift). Each row satisfies the OR **once**, so the
+   faculty-committee overlap self-dedups.
+
+```bash
+# --- Option 1: two calls + merge, dedup by email (works today) ---
+curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/registrations?ticketTypeId=$FACULTY_TYPE_ID" > faculty.json
+curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/registrations?tags=committee"                 > committee.json
+jq -s '[.[0].registrations[], .[1].registrations[]] | unique_by(.attendee.email)' faculty.json committee.json
+
+# --- Option 2: one broad pull + client filter (works today, no ticket-type id needed) ---
+curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/registrations" \
+  | jq '[.registrations[]
+         | select(.ticketType.isFaculty == true
+                  or (.attendee.tags | index("committee")))]'
+
+# --- Option 3: the union filter (once built) — one clean call ---
+curl -s -H "x-api-key: $KEY" "$BASE/api/events/$EVENT/registrations?segment=internal"
+```
+
+**Why not just tag faculty `faculty` too?** It would give a one-call `?tags=faculty,committee`,
+but it creates a **second source of truth** for "is this faculty" alongside `isFaculty` (they
+can drift) and needs a backfill — so the union filter is preferred.
+
+### 4c. How multiple tags reconcile
+
+Tag matching is **membership (`hasSome`), not equality** — `?tags=committee` matches anyone
+whose tag array *contains* `committee`, regardless of what other tags they carry, so extra
+tags never cause a miss. Multiple filter values are **OR** (any-of, ≤20); there is **no
+server-side AND** (combine tags client-side if you need it). Tags live on the **Attendee**
+(one per registration), so a person with many tags is still **one row, returned once** — no
+double-counting. The only cross-dimension dedup is the faculty(ticket-type) ↔ committee(tag)
+overlap, handled by dedup-by-email (two-call) or by the union filter returning each row once.
 
 ---
 
@@ -140,6 +241,7 @@ migration, blue-green safe. Documented here so the future path is obvious; **not
 | REST pull `?tags=committee` | ✅ works today |
 | 3-checkbox convenience UI (Committee / Org / Scientific) on the registration form, auto-writing the anchor tag | ⏳ pending (convenience over manual tags) |
 | MCP `list_registrations` `tags` param | ⏳ pending (additive) |
+| `?segment=internal` union filter (faculty + committee in one call, §4b) | ⏳ pending (additive) |
 | Internal "Committee" ticket type for capped-event count-exclusion | ⛔ not needed while uncapped (§6) |
 
 ---
