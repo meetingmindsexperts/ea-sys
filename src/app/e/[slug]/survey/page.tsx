@@ -390,7 +390,7 @@ function PublicSurveyClient() {
 // ── Sub-components ─────────────────────────────────────────────────────
 
 // Mirrors the header used across the public event pages (register /
-// confirmation): full-width banner shown whole (object-contain), or a
+// confirmation): full-width banner shown whole (w-full, natural height), or a
 // thin gradient accent line when there's no banner, followed by a white
 // event-info strip. Survey-specific: the strip carries the respondent's
 // identity (token mode) on the right.
@@ -412,11 +412,13 @@ function PublicHeader({
       {event.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="mx-auto max-w-[1400px]">
+            {/* Full-width, whole image (no object-contain letterbox / height
+                cap that was shrinking the banner so it didn't fill the width). */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={event.bannerImage}
               alt={event.name}
-              className="h-auto max-h-[240px] w-full object-contain"
+              className="block h-auto w-full"
             />
           </div>
         </div>
@@ -692,12 +694,14 @@ function ThankYouPanel({
           </span>
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight">Thank you!</h1>
-        <p className="mt-2 text-muted-foreground">
+        <h1 className="text-2xl font-bold tracking-tight">Thank you for completing the form!</h1>
+        <p className="mt-3 text-muted-foreground">
           Your feedback for <span className="font-medium text-foreground">{eventName}</span> has
           been recorded.
         </p>
-        <p className="mt-4 text-xs text-muted-foreground/80">You can safely close this tab.</p>
+        <p className="mt-2 text-muted-foreground">
+          Your attendance certificate will be received on your registered email&nbsp;ID.
+        </p>
       </div>
     </div>
   );

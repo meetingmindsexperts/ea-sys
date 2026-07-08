@@ -14,6 +14,7 @@
 
 import { tickAllRuns } from "@/lib/certificates/issue-worker";
 import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
+import { runSurveyThankYouSweep } from "@/lib/certificates/survey-thankyou-sweep";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/advisory-lock";
 import { JOB_IDS } from "../lib/job-ids";
@@ -32,7 +33,16 @@ export async function tick(): Promise<void> {
     } catch (err) {
       apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, phase: "auto-issue-sweep" });
     }
-    // (2) Drain all CertificateIssueRun rows (manual + the auto runs the
+    // (2) Deferred survey thank-you sweep — send the ONE post-survey email
+    //     (with the cert attached once rendered, else a plain thank-you after
+    //     the 15-min fallback). MUST run BEFORE tickAllRuns so it can suppress
+    //     the separate cover email for certs it delivers. Isolated.
+    try {
+      await runSurveyThankYouSweep();
+    } catch (err) {
+      apiLogger.error({ err, msg: "worker:tick-uncaught", job: JOB_NAME, phase: "survey-thankyou-sweep" });
+    }
+    // (3) Drain all CertificateIssueRun rows (manual + the auto runs the
     //     sweep just created) through their render/email state machine.
     try {
       await tickAllRuns();

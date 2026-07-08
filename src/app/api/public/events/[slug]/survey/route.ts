@@ -46,15 +46,6 @@ import {
   type SurveyConfig,
 } from "@/lib/survey/schema";
 import { isShareLinkValid } from "@/lib/survey/share-link";
-import {
-  brandingCc,
-  brandingFrom,
-  getDefaultTemplate,
-  getEventTemplate,
-  renderAndWrap,
-  sendEmail,
-  type EmailBranding,
-} from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -233,57 +224,12 @@ async function finalizeSubmission(
     throw txErr;
   }
 
-  // Fire-and-forget thank-you email — failure logs but never 500s; the
-  // response is already persisted. Goes through the per-event template
-  // registry + branding pipeline.
-  const recipient = registration.attendee;
-  if (recipient.email) {
-    void (async () => {
-      try {
-        const dbTemplate = await getEventTemplate(eventId, "survey-thankyou");
-        const fallback = getDefaultTemplate("survey-thankyou");
-        const tpl = dbTemplate ?? fallback;
-        if (!tpl) {
-          apiLogger.error({ msg: "survey:thankyou-template-missing", eventId, registrationId });
-          return;
-        }
-        const branding: EmailBranding = dbTemplate?.branding ?? {
-          eventName: registration.event.name,
-          emailHeaderImage: registration.event.emailHeaderImage,
-          emailFooterImage: registration.event.emailFooterImage,
-          emailFooterHtml: registration.event.emailFooterHtml,
-          emailFromAddress: registration.event.emailFromAddress,
-          emailFromName: registration.event.emailFromName,
-          emailCcAddresses: registration.event.emailCcAddresses,
-        };
-        const vars: Record<string, string | number | undefined> = {
-          firstName: recipient.firstName ?? "there",
-          lastName: "",
-          eventName: registration.event.name,
-        };
-        const rendered = renderAndWrap(tpl, vars, branding);
-        await sendEmail({
-          to: [{ email: recipient.email, name: recipient.firstName ?? undefined }],
-          cc: brandingCc(branding, [{ email: recipient.email }]),
-          from: brandingFrom(branding),
-          subject: rendered.subject,
-          htmlContent: rendered.htmlContent,
-          textContent: rendered.textContent,
-          emailType: "survey_thankyou",
-          stream: "transactional",
-          logContext: {
-            organizationId: registration.event.organizationId,
-            eventId,
-            entityType: "REGISTRATION",
-            entityId: registrationId,
-            templateSlug: "survey-thankyou",
-          },
-        });
-      } catch (err) {
-        apiLogger.warn({ msg: "survey:thankyou-email-failed", err, eventId, registrationId });
-      }
-    })();
-  } else {
+  // Thank-you email is DEFERRED to the cert-issue worker's survey-thankyou
+  // sweep (runSurveyThankYouSweep) — NOT sent inline here. The sweep holds the
+  // thank-you until the attendee's auto-issued certificate PDF is rendered,
+  // then sends ONE email with the cert attached (or a plain thank-you after a
+  // 15-min fallback / if they earn no cert). See survey-thankyou-sweep.ts.
+  if (!registration.attendee.email) {
     apiLogger.warn({ msg: "survey:thankyou-no-email", eventId, registrationId });
   }
 

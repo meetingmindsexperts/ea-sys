@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { tickAllRuns } from "@/lib/certificates/issue-worker";
 import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
+import { runSurveyThankYouSweep } from "@/lib/certificates/survey-thankyou-sweep";
 
 function authorized(req: Request): boolean {
   const auth = req.headers.get("authorization") ?? "";
@@ -39,6 +40,13 @@ async function run(req: Request) {
       await runAutoIssueSweep();
     } catch (sweepErr) {
       apiLogger.error({ err: sweepErr, msg: "cert-issues-cron:auto-issue-sweep-failed" });
+    }
+    // Deferred survey thank-you sweep — MUST run before tickAllRuns so it can
+    // suppress the separate cover email for certs it delivers. Isolated.
+    try {
+      await runSurveyThankYouSweep();
+    } catch (thankYouErr) {
+      apiLogger.error({ err: thankYouErr, msg: "cert-issues-cron:survey-thankyou-sweep-failed" });
     }
     const result = await tickAllRuns();
     const durationMs = Date.now() - started;

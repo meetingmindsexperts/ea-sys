@@ -329,7 +329,7 @@ describe("POST /api/public/events/[slug]/survey", () => {
     expect(res.status).toBe(400);
   });
 
-  it("happy path: persists response + sets surveyCompletedAt + adds tag + deletes token + fires thank-you", async () => {
+  it("happy path: persists response + sets surveyCompletedAt + adds tag + deletes token + DEFERS thank-you (no inline send)", async () => {
     mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
     mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
 
@@ -360,8 +360,9 @@ describe("POST /api/public/events/[slug]/survey", () => {
       data: { tags: ["checked-in", "survey-completed"] },
     });
     expect(mockDb.verificationToken.delete).toHaveBeenCalled();
-    expect(mockSendEmail).toHaveBeenCalledTimes(1);
-    expect(mockSendEmail.mock.calls[0][0].to[0].email).toBe("jane@example.com");
+    // Thank-you is NOT sent inline anymore — it's deferred to the cert-issue
+    // worker's survey-thankyou sweep so the certificate PDF can be attached.
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
   it("idempotent: second submit returns ok=true alreadyCompleted=true without re-firing thank-you", async () => {
@@ -428,10 +429,9 @@ describe("POST /api/public/events/[slug]/survey", () => {
     expect(res.status).toBe(500);
   });
 
-  it("thank-you email failure does NOT 500 the user (fire-and-forget)", async () => {
+  it("survey submit defers the thank-you — never sends email inline", async () => {
     mockDb.verificationToken.findUnique.mockResolvedValueOnce(baseTokenRow());
     mockDb.registration.findFirst.mockResolvedValueOnce(baseRegistration());
-    mockSendEmail.mockRejectedValueOnce(new Error("SES down"));
 
     const res = await POST(
       makePostReq({
@@ -441,6 +441,8 @@ describe("POST /api/public/events/[slug]/survey", () => {
       PARAMS,
     );
     expect(res.status).toBe(200);
+    // The deferred sweep (worker) owns delivery; the submit path sends nothing.
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
   it("returns 404 when registration is missing", async () => {

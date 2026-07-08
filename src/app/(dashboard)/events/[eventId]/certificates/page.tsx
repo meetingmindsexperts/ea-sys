@@ -989,6 +989,18 @@ export default function CertificatesPage() {
                         </label>
                       )}
                     </div>
+                    {editingTemplate.autoIssueOnSurvey && (
+                      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                        <strong>Please tag your recipients.</strong> Only people carrying{" "}
+                        {editingTemplate.autoIssueTag ? (
+                          <code className="rounded bg-amber-100 px-1">{editingTemplate.autoIssueTag}</code>
+                        ) : (
+                          "the tag above"
+                        )}{" "}
+                        will receive this certificate when they complete the survey. Make sure your
+                        delegates and faculty are tagged — anyone untagged won&apos;t receive it.
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
