@@ -628,6 +628,42 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         </figure>
       </div>
 
+      <div class="sub" id="s2-1b">
+        <div class="sub-title">Who to add where &mdash; speakers, committee, moderators</div>
+        <p>The same person can wear several hats, and the right place to add them depends on <strong>one question: are they presenting in any way?</strong> Anyone with a session role (speaker, moderator, chairperson, panelist) is <strong>faculty</strong> &mdash; add them under <strong>Speakers</strong>. Someone who is <em>only</em> on a committee (not presenting) is added under <strong>Registrations</strong>. &ldquo;Committee&rdquo; itself is never a separate person &mdash; it is just a <code>committee</code> tag (plus a Committee badge) layered on top of whichever record they already have.</p>
+        <table class="st">
+          <thead><tr><th>The person is&hellip;</th><th>Add under</th><th>Then do this</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>A speaker / presenter</strong> (even if not yet confirmed)</td>
+              <td><strong>Speakers</strong> tab &rarr; Add Speaker</td>
+              <td>Set status <strong>INVITED</strong> (move to CONFIRMED once they accept). Their Faculty registration &mdash; badge, barcode, check-in, survey, certificate &mdash; is created automatically.</td>
+            </tr>
+            <tr>
+              <td><strong>A moderator</strong> (or chairperson / panelist)</td>
+              <td><strong>Speakers</strong> tab &rarr; Add Speaker</td>
+              <td>A moderator is a <em>session role</em>, not a separate kind of person. Add them as a speaker, then open the session and assign them the <strong>Moderator</strong> role.</td>
+            </tr>
+            <tr>
+              <td><strong>Committee only</strong> (not presenting)</td>
+              <td><strong>Registrations</strong> tab &rarr; Add Registration</td>
+              <td>Set payment <strong>Complimentary</strong>, badge type <strong>Committee</strong> (or Organizing / Scientific Committee), and add the tag <code>committee</code> (plus <code>committee-organizing</code> / <code>committee-scientific</code> if you split them). That comp registration gives them badge, check-in, and certificate.</td>
+            </tr>
+            <tr>
+              <td><strong>Committee <em>and</em> moderator</strong></td>
+              <td><strong>Speakers</strong> tab &rarr; Add Speaker</td>
+              <td>Add them as a speaker and assign the <strong>Moderator</strong> session role, then add the <code>committee</code> tag on their (auto-created) registration and set its badge to <strong>Committee</strong> if you want that printed. One person, both hats.</td>
+            </tr>
+            <tr>
+              <td><strong>Committee <em>and</em> speaker</strong></td>
+              <td><strong>Speakers</strong> tab &rarr; Add Speaker</td>
+              <td>Add them as a speaker as usual, then add the <code>committee</code> tag on their auto-created registration (and set the badge to Committee if desired). Do <em>not</em> create a second registration for them.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Rule of thumb</div><div class="c-text"><strong>Presenting in any way &rarr; Speakers. Committee-only &rarr; Registrations.</strong> Committee is always just a <code>committee</code> tag added on top &mdash; never a separate person or a ticket type &mdash; so a committee member who is also faculty stays <strong>one</strong> record and shows up wherever you filter by <code>committee</code>. Setting the tag and the Committee badge is a manual step today (in the registration&rsquo;s Tags and Badge Type fields).</div></div></div>
+      </div>
+
       <div class="sub" id="s2-2">
         <div class="sub-title">Adding a speaker</div>
         <figure class="ss-img">
