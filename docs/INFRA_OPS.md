@@ -12,8 +12,10 @@
 | **Deploys** | GitHub Actions API | Last 10 "Deploy to EC2" runs — status, commit title, when (with a link). *Spot a stuck/queued deploy.* |
 | **Email (SES)** | SES `GetAccount` + CloudWatch `AWS/SES` | Sending enabled? sandbox? 24h quota used, max send rate, **bounce / complaint rate**, 24h send/bounce/complaint counts. *"Why didn't the email send?"* |
 | **Alarms** | CloudWatch `DescribeAlarms` | Anything currently in **ALARM** — one-glance "is something on fire". |
-| **Host metrics** | CloudWatch `GetMetricData` | EC2 **CPU %**, **CPU credit balance** (the t3 throttle trap), memory, disk. |
-| **Cron / Jobs** | our own `JobRun` table (Postgres) | Each background-worker cron: **last run + OK/FAILED**, duration, 24h OK/fail counts, and worker liveness ("last seen"). **Zero AWS cost** — it's our DB. |
+| **Host metrics** | CloudWatch `GetMetricData` | EC2 **CPU %**, **CPU credit balance** (t3 throttle trap), memory, disk, **network in/out**, **instance status check**. All in one GetMetricData call (~free). |
+| **Cron / Jobs** | our own `JobRun` table (Postgres) | Each background-worker cron (full roster): **last run + OK/FAILED**, schedule, duration, 24h OK/fail counts, worker liveness. Never-run jobs show "awaiting first run". **Zero AWS cost.** |
+| **Recent errors & warnings** | our own `SystemLog` (Postgres) | Latest 15 `error`/`warn` lines (app + worker), with a link to `/logs`. **Zero AWS cost.** |
+| **Email failures** | our own `EmailLog` (Postgres) | Recent `FAILED` sends (to / subject / error) — the actual failures behind the SES aggregate rates. **Zero AWS cost.** |
 
 Each card degrades independently: if a source fails (e.g. the IAM below isn't attached yet),
 that card shows a friendly error and the rest still render.
