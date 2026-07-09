@@ -29,14 +29,26 @@ import {
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
-const sendSchema = z.object({
-  target: z.enum(["all", "pending"]),
-  subject: z.string().trim().max(200).optional(),
-  message: z.string().max(10000).optional(),
-});
+// Single code path for single + bulk sends: `inviteId` sends to exactly one
+// invitee; otherwise `target` (all / pending) selects the batch. Same template,
+// same per-recipient render (each gets their own token link).
+const sendSchema = z
+  .object({
+    target: z.enum(["all", "pending"]).optional(),
+    inviteId: z.string().max(100).optional(),
+    subject: z.string().trim().max(200).optional(),
+    message: z.string().max(10000).optional(),
+  })
+  .refine((v) => v.inviteId || v.target, {
+    message: "Provide either an inviteId (single) or a target (all/pending).",
+  });
 
 function firstNameOf(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] || fullName.trim();
+}
+function lastNameOf(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(" ") : "";
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -85,10 +97,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const [invites, tpl, sender] = await Promise.all([
       db.rsvpInvite.findMany({
-        where: {
-          eventId,
-          ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}),
-        },
+        // inviteId → exactly that invitee (event-scoped); else the target batch.
+        where: parsed.data.inviteId
+          ? { id: parsed.data.inviteId, eventId }
+          : { eventId, ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}) },
         select: { id: true, inviteeName: true, inviteeEmail: true, token: true },
       }),
       // Loads the per-event override if the organizer customised it, else the
@@ -100,7 +112,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
     ]);
     if (invites.length === 0) {
-      apiLogger.info({ eventId, target: parsed.data.target }, "rsvp-send:no-recipients");
+      apiLogger.info(
+        { eventId, target: parsed.data.target, inviteId: parsed.data.inviteId },
+        "rsvp-send:no-recipients",
+      );
       return NextResponse.json({ sent: 0, failed: 0, message: "No matching invitees." });
     }
     if (!tpl) {
@@ -128,7 +143,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         const rendered = renderAndWrap(
           { subject, htmlContent: tpl.htmlContent, textContent: tpl.textContent },
           {
+            // Per-recipient — every email in a bulk send gets the invitee's own
+            // name, email and token link (never a shared link).
             firstName: firstNameOf(inv.inviteeName),
+            lastName: lastNameOf(inv.inviteeName),
+            fullName: inv.inviteeName,
+            email: inv.inviteeEmail,
             eventName: event.name,
             rsvpLink,
             personalMessage,
@@ -168,13 +188,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           userId: session.user.id,
           action: "SEND",
           entityType: "RSVP_INVITE",
-          entityId: `send:${parsed.data.target}`,
-          changes: { target: parsed.data.target, sent, failed },
+          entityId: parsed.data.inviteId ? `send:${parsed.data.inviteId}` : `send:${parsed.data.target}`,
+          changes: { target: parsed.data.target, inviteId: parsed.data.inviteId, sent, failed },
         },
       })
       .catch((err) => apiLogger.error({ err }, "rsvp-send:audit-failed"));
 
-    apiLogger.info({ eventId, target: parsed.data.target, sent, failed }, "rsvp-send:done");
+    apiLogger.info(
+      { eventId, target: parsed.data.target, inviteId: parsed.data.inviteId, sent, failed },
+      "rsvp-send:done",
+    );
     return NextResponse.json({ sent, failed });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-send:failed");

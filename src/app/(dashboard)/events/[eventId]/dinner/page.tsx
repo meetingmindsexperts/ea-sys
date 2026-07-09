@@ -268,6 +268,30 @@ export default function DinnerRsvpPage() {
       },
     );
   };
+  const [sendingOneId, setSendingOneId] = useState<string | null>(null);
+  const sendOne = async (inv: RosterInvite) => {
+    setSendingOneId(inv.id);
+    try {
+      const res = await fetch(`/api/events/${eventId}/rsvp-invites/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteId: inv.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.sent === 0) {
+        console.error("dinner-console:send-one-failed", res.status, json?.error);
+        toast.error(json.error || "Couldn't send the invitation");
+        return;
+      }
+      toast.success(`Invitation emailed to ${inv.inviteeName}`);
+      await loadRoster();
+    } catch (err) {
+      console.error("dinner-console:send-one-error", err);
+      toast.error("Couldn't send the invitation");
+    } finally {
+      setSendingOneId(null);
+    }
+  };
   const openSend = (target: "all" | "pending") => {
     setSendTarget(target);
     setSendDialog(true);
@@ -352,6 +376,26 @@ export default function DinnerRsvpPage() {
             </Button>
           </a>
         </div>
+      </div>
+
+      {/* How it works */}
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
+        <div className="font-semibold text-primary mb-1">How Dinner RSVP works</div>
+        <ol className="list-decimal ml-5 space-y-1 text-slate-600">
+          <li><strong>Add each dinner</strong> below (name, date/time, venue, and an optional RSVP deadline).</li>
+          <li><strong>Add or import invitees</strong> — type them in, or import from Registrations/Speakers.</li>
+          <li>
+            <strong>Send them their link.</strong> Click <strong>Email invitations</strong> to email everyone
+            (or <strong>Remind pending</strong> for non-responders), use the <Send className="inline h-3 w-3" />{" "}
+            button on a row to email <strong>one person</strong>, or the <Copy className="inline h-3 w-3" /> button
+            to copy an individual link and send it yourself (WhatsApp, etc.).
+          </li>
+          <li><strong>Track responses</strong> in the roster — who&rsquo;s coming to each dinner, guests, and dietary needs. Export CSV for catering.</li>
+        </ol>
+        <p className="text-xs text-slate-500 mt-2">
+          Each invitee gets <strong>one personalized link that covers all the dinners</strong> and can update
+          their answer until the deadline. Edit the invitation wording under <strong>Communications → Email Templates</strong> (Dinner RSVP Invitation).
+        </p>
       </div>
 
       {/* Dinners */}
@@ -482,10 +526,24 @@ export default function DinnerRsvpPage() {
                       })}
                       <td className="p-2 max-w-[160px] truncate text-muted-foreground">{inv.dietary || "—"}</td>
                       <td className="p-2 text-right whitespace-nowrap">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyLink(inv.token)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Email this invitation"
+                          disabled={sendingOneId === inv.id}
+                          onClick={() => sendOne(inv)}
+                        >
+                          {sendingOneId === inv.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Copy RSVP link" onClick={() => copyLink(inv.token)}>
                           <Copy className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeInvite(inv)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" title="Remove" onClick={() => removeInvite(inv)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </td>

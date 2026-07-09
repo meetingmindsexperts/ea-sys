@@ -1149,6 +1149,9 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
   ],
   "dinner-rsvp-invitation": [
     { key: "firstName", description: "Invitee first name" },
+    { key: "lastName", description: "Invitee last name" },
+    { key: "fullName", description: "Invitee full name (as entered)" },
+    { key: "email", description: "Invitee email address" },
     { key: "eventName", description: "Event name" },
     { key: "rsvpLink", description: "The invitee's personalized RSVP link (unique per recipient)" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
@@ -2213,6 +2216,8 @@ export function getSamplePreviewVariables(
     title: "Dr.",
     firstName: "John",
     lastName: "Doe",
+    fullName: "John Doe",
+    email: "john.doe@example.com",
     eventName: "Sample Conference 2026",
     eventDate: "Monday, March 15, 2026",
     eventVenue: "Convention Center, Dubai",

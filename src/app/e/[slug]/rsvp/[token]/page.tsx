@@ -64,6 +64,7 @@ export default function RsvpPage() {
   const [error, setError] = useState<string | null>(null);
   const [dinners, setDinners] = useState<DinnerRow[]>([]);
   const [dietary, setDietary] = useState("");
+  const [notAttending, setNotAttending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -82,6 +83,10 @@ export default function RsvpPage() {
         setData(json);
         setDinners(json.dinners);
         setDietary(json.invitee.dietary || "");
+        // Reflect a prior "declined all" response so it re-opens ticked.
+        if (json.status === "RESPONDED" && !json.dinners.some((d: DinnerRow) => d.attending)) {
+          setNotAttending(true);
+        }
       } catch (err) {
         console.error("rsvp-form:load-error", err);
         if (!cancelled) setError("Couldn't load your RSVP. Please try again.");
@@ -172,6 +177,8 @@ export default function RsvpPage() {
   }
 
   const allClosed = dinners.every((d) => d.closed);
+  // Require an explicit choice: at least one dinner ticked, or "I won't attend".
+  const hasChoice = notAttending || dinners.some((d) => d.attending);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -211,6 +218,10 @@ export default function RsvpPage() {
             {/* Dinners */}
             <div>
               <Label className="text-sm font-semibold text-slate-800">Which dinners will you attend?</Label>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Tick the dinners you&rsquo;ll join (add a guest count if you&rsquo;re bringing anyone), or
+                choose &ldquo;I won&rsquo;t be able to attend&rdquo; below.
+              </p>
               {allClosed && (
                 <p className="text-sm text-amber-600 mt-1">RSVP is now closed for this event.</p>
               )}
@@ -225,8 +236,11 @@ export default function RsvpPage() {
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={d.attending}
-                        disabled={d.closed}
-                        onCheckedChange={(v) => setDinner(d.id, { attending: v === true })}
+                        disabled={d.closed || notAttending}
+                        onCheckedChange={(v) => {
+                          setDinner(d.id, { attending: v === true });
+                          if (v === true) setNotAttending(false);
+                        }}
                         className="mt-1"
                       />
                       <div className="flex-1 min-w-0">
@@ -268,6 +282,29 @@ export default function RsvpPage() {
                   <p className="text-sm text-slate-400">No dinners have been set up yet.</p>
                 )}
               </div>
+
+              {/* Explicit decline */}
+              {dinners.length > 0 && !allClosed && (
+                <label
+                  className={`mt-3 flex items-center gap-3 rounded-lg border p-3 cursor-pointer ${
+                    notAttending ? "border-slate-300 bg-slate-50" : "border-slate-200"
+                  }`}
+                >
+                  <Checkbox
+                    checked={notAttending}
+                    onCheckedChange={(v) => {
+                      const decline = v === true;
+                      setNotAttending(decline);
+                      if (decline) {
+                        setDinners((prev) => prev.map((d) => ({ ...d, attending: false, guestCount: 0 })));
+                      }
+                    }}
+                  />
+                  <span className="text-sm font-medium text-slate-700">
+                    I won&rsquo;t be able to attend any of the dinners
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Dietary */}
@@ -288,11 +325,16 @@ export default function RsvpPage() {
 
             <Button
               onClick={handleSubmit}
-              disabled={submitting || allClosed}
+              disabled={submitting || allClosed || !hasChoice}
               className="btn-gradient w-full h-11 font-semibold"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit RSVP"}
             </Button>
+            {!hasChoice && !allClosed && (
+              <p className="text-xs text-slate-400 text-center -mt-2">
+                Pick at least one dinner, or select &ldquo;I won&rsquo;t be able to attend&rdquo;.
+              </p>
+            )}
           </div>
         </div>
       </div>
