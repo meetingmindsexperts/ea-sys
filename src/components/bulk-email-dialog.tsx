@@ -26,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TagInput } from "@/components/ui/tag-input";
 import {
   useBulkEmail,
+  useCertificateTemplates,
   useEmailTemplates,
   usePreviewEmailBySlug,
   useScheduleBulkEmail,
@@ -145,6 +146,9 @@ interface BulkEmailDialogProps {
 const speakerEmailTypes: EmailTypeOption[] = [
   { value: "invitation", label: "Speaker Invitation", description: "Invite speakers to your event" },
   { value: "agreement", label: "Speaker Agreement", description: "Send agreement terms for review" },
+  // Issue + attach certificate PDFs — each recipient gets only the certs
+  // whose template tag they hold, all in one email.
+  { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
@@ -164,6 +168,9 @@ const registrationEmailTypes: EmailTypeOption[] = [
   // (override in Communications → Email Templates) or the cert-
   // neutral system default.
   { value: "survey-invitation", label: "Survey Invitation", description: "Send a unique link to the post-event feedback survey" },
+  // Issue + attach certificate PDFs — each recipient gets only the certs
+  // whose template tag they hold, all in one email.
+  { value: "certificate", label: "Certificates", description: "Issue & attach certificate PDFs (tag-matched, one email per person)" },
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
@@ -288,6 +295,8 @@ export function BulkEmailDialog({
   const [localBadgeTypes, setLocalBadgeTypes] = useState<string[]>(badgeTypesFilter ?? []);
   const [localTags, setLocalTags] = useState<string[]>(tagsFilter ?? []);
   const [localExcludeFaculty, setLocalExcludeFaculty] = useState(false);
+  // certificate only — the CertificateTemplate ids to issue (multi-select).
+  const [certTemplateIds, setCertTemplateIds] = useState<string[]>([]);
   // When scheduling a send that started from a row selection, the organizer
   // chooses whether the scheduled email goes to that fixed set of rows or to
   // everyone matching the current filters at send time. The latter is
@@ -314,6 +323,7 @@ export function BulkEmailDialog({
       setLocalBadgeTypes(badgeTypesFilter ?? []);
       setLocalTags(tagsFilter ?? []);
       setLocalExcludeFaculty(false);
+      setCertTemplateIds([]);
       setScheduledAudience("matching");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
@@ -343,6 +353,13 @@ export function BulkEmailDialog({
   );
   const eventTagsQuery = useEventTags(eventId);
   const tagSuggestions = (eventTagsQuery.data?.tags ?? []).map((t) => t.tag);
+  // Certificate templates for the "Certificates" email type's multi-select.
+  // Only fetched while the dialog is open for an eligible recipient type.
+  const certTemplatesQuery = useCertificateTemplates(
+    eventId,
+    open && (recipientType === "registrations" || recipientType === "speakers"),
+  );
+  const certTemplateOptions = certTemplatesQuery.data?.templates ?? [];
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
 
@@ -376,6 +393,7 @@ export function BulkEmailDialog({
     (t) => t.slug === savedTemplateSlug
   )?.name;
   const isCustom = emailType === "custom";
+  const isCertificate = emailType === "certificate";
   const label = getRecipientLabel(recipientType);
 
   // Live recipient count. In "all" mode, ask the page to count against the
@@ -487,6 +505,11 @@ export function BulkEmailDialog({
       return;
     }
 
+    if (isCertificate && certTemplateIds.length === 0) {
+      toast.error("Select at least one certificate template to send");
+      return;
+    }
+
     if (sendMode === "later") {
       if (!scheduledFor) {
         toast.error("Please pick a date and time to schedule the email");
@@ -512,10 +535,16 @@ export function BulkEmailDialog({
       // A saved custom template sends as emailType "template" with the slug
       // carried in filters.templateSlug (so it survives schedule → worker).
       emailType: isSavedTemplate ? "template" : emailType,
-      customSubject: isCustom ? customSubject.trim() : undefined,
+      // Certificate sends accept an OPTIONAL subject/message override —
+      // blank falls back to the template's saved cover email / system default.
+      customSubject: isCustom
+        ? customSubject.trim()
+        : isCertificate
+        ? customSubject.trim() || undefined
+        : undefined,
       customMessage: isCustom
         ? customMessage.trim()
-        : emailType === "invitation"
+        : emailType === "invitation" || isCertificate
         ? customMessage.trim() || undefined
         : undefined,
       attachments:
@@ -561,6 +590,11 @@ export function BulkEmailDialog({
         // Saved custom template — slug rides in filters so scheduled sends
         // reconstruct it from the persisted ScheduledEmail.filters JSON.
         ...(isSavedTemplate && savedTemplateSlug ? { templateSlug: savedTemplateSlug } : {}),
+        // Certificate sends — the selected template ids ride in filters for
+        // the same schedule-compat reason as templateSlug.
+        ...(isCertificate && certTemplateIds.length > 0
+          ? { certificateTemplateIds: certTemplateIds }
+          : {}),
       },
     };
 
@@ -577,7 +611,7 @@ export function BulkEmailDialog({
       } else {
         const result = await bulkEmail.mutateAsync({
           ...payload,
-          emailType: payload.emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom" | "template" | "survey-invitation",
+          emailType: payload.emailType as "invitation" | "agreement" | "confirmation" | "reminder" | "custom" | "template" | "survey-invitation" | "certificate",
         });
         if (result.success) {
           toast.success(result.message);
@@ -598,6 +632,7 @@ export function BulkEmailDialog({
     setSendMode("now");
     setScheduledFor("");
     setScheduledAudience("matching");
+    setCertTemplateIds([]);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -648,13 +683,70 @@ export function BulkEmailDialog({
             </Select>
           </div>
 
-          {/* Custom Subject (for custom emails) */}
-          {isCustom && (
+          {/* Certificate template multi-select — the tag on each template
+              decides who receives it; tagless templates can't match anyone
+              and are disabled with a pointer to set a tag first. */}
+          {isCertificate && (
             <div className="space-y-2">
-              <Label htmlFor="bulk-subject">Subject</Label>
+              <Label>Certificate templates</Label>
+              {certTemplateOptions.length === 0 ? (
+                <p className="rounded-md border p-3 text-sm text-muted-foreground">
+                  {certTemplatesQuery.isLoading
+                    ? "Loading templates…"
+                    : "No certificate templates yet — create one under Certificates → Templates."}
+                </p>
+              ) : (
+                <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                  {certTemplateOptions.map((t) => {
+                    const tagless = !t.autoIssueTag?.trim();
+                    return (
+                      <label
+                        key={t.id}
+                        className={`flex items-start gap-2 text-sm ${tagless ? "opacity-50" : "cursor-pointer"}`}
+                      >
+                        <Checkbox
+                          className="mt-0.5"
+                          disabled={tagless || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
+                          checked={certTemplateIds.includes(t.id)}
+                          onCheckedChange={(c) =>
+                            setCertTemplateIds((prev) =>
+                              c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                            )
+                          }
+                        />
+                        <span>
+                          <span className="font-medium">{t.name}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {t.category === "ATTENDANCE" ? "Attendance" : "Appreciation"}
+                            {tagless
+                              ? " · no tag — set a tag on the template first"
+                              : ` · tag: ${t.autoIssueTag}`}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Each recipient receives <strong>only</strong> the certificates whose tag they
+                hold — all in one email, with one PDF per certificate. Already-issued
+                certificates are re-attached (same serial), never duplicated.
+              </p>
+            </div>
+          )}
+
+          {/* Custom Subject (custom emails require it; certificate sends may override) */}
+          {(isCustom || isCertificate) && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-subject">{isCertificate ? "Subject (optional)" : "Subject"}</Label>
               <Input
                 id="bulk-subject"
-                placeholder="Email subject..."
+                placeholder={
+                  isCertificate
+                    ? "Leave blank to use the certificate cover email…"
+                    : "Email subject..."
+                }
                 value={customSubject}
                 onChange={(e) => setCustomSubject(e.target.value)}
                 maxLength={500}
@@ -662,15 +754,21 @@ export function BulkEmailDialog({
             </div>
           )}
 
-          {/* Message field (custom emails require it, invitation allows optional personal message) */}
-          {(isCustom || emailType === "invitation") && (
+          {/* Message field (custom emails require it, invitation allows optional personal message, certificate sends may override the cover email) */}
+          {(isCustom || emailType === "invitation" || isCertificate) && (
             <div className="space-y-2">
               <Label htmlFor="bulk-message">
-                {isCustom ? "Message" : "Personal Message (optional)"}
+                {isCustom ? "Message" : isCertificate ? "Message (optional)" : "Personal Message (optional)"}
               </Label>
               <Textarea
                 id="bulk-message"
-                placeholder={isCustom ? "Write your email message..." : "Add a personal note to the invitation..."}
+                placeholder={
+                  isCustom
+                    ? "Write your email message..."
+                    : isCertificate
+                    ? "Leave blank to use the certificate cover email (tokens like {{recipientName}} and {{certificateList}} work here)…"
+                    : "Add a personal note to the invitation..."
+                }
                 value={customMessage}
                 onChange={(e) => setCustomMessage(e.target.value)}
                 rows={6}
@@ -683,7 +781,7 @@ export function BulkEmailDialog({
           )}
 
           {/* Info box for template emails */}
-          {!isCustom && emailType !== "invitation" && (
+          {!isCustom && !isCertificate && emailType !== "invitation" && (
             <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
               {emailType === "agreement" && (
                 <p>This will send the speaker agreement template with event details and terms.</p>
@@ -963,6 +1061,15 @@ export function BulkEmailDialog({
             {recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all" && (
               <p className="text-muted-foreground">Filtered by session role: {sessionRoleFilter}</p>
             )}
+            {isCertificate && certTemplateIds.length > 0 && (
+              <p className="text-muted-foreground">
+                Certificates:{" "}
+                {certTemplateIds
+                  .map((id) => certTemplateOptions.find((t) => t.id === id)?.name ?? id)
+                  .join(", ")}{" "}
+                — each person gets only the certs whose tag they hold
+              </p>
+            )}
           </div>
 
           {/* Send mode toggle */}
@@ -1082,7 +1189,14 @@ export function BulkEmailDialog({
             )}
             Preview
           </Button>
-          <Button onClick={handleSend} disabled={bulkEmail.isPending || scheduleEmail.isPending}>
+          <Button
+            onClick={handleSend}
+            disabled={
+              bulkEmail.isPending ||
+              scheduleEmail.isPending ||
+              (isCertificate && certTemplateIds.length === 0)
+            }
+          >
             {bulkEmail.isPending || scheduleEmail.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

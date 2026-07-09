@@ -65,6 +65,62 @@ describe("bulkEmailSchema — template send", () => {
   });
 });
 
+describe("bulkEmailSchema — certificate send", () => {
+  const certBase = {
+    recipientType: "registrations" as const,
+    emailType: "certificate" as const,
+  };
+
+  it("accepts a certificate send with filters.certificateTemplateIds", () => {
+    const r = bulkEmailSchema.safeParse({
+      ...certBase,
+      filters: { certificateTemplateIds: ["tpl-1", "tpl-2"] },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a certificate send with no filters at all", () => {
+    const r = bulkEmailSchema.safeParse(certBase);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(JSON.stringify(r.error.flatten())).toContain("certificateTemplateIds");
+    }
+  });
+
+  it("rejects a certificate send with an empty template list", () => {
+    const r = bulkEmailSchema.safeParse({
+      ...certBase,
+      filters: { certificateTemplateIds: [] },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects more than 5 templates", () => {
+    const r = bulkEmailSchema.safeParse({
+      ...certBase,
+      filters: { certificateTemplateIds: ["a", "b", "c", "d", "e", "f"] },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("does NOT require certificateTemplateIds for other types", () => {
+    const r = bulkEmailSchema.safeParse({
+      recipientType: "registrations",
+      emailType: "confirmation",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts the speakers recipient type for certificate sends", () => {
+    const r = bulkEmailSchema.safeParse({
+      recipientType: "speakers",
+      emailType: "certificate",
+      filters: { certificateTemplateIds: ["tpl-1"] },
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
 describe("parsePaymentStatusFilter", () => {
   it("parses a single value", () => {
     expect(parsePaymentStatusFilter("PAID")).toEqual(["PAID"]);

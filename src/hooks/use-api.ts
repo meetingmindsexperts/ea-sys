@@ -2302,6 +2302,9 @@ export interface CertTemplateOption {
   id: string;
   name: string;
   category: "ATTENDANCE" | "APPRECIATION";
+  /** The template's tag — decides who receives it on every issue path
+   *  (manual, bulk email, survey auto-issue). Null = matches nobody. */
+  autoIssueTag?: string | null;
 }
 
 /** List an event's certificate templates (for the single-issue picker). */

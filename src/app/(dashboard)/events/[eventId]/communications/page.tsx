@@ -47,6 +47,7 @@ import {
   Clock,
   ClipboardList,
   ListChecks,
+  Award,
   type LucideIcon,
 } from "lucide-react";
 import { resolvePastedIds } from "@/app/(dashboard)/events/[eventId]/registrations/resolve-pasted-ids";
@@ -102,7 +103,8 @@ type RegistrationEmailType =
   | "confirmation"
   | "reminder"
   | "custom"
-  | "survey-invitation";
+  | "survey-invitation"
+  | "certificate";
 
 interface SpeakerTile {
   id: string;
@@ -251,6 +253,19 @@ const REGISTRATION_TILES: RegistrationTile[] = [
     icon: ClipboardList,
     filters: { status: "CHECKED_IN" },
     defaultEmailType: "survey-invitation",
+    matches: (r) => r.status === "CHECKED_IN",
+  },
+  {
+    // Post-event certificate delivery. Pre-selects the CHECKED_IN audience
+    // (certs go to people who showed up); the dialog's certificate-template
+    // multi-select decides WHICH certs, and each recipient only receives
+    // the ones whose template tag they hold — all in one email.
+    id: "send-certificates",
+    label: "Send Certificates",
+    description: "Issue & email certificate PDFs to checked-in attendees",
+    icon: Award,
+    filters: { status: "CHECKED_IN" },
+    defaultEmailType: "certificate",
     matches: (r) => r.status === "CHECKED_IN",
   },
 ];

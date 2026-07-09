@@ -31,6 +31,8 @@ import {
   surveyExpiryDaysSchema,
   type SurveyExpiryDays,
 } from "./survey/share-link";
+import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
+import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 
 // ───────────────────────── Types ─────────────────────────
 
@@ -72,7 +74,17 @@ export type BulkEmailType =
    * Communications page (custom templates were previously creatable but
    * orphaned — no send path referenced them).
    */
-  | "template";
+  | "template"
+  /**
+   * Issue + email certificates: for each recipient, tag-filter the selected
+   * `filters.certificateTemplateIds` (a recipient only gets certs whose
+   * template tag they hold — same routing as survey auto-issue), issue-or-
+   * reuse real IssuedCertificate records, and send ONE email with every
+   * applicable PDF attached. Registrations/speakers recipient types only.
+   * Bypasses the slugMap/renderAndWrap pipeline — delegated to
+   * executeCertificateBulkSend (src/lib/certificates/bulk-issue.ts).
+   */
+  | "certificate";
 
 export const WEBINAR_EMAIL_TYPES = [
   "webinar-confirmation",
@@ -176,6 +188,15 @@ export interface BulkEmailFilters {
    * when it is active — an inactive/missing custom template is rejected.
    */
   templateSlug?: string;
+  /**
+   * `emailType: "certificate"` only — the CertificateTemplate ids to issue
+   * (1..5). Rides inside `filters` for the same schedule-compat reason as
+   * `templateSlug`: the worker reconstructs the send from the persisted
+   * `ScheduledEmail.filters` JSON, so immediate + scheduled sends stay
+   * identical with NO new column and NO worker change. Each recipient only
+   * receives the certs whose template TAG they hold.
+   */
+  certificateTemplateIds?: string[];
 }
 
 export interface BulkEmailInput {
@@ -244,6 +265,7 @@ export const bulkEmailSchema = z.object({
     "webinar-thank-you",
     "survey-invitation",
     "template",
+    "certificate",
   ]),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
@@ -273,6 +295,7 @@ export const bulkEmailSchema = z.object({
       sessionRole: z.nativeEnum(SessionRole).optional(),
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
       templateSlug: z.string().min(1).max(100).optional(),
+      certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
     })
     .optional(),
 }).superRefine((data, ctx) => {
@@ -284,6 +307,15 @@ export const bulkEmailSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["filters", "templateSlug"],
       message: "filters.templateSlug is required when emailType is \"template\"",
+    });
+  }
+  // A certificate send must carry the template set (mirror of the
+  // templateSlug rule above — rejected before a ScheduledEmail persists).
+  if (data.emailType === "certificate" && !data.filters?.certificateTemplateIds?.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["filters", "certificateTemplateIds"],
+      message: "filters.certificateTemplateIds is required when emailType is \"certificate\"",
     });
   }
 });
@@ -394,6 +426,44 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       "Survey invitations can only be sent to registrations",
       400,
     );
+  }
+
+  // Certificate sends: hoisted guards — recipient-type restriction + the
+  // full template-set validation (exists, belongs to the event, tagged).
+  // Batch-wide misconfigurations, so fail fast before resolving recipients.
+  let certTemplates: LoadedCertTemplate[] | null = null;
+  if (emailType === "certificate") {
+    if (recipientType !== "registrations" && recipientType !== "speakers") {
+      throw new BulkEmailError(
+        "Certificate emails can only be sent to registrations or speakers",
+        400,
+      );
+    }
+    const certTemplateIds = filters?.certificateTemplateIds ?? [];
+    if (certTemplateIds.length === 0) {
+      // Schema superRefine guards this at both routes; kept for direct callers.
+      throw new BulkEmailError("Select at least one certificate template", 400);
+    }
+    const loaded = await Promise.all(
+      certTemplateIds.map((id) => loadCertTemplate(eventId, id)),
+    );
+    const missing = loaded.filter((t) => t === null).length;
+    if (missing > 0) {
+      throw new BulkEmailError(
+        "One or more selected certificate templates no longer exist for this event",
+        400,
+      );
+    }
+    certTemplates = loaded as LoadedCertTemplate[];
+    const untagged = certTemplates.filter((t) => !t.autoIssueTag?.trim());
+    if (untagged.length > 0) {
+      throw new BulkEmailError(
+        `Certificate template${untagged.length > 1 ? "s" : ""} ${untagged
+          .map((t) => `"${t.name}"`)
+          .join(", ")} ha${untagged.length > 1 ? "ve" : "s"} no tag — set a tag on the template first (the tag decides who receives it)`,
+        400,
+      );
+    }
   }
 
   // Validate attachment size
@@ -649,6 +719,22 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       400,
       NO_RECIPIENTS_CODE,
     );
+  }
+
+  // Certificate sends bypass the entire template/renderAndWrap pipeline —
+  // per-recipient tag routing, issue-or-reuse, and the multi-PDF bundle
+  // email live in the certificates lib.
+  if (emailType === "certificate" && certTemplates) {
+    return executeCertificateBulkSend({
+      eventId,
+      recipientType: recipientType as "registrations" | "speakers",
+      recipients,
+      templates: certTemplates,
+      customSubject,
+      customMessage,
+      organizationId,
+      triggeredByUserId,
+    });
   }
 
   // ── Load template ──
