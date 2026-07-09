@@ -450,6 +450,23 @@ for a worker-triggered reissue), M1-doc (`reprintCount` = render-attempts vs
 | **L2 — "one active reissue run per template" guard has a TOCTOU window** | LOW | S | `findFirst`-then-`create` in separate steps ([bulk-reissue/route.ts](../src/app/api/events/%5BeventId%5D/certificates/bulk-reissue/route.ts)) — two near-simultaneous requests could both pass → a recipient gets two re-render+resend emails. Rate-limited (10/hr/user) + operator-driven, so low. Close with a partial unique index (`WHERE reissue AND status NOT IN terminal`) or a row-locked in-tx guard. |
 | **L3 — cert revoked between cohort-snapshot and drain shows as a run failure, not a clean skip** | LOW | XS | `reRenderAndResendCert` re-checks `revokedAt` (correct — no email to a revoked cert), but the item is marked failed (`CERT_REVOKED`) → inflates the run's `failedCount`. Cosmetic; could be a distinct "skipped" state. |
 
+### External / integration API — deferred findings (July 9, 2026)
+
+Surfaced while building the **EA-SYS → Webflow people sync** in n8n (pulls an
+event's committee + speakers on a 4-hourly schedule and upserts them into a
+Webflow CMS collection). Nothing here is broken today; these are the ceilings and
+papercuts that surface as the faculty list grows or as more integrations consume
+the REST API. Context: committee members are **speakers tagged `committee`**
+(see [COMMITTEE_MEMBERS.md](COMMITTEE_MEMBERS.md)); the sync keys on
+`Speaker.sourceRegistrationId` / registration `id`, so that field's stability is
+load-bearing for an external consumer.
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **`GET /speakers` (and `/registrations`) are unpaginated and return every column** | — | M | `db.speaker.findMany` with no `take`/`skip`/cursor returns **all** rows, each with ~41 scalar fields incl. `bio` (`@db.Text`, Zod-capped at 10k chars) + 4 included relations. Measured shape: **500 speakers ≈ 0.75–1.5 MB** typical, ~5–6 MB worst case (all bios maxed). Fine on EC2 today (one `findMany`, sub-second, no serverless timeout) — **the real ceiling at 500 is the *Webflow write* side** (~60 req/min → a 500-item first sync ≈ 10 min + 429s), not this read. Revisit when a single event's speaker/registration list plausibly exceeds ~1–2k: add `?limit=&offset=` (or cursor) **and** a `?fields=` / lean `?view=sync` projection so integrations fetch the ~10 columns they use instead of all 41 (drops `bio`/`socialLinks` bloat ~3×). Consumers should meanwhile do **skip-unchanged** (compare `updatedAt`) so steady-state runs write deltas, not the full set. |
+| **`?tags=` GET filter is case-sensitive and skips `normalizeTag`, while writes Title-Case** | LOW | XS | On write, [`normalizeTag`](../src/lib/utils.ts) Title-Cases every word, so a tag typed `committee` / `COMMITTEE` is stored `Committee`. But the registrations `?tags=` query path only `.trim()`s each value ([registrations/route.ts](../src/app/api/events/%5BeventId%5D/registrations/route.ts)) and `hasSome` is an exact match — so **`?tags=committee` silently returns `[]`** against a `Committee` tag. Surprising, and it reads as "no data" rather than "no match". Fix: run the query values through `normalizeTag` too (+1 test). Integrations currently work around it by pulling unfiltered and matching case-insensitively client-side. |
+| **MCP `list_registrations` has no `tags` param** | — | S | REST supports `?tags=` (any-of `hasSome`); the MCP tool doesn't, so an agent can't pull a tagged cohort (committee, VIP…) without listing everything. Pairs with the proposed `?segment=committee\|faculty\|internal` union filter in [COMMITTEE_MEMBERS.md](COMMITTEE_MEMBERS.md) §4c. |
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to
