@@ -44,8 +44,18 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus } from "lucide-react";
+import {
   useIssuedCertificates,
   useReissueCertificate,
+  useIssueSingleCertificate,
+  useCertificateTemplates,
   type IssuedCertificateRow,
 } from "@/hooks/use-api";
 
@@ -77,7 +87,70 @@ export function IssuedCertificatesCard({
   // without re-fetching.
   const [confirmCert, setConfirmCert] = useState<IssuedCertificateRow | null>(null);
 
+  // "Resend all" flow — re-render + resend every resendable cert this person
+  // holds, one email each. Own busy/progress state (the per-row mutation's
+  // isPending only tracks the last single call).
+  const [resendAllOpen, setResendAllOpen] = useState(false);
+  const [resendAllBusy, setResendAllBusy] = useState(false);
+  const [resendAllProgress, setResendAllProgress] = useState<{ done: number; total: number } | null>(null);
+
   const certificates = data?.certificates ?? [];
+  // Only non-revoked, rendered certs can be (re)sent.
+  const resendableCerts = certificates.filter((c) => !c.revokedAt && c.pdfUrl);
+
+  // ── On-demand single issue ──
+  const issueMutation = useIssueSingleCertificate(eventId);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  // A registration card issues ATTENDANCE templates; a speaker card issues
+  // APPRECIATION ones (the facet the recipient can hold).
+  const facetCategory = speakerId ? "APPRECIATION" : "ATTENDANCE";
+  const { data: templatesData } = useCertificateTemplates(eventId, issueOpen);
+  const issuableTemplates = (templatesData?.templates ?? []).filter((t) => t.category === facetCategory);
+
+  async function handleIssue() {
+    if (!selectedTemplateId) return;
+    try {
+      const body = registrationId
+        ? { templateId: selectedTemplateId, registrationId }
+        : { templateId: selectedTemplateId, speakerId };
+      const res = await issueMutation.mutateAsync(body);
+      toast.success(`Issued & emailed certificate ${res.serial} to ${res.recipientEmail}`);
+      setIssueOpen(false);
+      setSelectedTemplateId("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to issue certificate");
+    }
+  }
+
+  async function handleResendAll() {
+    // Snapshot the targets up front — the per-cert mutation invalidates the
+    // issued-list query on each success, so `resendableCerts` can change
+    // mid-loop; iterate the snapshot instead.
+    const targets = [...resendableCerts];
+    if (targets.length === 0) return;
+    setResendAllBusy(true);
+    setResendAllProgress({ done: 0, total: targets.length });
+    let ok = 0;
+    const failed: string[] = [];
+    for (const cert of targets) {
+      try {
+        await resendMutation.mutateAsync(cert.id);
+        ok++;
+      } catch {
+        failed.push(cert.certificateTemplate?.name ?? cert.serial);
+      }
+      setResendAllProgress({ done: ok + failed.length, total: targets.length });
+    }
+    setResendAllBusy(false);
+    setResendAllProgress(null);
+    setResendAllOpen(false);
+    if (failed.length === 0) {
+      toast.success(`Re-rendered and re-sent all ${ok} certificate${ok === 1 ? "" : "s"} from the latest templates`);
+    } else {
+      toast.error(`Sent ${ok} of ${targets.length} · ${failed.length} failed: ${failed.join(", ")}`);
+    }
+  }
 
   async function handleResend(cert: IssuedCertificateRow) {
     try {
@@ -115,6 +188,36 @@ export function IssuedCertificatesCard({
         {certificates.length > 0 && (
           <span className="text-xs text-slate-400">({certificates.length})</span>
         )}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            onClick={() => setIssueOpen(true)}
+            disabled={issueMutation.isPending}
+            title="Issue a certificate template to this person"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Issue certificate
+          </Button>
+          {resendableCerts.length >= 2 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => setResendAllOpen(true)}
+              disabled={resendAllBusy}
+              title="Re-render + resend every certificate this person holds"
+            >
+              {resendAllBusy ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5 mr-1" />
+              )}
+              Resend all ({resendableCerts.length})
+            </Button>
+          )}
+        </div>
       </div>
 
       {isLoading && (
@@ -225,6 +328,125 @@ export function IssuedCertificatesCard({
                 <>
                   <Send className="h-3.5 w-3.5 mr-1.5" />
                   Resend now
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resend-all confirm dialog. */}
+      <Dialog open={resendAllOpen} onOpenChange={(open) => !resendAllBusy && !open && setResendAllOpen(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              Resend all certificates
+            </DialogTitle>
+            <DialogDescription>
+              Each of the {resendableCerts.length} certificates below is re-rendered
+              from its <strong>current</strong> template and emailed separately — one
+              email + PDF per certificate.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-1.5 text-sm">
+            {resendableCerts.map((c) => (
+              <li key={c.id} className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={
+                    c.type === "ATTENDANCE"
+                      ? "border-blue-300 bg-blue-50 text-blue-800"
+                      : "border-amber-300 bg-amber-50 text-amber-800"
+                  }
+                >
+                  {c.type === "ATTENDANCE" ? "Attendance" : "Appreciation"}
+                </Badge>
+                <span className="truncate">{c.certificateTemplate?.name ?? "Certificate"}</span>
+                <span className="ml-auto shrink-0 font-mono text-xs text-slate-400">{c.serial}</span>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResendAllOpen(false)} disabled={resendAllBusy}>
+              Cancel
+            </Button>
+            <Button onClick={handleResendAll} disabled={resendAllBusy}>
+              {resendAllBusy ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Sending {resendAllProgress?.done ?? 0}/{resendAllProgress?.total ?? resendableCerts.length}…
+                </>
+              ) : (
+                <>
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                  Resend all ({resendableCerts.length})
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Issue-certificate dialog — pick a template, render + email to this person. */}
+      <Dialog
+        open={issueOpen}
+        onOpenChange={(open) => {
+          if (issueMutation.isPending) return;
+          setIssueOpen(open);
+          if (!open) setSelectedTemplateId("");
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Issue a certificate
+            </DialogTitle>
+            <DialogDescription>
+              Render one certificate template and email it to this{" "}
+              {speakerId ? "speaker" : "registration"} now. Tags are not checked —
+              this is a direct, on-demand issue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">Template</label>
+            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Choose a certificate template…" />
+              </SelectTrigger>
+              <SelectContent>
+                {issuableTemplates.length === 0 ? (
+                  <div className="px-2 py-1.5 text-sm text-slate-400">
+                    No {facetCategory === "ATTENDANCE" ? "attendance" : "appreciation"} templates configured.
+                  </div>
+                ) : (
+                  issuableTemplates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-400">
+              Already-held templates will be rejected — use “Resend latest version” on the existing row instead.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIssueOpen(false)} disabled={issueMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleIssue} disabled={issueMutation.isPending || !selectedTemplateId}>
+              {issueMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Issuing…
+                </>
+              ) : (
+                <>
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Issue &amp; email
                 </>
               )}
             </Button>

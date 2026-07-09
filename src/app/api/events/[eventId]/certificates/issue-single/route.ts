@@ -74,6 +74,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
 
     if (!result.ok) {
+      // Log every rejection (validation / business / operational) so none is
+      // silent — the service already logs render/send specifics; this captures
+      // the errors-as-values codes it returns.
+      apiLogger.warn({
+        msg: "cert-issue-single:rejected",
+        eventId,
+        code: result.code,
+        status: result.status,
+        userId: session.user.id,
+      });
       return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     }
     return NextResponse.json({

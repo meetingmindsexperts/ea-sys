@@ -464,7 +464,9 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
   });
   if (!send.success) {
     // Re-render succeeded (pdfUrl updated) but the email failed — don't bump
-    // resendCount so a retry is the same operation.
+    // resendCount so a retry is the same operation. Log it (send failures are
+    // operationally important — surface, don't swallow).
+    apiLogger.warn({ msg: "cert-deliver:reissue-send-failed", eventId: ctx.eventId, certificateId, recipientEmail, err: send.error });
     return { ok: false, code: "SEND_FAILED", error: send.error ?? "Email send failed.", status: 502 };
   }
 

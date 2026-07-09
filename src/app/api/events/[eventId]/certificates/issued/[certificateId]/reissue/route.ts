@@ -53,6 +53,16 @@ export async function POST(_req: Request, { params }: RouteParams) {
     );
 
     if (!result.ok) {
+      // Log every rejection so none is silent (service logs render/send
+      // specifics; this captures the errors-as-values codes it returns).
+      apiLogger.warn({
+        msg: "cert-reissue:rejected",
+        eventId,
+        certificateId,
+        code: result.code,
+        status: result.status,
+        userId: session.user.id,
+      });
       return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     }
     return NextResponse.json({

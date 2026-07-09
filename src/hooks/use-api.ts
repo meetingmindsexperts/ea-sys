@@ -2296,6 +2296,22 @@ export function useReissueCertificate(eventId: string) {
   });
 }
 
+export interface CertTemplateOption {
+  id: string;
+  name: string;
+  category: "ATTENDANCE" | "APPRECIATION";
+}
+
+/** List an event's certificate templates (for the single-issue picker). */
+export function useCertificateTemplates(eventId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["events", eventId, "certificates", "templates"],
+    queryFn: () => fetchApi<{ templates: CertTemplateOption[] }>(`/api/events/${eventId}/certificates/templates`),
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+}
+
 /** Issue one certificate template to ONE registration or speaker on demand. */
 export function useIssueSingleCertificate(eventId: string) {
   const queryClient = useQueryClient();
