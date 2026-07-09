@@ -71,6 +71,7 @@ import { EmailAttachmentPicker } from "@/components/email/email-attachment-picke
 import { fileToBase64 } from "@/lib/file-to-base64";
 import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
+import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { formatPersonName, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
@@ -165,6 +166,7 @@ export default function SpeakerDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
   const [sessionSheetOpen, setSessionSheetOpen] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const headerPhotoRef = useRef<HTMLInputElement>(null);
@@ -321,12 +323,22 @@ export default function SpeakerDetailPage() {
     setSaving(true);
     setError(null);
     try {
+      // Strip email — it's immutable on this PUT path (the route 400s with
+      // EMAIL_IMMUTABLE if the body carries an `email` key). Editing any other
+      // field (e.g. the photo) would otherwise fail. Use the Change Email flow
+      // (PATCH .../email) for the cascading email update.
+      const payload: Record<string, unknown> = {
+        ...formData,
+        photo: formData.photo ?? null,
+        // `role` uses the strict AttendeeRole enum (no empty-string member) —
+        // send null when unset so an empty picker doesn't 400.
+        role: formData.role || null,
+      };
+      delete payload.email;
       const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        // `role` uses the strict AttendeeRole enum (no empty-string member) —
-        // send null when unset so an empty picker doesn't 400.
-        body: JSON.stringify({ ...formData, photo: formData.photo ?? null, role: formData.role || null }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const data = await res.json();
@@ -600,7 +612,15 @@ export default function SpeakerDetailPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Email</Label>
-                      <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                      <div className="flex gap-2">
+                        <Input type="email" value={formData.email} disabled readOnly className="flex-1" />
+                        <Button type="button" variant="outline" size="sm" onClick={() => setChangeEmailOpen(true)}>
+                          Change
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Email changes cascade to login + contact records.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Phone</Label>
@@ -1252,6 +1272,17 @@ export default function SpeakerDetailPage() {
         onOpenChange={setSessionSheetOpen}
         onSessionUpdated={() => fetchSpeaker()}
       />
+
+      {speaker && (
+        <ChangeEmailDialog
+          open={changeEmailOpen}
+          onOpenChange={setChangeEmailOpen}
+          currentEmail={speaker.email}
+          endpoint={`/api/events/${eventId}/speakers/${speakerId}/email`}
+          entityLabel="speaker"
+          onSuccess={() => fetchSpeaker()}
+        />
+      )}
     </div>
   );
 }
