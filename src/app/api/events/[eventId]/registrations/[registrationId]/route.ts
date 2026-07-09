@@ -12,6 +12,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
@@ -453,6 +454,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.customFields && { customFields: attendee.customFields }),
         },
       });
+
+      // Mirror any tag change onto the person's Speaker facet (best-effort).
+      if (attendee.tags !== undefined) {
+        await syncRegistrationTagsToSpeakers(eventId, [
+          {
+            registrationId,
+            email: existingRegistration.attendee.email,
+            delta: computeTagDelta(existingRegistration.attendee.tags, attendee.tags),
+          },
+        ]);
+      }
 
       // Sync updated attendee to org contact store (awaited — errors caught internally)
       const a = existingRegistration.attendee;

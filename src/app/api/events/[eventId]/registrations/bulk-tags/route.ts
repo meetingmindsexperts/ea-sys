@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
+import { computeTagDelta, syncRegistrationTagsToSpeakers, type RegistrationTagChange } from "@/lib/person-tag-sync";
 
 const bulkTagsSchema = z.object({
   registrationIds: z.array(z.string()).min(1),
@@ -54,13 +55,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Get attendees for these registrations
     const registrations = await db.registration.findMany({
       where: { id: { in: registrationIds }, eventId },
-      select: { id: true, attendee: { select: { id: true, tags: true } } },
+      select: { id: true, attendee: { select: { id: true, tags: true, email: true } } },
     });
 
     if (registrations.length === 0) {
       return NextResponse.json({ error: "No registrations found" }, { status: 404 });
     }
 
+    // Track the per-person delta so we can mirror it onto the linked Speaker.
+    const tagChanges: RegistrationTagChange[] = [];
     const updates = registrations.map((reg) => {
       let newTags: string[];
       if (mode === "add") {
@@ -71,6 +74,11 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       } else {
         newTags = tags;
       }
+      tagChanges.push({
+        registrationId: reg.id,
+        email: reg.attendee.email,
+        delta: computeTagDelta(reg.attendee.tags, newTags),
+      });
       return db.attendee.update({
         where: { id: reg.attendee.id },
         data: { tags: newTags },
@@ -79,6 +87,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     const results = await db.$transaction(updates);
+
+    // Mirror the change onto each person's Speaker facet (best-effort).
+    await syncRegistrationTagsToSpeakers(eventId, tagChanges);
 
     return NextResponse.json({ updated: results.length, attendees: results });
   } catch (error) {

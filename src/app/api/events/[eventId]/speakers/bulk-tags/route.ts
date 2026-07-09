@@ -6,6 +6,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { getClientIp } from "@/lib/security";
+import { computeTagDelta, syncSpeakerTagsToRegistrations, type SpeakerTagChange } from "@/lib/person-tag-sync";
 
 const bulkTagsSchema = z.object({
   speakerIds: z.array(z.string()).min(1),
@@ -53,13 +54,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     const speakers = await db.speaker.findMany({
       where: { id: { in: speakerIds }, eventId },
-      select: { id: true, tags: true },
+      select: { id: true, tags: true, email: true, sourceRegistrationId: true },
     });
 
     if (speakers.length === 0) {
       return NextResponse.json({ error: "No speakers found" }, { status: 404 });
     }
 
+    // Track the per-person delta so we can mirror it onto the linked Registration.
+    const tagChanges: SpeakerTagChange[] = [];
     const updates = speakers.map((speaker) => {
       let newTags: string[];
       if (mode === "add") {
@@ -70,6 +73,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       } else {
         newTags = tags;
       }
+      tagChanges.push({
+        speakerId: speaker.id,
+        email: speaker.email,
+        sourceRegistrationId: speaker.sourceRegistrationId,
+        delta: computeTagDelta(speaker.tags, newTags),
+      });
       return db.speaker.update({
         where: { id: speaker.id },
         data: { tags: newTags },
@@ -78,6 +87,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     const results = await db.$transaction(updates);
+
+    // Mirror the change onto each person's Registration facet (best-effort).
+    await syncSpeakerTagsToRegistrations(eventId, tagChanges);
 
     // Audit trail (fire-and-forget). Tags drive email cohorts + cert
     // eligibility, so bulk retag is consequential — one row per bulk op.

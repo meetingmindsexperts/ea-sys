@@ -12,6 +12,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock";
+import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
 
 // NOTE: `email` is intentionally NOT in this schema. Email is immutable
 // at the general-purpose update path — use the dedicated
@@ -258,6 +259,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
         { status: 409 }
       );
+    }
+
+    // Mirror any tag change onto the person's Registration facet (best-effort).
+    if (data.tags !== undefined) {
+      await syncSpeakerTagsToRegistrations(eventId, [
+        {
+          speakerId,
+          email: existingSpeaker.email,
+          sourceRegistrationId: existingSpeaker.sourceRegistrationId,
+          delta: computeTagDelta(existingSpeaker.tags, data.tags),
+        },
+      ]);
     }
 
     // Fetch the freshly-updated row for the response.
