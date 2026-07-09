@@ -43,6 +43,31 @@ export function defaultBodyForCategory(category: CertificateType): string {
     : SYSTEM_DEFAULT_BODY_ATTENDANCE;
 }
 
+// ── Multi-certificate (bundle) defaults ──────────────────────────────────────
+// Used whenever ONE email carries 2+ certificates (Issue tab multi-select,
+// bulk-email certificate sends, survey auto-issue bundles). The singular
+// per-template cover email still applies when exactly one template is in play.
+
+export const SYSTEM_DEFAULT_SUBJECT_MULTI = "Your certificates — {{eventName}}";
+
+export const SYSTEM_DEFAULT_BODY_MULTI = `<p>Dear {{recipientName}},</p>
+<p>Thank you for being part of {{eventName}} ({{eventDateRange}}). Please find your certificates attached:</p>
+{{certificateList}}
+<p>Best regards,<br/>{{organizationName}}</p>`;
+
+/** Pick the default cover email for a send covering `templateCount`
+ *  templates — the per-category single default for one, the bundle
+ *  defaults for several. */
+export function defaultCoverEmailFor(
+  templateCount: number,
+  primaryCategory: CertificateType,
+): { subject: string; body: string } {
+  if (templateCount > 1) {
+    return { subject: SYSTEM_DEFAULT_SUBJECT_MULTI, body: SYSTEM_DEFAULT_BODY_MULTI };
+  }
+  return { subject: SYSTEM_DEFAULT_SUBJECT, body: defaultBodyForCategory(primaryCategory) };
+}
+
 /** Token reference for the UI dropdown. Category filter hides
  *  {{abstractTitle}} on ATTENDANCE templates so operators don't insert
  *  a token that always resolves empty. */
@@ -59,6 +84,7 @@ export const COVER_EMAIL_TOKENS: EmailTokenSpec[] = [
   { token: "{{venueLine}}", description: "Venue + city + country, prefixed with 'at'", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{organizationName}}", description: "Your organization name", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{certificateType}}", description: "'Certificate of Attendance' or 'Certificate of Appreciation'", categories: ["ATTENDANCE", "APPRECIATION"] },
-  { token: "{{certificateSerial}}", description: "The cert's unique serial number", categories: ["ATTENDANCE", "APPRECIATION"] },
+  { token: "{{certificateSerial}}", description: "The cert's unique serial number (comma-joined when one email carries several certs)", categories: ["ATTENDANCE", "APPRECIATION"] },
+  { token: "{{certificateList}}", description: "One line per attached certificate: type + serial (body only)", categories: ["ATTENDANCE", "APPRECIATION"] },
   { token: "{{abstractTitle}}", description: "Abstract / paper title (the speaker's accepted abstract, poster preferred)", categories: ["APPRECIATION"] },
 ];

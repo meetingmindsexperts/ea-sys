@@ -14,6 +14,15 @@ import { escapeHtml } from "@/lib/html";
 import { apiLogger } from "@/lib/logger";
 import type { CertificateType } from "@prisma/client";
 
+/** One certificate inside a bundle email — feeds the plural tokens. */
+export interface CoverEmailBundleCert {
+  serial: string;
+  type: CertificateType;
+  /** Disambiguates two same-category certs in {{certificateList}}. Operator
+   *  input → escaped inside the resolver under `escapeDynamic`. */
+  templateName?: string | null;
+}
+
 /** Pre-resolved values the sender feeds in. */
 export interface CoverEmailTokenContext {
   recipientName: string;
@@ -26,6 +35,14 @@ export interface CoverEmailTokenContext {
   organizationName: string;
   certificateType: CertificateType;
   certificateSerial: string;
+  /**
+   * All certs carried by this email (multi-cert bundles). When absent or
+   * length 1, every token resolves exactly as the historical single-cert
+   * email. With 2+ certs: {{certificateType}} joins the distinct labels,
+   * {{certificateSerial}} comma-joins the serials, and {{certificateList}}
+   * renders one line per cert.
+   */
+  bundle?: { certs: CoverEmailBundleCert[] };
   /** Speaker id, when this is an APPRECIATION recipient. Used to look
    *  up `{{abstractTitle}}` on demand — null for ATTENDANCE. */
   speakerId: string | null;
@@ -118,6 +135,29 @@ function composeVenueLine(ctx: CoverEmailTokenContext): string {
   return parts.length > 0 ? `at ${parts.join(", ")}` : "";
 }
 
+/** The certs this email covers — a 1-element list when no bundle context is
+ *  supplied, so the singular tokens keep their historical values. */
+function bundleCerts(ctx: CoverEmailTokenContext): CoverEmailBundleCert[] {
+  if (ctx.bundle?.certs?.length) return ctx.bundle.certs;
+  return [{ serial: ctx.certificateSerial, type: ctx.certificateType }];
+}
+
+/** `{{certificateList}}` — one "Label — SERIAL" line per cert. The template
+ *  name is appended only when it disambiguates two same-category certs. */
+function buildCertificateList(certs: CoverEmailBundleCert[], escapeDynamic: boolean): string {
+  const typeCounts = new Map<CertificateType, number>();
+  for (const c of certs) typeCounts.set(c.type, (typeCounts.get(c.type) ?? 0) + 1);
+  const lines = certs.map((c) => {
+    const label = CERT_TYPE_LABELS[c.type];
+    const needsName = (typeCounts.get(c.type) ?? 0) > 1 && c.templateName?.trim();
+    const name = needsName
+      ? ` (${escapeDynamic ? escapeHtml(c.templateName!.trim()) : c.templateName!.trim()})`
+      : "";
+    return `${label}${name} — ${c.serial}`;
+  });
+  return `<p>${lines.join("<br/>")}</p>`;
+}
+
 /**
  * Resolve every `{{token}}` in `template` against `ctx`. Async because
  * the abstract title lookup is per-recipient. Unknown tokens render
@@ -128,14 +168,17 @@ export async function resolveCoverEmailTokens(
   template: string,
   ctx: CoverEmailTokenContext,
 ): Promise<string> {
+  const certs = bundleCerts(ctx);
+  const distinctLabels = [...new Set(certs.map((c) => CERT_TYPE_LABELS[c.type]))];
   const baseTokens: Record<string, string> = {
     recipientName: ctx.recipientName,
     eventName: ctx.eventName,
     eventDateRange: formatDateRange(ctx.eventStartDate, ctx.eventEndDate),
     venueLine: composeVenueLine(ctx),
     organizationName: ctx.organizationName,
-    certificateType: CERT_TYPE_LABELS[ctx.certificateType],
-    certificateSerial: ctx.certificateSerial,
+    certificateType: distinctLabels.join(" & "),
+    certificateSerial: certs.map((c) => c.serial).join(", "),
+    certificateList: buildCertificateList(certs, !!ctx.escapeDynamic),
   };
 
   // abstractTitle — only DB-fetched if the template actually references

@@ -28,28 +28,15 @@ import { Prisma } from "@prisma/client";
 import type { CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { escapeHtml } from "@/lib/html";
-import {
-  sendEmail,
-  wrapWithBranding,
-  inlineCss,
-  brandingFrom,
-  type EmailBranding,
-} from "@/lib/email";
-import { renderCertificate } from "./render";
-import { uploadCertificatePdf } from "@/lib/storage";
-import {
-  resolveCoverEmailTokens,
-  type CoverEmailTokenContext,
-} from "./email-tokens-resolver";
 import { SYSTEM_DEFAULT_SUBJECT, defaultBodyForCategory } from "./email-tokens";
+import { allocateSerial } from "./cert-context";
 import {
-  loadEventContext,
-  loadRecipient,
-  allocateSerial,
-  loadPosterAbstractTitle,
-} from "./cert-context";
-import type { CertificateData, CertificateTemplate } from "./types";
+  loadCertTemplate,
+  renderAndUpload,
+  resolveRecipientEmail,
+  sendCertificateBundleEmail,
+  type RenderAndUploadResult,
+} from "./bundle";
 
 export interface DeliverContext {
   eventId: string;
@@ -75,101 +62,18 @@ export type DeliverFailure = { ok: false; code: string; error: string; status: n
 export type DeliverResult = DeliverSuccess | DeliverFailure;
 
 // ── Shared internals ──────────────────────────────────────────────────────────
-
-interface LoadedTemplate {
-  category: CertificateType;
-  template: CertificateTemplate;
-  emailSubject: string | null;
-  emailBody: string | null;
-}
-
-async function loadTemplate(eventId: string, templateId: string): Promise<LoadedTemplate | null> {
-  const tmpl = await db.certificateTemplate.findFirst({
-    where: { id: templateId, eventId },
-    select: {
-      category: true,
-      backgroundPdfUrl: true,
-      textBoxes: true,
-      role: true,
-      cmeHours: true,
-      emailSubject: true,
-      emailBody: true,
-    },
-  });
-  if (!tmpl) return null;
-  return {
-    category: tmpl.category,
-    template: {
-      backgroundPdfUrl: tmpl.backgroundPdfUrl,
-      textBoxes: tmpl.textBoxes as unknown as CertificateTemplate["textBoxes"],
-      role: tmpl.role,
-      cmeHours: tmpl.cmeHours == null ? null : Number(tmpl.cmeHours),
-    },
-    emailSubject: tmpl.emailSubject,
-    emailBody: tmpl.emailBody,
-  };
-}
-
-/** Render a cert PDF for the given recipient + template and upload it. Returns
- *  the pdfUrl, the bytes (so the caller can attach without a reload), and the
- *  recipient snapshot. Throws RECIPIENT_NOT_FOUND / EVENT_NOT_FOUND. */
-async function renderAndUpload(args: {
-  eventId: string;
-  type: CertificateType;
-  template: CertificateTemplate;
-  registrationId: string | null;
-  speakerId: string | null;
-  serial: string;
-}): Promise<{ pdfUrl: string; pdfBuffer: Buffer; recipient: CertificateData["recipient"] }> {
-  const { eventId, type, template, registrationId, speakerId, serial } = args;
-  const [recipient, event] = await Promise.all([
-    loadRecipient(registrationId, speakerId),
-    loadEventContext(eventId),
-  ]);
-  if (!recipient) throw new Error("RECIPIENT_NOT_FOUND");
-  if (!event) throw new Error("EVENT_NOT_FOUND");
-
-  const extras: CertificateData["extras"] =
-    type === "APPRECIATION" && speakerId
-      ? { type: "APPRECIATION", abstractTitle: await loadPosterAbstractTitle(speakerId, eventId) }
-      : { type: "ATTENDANCE" };
-
-  const pdfBuffer = await renderCertificate({
-    type,
-    serial,
-    issuedAt: new Date(),
-    recipient,
-    event,
-    extras,
-    template,
-  });
-  const pdfUrl = await uploadCertificatePdf(pdfBuffer, `${serial}.pdf`, eventId);
-  return { pdfUrl, pdfBuffer, recipient };
-}
-
-/** Live recipient email — prefers the current Attendee/Speaker record. */
-async function resolveRecipientEmail(registrationId: string | null, speakerId: string | null): Promise<string | null> {
-  if (registrationId) {
-    const reg = await db.registration.findUnique({
-      where: { id: registrationId },
-      select: { attendee: { select: { email: true } } },
-    });
-    return reg?.attendee.email ?? null;
-  }
-  if (speakerId) {
-    const s = await db.speaker.findUnique({ where: { id: speakerId }, select: { email: true } });
-    return s?.email ?? null;
-  }
-  return null;
-}
+// loadCertTemplate / renderAndUpload / resolveRecipientEmail moved to
+// bundle.ts (the shared lower layer) so the bulk + worker + auto-issue paths
+// compose the same primitives without duplication or an import cycle.
 
 /** Build + send the cover email using the CURRENT template's subject/body
- *  (fallback to system default). Mirrors the worker/resend send pipeline so
- *  all cert code paths render identical emails. */
+ *  (fallback to system default). Thin 1-cert wrapper over the shared bundle
+ *  sender so all cert code paths render identical emails. */
 async function sendCertEmail(args: {
   eventId: string;
   type: CertificateType;
   serial: string;
+  templateName: string;
   speakerId: string | null;
   registrationId: string | null;
   recipientName: string;
@@ -180,87 +84,24 @@ async function sendCertEmail(args: {
   organizationId: string;
   triggeredByUserId: string | null;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const event = await db.event.findUnique({
-    where: { id: args.eventId },
-    select: {
-      name: true,
-      startDate: true,
-      endDate: true,
-      venue: true,
-      city: true,
-      country: true,
-      emailHeaderImage: true,
-      emailFooterImage: true,
-      emailFooterHtml: true,
-      emailFromAddress: true,
-      emailFromName: true,
-      organization: { select: { name: true } },
-    },
-  });
-  if (!event) return { success: false, error: "Event not found" };
-
-  const tokenCtx: CoverEmailTokenContext = {
-    recipientName: args.recipientName,
-    eventName: event.name,
-    eventStartDate: event.startDate,
-    eventEndDate: event.endDate,
-    venue: event.venue,
-    city: event.city,
-    country: event.country,
-    organizationName: event.organization.name,
-    certificateType: args.type,
-    certificateSerial: args.serial,
-    speakerId: args.speakerId,
+  return sendCertificateBundleEmail({
     eventId: args.eventId,
-  };
-  const escapedTokenCtx: CoverEmailTokenContext = {
-    ...tokenCtx,
-    recipientName: escapeHtml(tokenCtx.recipientName),
-    eventName: escapeHtml(tokenCtx.eventName),
-    organizationName: escapeHtml(tokenCtx.organizationName),
-    venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
-    city: tokenCtx.city ? escapeHtml(tokenCtx.city) : tokenCtx.city,
-    country: tokenCtx.country ? escapeHtml(tokenCtx.country) : tokenCtx.country,
-    escapeDynamic: true,
-  };
-
-  const subject = (await resolveCoverEmailTokens(args.emailSubjectTemplate, tokenCtx)).replace(/\s+/g, " ").trim();
-  const bodyHtml = await resolveCoverEmailTokens(args.emailBodyTemplate, escapedTokenCtx);
-  const bodyText = await resolveCoverEmailTokens(args.emailBodyTemplate, tokenCtx).then((html) =>
-    html
-      .replace(/<\s*br\s*\/?>/gi, "\n")
-      .replace(/<\/p>/gi, "\n\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim(),
-  );
-
-  const branding: EmailBranding = {
-    emailHeaderImage: event.emailHeaderImage,
-    emailFooterImage: event.emailFooterImage,
-    emailFooterHtml: event.emailFooterHtml,
-    emailFromAddress: event.emailFromAddress,
-    emailFromName: event.emailFromName ?? event.organization.name,
-    eventName: event.name,
-  };
-  const wrappedHtml = inlineCss(wrapWithBranding(bodyHtml, branding));
-
-  return sendEmail({
-    to: [{ email: args.recipientEmail, name: args.recipientName }],
-    subject,
-    htmlContent: wrappedHtml,
-    textContent: bodyText,
-    from: brandingFrom(branding),
-    attachments: [{ name: `${args.serial}.pdf`, content: args.pdfBuffer.toString("base64"), contentType: "application/pdf" }],
-    emailType: "certificate",
-    logContext: {
-      organizationId: args.organizationId,
-      entityType: args.speakerId ? "SPEAKER" : "REGISTRATION",
-      entityId: args.registrationId ?? args.speakerId ?? null,
-      eventId: args.eventId,
-      templateSlug: "certificate-delivery",
-      triggeredByUserId: args.triggeredByUserId,
-    },
+    organizationId: args.organizationId,
+    recipientEmail: args.recipientEmail,
+    recipientName: args.recipientName,
+    registrationId: args.registrationId,
+    speakerId: args.speakerId,
+    certs: [
+      {
+        serial: args.serial,
+        type: args.type,
+        templateName: args.templateName,
+        pdfBuffer: args.pdfBuffer,
+      },
+    ],
+    emailSubjectTemplate: args.emailSubjectTemplate,
+    emailBodyTemplate: args.emailBodyTemplate,
+    triggeredByUserId: args.triggeredByUserId,
   });
 }
 
@@ -300,7 +141,7 @@ export async function issueSingleCertificate(
     return { ok: false, code: "INVALID_RECIPIENT", error: "Provide exactly one of registrationId or speakerId.", status: 400 };
   }
 
-  const tmpl = await loadTemplate(ctx.eventId, input.templateId);
+  const tmpl = await loadCertTemplate(ctx.eventId, input.templateId);
   if (!tmpl) return { ok: false, code: "TEMPLATE_NOT_FOUND", error: "Certificate template not found.", status: 404 };
 
   if (tmpl.category === "ATTENDANCE" && !registrationId) {
@@ -317,7 +158,7 @@ export async function issueSingleCertificate(
 
   const serial = await allocateSerial(ctx.eventId, tmpl.category);
 
-  let render: { pdfUrl: string; pdfBuffer: Buffer; recipient: CertificateData["recipient"] };
+  let render: RenderAndUploadResult;
   try {
     render = await renderAndUpload({
       eventId: ctx.eventId,
@@ -369,6 +210,7 @@ export async function issueSingleCertificate(
     eventId: ctx.eventId,
     type: tmpl.category,
     serial,
+    templateName: tmpl.name,
     speakerId,
     registrationId,
     recipientName: render.recipient.fullName,
@@ -415,13 +257,13 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
     return { ok: false, code: "NO_TEMPLATE", error: "This certificate isn’t linked to a template, so it can’t be re-rendered.", status: 409 };
   }
 
-  const tmpl = await loadTemplate(ctx.eventId, cert.certificateTemplateId);
+  const tmpl = await loadCertTemplate(ctx.eventId, cert.certificateTemplateId);
   if (!tmpl) return { ok: false, code: "TEMPLATE_NOT_FOUND", error: "The certificate’s template no longer exists.", status: 409 };
 
   const recipientEmail = await resolveRecipientEmail(cert.registrationId, cert.speakerId);
   if (!recipientEmail) return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
 
-  let render: { pdfUrl: string; pdfBuffer: Buffer; recipient: CertificateData["recipient"] };
+  let render: RenderAndUploadResult;
   try {
     render = await renderAndUpload({
       eventId: ctx.eventId,
@@ -460,6 +302,7 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
     eventId: ctx.eventId,
     type: cert.type,
     serial: cert.serial,
+    templateName: tmpl.name,
     speakerId: cert.speakerId,
     registrationId: cert.registrationId,
     recipientName,
