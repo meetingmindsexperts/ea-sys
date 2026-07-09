@@ -95,7 +95,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const [invites, tpl, sender] = await Promise.all([
+    const [invites, tpl, sender, dinnerCount] = await Promise.all([
       db.rsvpInvite.findMany({
         // inviteId → exactly that invitee (event-scoped); else the target batch.
         where: parsed.data.inviteId
@@ -110,6 +110,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: session.user.id },
         select: { firstName: true, lastName: true, emailSignature: true },
       }),
+      // Drives {{dinnerWord}} — singular when the event has just one dinner.
+      db.rsvpDinner.count({ where: { eventId, isActive: true } }),
     ]);
     if (invites.length === 0) {
       apiLogger.info(
@@ -134,6 +136,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       `${sender?.firstName ?? ""} ${sender?.lastName ?? ""}`.trim() ||
       "Event Organizer";
     const organizerSignature = sender?.emailSignature || "";
+    const dinnerWord = dinnerCount === 1 ? "dinner" : "dinners";
 
     let sent = 0;
     let failed = 0;
@@ -150,6 +153,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             fullName: inv.inviteeName,
             email: inv.inviteeEmail,
             eventName: event.name,
+            dinnerWord,
             rsvpLink,
             personalMessage,
             organizerName,

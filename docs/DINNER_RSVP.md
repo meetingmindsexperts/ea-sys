@@ -56,7 +56,8 @@ Organizer (session, org-scoped, `denyReviewer` on writes, rate-limited):
   `target` selects the batch ("pending" = remind non-responders). Renders the
   **`dinner-rsvp-invitation` system email template** (per-event override via Communications →
   Email Templates, else the default) with **per-recipient** vars `{{firstName}}`, `{{lastName}}`,
-  `{{fullName}}`, `{{email}}`, `{{eventName}}`, `{{rsvpLink}}` (that invitee's own token link),
+  `{{fullName}}`, `{{email}}`, `{{eventName}}`, `{{dinnerWord}}` ("dinner"/"dinners" — matches the
+  event's dinner count so copy stays grammatical), `{{rsvpLink}}` (that invitee's own token link),
   `{{personalMessage}}` (the optional note), `{{organizerName}}`, `{{organizerSignature}}` — so a
   bulk send is personalized identically to a single one (never a shared link). Sends via the
   branded pipeline (`getEventTemplate` + `renderAndWrap` + `sendEmail` + EmailLog); per-recipient
@@ -104,4 +105,7 @@ ADMIN/ORGANIZER-only, no invitee-controlled value hits an unescaped sink); MEMBE
 - **Follow-ups (shipped, 2026-07-09):** per-invitee **single send** (same route via `inviteId`,
   per-row Send button); **richer per-recipient vars** (`lastName`/`fullName`/`email` alongside
   `firstName`) so bulk personalizes like a single send; public form **explicit "I won't attend"
-  checkbox** + submit gated on a choice; organizer **"How Dinner RSVP works" instruction card**.
+  checkbox** + submit gated on a choice; organizer **"How Dinner RSVP works" instruction card**;
+  **singular/plural handling** — the public form ("Will you be attending?" vs "Which dinners…",
+  "I won't be able to attend" vs "…any of the dinners") and the email `{{dinnerWord}}` adapt to
+  whether the event has one dinner or several (the common case is one).

@@ -177,6 +177,7 @@ export default function RsvpPage() {
   }
 
   const allClosed = dinners.every((d) => d.closed);
+  const manyDinners = dinners.length > 1;
   // Require an explicit choice: at least one dinner ticked, or "I won't attend".
   const hasChoice = notAttending || dinners.some((d) => d.attending);
 
@@ -217,10 +218,13 @@ export default function RsvpPage() {
 
             {/* Dinners */}
             <div>
-              <Label className="text-sm font-semibold text-slate-800">Which dinners will you attend?</Label>
+              <Label className="text-sm font-semibold text-slate-800">
+                {manyDinners ? "Which dinners will you attend?" : "Will you be attending?"}
+              </Label>
               <p className="text-xs text-slate-500 mt-0.5">
-                Tick the dinners you&rsquo;ll join (add a guest count if you&rsquo;re bringing anyone), or
-                choose &ldquo;I won&rsquo;t be able to attend&rdquo; below.
+                {manyDinners
+                  ? "Tick the dinners you’ll join (add a guest count if you’re bringing anyone), or choose “I won’t be able to attend” below."
+                  : "Tick the box if you’ll join (add a guest count if you’re bringing anyone), or choose “I won’t be able to attend” below."}
               </p>
               {allClosed && (
                 <p className="text-sm text-amber-600 mt-1">RSVP is now closed for this event.</p>
@@ -301,7 +305,9 @@ export default function RsvpPage() {
                     }}
                   />
                   <span className="text-sm font-medium text-slate-700">
-                    I won&rsquo;t be able to attend any of the dinners
+                    {manyDinners
+                      ? "I won’t be able to attend any of the dinners"
+                      : "I won’t be able to attend"}
                   </span>
                 </label>
               )}
@@ -332,7 +338,9 @@ export default function RsvpPage() {
             </Button>
             {!hasChoice && !allClosed && (
               <p className="text-xs text-slate-400 text-center -mt-2">
-                Pick at least one dinner, or select &ldquo;I won&rsquo;t be able to attend&rdquo;.
+                {manyDinners
+                  ? "Pick at least one dinner, or select “I won’t be able to attend”."
+                  : "Tick the dinner, or select “I won’t be able to attend”."}
               </p>
             )}
           </div>

@@ -1153,6 +1153,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "fullName", description: "Invitee full name (as entered)" },
     { key: "email", description: "Invitee email address" },
     { key: "eventName", description: "Event name" },
+    { key: "dinnerWord", description: "\"dinner\" or \"dinners\" — matches how many dinners the event has" },
     { key: "rsvpLink", description: "The invitee's personalized RSVP link (unique per recipient)" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
     { key: "organizerName", description: "Organizing team / organization name" },
@@ -1973,10 +1974,10 @@ Thank you for completing the post-event survey for {{eventName}}. Your feedback 
     // Editable per-event under Communications → Email Templates; the send
     // dialog previews it. {{personalMessage}} carries the optional note the
     // organizer types at send time.
-    subject: "You're invited — {{eventName}} dinners",
+    subject: "You're invited to the {{dinnerWord}} — {{eventName}}",
     htmlContent: `<div style="padding: 24px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
-    <p>You&apos;re invited to the dinners for <strong>{{eventName}}</strong>. Please let us know which you&apos;ll attend — it only takes a moment.</p>
+    <p>You&apos;re invited to the {{dinnerWord}} for <strong>{{eventName}}</strong>. Please let us know whether you&apos;ll join us — it only takes a moment.</p>
     {{personalMessage}}
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{rsvpLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">RSVP now</a>
@@ -1985,11 +1986,11 @@ Thank you for completing the post-event survey for {{eventName}}. Your feedback 
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
     {{organizerSignature}}
   </div>`,
-    textContent: `You're invited — {{eventName}} dinners
+    textContent: `You're invited — {{eventName}}
 
 Dear {{firstName}},
 
-You're invited to the dinners for {{eventName}}. Please let us know which you'll attend:
+You're invited to the {{dinnerWord}} for {{eventName}}. Please let us know whether you'll join us:
 {{rsvpLink}}
 
 {{personalMessage}}
@@ -2246,6 +2247,7 @@ export function getSamplePreviewVariables(
     surveyLink: "#",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
+    dinnerWord: "dinners",
     daysUntilEvent: 7,
     subject: "Custom Subject",
     message: "This is a custom message body.",
