@@ -163,6 +163,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     // response captured before the deadline stays valid).
     const attendingRows = accepted.filter((d) => d.attending);
     await db.$transaction(async (tx) => {
+      // Serialize concurrent submits for THIS invite (double-click / retry /
+      // two tabs / direct API): a row lock makes each replace-all run cleanly
+      // and last-write-wins, instead of two delete-then-insert transactions
+      // racing on the (inviteId, dinnerId) unique index → P2002/500. The lock
+      // is held for the interactive transaction's single backend session.
+      await tx.$queryRaw`SELECT id FROM "RsvpInvite" WHERE id = ${invite.id} FOR UPDATE`;
+
       await tx.rsvpDinnerResponse.deleteMany({
         where: { inviteId: invite.id, dinnerId: { in: [...openIds] } },
       });
@@ -174,6 +181,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             attending: true,
             guestCount: d.guestCount,
           })),
+          skipDuplicates: true, // belt-and-suspenders behind the row lock
         });
       }
       await tx.rsvpInvite.update({

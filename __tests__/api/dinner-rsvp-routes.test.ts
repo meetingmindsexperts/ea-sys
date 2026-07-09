@@ -91,6 +91,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
       { id: "B", rsvpDeadline: null },
     ]);
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "inv1" }]), // FOR UPDATE row lock
       rsvpDinnerResponse: { deleteMany: vi.fn().mockResolvedValue({}), createMany: vi.fn().mockResolvedValue({}) },
       rsvpInvite: { update: vi.fn().mockResolvedValue({}) },
     };
@@ -113,6 +114,9 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
 
     const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
     expect((await res.json()).ok).toBe(true);
+
+    // Serializes concurrent submits via a FOR UPDATE row lock on the invite.
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
 
     // Deletes responses for ALL open dinners (A + B) — clears the stale A.
     expect(tx.rsvpDinnerResponse.deleteMany).toHaveBeenCalledTimes(1);
