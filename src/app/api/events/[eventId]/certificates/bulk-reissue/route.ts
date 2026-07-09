@@ -16,7 +16,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, CertificateType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -31,6 +31,14 @@ const bodySchema = z.object({
   templateId: z.string().min(1).max(64),
   tag: z.string().min(1).max(120).optional(),
 });
+
+/** Narrow the cohort to recipients holding `tag` — attendee tag for ATTENDANCE,
+ *  speaker tag for APPRECIATION. Guard-clause style (no nested ternary). */
+function cohortTagFilter(category: CertificateType, tag: string | undefined): Prisma.IssuedCertificateWhereInput {
+  if (!tag) return {};
+  if (category === "ATTENDANCE") return { registration: { attendee: { tags: { has: tag } } } };
+  return { speaker: { tags: { has: tag } } };
+}
 
 function snapshotName(snapshot: unknown): string {
   const s = (snapshot ?? {}) as { title?: string | null; firstName?: string | null; lastName?: string | null; fullName?: string | null };
@@ -96,13 +104,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Cohort: every non-revoked, rendered cert for this template — optionally
-    // filtered to recipients holding `tag` (attendee tag for ATTENDANCE, speaker
-    // tag for APPRECIATION).
-    const tagFilter: Prisma.IssuedCertificateWhereInput = tag
-      ? template.category === "ATTENDANCE"
-        ? { registration: { attendee: { tags: { has: tag } } } }
-        : { speaker: { tags: { has: tag } } }
-      : {};
+    // filtered to recipients holding `tag`.
+    const tagFilter = cohortTagFilter(template.category, tag);
 
     const certs = await db.issuedCertificate.findMany({
       where: {

@@ -34,7 +34,7 @@
  */
 
 import { Prisma } from "@prisma/client";
-import type { CertificateType } from "@prisma/client";
+import type { CertificateType, CertIssueRunStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
@@ -183,31 +183,11 @@ async function processRun(runId: string): Promise<RunTickResult> {
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
   }
 
-  // Reissue runs (bulk "resend latest to everyone") skip the render +
-  // AWAITING_REVIEW gates entirely: PENDING → SENDING, then each item is
-  // drained via reRenderAndResendCert (re-render the EXISTING cert from the
-  // current template + resend). Kept fully separate from the issue path below
-  // so that path is byte-for-byte unchanged.
-  if (run.reissue) {
-    if (run.status === "PENDING") {
-      const claim = await db.certificateIssueRun.updateMany({
-        where: { id: runId, status: "PENDING" },
-        data: {
-          status: "SENDING",
-          rendererStartedAt: run.rendererStartedAt ?? new Date(),
-          emailerStartedAt: new Date(),
-          lastTickAt: new Date(),
-        },
-      });
-      if (claim.count === 0) {
-        return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
-      }
-    }
-    if (run.status === "SENDING" || run.status === "PENDING") {
-      return processReissuePhase(runId, run.eventId, run.triggeredByUserId);
-    }
-    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
-  }
+  // Reissue runs (bulk "resend latest to everyone") take a separate path —
+  // PENDING → SENDING, then each item drained via reRenderAndResendCert. Kept
+  // fully separate from the issue path below so that path is byte-for-byte
+  // unchanged.
+  if (run.reissue) return processReissueRun(run);
 
   // PENDING → RENDERING (atomic claim — only one cron can grab a
   // PENDING run; second cron loses the race + skips). Set lastTickAt
@@ -700,6 +680,37 @@ async function processSendPhase(
 }
 
 // ── REISSUE phase (bulk re-render + resend) ───────────────────────────────────
+
+/** Route a reissue run for one tick. Reissue runs only ever sit in
+ *  PENDING → SENDING → COMPLETED — claim a PENDING run to SENDING (losing the
+ *  atomic race is a no-op), then drain it. Guard-clause structured so processRun
+ *  stays flat. */
+async function processReissueRun(run: {
+  id: string;
+  status: CertIssueRunStatus;
+  eventId: string;
+  rendererStartedAt: Date | null;
+  triggeredByUserId: string | null;
+}): Promise<RunTickResult> {
+  const noWork: RunTickResult = { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
+  if (run.status !== "PENDING" && run.status !== "SENDING") return noWork;
+
+  if (run.status === "PENDING") {
+    const claim = await db.certificateIssueRun.updateMany({
+      where: { id: run.id, status: "PENDING" },
+      data: {
+        status: "SENDING",
+        rendererStartedAt: run.rendererStartedAt ?? new Date(),
+        emailerStartedAt: new Date(),
+        lastTickAt: new Date(),
+      },
+    });
+    if (claim.count === 0) return noWork; // another cron grabbed it first
+    apiLogger.info({ msg: "cert-issue-worker:reissue-run-started", runId: run.id, eventId: run.eventId });
+  }
+
+  return processReissuePhase(run.id, run.eventId, run.triggeredByUserId);
+}
 
 /** Drain a reissue run: each item points at an EXISTING cert; re-render it from
  *  the current template + resend via the shared reRenderAndResendCert (same

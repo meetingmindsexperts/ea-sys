@@ -397,6 +397,8 @@ Thresholds are best-effort; in-memory store means limits reset on EC2/Docker res
 6. **Toasts:** Use sonner for notifications
 7. **State:** Use React Query for server state, local useState for UI state
 8. **Data Fetching:** Use hooks from `src/hooks/use-api.ts` for client-side data
+9. **Guard clauses, not nested `if`s:** Prefer early returns — flatten `if (cond) { …body… }` into `if (!cond) return; …body…` so the happy path reads un-indented. Keep to ~one level of nesting; when a branch grows its own sub-branches, extract it into its own function (e.g. the cert worker's reissue branch → `processReissueRun`). Prefer a small guard-clause helper over a nested ternary (e.g. `cohortTagFilter`). JSX conditional rendering (`cond ? <A/> : <B/>`) is exempt.
+10. **Log every failure path:** No silent `400/403/404/409/429/500`s or `.catch(()=>{})`. Every `safeParse`→400 logs the field errors; every rejection returned as an error-value is logged at the route boundary with its code. Errors log at `error`, business rejections at `warn`, successes at `info`. Logging is a hard requirement.
 
 ## Performance Optimization
 

@@ -1380,22 +1380,39 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="sdinner-2">
         <div class="sub-title">Setting it up</div>
+        <p>The console opens with a short <strong>&ldquo;How Dinner RSVP works&rdquo;</strong> card, then three steps:</p>
         <div class="steps">
-          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Add dinners</strong> &mdash; name (e.g. &ldquo;Day 1 Dinner&rdquo; / &ldquo;Gala Dinner&rdquo;), date &amp; time, venue, and an optional RSVP deadline (after the deadline that dinner locks on the form).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Add dinners</strong> &mdash; name (e.g. &ldquo;Day 1 Dinner&rdquo; / &ldquo;Gala Dinner&rdquo;), date &amp; time, venue, and an optional RSVP deadline (after the deadline that dinner locks on the form). Add one dinner, or several &mdash; one per night is common.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b"><strong>Build the invite list</strong> &mdash; <strong>Add invitees</strong> to type names + emails manually, or <strong>Import</strong> to pick from the event&rsquo;s Registrations and Speakers (searchable; already-invited people are shown greyed out). Duplicates by email are skipped automatically.</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Send the links</strong> &mdash; <strong>Email invitations</strong> mails everyone their personalized link; <strong>Remind pending</strong> mails only those who haven&rsquo;t responded. Or copy an individual link from the roster to send it yourself.</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b"><strong>Send the links</strong> &mdash; four ways, all using the same template: <strong>Email invitations</strong> (bulk to everyone), <strong>Remind pending</strong> (bulk to non-responders only), the <strong>Send</strong> (paper-plane) button on a single row (emails just that one person), or <strong>Copy link</strong> to paste it into WhatsApp / your own email.</div></div>
         </div>
-        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">The invitation is a normal email template &mdash; preview before you send</div><div class="c-text">The email uses the <strong>Dinner RSVP Invitation</strong> template, editable (wording + branding) under <strong>Communications &rarr; Email Templates</strong> like every other email. In the send dialog you can add an optional note and click <strong>Preview</strong> to see exactly what goes out (desktop/mobile) before sending.</div></div></div>
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">The invitation is a normal email template &mdash; preview before you send</div><div class="c-text">The email uses the <strong>Dinner RSVP Invitation</strong> template, editable (wording + branding) under <strong>Communications &rarr; Email Templates</strong> like every other email. In the bulk send dialog you can add an optional note and click <strong>Preview</strong> to see exactly what goes out (desktop/mobile) before sending. Merge fields available: <code>{{firstName}}</code>, <code>{{lastName}}</code>, <code>{{fullName}}</code>, <code>{{email}}</code>, <code>{{eventName}}</code>, <code>{{dinnerWord}}</code> (says &ldquo;dinner&rdquo; or &ldquo;dinners&rdquo; to match your event), <code>{{rsvpLink}}</code>, and your signature.</div></div></div>
       </div>
 
       <div class="sub" id="sdinner-3">
         <div class="sub-title">What the invitee sees</div>
-        <p>Their link opens a branded page with their name &amp; email pre-filled (read-only), a checkbox for each dinner (with a guest-count box), and a dietary-requirements field. They can reopen the link to change their answer any time before the deadline. Ticking no dinners records &ldquo;not attending&rdquo; &mdash; it&rsquo;s a real response, not a silent no-show.</p>
+        <p>Their link opens a branded page with their name &amp; email pre-filled (read-only), a checkbox for each dinner (with a guest-count box), an explicit <strong>&ldquo;I won&rsquo;t be able to attend&rdquo;</strong> option, and a dietary-requirements field. They must make a clear choice &mdash; tick at least one dinner <em>or</em> select &ldquo;I won&rsquo;t attend&rdquo; &mdash; so there are no half-answers. They can reopen the link to change their answer any time before the deadline. When there&rsquo;s only one dinner the wording automatically switches to the singular (&ldquo;Will you be attending?&rdquo;).</p>
       </div>
 
       <div class="sub" id="sdinner-4">
         <div class="sub-title">Tracking responses</div>
         <p>The console shows a <strong>headcount tile per dinner</strong> (&ldquo;Day 1: 42 attending, +8 guests, 50 seats&rdquo;) and a <strong>roster</strong> of every invitee &mdash; responded/pending, which dinners, guest counts, and dietary notes. <strong>Export CSV</strong> gives you the whole list (one column per dinner + guests) for catering. The AI Agent can also answer &ldquo;who&rsquo;s coming to the gala?&rdquo; via the <code>list_dinner_rsvps</code> tool.</p>
+      </div>
+
+      <div class="sub" id="sdinner-5">
+        <div class="sub-title">Common questions</div>
+        <div class="faq">
+          <p><strong>Does everyone get the same link?</strong><br>No. Every invitee has their <em>own</em> private link. When they open it, it shows <em>their</em> name and remembers <em>their</em> answer. Never forward one person&rsquo;s link to someone else &mdash; add them to the list and send them their own.</p>
+          <p><strong>How is a bulk email personalized, then?</strong><br>Each email in a bulk send is built individually with that person&rsquo;s own link and name (first/last/email). A bulk send is exactly like sending one at a time &mdash; just automated. There is never a shared link.</p>
+          <p><strong>Can I email just one person?</strong><br>Yes &mdash; click the paper-plane <strong>Send</strong> button on their row in the roster. It uses the same template.</p>
+          <p><strong>The email didn&rsquo;t seem to send &mdash; what do I do?</strong><br>The Send button tells you if it failed and why (for example, the event&rsquo;s sender address isn&rsquo;t verified &mdash; check <strong>Settings &rarr; Email Branding</strong>). Either way you can always <strong>Copy link</strong> from the roster and send it yourself.</p>
+          <p><strong>Can invitees change their answer?</strong><br>Yes &mdash; any time before the deadline. Reopening their link shows their current answer, which they can update.</p>
+          <p><strong>What does the RSVP deadline do?</strong><br>After a dinner&rsquo;s deadline that dinner locks on the form (it can&rsquo;t be changed), while any other dinners stay open. Leave the deadline blank for no cut-off.</p>
+          <p><strong>What if someone can&rsquo;t attend at all?</strong><br>They tick <strong>&ldquo;I won&rsquo;t be able to attend&rdquo;</strong>. That&rsquo;s recorded as a real decline (it shows in the roster) &mdash; not left sitting as &ldquo;pending&rdquo;.</p>
+          <p><strong>Do guests count in the headcount?</strong><br>Yes. Each attendee&rsquo;s guest count is added to that dinner&rsquo;s total (e.g. &ldquo;42 attending, +8 guests&rdquo;), and there&rsquo;s a guest column in the CSV for catering.</p>
+          <p><strong>My event only has one dinner &mdash; does the wording still read right?</strong><br>Yes. The form and the email automatically use the singular (&ldquo;dinner&rdquo;) when there&rsquo;s one and the plural (&ldquo;dinners&rdquo;) when there are several.</p>
+          <p><strong>Where do I change the email wording or branding?</strong><br><strong>Communications &rarr; Email Templates &rarr; Dinner RSVP Invitation</strong>. Always Preview before sending.</p>
+        </div>
       </div>
     </div>
 
