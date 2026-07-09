@@ -277,8 +277,14 @@ async function fetchMetrics(instanceId: string | null): Promise<InfraSnapshot["m
         EndTime: new Date(),
         ScanBy: "TimestampDescending",
         MetricDataQueries: [
+          // All standard EC2 metrics (no detailed-monitoring needed) + CWAgent
+          // mem/disk if published. Adding these to the ONE GetMetricData call is
+          // ~free (billed per metric, $0.01/1000).
           { Id: "cpu", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "CPUUtilization", Dimensions: dim }, Period: 300, Stat: "Average" }, ReturnData: true },
           { Id: "credit", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "CPUCreditBalance", Dimensions: dim }, Period: 300, Stat: "Average" }, ReturnData: true },
+          { Id: "netin", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "NetworkIn", Dimensions: dim }, Period: 300, Stat: "Sum" }, ReturnData: true },
+          { Id: "netout", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "NetworkOut", Dimensions: dim }, Period: 300, Stat: "Sum" }, ReturnData: true },
+          { Id: "status", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "StatusCheckFailed", Dimensions: dim }, Period: 300, Stat: "Maximum" }, ReturnData: true },
           // CWAgent mem/disk if published — SEARCH tolerates the extra dimensions.
           { Id: "mem", Expression: `SEARCH('{CWAgent} MetricName="mem_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
           { Id: "disk", Expression: `SEARCH('{CWAgent} MetricName="disk_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
@@ -286,11 +292,15 @@ async function fetchMetrics(instanceId: string | null): Promise<InfraSnapshot["m
       }),
     );
     const byId = new Map((out.MetricDataResults || []).map((r) => [r.Id, r.Values]));
+    const mb = (v: number | null): number | null => (v == null ? null : v / 1_000_000);
     const values: MetricValue[] = [
       { label: "CPU", value: latest(byId.get("cpu")), unit: "%" },
       { label: "CPU credits", value: latest(byId.get("credit")), unit: "" },
       { label: "Memory", value: latest(byId.get("mem")), unit: "%" },
       { label: "Disk", value: latest(byId.get("disk")), unit: "%" },
+      { label: "Net in", value: mb(latest(byId.get("netin"))), unit: " MB/5m" },
+      { label: "Net out", value: mb(latest(byId.get("netout"))), unit: " MB/5m" },
+      { label: "Status check", value: latest(byId.get("status")), unit: "" },
     ];
     return { status: "ok", instanceId, values };
   } catch (err) {
