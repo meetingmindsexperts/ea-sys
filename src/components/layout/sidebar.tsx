@@ -35,6 +35,7 @@ import {
   HelpCircle,
   BarChart3,
   BookOpen,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -71,6 +72,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // contains no secrets (gitignore excludes .env files + screenshots
   // + the interview-prep file).
   { name: "Docs",      href: "/admin/docs", icon: BookOpen, adminOnly: true },
+  { name: "Infra / Ops", href: "/admin/infra", icon: Cpu, adminOnly: true },
 ];
 
 // Event nav split into sections for visual grouping
