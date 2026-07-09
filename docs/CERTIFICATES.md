@@ -429,9 +429,10 @@ facet cannot collide. Deferred MEDIUM/LOW → see
 
 ## Deferred / not implemented
 
-- **Bulk-reissue UI trigger** — the `bulk-reissue` endpoint is live; the
-  certificates-page "Resend latest to everyone (N)" button + run-progress polling
-  is the one remaining piece.
+- **Tag-scoped bulk reissue in the UI** — the certificates-page
+  "Resend to everyone (N)" button (Issue tab, per template — SHIPPED July 9, 2026)
+  resends to **everyone** who holds the cert; the endpoint's optional `tag`
+  filter (resend only to recipients holding a tag) stays API/MCP-only for now.
 - **MCP Issue tool** — operator must use the dashboard for issuing
   (email dialog is interactive)
 - **Mid-run email edit** — once a run is created, the cover-email

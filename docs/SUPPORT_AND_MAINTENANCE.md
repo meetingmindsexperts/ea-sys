@@ -2,7 +2,7 @@
 
 **Audience:** Leadership / management review.
 **Author:** Krishna Pallapolu (Development Manager, MMG)
-**Last updated:** June 8, 2026
+**Last updated:** July 9, 2026
 **Purpose:** Establishes what it takes to run, monitor, and maintain the in-house event platform on an ongoing basis. Provides the operational baseline and surfaces decisions that need leadership input.
 
 ---
@@ -360,4 +360,44 @@ These existing documents in the repository provide deeper context:
 
 ---
 
-*Document prepared by Krishna Pallapolu. For corrections or questions, contact via the usual channels. Last updated June 8, 2026.*
+## Appendix A — Recent feature additions (rolling log, June 24 – July 9, 2026)
+
+A support-facing digest of what shipped in the last ~15 days. This section is **not** the changelog (the full per-commit history lives in git + `CLAUDE.md`); it exists so support/maintenance staff know what changed on the **operational surface** — new capabilities to support, new background jobs, new failure modes, and the prod migrations already applied. Items that add an ongoing operational consideration are flagged **⚙️ Ops**.
+
+**Finance & invoicing (the biggest area — July 1–8).**
+- Org-level **Invoices & Quotes hub** with per-event and org-wide **CSV + QuickBooks export** (bulk-download all matching PDFs as a ZIP; CSV formula-injection neutralised).
+- Post-payment email now sends **both a receipt and an invoice**; **⚙️ Ops:** every invoice / receipt / credit-note email is **BCC'd to the accounting inbox(es)** — if accounting reports missing copies, check the BCC config, not the send path.
+- **Gated partial refunds + partial credit notes** with a running "refunded so far" total; refunds now require a credit note first; **manual/offline refunds** (cash/bank) supported alongside Stripe.
+- **Cancel-a-registration-with-refund** flow (auto credit-note + refund, then cancel; refund failure aborts the cancel). Refund/credit-note/cancel logic consolidated into a new **payment-service**.
+- **Stripe receipt** is now snapshotted to our own storage as a durable copy (**⚙️ Ops:** rides the existing hourly uploads → Singapore DR sync, no cron change).
+- Organizer can **re-tier an unpaid registration** (courtesy Early-Bird price) and **apply/remove promo codes on existing registrations**; a tier-priced/virtual reg no longer mislabels as "Free". Manual payment defaults to the **tax-inclusive** total.
+
+**Certificates (June 24 – July 9).**
+- **Survey-gated auto-issue (Phase 2)** — completing the event survey auto-issues + emails the matching certificate. **⚙️ Ops:** a new **worker sweep** runs inside the cert-issue job (every 3 min) with retry/backoff; an **Auto-issue analytics card** on the Certificates page shows pending/retrying/resolved/failed. A template must carry a **tag** to match anyone.
+- **Multi-role certificates** — one person can now hold several role-specific certs (Speaker + Moderator + Committee); per-template `{{cmeHours}}` / `{{role}}` tokens.
+- **On-demand delivery** — single Issue, **Resend latest version** (re-renders from the *current* template, so template fixes propagate), **Resend all** for a person, and (July 9) a per-template **"Resend to everyone (N)"** bulk button on the Certificates → Issue tab.
+- Deferred **survey thank-you email** that carries the certificate as an attachment (15-min fallback).
+
+**Abstracts overhaul (July 2).** Submitter details landing page + editable per-event guidelines; **co-authors**; presentation types (Oral/Poster · Video · Workshop) now **mandatory to submit**; **300-word body cap**; authors locked out of editing after submission; organizers gained full abstract management; **Presenter Agreement** emailed as a PDF with tokenized acceptance. Reviewer side: **conflict-of-interest enforced** on review submission, plus assignment / pool-add / resend-invite notifications.
+
+**Dinner RSVP (July 8 — new module).** Invite people to an event's dinners with one personalized link covering all nights; organizer console (manage dinners, import invitees from Registrations/Speakers, roster + per-night headcounts + CSV, email invitations + remind-pending). **⚙️ Ops:** new migration (3 tables); the invitation is a first-class email template; MCP `list_dinner_rsvps`. No auto-reminder cron (manual "remind pending").
+
+**Speakers as attendees (June 25–26).** A speaker now gets a **companion registration** so they receive a badge, entry + DTCM barcode, check-in, survey, and certificates like any attendee. **⚙️ Ops:** faculty are **excluded from delegate-focused counts/revenue** (a hidden "Faculty" ticket type); new migration + a one-time backfill script (operator-run).
+
+**On-site desk staff, now per-event (July 6–7).** ONSITE (registration-desk) accounts are **scoped to assigned events**, not the whole org — managed from Settings → Onsite Staff. **⚙️ Ops / security:** closed a cross-event isolation gap where a desk worker could act on any event in the org (incl. payment data + badge barcodes).
+
+**Roles & identity (July 2).** Attendee **Role** (profession category) is captured + shown across registrations, speakers, contacts, and abstracts. New operator runbook `docs/IDENTITY_AND_ROLES.md` ("one person, many hats") + `docs/COMMITTEE_MEMBERS.md` (committee = a tag, not a ticket type).
+
+**Communications (June 29 – July 2).** Bulk-email **audience filters** (multi-select payment status / registration type / badge / tags, plus **exclude faculty/speakers**) as the single filter surface; scheduled-email **statistics + failed-recipient drill-down**.
+
+**Registration & public UX (July 6–7).** Registration detail sheet is **Edit → Save** (no more per-field auto-save) and loads full financials on open; VAT line always shown; **responsive mobile banner** on public pages; event time-of-day removed from public cards; confirmation-page polish + per-event SEO metadata.
+
+**Infrastructure & data integrity.**
+- **⚙️ Ops:** **Monthly SystemLog archival** to compressed files keeps the DB bounded while retaining everything — a new recurring job; if the DB grows unexpectedly, confirm this is running.
+- **⚙️ Ops:** CloudWatch now collects **disk + memory** metrics (for future alarms); deploy self-cleans the Docker cache before every pull (INC-002).
+- **⚙️ Ops:** a nightly + ~37-min incremental **mirror of EA-SYS contacts to an external Supabase `contacts_centralv1`** store (provenance-flagged) — a new outbound data flow to be aware of.
+- Correctness fixes: `PricingTier.soldCount` double-leak, atomic `Event.settings` merge (concurrent saves to different keys can't clobber), oversell guards on bulk-type/import, contact-sync made **enrich-only** (a sparse re-registration can't wipe richer contact data).
+
+---
+
+*Document prepared by Krishna Pallapolu. For corrections or questions, contact via the usual channels. Last updated July 9, 2026.*

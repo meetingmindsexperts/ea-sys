@@ -75,6 +75,7 @@ import {
   Pencil,
   Copy,
   Save,
+  RefreshCw,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
@@ -257,6 +258,11 @@ export default function CertificatesPage() {
   // firing an issue run.
   const [tmplEmailDialogOpen, setTmplEmailDialogOpen] = useState(false);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
+  // Bulk "resend latest version to everyone" confirm dialog (re-render each
+  // already-issued cert for the selected template from the CURRENT template +
+  // re-email). Distinct from Issue (which mints NEW certs for the eligible,
+  // tag-scoped pool) — reissue targets people who ALREADY hold the cert.
+  const [reissueDialogOpen, setReissueDialogOpen] = useState(false);
 
   // ── Settings (CME) ────────────────────────────────────────────────────────
   const settingsQuery = useQuery<SettingsResponse>({
@@ -618,6 +624,57 @@ export default function CertificatesPage() {
       } else {
         toast.error(e.message);
       }
+    },
+  });
+
+  // Bulk reissue — re-render + resend the LATEST version to everyone who
+  // already holds this template's cert. Creates a `reissue` run the worker
+  // drains; we seed activeRunIds so the existing per-template run panel shows
+  // its progress (reissue runs go PENDING → SENDING → COMPLETED). Handles the
+  // 409 REISSUE_IN_PROGRESS (adopt the in-flight run) + 422 NO_CERTS cases.
+  const bulkReissueMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await fetch(`/api/events/${eventId}/certificates/bulk-reissue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        runId?: string;
+        totalCount?: number;
+        error?: string;
+        code?: string;
+      };
+      if (!res.ok) {
+        const err = new Error(json.error ?? `Resend failed (${res.status})`) as Error & {
+          runId?: string;
+          code?: string;
+        };
+        err.runId = json.runId;
+        err.code = json.code;
+        throw err;
+      }
+      return json as { ok: true; runId: string; totalCount: number };
+    },
+    onSuccess: (data, templateId) => {
+      setActiveRunIds((cur) => ({ ...cur, [templateId]: data.runId }));
+      queryClient.invalidateQueries({ queryKey: ["cert-runs-all", eventId] });
+      setReissueDialogOpen(false);
+      toast.success(
+        `Re-sending the latest version to ${data.totalCount} recipient${data.totalCount === 1 ? "" : "s"} — cron will start within 60 seconds.`,
+      );
+    },
+    onError: (e: Error & { runId?: string; code?: string }, templateId) => {
+      // A resend is already running for this template — adopt it so the
+      // operator sees its progress instead of a dead-end error.
+      if (e.code === "REISSUE_IN_PROGRESS" && e.runId) {
+        setActiveRunIds((cur) => ({ ...cur, [templateId]: e.runId! }));
+        setReissueDialogOpen(false);
+        toast(e.message);
+        return;
+      }
+      toast.error(e.message);
     },
   });
 
@@ -1660,6 +1717,104 @@ export default function CertificatesPage() {
 
                   {issueTemplateId && (
                     <>
+                      {/* Bulk "resend the latest version to everyone" — re-render
+                          each already-issued cert for this template from the
+                          CURRENT template + re-email. Use after correcting a
+                          template so everyone who already has it gets the fix.
+                          Separate from Issue below (which mints NEW certs for the
+                          eligible, tag-scoped pool). */}
+                      {(() => {
+                        const issuedN =
+                          templates.find((t) => t.id === issueTemplateId)?._count
+                            ?.issuedCertificates ?? 0;
+                        return (
+                          <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium text-amber-900 flex items-center gap-1.5">
+                                <RefreshCw className="h-4 w-4" />
+                                Resend the latest version
+                              </p>
+                              <p className="text-xs text-amber-800 mt-1">
+                                Re-render every certificate already issued from this
+                                template (using the current design + cover email) and
+                                re-email each recipient. Use this after correcting the
+                                template.{" "}
+                                {issuedN === 0
+                                  ? "No certificates have been issued from this template yet."
+                                  : `${issuedN} recipient${issuedN === 1 ? " holds" : "s hold"} this certificate.`}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0 border-amber-300 text-amber-900 hover:bg-amber-100"
+                              disabled={issuedN === 0 || !!activeRunId || bulkReissueMutation.isPending}
+                              onClick={() => setReissueDialogOpen(true)}
+                            >
+                              {bulkReissueMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4 mr-1" />
+                              )}
+                              Resend to everyone{issuedN > 0 ? ` (${issuedN})` : ""}
+                            </Button>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Bulk-reissue confirm — re-emailing N people is a
+                          material action, so gate it behind an explicit
+                          confirmation showing the count. */}
+                      <Dialog open={reissueDialogOpen} onOpenChange={setReissueDialogOpen}>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Resend the latest version to everyone?</DialogTitle>
+                            <DialogDescription>
+                              This re-renders{" "}
+                              <strong>
+                                {templates.find((t) => t.id === issueTemplateId)?._count
+                                  ?.issuedCertificates ?? 0}
+                              </strong>{" "}
+                              already-issued{" "}
+                              {(templates.find((t) => t.id === issueTemplateId)?._count
+                                ?.issuedCertificates ?? 0) === 1
+                                ? "certificate"
+                                : "certificates"}{" "}
+                              for{" "}
+                              <strong>
+                                {templates.find((t) => t.id === issueTemplateId)?.name}
+                              </strong>{" "}
+                              from the current template and <strong>re-emails</strong> each
+                              recipient. Their existing certificate serial is kept; only the
+                              rendered PDF and the delivery email are refreshed. This cannot be
+                              undone.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <DialogFooter>
+                            <Button
+                              variant="outline"
+                              onClick={() => setReissueDialogOpen(false)}
+                              disabled={bulkReissueMutation.isPending}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={() =>
+                                issueTemplateId && bulkReissueMutation.mutate(issueTemplateId)
+                              }
+                              disabled={bulkReissueMutation.isPending}
+                            >
+                              {bulkReissueMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4 mr-1" />
+                              )}
+                              Resend now
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+
                       {eligibilityQuery.isLoading ? (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" /> Computing eligible recipients…
