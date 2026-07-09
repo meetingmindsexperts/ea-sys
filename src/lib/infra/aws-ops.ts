@@ -88,6 +88,20 @@ export interface JobStatus {
   failed24h: number;
 }
 
+export interface LogRow {
+  level: string;
+  module: string;
+  message: string;
+  at: string;
+}
+export interface EmailFailRow {
+  to: string;
+  subject: string;
+  error: string | null;
+  templateSlug: string | null;
+  at: string;
+}
+
 export interface InfraSnapshot {
   generatedAt: string;
   region: string;
@@ -96,6 +110,8 @@ export interface InfraSnapshot {
   alarms: { status: SourceStatus; error?: string; inAlarm: AlarmRow[] };
   metrics: { status: SourceStatus; error?: string; instanceId: string | null; values: MetricValue[] };
   jobs: { status: SourceStatus; error?: string; workerLastSeen: string | null; rows: JobStatus[] };
+  recentErrors: { status: SourceStatus; error?: string; rows: LogRow[] };
+  emailFailures: { status: SourceStatus; error?: string; rows: EmailFailRow[] };
 }
 
 let cache: { at: number; snap: InfraSnapshot } | null = null;
@@ -339,18 +355,71 @@ async function fetchJobs(): Promise<InfraSnapshot["jobs"]> {
   }
 }
 
+async function fetchRecentErrors(): Promise<InfraSnapshot["recentErrors"]> {
+  try {
+    // Latest error/warn lines across app + worker — our own SystemLog (the
+    // same source the /logs page reads). Zero AWS cost.
+    const rows = await db.systemLog.findMany({
+      where: { level: { in: ["error", "warn"] } },
+      orderBy: { timestamp: "desc" },
+      take: 15,
+      select: { level: true, module: true, message: true, timestamp: true },
+    });
+    return {
+      status: "ok",
+      rows: rows.map((r) => ({
+        level: r.level,
+        module: r.module,
+        message: r.message.slice(0, 400),
+        at: r.timestamp.toISOString(),
+      })),
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:recent-errors-failed");
+    return { status: "error", error: (err as Error).message, rows: [] };
+  }
+}
+
+async function fetchEmailFailures(): Promise<InfraSnapshot["emailFailures"]> {
+  try {
+    // Recent failed sends — complements the SES aggregate rates with the
+    // actual "which email didn't go and why". Our own EmailLog.
+    const rows = await db.emailLog.findMany({
+      where: { status: "FAILED" },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { to: true, subject: true, errorMessage: true, templateSlug: true, createdAt: true },
+    });
+    return {
+      status: "ok",
+      rows: rows.map((r) => ({
+        to: r.to,
+        subject: r.subject,
+        error: r.errorMessage,
+        templateSlug: r.templateSlug,
+        at: r.createdAt.toISOString(),
+      })),
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:email-failures-failed");
+    return { status: "error", error: (err as Error).message, rows: [] };
+  }
+}
+
 // ── Public ─────────────────────────────────────────────────────────
 
 export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.snap;
 
   const instanceId = await getInstanceId();
-  const [deploys, alarms, ses, metrics, jobs] = await Promise.all([
+  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures] = await Promise.all([
     fetchDeploys(),
     fetchAlarms(),
     fetchSes(),
     fetchMetrics(instanceId),
     fetchJobs(),
+    fetchRecentErrors(),
+    fetchEmailFailures(),
   ]);
   const snap: InfraSnapshot = {
     generatedAt: new Date().toISOString(),
@@ -360,6 +429,8 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
     ses,
     metrics,
     jobs,
+    recentErrors,
+    emailFailures,
   };
   cache = { at: Date.now(), snap };
   return snap;
